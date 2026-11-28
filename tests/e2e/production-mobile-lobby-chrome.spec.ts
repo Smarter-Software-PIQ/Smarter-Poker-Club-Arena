@@ -258,7 +258,7 @@ test.describe('the mobile lobby chrome on production', () => {
     if (failures.length === 1) throw failures[0];
   });
 
-  test('MY WALLETS lives in Cashier and keeps its count centred and unclipped', async ({
+  test('MY WALLETS lives in Cashier and keeps its count on the title line and unclipped', async ({
     page,
   }) => {
     await openLobby(page);
@@ -284,6 +284,11 @@ test.describe('the mobile lobby chrome on production', () => {
 
     const wallets = page.getByRole('region', { name: 'My Wallets', exact: true });
     const trigger = wallets.getByRole('button', { name: /^Wallet Balances/i });
+    /* The approved Balance Ledger (#12021, 5474be8e4) prints the title at the
+       left of the chrome and the count on the same line at the right, beside
+       the caret. That replaced the older centred title with the count under
+       it; the fixture twin in mobile-lobby-chrome.spec.ts moved to this same
+       geometry in that commit. This is the deployed half of that contract. */
     const m = await trigger.evaluate((button) => {
       const title = button.querySelector('strong')!;
       const count = button.querySelector('small')!;
@@ -293,6 +298,7 @@ test.describe('the mobile lobby chrome on production', () => {
       range.selectNodeContents(count);
       const countText = range.getBoundingClientRect();
       const frame = button.getBoundingClientRect();
+      const caret = button.querySelector('.lobby-wallets-trigger__chevron')!;
       return {
         clipped:
           countText.left < frame.left ||
@@ -300,15 +306,21 @@ test.describe('the mobile lobby chrome on production', () => {
           countText.top < frame.top ||
           countText.bottom > frame.bottom ||
           countText.width > count.getBoundingClientRect().width + 0.5,
-        titleOffset: Math.abs(titleText.left + titleText.width / 2 - frame.left - frame.width / 2),
-        countOffset: Math.abs(
-          countText.left + countText.width / 2 - titleText.left - titleText.width / 2
-        ),
+        titleInset: titleText.left - frame.left,
+        titleEnd: titleText.right,
+        countStart: countText.left,
+        caretGap: caret.getBoundingClientRect().left - countText.right,
+        verticalOverlap:
+          Math.min(titleText.bottom, countText.bottom) - Math.max(titleText.top, countText.top),
       };
     });
     expect(m.clipped, `${printed} is clipped`).toBe(false);
-    expect(m.titleOffset, 'Wallet Balances title is off-centre in its frame').toBeLessThan(1);
-    expect(m.countOffset, `${printed} is off-centre under Wallet Balances`).toBeLessThan(1);
+    expect(m.titleInset, 'Wallet Balances title starts inside its frame').toBeGreaterThanOrEqual(0);
+    expect(m.titleInset, 'Wallet Balances title is left aligned in its frame').toBeLessThan(10);
+    expect(m.titleEnd, `${printed} overlaps the Wallet Balances title`).toBeLessThan(m.countStart);
+    expect(m.caretGap, `${printed} sits beside the caret`).toBeGreaterThanOrEqual(2);
+    expect(m.caretGap, `${printed} sits beside the caret`).toBeLessThan(24);
+    expect(m.verticalOverlap, `${printed} shares the title's line`).toBeGreaterThan(0);
     const balances = wallets.getByRole('region', { name: 'Wallet Balances', exact: true });
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
     await expect(balances).toBeVisible();

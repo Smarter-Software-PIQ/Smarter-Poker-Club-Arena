@@ -1,5 +1,5 @@
 {
-  "note": "Real audited PLO4/PLO5 cash heads-up flop raise nodes (hand-audit-plo daily 2026-11-25T230000Z and 2026-11-20..24): public snapshot and the deciding Horse own cards only; record = the opponent public river first-wager fold counts as of the decision; expect = the replay arms (seeds 1,7,42) with the live switch rows of 2026-11-26.",
+  "note": "Real audited PLO4/PLO5 cash heads-up flop raise nodes (hand-audit-plo daily 2026-11-25T230000Z and 2026-11-20..24): public snapshot and the deciding Horse own cards only; record = the opponent public river first-wager fold counts as of the decision; expect = the replay arms (seeds 1,7,42) with the live switch rows of 2026-11-26. 2026-11-27 (lead-8 W8): the bettor's range is people-only now (omahaFlopRaisePeopleRange); expect.flopraise re-read from the engine on that code for the 3 nodes whose action kind moved (5f3efa50 twice, 8a2b3d04).",
   "nodes": [
     {
       "set": "daily-2026-11-25",
@@ -1208,7 +1208,7 @@
         "sizingMultiplier": 0.94,
         "referenceNlhOpenings": true
       },
-      "expect": { "flopraise": "fold", "flopraiseBb": null, "off": "raise", "offBb": 69 }
+      "expect": { "flopraise": "call", "flopraiseBb": null, "off": "raise", "offBb": 69 }
     },
     {
       "set": "daily-2026-11-25",
@@ -1455,7 +1455,7 @@
         "sizingMultiplier": 0.94,
         "referenceNlhOpenings": true
       },
-      "expect": { "flopraise": "fold", "flopraiseBb": null, "off": "raise", "offBb": 170 }
+      "expect": { "flopraise": "raise", "flopraiseBb": 111, "off": "raise", "offBb": 170 }
     },
     {
       "set": "daily-2026-11-25",
@@ -10100,7 +10100,7 @@
         "sizingMultiplier": 0.94,
         "referenceNlhOpenings": true
       },
-      "expect": { "flopraise": "fold", "flopraiseBb": null, "off": "raise", "offBb": 143.5 }
+      "expect": { "flopraise": "call", "flopraiseBb": null, "off": "raise", "offBb": 143.5 }
     },
     {
       "set": "first-2026-11-20-24",

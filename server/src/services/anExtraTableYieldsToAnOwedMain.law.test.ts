@@ -23,6 +23,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { supabase } from './supabase.js';
 import {
   __resetVarietyDrain,
+  drainCycleOutcome,
+  mayAddDrainTable,
+  VARIETY_DRAIN_PACE_SLACK_MS,
   owedStartsFit,
   publishVarietyDrain,
   VARIETY_HOLD_FRESH_MS,
@@ -357,8 +360,21 @@ describe('which extra table yields', () => {
     expect(rotator).toMatch(/const CYCLE_MS = 90_000;/);
     const fleet = read('./HorseFleetManager.ts');
     expect(fleet).toContain(
-      'const mayAddNew = Date.now() - this.varietyDrainNewAtMs >= VARIETY_DRAIN_NEW_TABLE_MS;'
+      'const mayAddNew = mayAddDrainTable(Date.now(), this.varietyDrainNewAtMs);'
     );
+  });
+
+  it('review 2026-11-27: the pace is three fleet cycles even when the third runs a moment early, never two', () => {
+    const stamped = 1_000_000;
+    /* the third 30 s cycle after the stamp, a few ms early: a strict >= 90 s
+       refused this and the new table waited a fourth cycle (120 s) */
+    expect(mayAddDrainTable(stamped + 89_950, stamped)).toBe(true);
+    expect(mayAddDrainTable(stamped + 90_000, stamped)).toBe(true);
+    /* the second cycle, however late it ran, is never enough */
+    expect(mayAddDrainTable(stamped + 60_000, stamped)).toBe(false);
+    expect(mayAddDrainTable(stamped + 79_999, stamped)).toBe(false);
+    expect(VARIETY_DRAIN_PACE_SLACK_MS).toBeLessThan(30_000);
+    expect(VARIETY_DRAIN_NEW_TABLE_MS - VARIETY_DRAIN_PACE_SLACK_MS).toBeGreaterThan(60_000);
   });
 
   it('review 2026-11-26: no Horse is moved onto a released table; a person or a break move never waits', () => {
@@ -390,15 +406,93 @@ describe('which extra table yields', () => {
     expect(claim).toBeGreaterThan(hold);
     expect(fleet).not.toContain('publishVarietyDrain(null, Date.now());');
     expect(fleet).toContain('publishVarietyDrain(released, Date.now(), horseIdSet);');
-    expect(fleet).toContain('const released = drainDecided ? varietyDrain : holdOnly;');
+    expect(fleet).toContain('const holdOnly = drainCycle.held;');
+    expect(fleet).toContain('const released = drainCycle.released;');
   });
 
   it('a cycle that could not decide does not forget the table being released', () => {
     const fleet = read('./HorseFleetManager.ts');
-    const keep = fleet.indexOf(
-      'if (drainDecided || (beat.varietyOwedGames.length === 0 && !cycleWithheld))\n        this.varietyDrainTableIds = varietyDrain;'
+    /* The anchor is the decision call as the fleet writes it now. The old
+       anchor ('varietyDrain = varietyDrainTables({') left the fleet in #12229,
+       indexOf returned -1 and the ordering pin passed for any position
+       (review 2026-11-27): the anchor itself must be found. */
+    const decided = fleet.indexOf('const decision = varietyDrainDecision({');
+    const keep = fleet.indexOf('this.varietyDrainTableIds = drainCycle.memory;');
+    expect(decided).toBeGreaterThan(-1);
+    expect(keep).toBeGreaterThan(decided);
+    expect(fleet.match(/this\.varietyDrainTableIds = /g)?.length).toBe(1);
+    const cycle = (over: Partial<Parameters<typeof drainCycleOutcome>[0]> = {}) =>
+      drainCycleOutcome({
+        withheld: false,
+        readsComplete: false,
+        owedThisCycle: 19,
+        owedInPlan: 19,
+        decision: [],
+        remembered: ['tbl-a', 'tbl-b'],
+        personSeatedAt: () => false,
+        ...over,
+      });
+    expect(cycle()).toEqual({
+      decided: false,
+      held: ['tbl-a', 'tbl-b'],
+      released: ['tbl-a', 'tbl-b'],
+      memory: ['tbl-a', 'tbl-b'],
+    });
+    /* a table a person sat down at is never held, but is not forgotten either:
+       the next decided cycle drops it by its own rule */
+    expect(cycle({ personSeatedAt: (id) => id === 'tbl-b' })).toMatchObject({
+      held: ['tbl-a'],
+      released: ['tbl-a'],
+      memory: ['tbl-a', 'tbl-b'],
+    });
+  });
+
+  it('review 2026-11-27: a withheld cycle with good reads still holds, publishes and remembers the released tables', () => {
+    const base = {
+      readsComplete: true,
+      decision: [] as string[],
+      remembered: ['tbl-a', 'tbl-b'],
+      personSeatedAt: () => false,
+    };
+    /* Seating withheld (the decision lane behind): the cycle publishes no owed
+       games, the reads are fine. Before the fix this counted as decided, so
+       memory and publication were both emptied. */
+    expect(
+      drainCycleOutcome({ ...base, withheld: true, owedThisCycle: 0, owedInPlan: 19 })
+    ).toEqual({
+      decided: false,
+      held: ['tbl-a', 'tbl-b'],
+      released: ['tbl-a', 'tbl-b'],
+      memory: ['tbl-a', 'tbl-b'],
+    });
+    /* withheld and the plan itself owes nothing: nothing to hold, drain over */
+    expect(drainCycleOutcome({ ...base, withheld: true, owedThisCycle: 0, owedInPlan: 0 })).toEqual(
+      { decided: false, held: [], released: [], memory: [] }
     );
-    expect(keep).toBeGreaterThan(fleet.indexOf('varietyDrain = varietyDrainTables({'));
+    /* a seating cycle with good reads decides: exactly the decision */
+    expect(
+      drainCycleOutcome({
+        ...base,
+        withheld: false,
+        owedThisCycle: 19,
+        owedInPlan: 19,
+        decision: ['tbl-a', 'tbl-c'],
+      })
+    ).toEqual({
+      decided: true,
+      held: [],
+      released: ['tbl-a', 'tbl-c'],
+      memory: ['tbl-a', 'tbl-c'],
+    });
+    /* a seating cycle that finds nothing owed clears the memory */
+    expect(
+      drainCycleOutcome({ ...base, withheld: false, owedThisCycle: 0, owedInPlan: 0 })
+    ).toEqual({ decided: true, held: [], released: [], memory: [] });
+    const fleet = read('./HorseFleetManager.ts');
+    expect(fleet).toContain('const drainCycle = drainCycleOutcome({');
+    expect(fleet).toContain('withheld: !!cycleWithheld,');
+    expect(fleet).toContain('owedInPlan: variety.owedStarts.size,');
+    expect(fleet).not.toContain('const drainDecided =');
   });
 
   it('a table is released only at a cap with no free slot; unknown fits; an admitted owed start fits', () => {

@@ -19,6 +19,8 @@ import { formatInt } from '../../utils/clubDashboard';
 import { compactChips } from '../../utils/format';
 import { freshnessLabel } from '../../utils/clubOperationsFreshness';
 import PageBar from '../../components/help/PageBar';
+import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
+import { ArenaReadings, ArenaRow, type ArenaTone } from '../../components/ops/ArenaOps';
 import { LEGAL_CENTER, LEGAL_CENTER_ENTRIES } from '../legalCenterContent';
 import styles from './ArenaWorkspacePages.module.css';
 
@@ -40,6 +42,13 @@ interface WorkspaceAlert extends ClubOperationsAlert {
   path: string | null;
 }
 
+/* How an alert's severity reads in the chrome: a red, gold or blue number. */
+const ALERT_TONE: Record<ClubOperationsAlert['severity'], ArenaTone> = {
+  critical: 'danger',
+  warning: 'attention',
+  info: 'live',
+};
+
 function WorkspacePage({
   title,
   description,
@@ -50,6 +59,7 @@ function WorkspacePage({
   readingState,
   children,
   compact = false,
+  mast,
 }: {
   title: string;
   description: string;
@@ -60,6 +70,9 @@ function WorkspacePage({
   readingState?: ClubOperationsOverviewState;
   children?: ReactNode;
   compact?: boolean;
+  /** Finance and Control wear the arena workspace (#SmarterDesign, Dan
+   *  2026-11-27); the other workspaces keep the page bar and link grid. */
+  mast?: 'finance' | 'control';
 }) {
   /* The club source the section rail beside this grid reads, so a card and
      the rail tab for the same page carry the same club. Paths that are not
@@ -82,48 +95,107 @@ function WorkspacePage({
         now,
       })
     : liveLine;
+  const steps = links.map((item) => ({
+    title: item.label,
+    body: item.summary ? `${item.description}. ${item.summary}` : `${item.description}.`,
+    target: `[data-workspace-card="${item.path}"]`,
+  }));
   /* A <section>, not a <main>. AppLayout already renders <main
      id="main-content"> around the router outlet, so every one of these pages
      was shipping two main landmarks and an ambiguous skip link. */
+  if (mast) {
+    return (
+      <section className={`${styles.page} arena-workspace`}>
+        <ArenaWorkspaceHeader
+          area={mast}
+          title={title}
+          context={readingState?.overview?.club.name || null}
+          summary={description}
+          steps={steps}
+        />
+        <PageBar title={title} titleAs={false} showHelp={false} status={status} />
+
+        {readingState && (
+          <section className="arena-case arena-ops-case" aria-label={`${title} Readings`}>
+            <h2 className="arena-section-title">Club Readings</h2>
+            <div className="arena-switch">
+              <button
+                type="button"
+                onClick={readingState.refresh}
+                disabled={
+                  readingState.loading ||
+                  readingState.denied ||
+                  (!readingState.overview && !readingState.error)
+                }
+                aria-label="Refresh Club Readings"
+              >
+                {readingState.loading ? 'Reading' : 'Refresh'}
+              </button>
+            </div>
+            {readings && readings.length > 0 && (
+              <ArenaReadings
+                readings={readings.map((reading) => ({
+                  id: reading.label,
+                  label: reading.label,
+                  value: reading.value,
+                }))}
+                label={`${title} Live Readings`}
+              />
+            )}
+          </section>
+        )}
+
+        {alerts && alerts.length > 0 && (
+          <section
+            className="arena-case arena-ops-case"
+            aria-label={`${title} Work Waiting`}
+            aria-live="polite"
+          >
+            <h2 className="arena-section-title">Waiting For You</h2>
+            <ul className="arena-ops-rows arena-ops-rows--single">
+              {alerts.map((alert) => (
+                <li key={alert.id}>
+                  <ArenaRow
+                    to={alert.path || undefined}
+                    title={alert.title}
+                    signal={alert.count > 0 ? formatInt(alert.count) : undefined}
+                    signalTone={ALERT_TONE[alert.severity]}
+                  />
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {children}
+
+        <section className="arena-case arena-ops-case" aria-label={`${title} Tools`}>
+          <h2 className="arena-section-title">{title} Tools</h2>
+          <ul className="arena-ops-rows">
+            {links.map((item, index) => (
+              <li key={item.path}>
+                <ArenaRow
+                  to={withClubContext(item.path, routeClubId)}
+                  data-workspace-card={item.path}
+                  index={index + 1}
+                  title={item.label}
+                  line={item.description}
+                  signal={item.signal}
+                  signalTone="attention"
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
+      </section>
+    );
+  }
   return (
     <section
       className={styles.page}
-      data-workspace={
-        compact
-          ? title === 'Club Control'
-            ? 'club-control'
-            : 'play-records'
-          : title === 'Rewards Center'
-            ? 'rewards'
-            : undefined
-      }
+      data-workspace={compact ? 'play-records' : title === 'Rewards Center' ? 'rewards' : undefined}
     >
-      <PageBar
-        title={title}
-        summary={description}
-        status={status}
-        steps={links.map((item) => ({
-          title: item.label,
-          body: item.summary ? `${item.description}. ${item.summary}` : `${item.description}.`,
-          target: `[data-workspace-card="${item.path}"]`,
-        }))}
-      />
-
-      {readingState && (
-        <button
-          type="button"
-          className={styles.readingsRefresh}
-          onClick={readingState.refresh}
-          disabled={
-            readingState.loading ||
-            readingState.denied ||
-            (!readingState.overview && !readingState.error)
-          }
-          aria-label="Refresh Club Readings"
-        >
-          {readingState.loading ? 'Reading' : 'Refresh'}
-        </button>
-      )}
+      <PageBar title={title} summary={description} status={status} steps={steps} />
 
       {readings && readings.length > 0 && (
         <section className={styles.readings} aria-label={`${title} Readings`}>
@@ -479,6 +551,7 @@ export function ClubFinanceWorkspacePage() {
   return (
     <WorkspacePage
       title="Finance & Risk"
+      mast="finance"
       description="Live Club Economics, Cashier Operations, Settlement, And Exposure Without Duplicate Dashboards."
       liveLine={
         readings.length > 0 ? 'Read Live From This Club' : 'Live Systems Remain Authoritative'
@@ -511,7 +584,7 @@ export function ClubControlWorkspacePage() {
   return (
     <WorkspacePage
       title="Club Control"
-      compact
+      mast="control"
       description="Policy, Communications, Campaigns, Identity, And Permissions In One Governed Workspace."
       liveLine={
         readings.length > 0 ? 'Read Live From This Club' : 'Live Systems Remain Authoritative'

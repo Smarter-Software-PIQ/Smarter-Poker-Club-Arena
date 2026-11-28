@@ -6,7 +6,7 @@ Native probes own fresh PG17 clusters, not the restored backup database. The
 restored database is inspected read-only. Keep these three evidence claims apart.
 """
 import argparse
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import datetime
 import hashlib
 import json
@@ -14,7 +14,9 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -24,6 +26,16 @@ DEADLINE = time.monotonic() + 1200
 COMMANDS = []
 COMMANDS_LOCK = threading.Lock()
 MAX_NATIVE_PROBE_WORKERS = 3
+# Root-anchored heavy directories verified unreferenced by any qualification
+# Vitest test or native PG17 probe (~289 MB excluded from Qualification.node &
+# Qualification.pg Docker build contexts; leading '/' ensures server/src is kept).
+DOCKERIGNORE_EXCLUDES = ('/docs', '/src', '/.github', '/scripts/qualification')
+
+
+def _handle_sigterm(signum, _frame):
+    """Convert SIGTERM (e.g. O1/O35/O37 mid-soak yield) into SystemExit so
+    main()'s finally block removes every disposable container and scratch dir."""
+    raise SystemExit(128 + signum)
 
 TESTS = [
     'src/tournament/TournamentStopRejectionOwnership.test.ts',
@@ -73,7 +85,7 @@ def run(argv, *, cwd=None, log=None, timeout=1800):
             try:
                 subprocess.run(argv, cwd=cwd, stdout=stream, stderr=subprocess.STDOUT,
                                check=True, timeout=timeout)
-            except subprocess.CalledProcessError as error:
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
                 # A FAILED STEP NAMES ITS CAUSE (2026-11-26). The report kept only
                 # "returned non-zero exit status 1" and the log stayed on the
                 # Backup host, so a refused certificate (run 45921051609) said
@@ -239,6 +251,7 @@ def main():
     containers = ['freeze-node-' + output.name, 'freeze-hand-' + output.name,
                   'freeze-f06-' + output.name, 'freeze-satellite-' + output.name, 'freeze-awards-' + output.name,
                   'freeze-feeders-' + output.name]
+    prev_sigterm = signal.signal(signal.SIGTERM, _handle_sigterm)
     try:
         report['restoredFunctionBefore'] = readback()
         archive = scratch / 'source.tar'
@@ -250,6 +263,7 @@ def main():
         report['migrationSha256'] = hashlib.sha256((source / MIGRATION).read_bytes()).hexdigest()
         report['sourceTrees'] = {p: run(['git', '-C', str(repo), 'rev-parse', args.sha + ':' + p])
                                  for p in ['server', 'src', 'scripts', 'supabase', 'tests', 'docs', '.github']}
+        (source / '.dockerignore').write_text('\n'.join(DOCKERIGNORE_EXCLUDES) + '\n')
         dockerfile = (source / 'server/Dockerfile').read_text()
         base = re.search(r'^FROM (node:22[^\s]+@sha256:[0-9a-f]{64})', dockerfile, re.M)
         if not base:
@@ -341,9 +355,13 @@ def main():
         pool = ThreadPoolExecutor(max_workers=MAX_NATIVE_PROBE_WORKERS)
         try:
             futures = [pool.submit(run, argv, log=log_path) for argv, log_path in probe_jobs]
-            for future in futures:
+            for future in as_completed(futures):
                 future.result()
-        except Exception:
+        except BaseException:
+            # Fail fast: stop running sibling probe containers immediately so
+            # shutdown does not wait on a 20-minute sibling timeout.
+            for container in containers[1:]:
+                subprocess.run(['docker', 'rm', '-f', container], capture_output=True)
             pool.shutdown(wait=True, cancel_futures=True)
             raise
         else:
@@ -395,16 +413,17 @@ def main():
         if report['runningAfter'] != before:
             raise RuntimeError('backup process identity changed during qualification')
         report['passed'] = True
-    except Exception as error:
-        report['failure'] = str(error)
+    except BaseException as error:
+        report['failure'] = f'terminated ({error})' if isinstance(error, SystemExit) else str(error)
     finally:
-        # docker client timeout does not stop its container. Remove only this
-        # invocation's disposable names before touching its scratch directory.
+        signal.signal(signal.SIGTERM, prev_sigterm)
+        # docker client timeout or SIGTERM yield does not stop containers.
+        # Remove only this invocation's disposable names before scratch cleanup.
         for container in containers:
             subprocess.run(['docker', 'rm', '-f', container], capture_output=True)
         for tag in tags:
             subprocess.run(['docker', 'image', 'rm', tag], capture_output=True)
-        shutil.rmtree(scratch)
+        shutil.rmtree(scratch, ignore_errors=True)
         report['endedAt'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
         report['commands'] = COMMANDS
         (output / 'result.json').write_text(json.dumps(report, indent=2) + '\n')

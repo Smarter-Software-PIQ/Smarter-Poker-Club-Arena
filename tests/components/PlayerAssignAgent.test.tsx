@@ -17,6 +17,7 @@ vi.mock('../../src/core/MasterBus', () => ({ masterBus: { emit } }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 
 let canManage = true;
+let permissionError: unknown = null;
 const rows = {
   agents: [{ user_id: 'owner-1' }, { user_id: 'darth-1' }, { user_id: 'player-1' }],
   club_members: [
@@ -39,7 +40,9 @@ function query(table: keyof typeof rows) {
 }
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
-    rpc: vi.fn(async () => ({ data: canManage, error: null })),
+    rpc: vi.fn(async () =>
+      permissionError ? { data: null, error: permissionError } : { data: canManage, error: null }
+    ),
     from: (table: keyof typeof rows) => query(table),
   },
 }));
@@ -54,6 +57,7 @@ vi.mock('../../src/services/UnionOpsService', () => ({
 }));
 
 import MemberAssignAgent from '../../src/components/club/MemberAssignAgent';
+import { reportError } from '../../src/utils/errorReporter';
 
 const review = {
   club_id: 'club-1',
@@ -74,6 +78,8 @@ const review = {
 
 beforeEach(() => {
   canManage = true;
+  permissionError = null;
+  window.dispatchEvent(new Event('pageshow'));
   preview.mockResolvedValue(review);
   reassign.mockResolvedValue({ success: true, operation_id: 'x', moved: 1 });
 });
@@ -220,5 +226,37 @@ describe('Player Record: Assign To Agent', () => {
     );
     await new Promise((r) => setTimeout(r, 20));
     expect(container.querySelector('.mm-assign')).toBeNull();
+  });
+
+  // Post-deploy run 46063424139: the Player Record reloaded while this read was in
+  // flight, the browser cancelled it, and the cancellation was logged as an error.
+  const cancelled = { message: 'TypeError: Failed to fetch', details: '', hint: '', code: '' };
+
+  it('stays quiet when the page reloading cancels the load', async () => {
+    permissionError = cancelled;
+    window.dispatchEvent(new Event('beforeunload'));
+    const { container } = render(
+      <MemberAssignAgent clubId="club-1" userId="player-1" currentAgentId={null} />
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    expect(reportError).not.toHaveBeenCalled();
+    expect(container.querySelector('.mm-assign')).toBeNull();
+  });
+
+  it('still reports the same transport failure when the page is not leaving', async () => {
+    permissionError = cancelled;
+    render(<MemberAssignAgent clubId="club-1" userId="player-1" currentAgentId={null} />);
+    await waitFor(() =>
+      expect(reportError).toHaveBeenCalledWith(cancelled, 'MemberAssignAgent.load')
+    );
+  });
+
+  it('still reports a server refusal that arrives while the page is leaving', async () => {
+    permissionError = { message: 'permission denied', code: '42501' };
+    window.dispatchEvent(new Event('pagehide'));
+    render(<MemberAssignAgent clubId="club-1" userId="player-1" currentAgentId={null} />);
+    await waitFor(() =>
+      expect(reportError).toHaveBeenCalledWith(permissionError, 'MemberAssignAgent.load')
+    );
   });
 });

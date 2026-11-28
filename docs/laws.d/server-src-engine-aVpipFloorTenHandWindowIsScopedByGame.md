@@ -1,0 +1,3 @@
+# server/src/engine/aVpipFloorTenHandWindowIsScopedByGame.law.test.ts
+
+The ten-hand window switch vpipFloorLimpOnlyTenHandWindow can be confined to listed games (HorseVpipFloorTenHandWindowGames.ts; owner 2026-11-17: a VPIP-floor limp folds to a raise, the floor never buys a call of a raise): with no list (absent, empty, not an array) the switch decides as published, decision for decision and draw for draw; with a list it is on only at a ten-hand table whose variant is listed and every other table (PLO4, hold'em, PLO6) decides exactly as with the switch off, receipts included; the list never turns the switch on; the runtime settings set the list only from 1s, in registry order, and are absent at the compiled defaults; and the added read costs nothing measurable.

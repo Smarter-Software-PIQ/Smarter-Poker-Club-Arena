@@ -10,6 +10,10 @@
  * Every command the prequalification's compile-and-test step runs (apart from installing) is therefore also
  * run by the required `Server Engine` job, from server/, with at least the same heap. A command added to the
  * prequalification without its pull-request twin fails here, so a commit cannot reach main untested by it.
+ *
+ * A twin that is present but disabled proves nothing (review of 2026-11-27): a step whose failure is
+ * forgiven (`continue-on-error`) or which a condition other than the first shard can skip leaves the
+ * required check green without the command having passed. Each twin, and the job, is refused both.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -25,8 +29,14 @@ type Step = {
   if?: string;
   env?: Record<string, string>;
   'working-directory'?: string;
+  'continue-on-error'?: unknown;
 };
-type Job = { name?: string; steps: Step[]; defaults?: { run?: { 'working-directory'?: string } } };
+type Job = {
+  name?: string;
+  steps: Step[];
+  defaults?: { run?: { 'working-directory'?: string } };
+  'continue-on-error'?: unknown;
+};
 
 const heap = (env?: Record<string, string>) =>
   Number(/--max-old-space-size=(\d+)/.exec(env?.NODE_OPTIONS ?? '')?.[1] ?? 0);
@@ -69,6 +79,28 @@ describe('the pull request builds what ships', () => {
       expect(twin, `Server Engine does not run: ${command}`).toBeTruthy();
       if (command === 'npm run build') expect(heap(twin!.env)).toBeGreaterThanOrEqual(prequalHeap);
     }
+  });
+
+  it('no twin is disabled: its failure is never forgiven and only the first shard may be its condition', () => {
+    expect(serverJob['continue-on-error'], 'Server Engine job forgives failures').toBeUndefined();
+    const wanted = commands(String(qualifyStep.run)).filter((c) => !/^npm ci\b/.test(c));
+    for (const command of wanted) {
+      const twins = serverJob.steps.filter(
+        (step) =>
+          typeof step.run === 'string' &&
+          (step['working-directory'] ?? 'server') === 'server' &&
+          commands(step.run).includes(command)
+      );
+      expect(twins.length, `Server Engine does not run: ${command}`).toBeGreaterThan(0);
+      for (const twin of twins) {
+        expect(twin['continue-on-error'], `${twin.name} forgives a failure of: ${command}`).toBeUndefined();
+        if (twin.if !== undefined)
+          expect(twin.if, `${twin.name} can be skipped: ${command}`).toBe('matrix.shard == 1');
+      }
+    }
+    const build = serverJob.steps.find((s) => commands(String(s.run ?? '')).includes('npm run build'))!;
+    expect(build.name).toBe('Build the exact server tree (as engine prequalification does)');
+    expect(Object.keys(build)).not.toContain('continue-on-error');
   });
 
   it('the shard split is the same on both sides', () => {

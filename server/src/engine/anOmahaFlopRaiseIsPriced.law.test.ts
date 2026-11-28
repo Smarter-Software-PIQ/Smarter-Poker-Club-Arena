@@ -11,11 +11,18 @@
  *     the same footing, the same equity sample with no realization discount between them and no margin; the
  *     discount and the margin stay on the raise-or-call-or-fold question, and a size is taken only if it survives
  *     that question as the chain's own size did.
+ *  6. PEOPLE-ONLY RANGE (2026-11-27, lead-8 W8; Dan's order of 2026-11-26 12:21 PM): the bettor's range the rule
+ *     prices is built from the people-only flop non-value share and his own shown record (omahaFlopRaisePeopleRange),
+ *     never from the pooled table of every player's wagers: (1 - q) on his value region, q on the rest; a record
+ *     tighter than people's narrows the region; a raise faced reads no record.
  */
 import { describe, expect, it } from 'vitest';
 import type { Card, HorseDecision } from '../types.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   omahaFlopRaiseBinEquity,
+  omahaFlopRaisePeopleRange,
   omahaFlopRaisePrice,
   omahaFlopRaisePricedRule,
   omahaFlopRaiseSpot,
@@ -184,5 +191,37 @@ describe('LAW: a heads-up flop raise is priced above the call and the fold', () 
         a.decision.amount,
       ]);
     }
+  });
+});
+
+describe('LAW 6: the bettor range is people-only', () => {
+  const rangeOf = (rec: { shown: number; value: number } | null, isRaise = false) =>
+    omahaFlopRaisePeopleRange(0.75, isRaise, 0.35, 23, 99, 0.04, false, rec)!;
+  it('(1 - q) on his value region, q on the rest, summing to one', () => {
+    const r = rangeOf(null);
+    const sum = r.hist.reduce((a, b) => a + b, 0);
+    expect(sum).toBeCloseTo(1, 9);
+    expect(r.prior.share).toBeGreaterThan(0);
+    expect(r.prior.share).toBeLessThan(1);
+    // bins [0, 0.01, 0.03, 0.07, 0.13, 0.2, 0.35, ...]: the value region 0.35 ends on a bin edge
+    const valueMass = r.hist.slice(0, 6).reduce((a, b) => a + b, 0);
+    expect(valueMass).toBeCloseTo(1 - r.prior.share, 9);
+    expect(r.valueShare).toBe(0.35);
+  });
+  it('a record tighter than people narrows the region; a raise faced reads no record', () => {
+    const none = rangeOf(null);
+    const tight = rangeOf({ shown: 30, value: 30 });
+    expect(tight.valueShare).toBeLessThan(none.valueShare);
+    expect(tight.prior.share).toBeLessThan(none.prior.share);
+    const raised = rangeOf({ shown: 30, value: 30 }, true);
+    expect(raised.valueShare).toBe(0.35);
+    expect(raised.prior.shown).toBe(0);
+  });
+  it('the rule reads no pooled every-player table', () => {
+    const src = readFileSync(
+      fileURLToPath(new URL('./HorseOmahaFlopRaisePriced.ts', import.meta.url)),
+      'utf8'
+    );
+    expect(src).not.toMatch(/omahaMeasuredBettorRange\(|HorseOmahaFacingBetRangeTables/);
   });
 });

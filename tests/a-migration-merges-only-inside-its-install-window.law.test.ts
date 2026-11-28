@@ -18,6 +18,9 @@
  *  3. (2026-11-27) The window opens ON TIME: a keeper reads before each minute
  *     and writes on it, ready and recently updated pull requests first, each
  *     verdict at its own write time, and only one keeper runs at a time.
+ *  4. (2026-11-27) A one-shot sweep never opens a window: whatever writes
+ *     "window open" also closes it, the close is confirmed by a read taken
+ *     after it, one pass is bounded, and a draft is never opened.
  */
 import { spawnSync } from 'node:child_process';
 import {
@@ -36,6 +39,11 @@ import { parse } from 'yaml';
 import {
   MERGE_WINDOW_CONTEXT,
   MERGE_WINDOW_OVERRIDE_LABEL,
+  DRAFT_HELD,
+  ONE_SWEEP_BUDGET_MINUTES,
+  PASS_BUDGET_MS,
+  RATE_LIMITED_GH_ERROR,
+  chicagoTime,
   mergeWindowCloses,
   mergeWindowOpen,
   mergeWindowVerdict,
@@ -436,6 +444,36 @@ describe('a missed merge window is paged (2026-11-26)', () => {
     expect(windowVerdict(win, [])).toBe('not-needed');
   });
 
+  it('a draft is never a witness: a window is not called missed because sampled drafts stayed held', () => {
+    // 2026-11-27: the keeper never opens a draft. Its status is DRAFT_HELD, or an
+    // older "Migrations merge" text it has not rewritten yet; either way it never
+    // turns green, and three such samples would have paged a held window as missed.
+    const draft = (number: number, description: string) => ({
+      number,
+      isDraft: true,
+      statuses: [status('failure', description, '2026-11-26T22:27:46Z')],
+    });
+    const ready = {
+      number: 2303,
+      isDraft: false,
+      statuses: [
+        status('success', 'Install window open: merge before 7:27 PM CST', '2026-11-27T01:11:19Z'),
+        before,
+      ],
+    };
+    const drafts = [draft(1, DRAFT_HELD), draft(2, before.description), draft(3, DRAFT_HELD)];
+    expect(windowVerdict(win, drafts)).toBe('not-needed');
+    expect(windowVerdict(win, [...drafts, ready])).toBe('held');
+    // A ready pull request that stayed held still says missed, drafts or not.
+    expect(windowVerdict(win, [...drafts, { number: 9, isDraft: false, statuses: [before] }])).toBe(
+      'missed'
+    );
+    const watch = read('scripts/ci/merge-window-watch.mjs');
+    expect(/^(Install window open|Migrations merge|Release controls merge|Outage override)/.test(DRAFT_HELD)).toBe(false);
+    expect(watch).toContain('nodes{ number isDraft commits(last:1)');
+    expect(watch).toContain('.filter((n) => !n.isDraft && n.commit && MIGRATION_STATUS.test(');
+  });
+
   it('fires one fleet-addressed episode for a missed window and resolves it on the next held one', () => {
     const fire = watchDecide('missed', win, undefined);
     expect(fire.action).toBe('fire');
@@ -764,5 +802,322 @@ describe('one GitHub hiccup never ends a pass or leaves a window open (2026-11-2
     expect(closing.length).toBeGreaterThanOrEqual(2);
     expect(closing[0].failed).toBe(true);
     expect(closing[closing.length - 1].failed).toBe(false);
+  });
+});
+
+// 2026-11-27 1:26:57 PM CST: run 46056717952 started in the last minute of the
+// 1:10-1:27 PM window, logged "No merge window opens within 25 minutes; one
+// sweep.", wrote its verdict and left. nextMergeWindow rounded 1:26:57 up to
+// 1:27:00, which is closed, and answered 4:10 PM. A release-control pull request
+// turned green there stays green: it can merge at any minute and strand every
+// Backup certificate.
+describe('a one-shot sweep never opens a window (2026-11-27)', () => {
+  const REPO = 'o/r';
+  const OPENS = at('2026-11-26T19:10:00Z'); // 1:10 PM CST
+  const CLOSES = at('2026-11-26T19:27:00Z'); // 1:27 PM CST
+  const LAST_MINUTE = at('2026-11-26T19:26:31Z');
+  const MIGRATION = 'supabase/migrations/20261127000000_x.sql';
+  const OPEN_TEXT = 'Install window open: merge before 1:27 PM CST';
+  const fail = (msg: string) =>
+    Object.assign(new Error(`Command failed: gh\n${msg}`), { stderr: msg });
+
+  type Head = { sha: string; status: { state: string; description: string } | null };
+  type Fixture = { number: number; isDraft?: boolean; updatedAt?: string; migration?: boolean; head: Head };
+  const head = (tag: string, status: Head['status'] = null): Head => ({
+    sha: `${tag}${'0'.repeat(40)}`.slice(0, 40),
+    status,
+  });
+
+  /** A GitHub that remembers each status written, with a clock only the keeper's sleeps move. */
+  function world(start: number, prs: Fixture[], onRead: (w: { clock: number }) => void = () => {}) {
+    const w = {
+      clock: start,
+      prs,
+      writes: [] as { at: number; sha: string; state: string; description: string }[],
+      pauses: [] as number[],
+      logs: [] as string[],
+      refuse: null as null | ((n: number) => string | null),
+    };
+    const node = (f: Fixture) => ({
+      number: f.number,
+      state: 'OPEN',
+      isDraft: Boolean(f.isDraft),
+      updatedAt: f.updatedAt ?? '2026-11-26T18:00:00Z',
+      headRefOid: f.head.sha,
+      baseRefName: 'main',
+      body: '',
+      labels: { nodes: [] },
+      files: {
+        totalCount: 1,
+        nodes: [{ path: f.migration === false ? 'src/x.ts' : MIGRATION, changeType: 'ADDED' }],
+      },
+      commits: {
+        nodes: [
+          {
+            commit: {
+              status: {
+                contexts: f.head.status
+                  ? [{ context: MERGE_WINDOW_CONTEXT, state: f.head.status.state, description: f.head.status.description }]
+                  : [],
+              },
+            },
+          },
+        ],
+      },
+    });
+    const exec = (args: string[]) => {
+      if (args[1] === 'graphql') {
+        onRead(w);
+        return JSON.stringify({
+          data: {
+            repository: {
+              pullRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: w.prs.map(node) },
+            },
+          },
+        });
+      }
+      if (args.includes('POST')) {
+        const sha = (args.find((a) => a.startsWith('repos/')) ?? '').split('/statuses/')[1];
+        const value = (key: string) =>
+          (args.find((a) => a.startsWith(`${key}=`)) ?? '').slice(key.length + 1);
+        const refused = w.refuse?.(w.writes.length + 1) ?? null;
+        w.writes.push({ at: w.clock, sha, state: value('state'), description: value('description') });
+        if (refused) throw fail(refused);
+        for (const f of w.prs)
+          if (f.head.sha === sha)
+            f.head.status = { state: value('state').toUpperCase(), description: value('description') };
+        return '{}';
+      }
+      if (args.some((a) => /\/pulls\/\d+\/files/.test(a)))
+        return JSON.stringify([[{ filename: MIGRATION, status: 'added' }]]);
+      return ORDINARY; // the migration's text at the head
+    };
+    const run = async <T>(body: () => T | Promise<T>): Promise<T> => {
+      const real = { exec: ghRunner.exec, pause: ghRunner.pause };
+      ghRunner.exec = exec as typeof ghRunner.exec;
+      ghRunner.pause = (ms: number) => void w.pauses.push(ms);
+      try {
+        return await body();
+      } finally {
+        ghRunner.exec = real.exec;
+        ghRunner.pause = real.pause;
+      }
+    };
+    const clocked = {
+      repo: REPO,
+      cadence: C,
+      now: () => w.clock,
+      sleep: async (ms: number) => {
+        w.clock += ms;
+      },
+      log: (line: string) => void w.logs.push(line),
+    };
+    return { w, run, clocked };
+  }
+
+  it('an open window is its own next window, to its last millisecond', () => {
+    expect(mergeWindowOpen(LAST_MINUTE, C)).toBe(true);
+    expect(nextMergeWindow(LAST_MINUTE, C)).toBe(at('2026-11-26T19:26:00Z'));
+    expect(nextMergeWindow(CLOSES - 1, C)).toBe(at('2026-11-26T19:26:00Z'));
+    expect(nextMergeWindow(OPENS + 1, C)).toBe(OPENS);
+    // Closed is unchanged: the first whole minute that is open.
+    expect(nextMergeWindow(CLOSES, C)).toBe(at('2026-11-26T22:10:00Z'));
+    expect(nextMergeWindow(OPENS - 1, C)).toBe(OPENS);
+    // A push anywhere in the last minute holds the window; it was 'sweep' from 1:26:00.001.
+    for (const ms of [at('2026-11-26T19:26:00Z') + 1, LAST_MINUTE, CLOSES - 1])
+      expect(pushAction(ms, C)).toBe('keep');
+    expect(pushAction(CLOSES, C)).toBe('sweep');
+  });
+
+  it('a keeper started at 1:26:31 PM ends with a failure write at or after 1:27:00', async () => {
+    const { w, run, clocked } = world(LAST_MINUTE, [{ number: 41, head: head('41a') }]);
+    const kept = await run(() => keep(clocked));
+    expect(kept).toBe(true);
+    expect(w.logs.join('\n')).not.toContain('one sweep');
+    expect(w.writes[0]).toMatchObject({ at: LAST_MINUTE, state: 'success', description: OPEN_TEXT });
+    const last = w.writes[w.writes.length - 1];
+    expect(last.state).toBe('failure');
+    expect(last.at).toBeGreaterThanOrEqual(CLOSES);
+    expect(w.prs[0].head.status?.state).toBe('FAILURE');
+    // Nothing is written green at or after the close.
+    expect(w.writes.filter((x) => x.at >= CLOSES && x.state === 'success')).toEqual([]);
+  });
+
+  it('a head pushed in the last minute and turned green by its own run is closed by the keeper', async () => {
+    // The keeper's closing read is at 1:26:35 PM (PREFETCH_LEAD_MS before the
+    // close). At 1:26:40 the branch is pushed, and its own pull request run
+    // paints the new head green at 1:26:57. The closing write at 1:27:00 knows
+    // only the old head, so the new one stayed green.
+    const pushed = head('42b', { state: 'SUCCESS', description: OPEN_TEXT });
+    const fixture: Fixture = { number: 42, head: head('42a') };
+    const { w, run, clocked } = world(at('2026-11-26T19:15:00Z'), [fixture], (state) => {
+      if (state.clock >= at('2026-11-26T19:26:40Z')) fixture.head = pushed;
+    });
+    const kept = await run(() => keep(clocked));
+    expect(kept).toBe(true);
+    const closing = w.writes.filter((x) => x.at >= CLOSES);
+    expect(closing.map((x) => [x.sha, x.state])).toEqual([
+      [head('42a').sha, 'failure'],
+      [pushed.sha, 'failure'],
+    ]);
+    expect(pushed.status?.state).toBe('FAILURE');
+    expect(read('scripts/ci/migration-merge-window.mjs')).toContain('if (readAt >= closes) {');
+  });
+
+  it('no mode is a bare sweep: a hand dispatch of mode=sweep goes through the keeper', () => {
+    const src = read('scripts/ci/migration-merge-window.mjs');
+    const main = src.slice(src.indexOf('async function main(argv) {'));
+    expect(main).toContain("if (mode === 'sweep' || mode === 'keep') {");
+    expect(main).toContain('const kept = await keep({ repo, number, targetUrl });');
+    expect(main).not.toMatch(/[^a-zA-Z]sweep\(\{/);
+    const wf = parse(read('.github/workflows/migration-merge-window.yml')) as Record<string, any>;
+    expect(wf.on.pull_request_target.types).toEqual(
+      expect.arrayContaining(['ready_for_review', 'converted_to_draft'])
+    );
+  });
+
+  it('the one sweep of a run with no window near never writes inside a window', async () => {
+    // Started 25 min 1 s before 1:10 PM: one sweep. Its read is slow and ends
+    // at 1:10:05 PM, inside the window, where every verdict is "open".
+    const start = OPENS - 25 * 60_000 - 1_000;
+    const { w, run, clocked } = world(start, [{ number: 43, head: head('43a') }], (state) => {
+      state.clock = OPENS + 5_000;
+    });
+    const results = (await run(() => keep(clocked))) as { state: string; writeFailed: boolean }[];
+    expect(w.logs.join('\n')).toContain('one sweep');
+    expect(w.writes).toEqual([]);
+    expect(results.map((r) => r.writeFailed)).toEqual([true]);
+    expect(passClean(results)).toBe(false);
+    expect(ONE_SWEEP_BUDGET_MINUTES).toBeLessThan(KEEPER_HORIZON_MINUTES);
+  });
+
+  it('takes each verdict at its own write time at the CLOSE: a pass crossing 1:27:00 never writes green', async () => {
+    const green = { state: 'SUCCESS', description: OPEN_TEXT };
+    const first: Fixture = { number: 45, updatedAt: '2026-11-26T19:00:00Z', head: head('45a') };
+    const second: Fixture = { number: 44, updatedAt: '2026-11-26T18:00:00Z', head: head('44a', { ...green }) };
+    const { w, run } = world(CLOSES - 1_000, [first, second]);
+    await run(() => {
+      const prepared = prepare({ repo: REPO });
+      // The clock is read for the deadline and the verdict; it crosses the close between the two writes.
+      const now = () => (w.writes.length === 0 ? CLOSES - 1_000 : CLOSES);
+      return publish(prepared, { repo: REPO, now, cadence: C, log: () => {} });
+    });
+    expect(w.writes.map((x) => [x.sha, x.state])).toEqual([
+      [first.head.sha, 'success'],
+      [second.head.sha, 'failure'],
+    ]);
+  });
+
+  it('a closing pass that keeps failing its writes ends at the hard stop, under the job timeout', async () => {
+    const start = at('2026-11-26T19:15:00Z');
+    const { w, run, clocked } = world(start, [{ number: 46, head: head('46a') }]);
+    w.refuse = () => (w.clock >= CLOSES ? 'gh: HTTP 422' : null);
+    const kept = await run(() => keep(clocked));
+    expect(kept).toBe(false);
+    expect(w.logs[w.logs.length - 1]).toContain('Keeper stopped before a clean closing sweep');
+    const ran = w.clock - start;
+    expect(ran).toBeGreaterThan((KEEPER_MAX_MINUTES + KEEPER_CLOSE_GRACE_MINUTES) * 60_000);
+    const wf = parse(read('.github/workflows/migration-merge-window.yml'));
+    expect(ran).toBeLessThan(Number(wf.jobs['merge-window']['timeout-minutes']) * 60_000);
+    // It retried the close the whole time, never once green.
+    expect(w.writes.filter((x) => x.at >= CLOSES).length).toBeGreaterThan(20);
+    expect(w.writes.filter((x) => x.at >= CLOSES && x.state === 'success')).toEqual([]);
+  });
+
+  it('a write refused as rate-limited is not retried and ends the pass; the rest are left for the next', async () => {
+    for (const t of [
+      'HTTP 403: You have exceeded a secondary rate limit',
+      'HTTP 403: API rate limit exceeded for installation',
+      'gh: HTTP 429',
+    ])
+      expect(RATE_LIMITED_GH_ERROR.test(t)).toBe(true);
+    expect(RATE_LIMITED_GH_ERROR.test('gh: HTTP 504')).toBe(false);
+    const prs = [1, 2, 3, 4, 5].map((n) => ({
+      number: 50 + n,
+      updatedAt: `2026-11-26T18:0${9 - n}:00Z`,
+      head: head(`5${n}a`),
+    }));
+    const { w, run } = world(CLOSES + 1_000, prs);
+    w.refuse = (n) => (n >= 2 ? 'HTTP 403: You have exceeded a secondary rate limit' : null);
+    const logs: string[] = [];
+    const results = (await run(() =>
+      sweep({ repo: REPO, nowMs: CLOSES + 1_000, cadence: C, log: (l: string) => void logs.push(l) })
+    )) as { number: number; writeFailed: boolean }[];
+    expect(w.writes).toHaveLength(2); // the refused one, then nothing
+    expect(w.pauses).toEqual([]); // no 2 + 5 + 12 s per refused write
+    expect(results.map((r) => r.writeFailed)).toEqual([false, true, true, true, true]);
+    expect(passClean(results)).toBe(false);
+    expect(logs.join('\n')).toContain('PASS STOPPED EARLY: GitHub refused a status write as rate-limited; 3 changed');
+  });
+
+  it('a pass stops writing at its deadline, and a gh call cannot hang', async () => {
+    const prs = [1, 2, 3].map((n) => ({
+      number: 60 + n,
+      updatedAt: `2026-11-26T18:0${9 - n}:00Z`,
+      head: head(`6${n}a`),
+    }));
+    const { w, run } = world(CLOSES + 1_000, prs);
+    const results = (await run(() => {
+      const prepared = prepare({ repo: REPO });
+      const now = () => CLOSES + 1_000 + w.writes.length * 60_000;
+      return publish(prepared, { repo: REPO, now, cadence: C, log: () => {}, deadline: CLOSES + 100_000 });
+    })) as { writeFailed: boolean }[];
+    expect(w.writes).toHaveLength(2);
+    expect(results.map((r) => r.writeFailed)).toEqual([false, false, true]);
+    const src = read('scripts/ci/migration-merge-window.mjs');
+    expect(src).toContain('timeout: timeoutMs,');
+    expect(src).toContain('passLimit.deadline = Math.min(t + PASS_BUDGET_MS, hardStop);');
+    // A whole pass, then a retry, fits between the close and the hard stop.
+    expect(PASS_BUDGET_MS).toBeLessThan(KEEPER_CLOSE_GRACE_MINUTES * 60_000);
+  });
+
+  it('a pull request whose verdict does not change at a boundary is not rewritten there', async () => {
+    const unaffected: Fixture = {
+      number: 71,
+      migration: false,
+      head: head('71a', { state: 'SUCCESS', description: 'No ordinary migration in this pull request' }),
+    };
+    // A draft cannot merge: it is held with one text that names no time, so it is written once, ever.
+    const draft: Fixture = {
+      number: 72,
+      isDraft: true,
+      head: head('72a', { state: 'FAILURE', description: DRAFT_HELD }),
+    };
+    const held: Fixture = { number: 73, head: head('73a') };
+    const { w, run } = world(OPENS, [unaffected, draft, held]);
+    await run(() => {
+      for (const nowMs of [OPENS - 1_000, OPENS, CLOSES - 1, CLOSES]) {
+        w.clock = nowMs;
+        sweep({ repo: REPO, nowMs, cadence: C, log: () => {} });
+      }
+    });
+    // Only the held pull request is written: failure, open at 1:10, closed at 1:27.
+    expect(w.writes.map((x) => [x.sha, x.state])).toEqual([
+      [held.head.sha, 'failure'],
+      [held.head.sha, 'success'],
+      [held.head.sha, 'failure'],
+    ]);
+    expect(verdict('2026-11-26T19:15:00Z', [mig(ORDINARY)]).state).toBe('success');
+    expect(
+      mergeWindowVerdict({
+        nowMs: at('2026-11-26T19:15:00Z'),
+        cadence: C,
+        baseRef: 'main',
+        files: [mig(ORDINARY)],
+        labels: [],
+        body: '',
+        isDraft: true,
+      })
+    ).toEqual({ state: 'failure', description: DRAFT_HELD });
+    expect(DRAFT_HELD.length).toBeLessThanOrEqual(140);
+    // The missed-window watch reads only window-dependent texts; a draft is not one of them.
+    expect(read('scripts/ci/merge-window-watch.mjs')).toContain(
+      'const MIGRATION_STATUS = /^(Install window open|Migrations merge|Release controls merge|Outage override)/;'
+    );
+  });
+
+  it('names the zone in force: CST in winter, CDT in daylight time', () => {
+    expect(chicagoTime(at('2026-11-26T19:27:00Z'))).toBe('1:27 PM CST');
+    expect(chicagoTime(at('2026-07-01T18:27:00Z'))).toBe('1:27 PM CDT');
   });
 });

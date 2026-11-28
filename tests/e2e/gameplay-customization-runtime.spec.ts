@@ -1121,10 +1121,14 @@ async function verifyPublishedLightning(
   await expect(retry).toBeVisible();
   await retry.click();
   await expect(count.locator('.hit-run-pill__count')).toHaveText('3');
+  // Out of profit the countdown pauses and the felt hides it without
+  // discarding the stored count (#10976, f5ab740e7). The resume at the same
+  // number is pinned in tests/charles-rule-paused-display.test.tsx.
   handsOwed = 0;
   sendSettlement(9);
   const paused = page.locator('.table-brand__meta').getByTestId('hit-run-paused-pill');
-  await expect(paused.locator('.hit-run-pill__count')).toHaveText('3');
+  await expect(count).toHaveCount(0);
+  await expect(paused).toHaveCount(0);
   handsPlayed = 10;
   sendSettlement(10);
   await expect(paused).toHaveCount(0);

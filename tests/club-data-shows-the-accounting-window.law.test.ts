@@ -265,7 +265,7 @@ describe('figures are exact: never K/M, never rounded, never summed in floats', 
     expect(formatMoney(2052426.5)).toBe('2,052,426.50');
     expect(formatMoney(-195554.11)).toBe('-195,554.11');
     expect(formatMoney('123456789012345678.91')).toBe('123,456,789,012,345,678.91');
-    expect(formatMoney(0.125)).toBe('0.125');
+    expect(formatMoney(0.125)).toBe('0.12'); // two decimals, cut (Dan 2026-11-27)
     expect(formatMoney(undefined)).toBe('-');
     expect(formatMoney(3_544_599.22)).not.toMatch(/[KMB]$/);
   });

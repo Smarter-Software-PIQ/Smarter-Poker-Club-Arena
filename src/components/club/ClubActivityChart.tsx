@@ -1,13 +1,13 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- *  CLUB ACTIVITY CHART — hands and rake over time
+ *  CLUB ACTIVITY CHART - hands and rake over time
  * ═══════════════════════════════════════════════════════════════════════════════
  * Kept in its own file and loaded with React.lazy from ClubDashboard, matching
  * ProfitChart: Recharts is a ~390KB dependency and must not sit in the
  * dashboard's initial chunk just because the Overview tab might show a chart.
  *
  * Hands and rake differ by orders of magnitude (tens of thousands of hands
- * against hundreds of chips), so they get separate Y axes — plotted on one
+ * against hundreds of chips), so they get separate Y axes - plotted on one
  * axis the rake series would be a flat line pinned to zero.
  */
 
@@ -22,6 +22,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import styles from './ClubActivityChart.module.css';
 
 export interface ClubActivityPoint {
   d: string;
@@ -65,51 +66,42 @@ export default function ClubActivityChart({ data, height = 240, handsLabel }: Pr
 
   if (points.length === 0 || points.every((p) => p.hands === 0 && p.rake === 0)) {
     return (
-      <div
-        style={{
-          height,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: 'var(--text-secondary, #8a8f98)',
-          fontSize: '0.85rem',
-        }}
-      >
+      <div className={styles.empty} style={{ height }}>
         No Activity In This Period Yet
       </div>
     );
   }
 
   return (
-    <div style={{ width: '100%', height }}>
+    <div className={styles.chart} style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
           <defs>
             <linearGradient id="caHands" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#a855f7" stopOpacity={0.55} />
-              <stop offset="100%" stopColor="#a855f7" stopOpacity={0.04} />
+              <stop offset="0%" stopColor="#45adff" stopOpacity={0.55} />
+              <stop offset="100%" stopColor="#45adff" stopOpacity={0.04} />
             </linearGradient>
           </defs>
-          <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
+          <CartesianGrid stroke="#253e57" strokeOpacity={0.6} vertical={false} />
           <XAxis
             dataKey="label"
-            tick={{ fill: '#8a8f98', fontSize: 11 }}
+            tick={{ fill: '#9fbacc', fontSize: 11 }}
             tickLine={false}
-            axisLine={{ stroke: 'rgba(255,255,255,0.12)' }}
+            axisLine={{ stroke: '#253e57' }}
             minTickGap={12}
           />
           <YAxis
             yAxisId="hands"
-            tick={{ fill: '#8a8f98', fontSize: 11 }}
+            tick={{ fill: '#9fbacc', fontSize: 11 }}
             tickLine={false}
             axisLine={false}
-            width={48}
-            tickFormatter={(v: number) => fmtChips(v)}
+            width={58}
+            tickFormatter={(v: number) => fmtInt(v)}
           />
           <YAxis
             yAxisId="rake"
             orientation="right"
-            tick={{ fill: '#8a8f98', fontSize: 11 }}
+            tick={{ fill: '#9fbacc', fontSize: 11 }}
             tickLine={false}
             axisLine={false}
             width={52}
@@ -117,12 +109,12 @@ export default function ClubActivityChart({ data, height = 240, handsLabel }: Pr
           />
           <Tooltip
             contentStyle={{
-              background: 'rgba(16,16,32,0.96)',
-              border: '1px solid rgba(255,255,255,0.14)',
-              borderRadius: 10,
+              background: '#07111c',
+              border: '1px solid #253e57',
+              borderRadius: 4,
               fontSize: '0.8rem',
             }}
-            labelStyle={{ color: '#cbd5e1' }}
+            labelStyle={{ color: '#74dfff' }}
             // Recharts types `name` as possibly undefined, so it is normalised
             // here rather than asserted away.
             formatter={(value, name) => {
@@ -132,13 +124,13 @@ export default function ClubActivityChart({ data, height = 240, handsLabel }: Pr
                 : [fmtInt(Number(value)), label];
             }}
           />
-          <Legend wrapperStyle={{ fontSize: '0.75rem' }} />
+          <Legend wrapperStyle={{ fontSize: '0.75rem', color: '#9fbacc' }} />
           <Area
             yAxisId="hands"
             type="monotone"
             dataKey="hands"
             name={handsLabel}
-            stroke="#a855f7"
+            stroke="#45adff"
             strokeWidth={2}
             fill="url(#caHands)"
           />
@@ -146,7 +138,7 @@ export default function ClubActivityChart({ data, height = 240, handsLabel }: Pr
             yAxisId="rake"
             dataKey="rake"
             name="Rake"
-            fill="#f59e0b"
+            fill="#ffd700"
             opacity={0.75}
             radius={[3, 3, 0, 0]}
           />

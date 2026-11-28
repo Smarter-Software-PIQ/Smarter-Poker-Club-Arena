@@ -3488,6 +3488,343 @@ test.describe('cold phone paint coverage, crowns and motion', () => {
     expect((await sample(10000)).reduce((n, r) => n + r.spent * r.duration, 0)).toBeCloseTo(10, 3);
   });
 
+  test('the neon countdown box wraps enlarged mobile Hero and Villain plates on all four sides', async ({
+    page,
+  }) => {
+    const { buildSync } = await import('esbuild');
+    const built = buildSync({
+      stdin: {
+        contents: `
+          import React, { useLayoutEffect, useRef, useState } from 'react';
+          import { createRoot } from 'react-dom/client';
+          import { ToastProvider } from './src/components/common/Toast';
+          import SeatSlot from './src/components/table/SeatSlot';
+          import { enlargeMobileFrames } from './src/components/table/mobileAvatarEnlargement';
+          function Fixture() {
+            const now = Date.now();
+            const [state, setState] = useState({
+              heroActive: true,
+              villainActive: true,
+              heroStart: now - 400,
+              heroDeadline: now + 14600,
+              villainStart: now - 400,
+              villainDeadline: now + 14600,
+            });
+            const pageRef = useRef(null);
+            const scalerRef = useRef(null);
+            (window as any).__setFixture = (patch) => setState((prev) => ({ ...prev, ...patch }));
+            (window as any).__enlargeNow = () => {
+              if (scalerRef.current && pageRef.current) {
+                enlargeMobileFrames(scalerRef.current, pageRef.current, new Map());
+              }
+            };
+            useLayoutEffect(() => {
+              if (scalerRef.current && pageRef.current) {
+                enlargeMobileFrames(scalerRef.current, pageRef.current, new Map());
+              }
+            }, []);
+            return (
+              <ToastProvider>
+                <div
+                  ref={pageRef}
+                  className="table-page"
+                  data-seats="6"
+                  data-hero="true"
+                  style={{ position: 'relative', width: '100vw', height: '100vh', background: '#05080f', overflow: 'hidden' }}
+                >
+                  <div ref={scalerRef} className="table-scaler" style={{ position: 'relative', width: '100%', height: '100%' }}>
+                    <div className="table-surface" style={{ position: 'absolute', inset: '20px', pointerEvents: 'none' }} />
+                    <div className="seat-wrapper" style={{ position: 'absolute', left: '50%', top: '76%', transform: 'translate(-50%, -50%)' }}>
+                      <SeatSlot
+                        seatNumber={1}
+                        position="BTN"
+                        player={{ id: 'hero', name: 'HERO', stack: 1000, status: 'active', showCards: false, isHero: true, avatar: 'https://smarter.poker/avatars/table/vip_wolf@2x.webp' }}
+                        isActive={state.heroActive}
+                        lastAction={null}
+                        turnStartTimeMs={state.heroActive ? state.heroStart : undefined}
+                        turnDeadlineMs={state.heroActive ? state.heroDeadline : undefined}
+                      />
+                    </div>
+                    <div className="seat-wrapper" style={{ position: 'absolute', left: '18%', top: '36%', transform: 'translate(-50%, -50%)' }}>
+                      <SeatSlot
+                        seatNumber={2}
+                        position="BB"
+                        player={{ id: 'villain', name: 'VILLAIN', stack: 1000, status: 'active', showCards: false, isHero: false, avatar: 'https://smarter.poker/avatars/table/vip_wolf@2x.webp' }}
+                        isActive={state.villainActive}
+                        lastAction={null}
+                        turnStartTimeMs={state.villainActive ? state.villainStart : undefined}
+                        turnDeadlineMs={state.villainActive ? state.villainDeadline : undefined}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </ToastProvider>
+            );
+          }
+          createRoot(document.getElementById('root')!).render(<Fixture />);
+        `,
+        resolveDir: ROOT,
+        loader: 'tsx',
+      },
+      bundle: true,
+      write: false,
+      outfile: 'enlarged-neon-fixture.js',
+      format: 'iife',
+      jsx: 'automatic',
+      loader: { '.css': 'empty', '.png': 'dataurl', '.webp': 'dataurl', '.svg': 'dataurl' },
+      define: {
+        'process.env.NODE_ENV': '"production"',
+        'import.meta.env': JSON.stringify({
+          DEV: false,
+          PROD: true,
+          BASE_URL: '/',
+          VITE_SUPABASE_URL: 'https://dummy.supabase.co',
+          VITE_SUPABASE_ANON_KEY: 'fixture',
+        }),
+      },
+    });
+    await page.route('**/avatars/table/**', (route) =>
+      route.fulfill({ path: tableArtFixture('vip_wolf@2x.webp') })
+    );
+    await page.route('**/rest/v1/**', (route) => route.fulfill({ json: [] }));
+    await page.setViewportSize({ width: 600, height: 1065 });
+    await page.setContent('<div id="root"></div>');
+    await page.addStyleTag({
+      content: 'html, body { margin: 0; padding: 0; background: #05080f; }',
+    });
+    for (const file of [
+      'src/pages/TablePage.css',
+      'src/components/table/SeatSlot.css',
+      'src/components/table/TableVisualHotfix.css',
+    ]) {
+      await page.addStyleTag({
+        content: readFileSync(resolve(ROOT, file), 'utf8'),
+      });
+    }
+    await page.addScriptTag({ content: built.outputFiles[0].text });
+    await expect(page.locator('.seat__timer-ring')).toHaveCount(2);
+    await page.evaluate(() => (window as any).__enlargeNow());
+
+    const checkSeats = await page.evaluate(() =>
+      ['.seat--hero', '.seat:not(.seat--hero)'].map((selector) => {
+        const seat = document.querySelector<HTMLElement>(selector)!;
+        const info = seat.querySelector<HTMLElement>('.seat__info')!;
+        const ring = seat.querySelector<HTMLElement>('.seat__timer-ring')!;
+        const before = getComputedStyle(info, '::before');
+        const after = getComputedStyle(info, '::after');
+        const ringStyle = getComputedStyle(ring);
+        const infoRect = info.getBoundingClientRect();
+        const ringRect = ring.getBoundingClientRect();
+        const bw = parseFloat(info.style.getPropertyValue('--sp-frame-bw'));
+        const fx = parseFloat(info.style.getPropertyValue('--sp-frame-x'));
+        const fy = parseFloat(info.style.getPropertyValue('--sp-frame-y'));
+        const fw = parseFloat(info.style.getPropertyValue('--sp-frame-w'));
+        const fh = parseFloat(info.style.getPropertyValue('--sp-frame-h'));
+        const frameLeft = infoRect.left + bw + fx;
+        const frameTop = infoRect.top + bw + fy;
+        const frameRight = frameLeft + fw;
+        const frameBottom = frameTop + fh;
+        return {
+          selector,
+          enlarged: fw > infoRect.width + 1,
+          beforeZ: Number(before.zIndex),
+          ringZ: Number(ringStyle.zIndex),
+          afterZ: Number(after.zIndex),
+          bg: info.style.getPropertyValue('--sp-frame-background'),
+          dl: Math.abs(ringRect.left - (frameLeft + bw - 3)),
+          dt: Math.abs(ringRect.top - (frameTop + bw - 3)),
+          dr: Math.abs(ringRect.right - (frameRight - bw + 3)),
+          db: Math.abs(ringRect.bottom - (frameBottom - bw + 3)),
+          box: {
+            x: ringRect.left,
+            y: ringRect.top,
+            width: ringRect.width,
+            height: ringRect.height,
+          },
+        };
+      })
+    );
+
+    for (const s of checkSeats) {
+      expect(
+        s.enlarged,
+        `${s.selector} should be enlarged on 600px portrait: ${JSON.stringify(s)}`
+      ).toBe(true);
+      expect(s.beforeZ, `${s.selector} ::before below ring`).toBeLessThan(s.ringZ);
+      expect(s.afterZ, `${s.selector} ::after above ring`).toBeGreaterThan(s.ringZ);
+      expect(s.dl, `${s.selector} left edge`).toBeLessThanOrEqual(0.5);
+      expect(s.dt, `${s.selector} top edge`).toBeLessThanOrEqual(0.5);
+      expect(s.dr, `${s.selector} right edge`).toBeLessThanOrEqual(0.5);
+      expect(s.db, `${s.selector} bottom edge`).toBeLessThanOrEqual(0.5);
+      expect(s.bg).not.toContain('rgba(0, 0, 0, 0)');
+    }
+
+    // Verify actual painted neon cyan pixels around ALL FOUR sides of BOTH Hero and Villain!
+    const probeSides = async (
+      boxes: Array<{
+        selector: string;
+        box: { x: number; y: number; width: number; height: number };
+      }>
+    ) => {
+      const png = (await page.screenshot()).toString('base64');
+      return page.evaluate(
+        async ({ b64, targets }) => {
+          const img = new Image();
+          img.src = 'data:image/png;base64,' + b64;
+          await new Promise((res) => (img.onload = res));
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d')!;
+          ctx.drawImage(img, 0, 0);
+          const dpr = img.width / window.innerWidth;
+          const maxCyan = (cssX: number, cssY: number) => {
+            const px = Math.round(cssX * dpr);
+            const py = Math.round(cssY * dpr);
+            let best = { r: 255, g: 0, b: 0, score: -999 };
+            for (let dx = -3; dx <= 3; dx++) {
+              for (let dy = -3; dy <= 3; dy++) {
+                const d = ctx.getImageData(px + dx, py + dy, 1, 1).data;
+                const score = d[1] + d[2] - 2 * d[0];
+                if (score > best.score) best = { r: d[0], g: d[1], b: d[2], score };
+              }
+            }
+            return best;
+          };
+          return targets.map(({ selector, box }) => ({
+            selector,
+            topLeft: maxCyan(box.x + box.width * 0.25, box.y + 1.5),
+            topRight: maxCyan(box.x + box.width * 0.75, box.y + 1.5),
+            rightMid: maxCyan(box.x + box.width - 1.5, box.y + box.height * 0.5),
+            bottomMid: maxCyan(box.x + box.width * 0.5, box.y + box.height - 1.5),
+            leftMid: maxCyan(box.x + 1.5, box.y + box.height * 0.5),
+            interior: maxCyan(box.x + box.width * 0.5, box.y + box.height * 0.5),
+          }));
+        },
+        { b64: png, targets: boxes }
+      );
+    };
+
+    const startPixels = await probeSides(checkSeats);
+    for (const p of startPixels) {
+      for (const side of ['topLeft', 'topRight', 'rightMid', 'bottomMid', 'leftMid'] as const) {
+        expect(p[side].g, `${p.selector} ${side} green`).toBeGreaterThanOrEqual(200);
+        expect(p[side].b, `${p.selector} ${side} blue`).toBeGreaterThanOrEqual(220);
+        expect(p[side].r, `${p.selector} ${side} red`).toBeLessThanOrEqual(40);
+      }
+      expect(p.interior.b, `${p.selector} interior stays dark`).toBeLessThan(80);
+    }
+
+    // Halfway through the turn (55% elapsed): top-right/right/bottom drained, left/top-left stay cyan.
+    await page.evaluate(() => {
+      const now = Date.now();
+      (window as any).__setFixture({
+        heroStart: now - 8250,
+        heroDeadline: now + 6750,
+        villainStart: now - 8250,
+        villainDeadline: now + 6750,
+      });
+    });
+    await page.waitForTimeout(80);
+    const midPixels = await probeSides(checkSeats);
+    for (const p of midPixels) {
+      expect(p.topRight.score, `${p.selector} topRight drained`).toBeLessThan(80);
+      expect(p.rightMid.score, `${p.selector} rightMid drained`).toBeLessThan(80);
+      expect(p.bottomMid.score, `${p.selector} bottomMid drained`).toBeLessThan(80);
+      expect(p.leftMid.g, `${p.selector} leftMid still cyan`).toBeGreaterThanOrEqual(200);
+      expect(p.topLeft.g, `${p.selector} topLeft still cyan`).toBeGreaterThanOrEqual(200);
+    }
+
+    // Repeat enlargement + turn cycling must keep .seat__info mounted and non-transparent.
+    const stability = await page.evaluate(async () => {
+      const heroInfo = document.querySelector<HTMLElement>('.seat--hero .seat__info')!;
+      const bgBefore = heroInfo.style.getPropertyValue('--sp-frame-background');
+      (window as any).__enlargeNow();
+      (window as any).__enlargeNow();
+      const bgAfterRepeat = heroInfo.style.getPropertyValue('--sp-frame-background');
+      const fwBefore = heroInfo.style.getPropertyValue('--sp-frame-w');
+      (window as any).__setFixture({ heroActive: false });
+      await new Promise((r) => setTimeout(r, 40));
+      const sameOff = document.querySelector('.seat--hero .seat__info') === heroInfo;
+      const now = Date.now();
+      (window as any).__setFixture({ heroActive: true, heroStart: now, heroDeadline: now + 15000 });
+      await new Promise((r) => setTimeout(r, 40));
+      const sameBack = document.querySelector('.seat--hero .seat__info') === heroInfo;
+      return {
+        bgStable: bgAfterRepeat === bgBefore && !bgAfterRepeat.includes('rgba(0, 0, 0, 0)'),
+        sameOff,
+        sameBack,
+        fwKept: heroInfo.style.getPropertyValue('--sp-frame-w') === fwBefore,
+      };
+    });
+    expect(stability).toEqual({ bgStable: true, sameOff: true, sameBack: true, fwKept: true });
+
+    // State-overlap and backgrounded-tab hardening on the enlarged Hero plate:
+    // 1. .seat--away or .seat--winner on an active seat never clobbers ::after or clips the ring.
+    // 2. .seat--winner on an inactive enlarged plate keeps overflow: visible + gold ::before glow.
+    // 3. .seat--tb-armed forwards blue rim glow onto ::before, and backdrop-filter is cleared.
+    // 4. .table-page--backgrounded keeps .seat__timer-ring, wipe, and ink running.
+    const stateHardening = await page.evaluate(() => {
+      const tablePage = document.querySelector<HTMLElement>('.table-page')!;
+      const heroSeat = document.querySelector<HTMLElement>('.seat--hero')!;
+      const heroInfo = heroSeat.querySelector<HTMLElement>('.seat__info')!;
+      const ring = heroSeat.querySelector<HTMLElement>('.seat__timer-ring')!;
+      const wipe = heroSeat.querySelector<HTMLElement>('.seat__timer-wipe')!;
+
+      heroSeat.classList.add('seat--away', 'seat--tb-armed');
+      tablePage.classList.add('table-page--backgrounded');
+      const awayActiveAfter = getComputedStyle(heroInfo, '::after');
+      const tbArmedBefore = getComputedStyle(heroInfo, '::before');
+      const activeResult = {
+        awayAfterContent: awayActiveAfter.content,
+        awayAfterTransform: awayActiveAfter.transform,
+        awayAfterZ: awayActiveAfter.zIndex,
+        backdropFilter: getComputedStyle(heroInfo).backdropFilter,
+        tbArmedBlueShadow: tbArmedBefore.boxShadow.includes('24, 119, 242'),
+        bgRingPlayState: getComputedStyle(ring).animationPlayState,
+        bgWipePlayState: getComputedStyle(wipe).animationPlayState,
+      };
+
+      heroSeat.classList.remove('seat--away', 'seat--tb-armed', 'seat--active');
+      heroSeat.classList.add('seat--winner', 'seat--winner-glow');
+      const winnerResult = {
+        overflow: getComputedStyle(heroInfo).overflow,
+        beforeGoldShadow: getComputedStyle(heroInfo, '::before').boxShadow.includes('255, 215, 0'),
+        winnerAfterDisplay: getComputedStyle(heroInfo, '::after').display,
+      };
+
+      heroSeat.classList.add('seat--active');
+      const winnerActiveResult = {
+        overflow: getComputedStyle(heroInfo).overflow,
+        afterZ: getComputedStyle(heroInfo, '::after').zIndex,
+        afterAnim: getComputedStyle(heroInfo, '::after').animationName,
+      };
+
+      return { activeResult, winnerResult, winnerActiveResult };
+    });
+    expect(stateHardening).toEqual({
+      activeResult: {
+        awayAfterContent: '""',
+        awayAfterTransform: 'none',
+        awayAfterZ: '-1',
+        backdropFilter: 'none',
+        tbArmedBlueShadow: true,
+        bgRingPlayState: 'running',
+        bgWipePlayState: 'running',
+      },
+      winnerResult: {
+        overflow: 'visible',
+        beforeGoldShadow: true,
+        winnerAfterDisplay: 'none',
+      },
+      winnerActiveResult: {
+        overflow: 'visible',
+        afterZ: '-1',
+        afterAnim: 'none',
+      },
+    });
+  });
+
   test('the phone pot shine and on-turn avatar scan retain their paths without repainting backgrounds', async ({
     page,
   }, testInfo) => {
