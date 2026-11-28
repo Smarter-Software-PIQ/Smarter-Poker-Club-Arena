@@ -22,13 +22,17 @@ describe('Club Data painted-console contract', () => {
     expect(`${clubData}\n${rake}\n${union}`).not.toMatch(/crest="(?:club|diamond)"/);
   });
 
-  it('keeps Union Data navigation on painted plates and title-cases its live label', () => {
+  it('keeps Union Data navigation on chrome keys and title-cases its live label', () => {
+    // #SmarterDesign batch U1 (2026-11-28): Dan's 2026-11-27 ruling puts every
+    // routed page on the arena workspace, so Union Data's two doors are chrome
+    // keys under its mast, Statements lit, no longer painted plates.
     const union = read('src/pages/UnionDataPage.tsx');
     const header = read('src/components/rewards/RewardsSurfaceHeader.tsx');
 
     expect(header).toContain('family?: ConsoleFamily;');
     expect(header).toContain('family={family}');
-    expect(union).toContain('plates={{');
+    expect(union).toContain('className="arena-switch arena-ops-keys arena-ops-primary"');
+    expect(union).not.toContain('plates={{');
     expect(union).toContain('titleCase(unionName)');
     expect(union).not.toContain('className={styles.headerBtn}');
     expect(union).toMatch(/useLayoutEffect\(\(\) => \{[\s\S]*?setUnionName\(null\)/);

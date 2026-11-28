@@ -51,8 +51,9 @@ export function omahaRiverPotKeyOf(
 
 /** The pot-type river cell shrunk toward the pooled cell of the same size: regions = (n_p r_p + P r_all) / (n_p + P),
  *  P = OMAHA_RIVER_POT_PRIOR_POOL_BETS capped at the pooled cell's n; n = n_p + P (the people evidence behind it).
- *  nonTop20 the same way in the record's unit. Null when the pot type has no shown bet of that size (the caller's
- *  pooled cell stands). */
+ *  nonTop20 the same way, reported only: the bettor's pot-blind record is read against the POOLED cell's nonTop20
+ *  in omahaPeoplePriorShare, its own unit (lead-10 RMEM 2026-11-28). Null when the pot type has no shown bet of
+ *  that size (the caller's pooled cell stands). */
 export function omahaRiverPotCell(
   bucket: string,
   key: OmahaRiverPotKey | null | undefined,

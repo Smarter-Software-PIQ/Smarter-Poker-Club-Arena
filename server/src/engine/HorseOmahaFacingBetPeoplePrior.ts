@@ -238,9 +238,17 @@ export function omahaPeoplePriorShare(input: OmahaPeoplePriorInput): OmahaPeople
     }
   }
   const rec = input.isRaise ? null : input.record;
-  const pNT = pot
-    ? pot.nonTop20
-    : omahaPeopleNonTop20(input.street, input.potFrac, input.isRaise, input.multiway, input.hidden);
+  // His record (HorseOmahaBetRead's cell: street x size x line) does not split by pot type, so it is read against
+  // people's share in that SAME pot-blind cell; the ratio then moves the pot-type cell (omahaRiverBetPriorIsPotTypeSplit).
+  // Reading it against the re-raised cell's own share (larger) made an average person's record cancel the pot split
+  // (ratio -> pooled / re-raised = .417 / .551 on a big bet as his record grows; l10-rmem/BUILD.md).
+  const pNT = omahaPeopleNonTop20(
+    input.street,
+    input.potFrac,
+    input.isRaise,
+    input.multiway,
+    input.hidden
+  );
   const { ratio, shown } = omahaPeoplePriorRecordRatio(rec, pNT);
   const share = clamp(prior * ratio);
   let regions: { core: number; middle: number; bottom: number } | null = null;

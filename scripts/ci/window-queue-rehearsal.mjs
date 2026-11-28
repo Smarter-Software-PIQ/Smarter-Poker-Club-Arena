@@ -164,6 +164,22 @@ SET LOCAL statement_timeout = '${WINDOW_STATEMENT_TIMEOUT_MS}ms';
   return opened;
 }
 
+export const REHEARSAL_SCHEMA_ONLY_EXEMPT_RE =
+  /^[ \t]*--[ \t]*@rehearsal-schema-only-exempt:[ \t]*(.+)$/im;
+
+/**
+ * Return the trimmed justification when a migration explicitly declares
+ * `-- @rehearsal-schema-only-exempt: <reason >= 20 chars>` because its
+ * install-time DO block genuinely depends on live production rows absent from
+ * a schema-only restore. Returns null if absent or shorter than 20 chars.
+ */
+export function rehearsalSchemaOnlyExemptReason(sql) {
+  const m = REHEARSAL_SCHEMA_ONLY_EXEMPT_RE.exec(String(sql));
+  if (!m) return null;
+  const reason = m[1].trim();
+  return reason.length >= 20 ? reason : null;
+}
+
 export function readTree(dir) {
   return readdirSync(dir)
     .filter((n) => MIGRATION_FILE.test(n))
@@ -742,6 +758,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     );
   } else if (cmd === 'sql') {
     process.stdout.write(rehearsalSQL(a, readFileSync(join(dir, a), 'utf8')));
+  } else if (cmd === 'schema-only-exempt') {
+    const reason = rehearsalSchemaOnlyExemptReason(readFileSync(join(dir, a), 'utf8'));
+    if (reason) process.stdout.write(reason + '\n');
   } else if (cmd === 'seed-stats') {
     const stats = parseTableStats(readFileSync(dir, 'utf8'));
     process.stdout.write(seedTableStatsSQL(stats));

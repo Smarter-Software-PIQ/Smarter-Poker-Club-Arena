@@ -13,10 +13,16 @@
 #   EVIDENCE             output directory
 #
 # Ordinary migrations production has not installed go first (their own route
-# installs them before 04:00); one that does not install here is reported and
-# the queue continues. A window file the pull request adds or modifies that
-# does not install fails the gate (exit 1). A window file already on main that
-# does not install is reported loudly; it is the 04:00 run's failure already.
+# installs them before 04:00). An unchanged ordinary file already on main that
+# does not install here is reported and the queue continues. An ordinary OR
+# window file THIS pull request adds or modifies that fails against
+# production's schema fails the gate (exit 1) — incident 37a45c05 / alert
+# 450013 (PR #12325, 2026-11-28): swallowing a changed ordinary migration's
+# rehearsal error let a broken probe merge and page MergedMigrationNotInstalled.
+# A genuine live-row-only ordinary migration may declare
+# `-- @rehearsal-schema-only-exempt: <reason >= 20 chars>`. A window file
+# already on main that does not install is reported loudly; it is the 04:00
+# run's failure already.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 : "${REHEARSAL_PSQL:?}" "${MIG_DIR:?}" "${INSTALLED:?}" "${CHANGED:?}" "${EVIDENCE:?}"
@@ -102,7 +108,18 @@ for f in "${ORDINARY[@]}"; do
     say "- prerequisite \`$f\`: installed"
     NEEDS_RESEED=1
   else
-    say "- prerequisite \`$f\`: did not install here ($(grep -m1 -E 'ERROR' "$EVIDENCE/$f.log" | cut -c1-200)); continuing"
+    err="$(grep -m1 -E 'ERROR' "$EVIDENCE/$f.log" | cut -c1-300)"
+    if is_changed "$f"; then
+      exempt_reason="$(node "$ROOT/scripts/ci/window-queue-rehearsal.mjs" schema-only-exempt "$MIG_DIR" "$f" || true)"
+      if [ -n "$exempt_reason" ]; then
+        say "- ordinary \`$f\` (this pull request, @rehearsal-schema-only-exempt: $exempt_reason): did not install on empty schema ($err); continuing"
+      else
+        FAIL=1
+        say "- **REFUSED** ordinary \`$f\` (this pull request): $err"
+      fi
+    else
+      say "- prerequisite \`$f\`: did not install here ($(printf '%s' "$err" | cut -c1-200)); continuing"
+    fi
   fi
 done
 
@@ -127,8 +144,8 @@ done
 
 if [ "$FAIL" = 1 ]; then
   say ""
-  say "A window migration this pull request adds or changes does not install against production's schema with the queue ahead of it. At 04:00 it would be refused and stay queued. Fix the file (a missing function or table usually means its dependency is not installed yet: ship that first, or put it earlier in the queue)."
+  say "A migration this pull request adds or changes does not install against production's schema with the queue ahead of it. In production it would be refused and leave a merged migration uninstalled. Fix the file (a missing function or table usually means its dependency is not installed yet; a broken DO probe must pass against production's triggers and schema, or for a genuine live-row-only ordinary migration declare \`-- @rehearsal-schema-only-exempt: <reason >= 20 chars>\`)."
   exit 1
 fi
 say ""
-say "OK: every window migration this pull request adds or changes installs against production's schema, in queue order."
+say "OK: every migration this pull request adds or changes installs against production's schema, in queue order."

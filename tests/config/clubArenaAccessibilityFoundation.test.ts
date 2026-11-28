@@ -140,8 +140,9 @@ describe('Club Arena accessibility foundation', () => {
     expect(source).not.toContain('onClick={() => navigate(`/unions/${union.id}`)}');
     expect(source).toContain('aria-label={`Open ${union.name} Union`}');
     expect(source).toContain('role="progressbar"');
-    expect(source).toContain('<LoadingState message="Opening Union Networks" />');
-    expect(source).toContain('<ErrorState message={loadError} onRetry={loadUnions} />');
+    // #SmarterDesign batch U1: the same states on the arena state screens.
+    expect(source).toContain('<ArenaLoadingState message="Opening Union Networks" />');
+    expect(source).toContain('<ArenaErrorState message={loadError} onRetry={loadUnions} />');
   });
 
   it('exposes contextual route families as a labelled current-page navigation rail', () => {

@@ -181,9 +181,20 @@ describe('a union lead needs no club', () => {
     // for var(--energy) and got nothing, and an outline with no colour is
     // invalid at computed-value time - so a keyboard user had no visible focus
     // ring at all on the only two controls this page owns.
-    const css = readFileSync(resolve(ROOT, 'src/pages/UnionDataPage.module.css'), 'utf8');
+    //
+    // Since #SmarterDesign batch U1 (2026-11-28) the page's sheet is
+    // UnionDataPage.css under the page's .arena-workspace root, so the
+    // workspace's own variables (declared on .arena-workspace in
+    // ArenaWorkspace.css, which the mast loads) resolve here too.
+    const css = readFileSync(resolve(ROOT, 'src/pages/UnionDataPage.css'), 'utf8');
+    const workspace = readFileSync(
+      resolve(ROOT, 'src/components/lobby/ArenaWorkspace.css'),
+      'utf8'
+    );
     const used = [...new Set([...css.matchAll(/var\((--[a-z-]+)\)/g)].map((m) => m[1]))];
-    const declared = new Set([...css.matchAll(/^\s*(--[a-z-]+):/gm)].map((m) => m[1]));
+    const declared = new Set(
+      [...`${css}\n${workspace}`.matchAll(/^\s*(--[a-z-]+):/gm)].map((m) => m[1])
+    );
     const unresolved = used.filter((k) => !declared.has(k));
     expect(
       unresolved,

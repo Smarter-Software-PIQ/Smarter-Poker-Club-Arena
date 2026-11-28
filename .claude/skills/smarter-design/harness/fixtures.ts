@@ -1,6 +1,7 @@
 /* Kings Club figures for the render harness (Dan's screenshot: rake 403.3814552027556). */
 export const CLUB_UUID = '2a1132b9-5ba2-42e6-9f01-30a7fcffebe3';
 export const SLUG = 'kings-club';
+export const UNION_UUID = '7d0c2f4e-1b3a-4c5d-9e8f-0a1b2c3d4e5f';
 const ownerId = 'owner-0001';
 const now = new Date().toISOString();
 const table = (i: number, status: string, seated: number) => ({
@@ -108,6 +109,70 @@ const daily = Array.from({ length: 7 }, (_, i) => ({
   hands: 14000 + i * 731,
   rake: 280.12345 + i * 31.3333,
 }));
+/* Union Data (batch U1): the union rake snapshot over a week. */
+const snapRow = (club: string, name: string, fee: number, hands: number) => ({
+  club_id: club,
+  name,
+  code: null,
+  avatar_url: null,
+  fee,
+  cash_fee: Math.round(fee * 0.7 * 100) / 100,
+  mtt_fee: Math.round(fee * 0.3 * 100) / 100,
+  winnings: -fee,
+  hands,
+  games: Math.round(hands / 60),
+  can_drill: true,
+});
+const rakeSnapshot = {
+  day_basis: 'America/Los_Angeles 00:00',
+  scope: 'union',
+  scope_label: 'midway union',
+  club_id: null,
+  union_id: UNION_UUID,
+  club_count: 3,
+  range: { start: '2026-11-21', end: '2026-11-27', days: 7 },
+  previous_range: { start: '2026-11-14', end: '2026-11-20', days: 7 },
+  summary: {
+    fee: 4572.0,
+    cash_fee: 3200.4,
+    mtt_fee: 1371.6,
+    games: 312,
+    hands: 18842,
+    total_winnings: -4572.0,
+    mtt_winnings: 0,
+    members: 585,
+    active: 214,
+  },
+  previous: { fee: 4012.5, games: 290 },
+  delta: { fee_pct: 13.9, games_pct: 7.6, fee_abs: 559.5, winnings_abs: -559.5 },
+  series: [
+    '2026-11-21',
+    '2026-11-22',
+    '2026-11-23',
+    '2026-11-24',
+    '2026-11-25',
+    '2026-11-26',
+    '2026-11-27',
+  ].map((bucket, i) => ({
+    bucket,
+    fee: [512.4, 701.2, 640.0, 588.3, 690.9, 711.1, 728.1][i],
+    winnings: 0,
+  })),
+  series_bucket: 'day',
+  breakdown: [
+    snapRow(CLUB_UUID, 'Kings Club', 3361.5, 13210),
+    snapRow('club-aces-0002', 'Aces Club', 1210.5, 5632),
+  ],
+  breakdown_kind: 'club',
+  breakdown_count: 2,
+  breakdown_offset: 0,
+  breakdown_total: 4572.0,
+  commission_total: null,
+  breakdown_live: true,
+  applied_search: null,
+  applied_sort: 'rake',
+  generated_at: now,
+};
 export const rpcFixtures: Record<string, unknown> = {
   ca_club_operations_overview: overview,
   ca_club_dashboard_stats: {
@@ -233,6 +298,56 @@ export const rpcFixtures: Record<string, unknown> = {
     totals: { in: '1234567.89', out: '2500.00', managed: '0.00', count: 1432 },
     generated_at: now,
   },
+  /* The Union pages (batch U1): Midway Union and its statement board. */
+  fn_is_union_operator: true,
+  ca_can_oversee_union: true,
+  fn_union_online_count: 87,
+  fn_can_i_create_a_union: true,
+  fn_can_i_operate_the_union_network: true,
+  fn_union_eco_settings: { eco_terms_effective_from: '2026-11-16' },
+  fn_batch_club_member_counts: [
+    { club_id: CLUB_UUID, member_count: 174 },
+    { club_id: 'club-aces-0002', member_count: 410 },
+    { club_id: 'club-river-003', member_count: 1 },
+  ],
+  ca_rake_snapshot_v2: rakeSnapshot,
+  ca_rake_snapshot_pacific_v2: rakeSnapshot,
+  ca_union_statement_board: {
+    union_id: UNION_UUID,
+    period_start: '2026-11-16',
+    period_end: '2026-11-22',
+    clubs: [
+      {
+        club_id: CLUB_UUID,
+        club_name: 'Kings Club',
+        invoice_id: 'inv-kings-0001',
+        status: 'paid',
+        snapshot_complete: true,
+        amount: '403.38',
+        paid_total: '403.38',
+        rake_generated: '3361.50',
+        union_fee_kept: '403.38',
+        rakeback_due: '2958.12',
+        due_at: null,
+        outstanding: '0.00',
+      },
+      {
+        club_id: 'club-aces-0002',
+        club_name: 'Aces Club',
+        invoice_id: 'inv-aces-0002',
+        status: 'pending',
+        snapshot_complete: true,
+        amount: '145.26',
+        paid_total: '0.00',
+        rake_generated: '1210.50',
+        union_fee_kept: '145.26',
+        rakeback_due: '1065.24',
+        due_at: '2026-11-30T00:00:00Z',
+        outstanding: '145.26',
+      },
+      { club_id: 'club-river-003', club_name: 'River Club', status: 'missing' },
+    ],
+  },
   fn_poker_arena_context: {
     arena: { id: CLUB_UUID, asset: 'chips', is_platform: false, union_id: null },
     member: true,
@@ -267,6 +382,65 @@ export const fixtures = {
         chip_balance: 33442.45,
       },
     ],
+    /* The Union pages (batch U1): one union of three clubs. */
+    unions: [
+      {
+        id: UNION_UUID,
+        slug: 'midway-union',
+        name: 'Midway Union',
+        description: 'Every Midway Club Under One Network.',
+        owner_id: ownerId,
+        avatar_url: null,
+        is_public: true,
+        member_count: 585,
+        club_count: 3,
+        total_rake: 0,
+        level: 7,
+        player_level: 7,
+        hierarchy_level: 3,
+        total_players: 585,
+        hierarchy_units: 3,
+        hierarchy_units_rounded_up: 3,
+        player_threshold_current: 500,
+        player_threshold_next: 1000,
+        hierarchy_threshold_current: 3,
+        hierarchy_threshold_next: 4,
+        settings: {
+          revenue_share_percent: 12,
+          shared_player_pool: true,
+          cross_club_tournaments: true,
+          eco_cash_enabled: true,
+          eco_cash_rate: 0.1,
+        },
+        created_at: '2026-01-04T00:00:00Z',
+        updated_at: '2026-11-20T00:00:00Z',
+      },
+    ],
+    union_clubs: [
+      ['uc-1', CLUB_UUID, 'Kings Club', ownerId],
+      ['uc-2', 'club-aces-0002', 'Aces Club', 'owner-0002'],
+      ['uc-3', 'club-river-003', 'River Club', 'owner-0003'],
+    ].map(([id, club, name, owner]) => ({
+      id,
+      union_id: UNION_UUID,
+      club_id: club,
+      joined_at: '2026-02-01T00:00:00Z',
+      clubs: { id: club, name, owner_id: owner },
+    })),
+    tournaments: [
+      {
+        id: 'mtt-union-1',
+        name: 'Midway Sunday Major',
+        status: 'REGISTERING',
+        buy_in_amount: 100,
+        buy_in_fee: 10,
+        current_players: 42,
+        max_players: 200,
+        start_time: '2026-11-30T19:00:00Z',
+        union_id: UNION_UUID,
+        clubs: { name: 'Kings Club' },
+      },
+    ],
     /* Settings: the jackpot Announcements (BBJThresholdPanel). */
     bbj_notify_thresholds: [
       { id: 'bbjt-1', amount: 10000, label: 'weekend push', enabled: true },
@@ -275,7 +449,15 @@ export const fixtures = {
     /* Table Bomb Settings (route tables/<id>/bomb-settings) reads one row. */
     tables: [
       {
+        id: 'table-kings-main-1',
         name: 'Kings Main 1',
+        club_id: CLUB_UUID,
+        small_blind: 1,
+        big_blind: 2,
+        current_players: 6,
+        max_players: 9,
+        status: 'running',
+        game_variant: 'NLH',
         bomb_pot_enabled: true,
         bomb_pot_trigger_mode: 'every_n_hands',
         bomb_pot_frequency: 10,
@@ -316,7 +498,89 @@ export const fixtures = {
       },
     })),
     /* Agent Dashboard: the Performance Score (AgentScoreCard) reads. */
-    agents: [{ id: 'agent-1', user_id: ownerId, club_id: CLUB_UUID }],
+    agents: [
+      {
+        id: 'agent-1',
+        user_id: ownerId,
+        club_id: CLUB_UUID,
+        /* Credit Admin (route /credit-admin): the credit columns it reads. */
+        agent_wallet_balance: '1250.75',
+        credit_limit: '5000.00',
+        status: 'active',
+      },
+      {
+        id: 'agent-2',
+        user_id: 'member-02',
+        club_id: CLUB_UUID,
+        agent_wallet_balance: '-0.50',
+        credit_limit: '1234567.89',
+        status: 'suspended',
+      },
+      {
+        id: 'agent-3',
+        user_id: 'member-03',
+        club_id: CLUB_UUID,
+        agent_wallet_balance: '403.38',
+        credit_limit: '500.00',
+        status: 'active',
+      },
+    ],
+    credit_assignments: [
+      {
+        id: 'credit-change-1',
+        agent_id: 'agent-1',
+        old_limit: '2500.00',
+        new_limit: '5000.00',
+        created_at: '2026-11-25T18:00:00Z',
+      },
+      {
+        id: 'credit-change-2',
+        agent_id: 'agent-3',
+        old_limit: '750.00',
+        new_limit: '500.00',
+        created_at: '2026-11-20T18:00:00Z',
+      },
+    ],
+    /* Credit Admin's Credit Requests inbox: one pending request. The stub
+       ignores .eq(), so it is also read back as the viewer's own request. */
+    credit_requests: [
+      {
+        id: 'credit-request-1',
+        requester_id: ownerId,
+        approver_id: ownerId,
+        club_id: CLUB_UUID,
+        requested_amount: '2500.00',
+        approved_amount: null,
+        reason: 'friday night game',
+        status: 'pending',
+        created_at: '2026-11-27T18:00:00Z',
+        reviewed_at: null,
+        reviewed_by: null,
+        reviewer_notes: null,
+        decision_authority_version: 1,
+      },
+    ],
+    /* Settlement History (route /settlement-history): four union rake-hold cycles. */
+    settlement_invoices: [
+      ['paid', '2026-11-23T12:00:00Z', 47, '12840.55', '1284.06', '11556.49'],
+      ['paid', '2026-11-16T12:00:00Z', 46, '9310.20', '931.02', '8379.18'],
+      ['pending', '2026-11-09T12:00:00Z', 45, '403.38', '0', '403.38'],
+      ['generated', '2026-11-02T12:00:00Z', null, '7022.00', '702.20', '6319.80'],
+    ].map(([status, created, period, gross, hold, kept], i) => ({
+      id: `5e7f1a00-0000-4000-8000-00000000000${i + 1}`,
+      club_id: CLUB_UUID,
+      period_id: `5e7f1b00-0000-4000-8000-00000000000${i + 1}`,
+      invoice_type: 'union_to_club',
+      gross_amount: gross,
+      net_amount: hold,
+      breakdown: {
+        union_hold_amount: hold,
+        club_retained: kept,
+        ...(period === null ? {} : { period_number: period }),
+      },
+      status,
+      created_at: created,
+    })),
     chip_transactions: [
       { id: 'x1', amount: 100.5, clawed_back: false, to_user_id: 'member-01' },
       { id: 'x2', amount: 2500, clawed_back: true, to_user_id: 'member-02' },
@@ -333,6 +597,9 @@ export const fixtures = {
         club_arena_tos_accepted_at: '2026-11-20T00:00:00Z',
         club_arena_tos_revision: '2026-11-16-87a8e57589a09136',
       },
+      /* Credit Admin names its agents from these. */
+      { id: 'member-02', display_name: 'RiverRat', username: 'RiverRat' },
+      { id: 'member-03', display_name: 'Queen Of Hearts Long Name Player', username: 'NutFlush' },
     ],
   } as Record<string, unknown>,
 };
