@@ -1,0 +1,51 @@
+{
+  "_source": "pg_get_functiondef read-only from production kuklfnapbkmacvwxktbh on 2026-11-16 03:30-03:45 UTC",
+  "functions": [
+    {
+      "sig": "public.fn_caller_is_engine()",
+      "md5": "d9a70f1d932538025e656bfe2b4d091d",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_caller_is_engine()\n RETURNS boolean\n LANGUAGE sql\n STABLE\n SET search_path TO 'pg_catalog', 'public', 'auth'\nAS $function$\n  -- The engine and every server-side job authenticate as service_role. A NULL\n  -- means there is no PostgREST request context at all - psql, pg_cron, a\n  -- migration - which is equally trusted. A browser can never produce NULL:\n  -- reaching `authenticated` requires a verified JWT and PostgREST always sets\n  -- request.jwt.claims from it.\n  --\n  -- NOT current_user. Inside a SECURITY DEFINER body current_user is the\n  -- function OWNER for the browser and the engine alike, which is what made an\n  -- earlier guard on club_members a silent no-op.\n  SELECT COALESCE(auth.role(), 'service_role') = 'service_role';\n$function$\n"
+    },
+    {
+      "sig": "public.fn_union_overseer_of_record(uuid,uuid)",
+      "md5": "7f892f09fed9a0a768b2741a69ddf6b2",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_union_overseer_of_record(p_union_id uuid, p_user_id uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  SELECT p_union_id IS NOT NULL AND p_user_id IS NOT NULL AND (\n       EXISTS (SELECT 1 FROM public.unions u WHERE u.id = p_union_id AND u.owner_id = p_user_id)\n    OR EXISTS (SELECT 1 FROM public.union_admins a WHERE a.union_id = p_union_id AND a.user_id = p_user_id)\n    OR EXISTS (SELECT 1 FROM public.clubs c\n                WHERE c.id = p_union_id AND COALESCE(c.is_union, false) AND c.owner_id = p_user_id)\n    OR EXISTS (SELECT 1 FROM public.club_members m\n                WHERE m.club_id = p_union_id AND m.user_id = p_user_id\n                  AND m.role IN ('owner','co_owner','admin')\n                  AND m.status IN ('active','approved'))\n  );\n$function$\n"
+    },
+    {
+      "sig": "public.fn_is_union_overseer(uuid,uuid)",
+      "md5": "f16c14bc47eb6e6db203412b683ea5f4",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_is_union_overseer(p_union_id uuid, p_user_id uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  SELECT p_user_id IS NOT NULL\n     AND (public.fn_caller_is_engine() OR auth.uid() IS NOT DISTINCT FROM p_user_id)\n     AND public.fn_union_overseer_of_record(p_union_id, p_user_id);\n$function$\n"
+    },
+    {
+      "sig": "public.ca_can_oversee_union(uuid)",
+      "md5": "79cb90482aa4af61ea4e6a286768efa4",
+      "definition": "CREATE OR REPLACE FUNCTION public.ca_can_oversee_union(p_union_id uuid)\n RETURNS boolean\n LANGUAGE plpgsql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\nDECLARE v_uid uuid := auth.uid();\nBEGIN\n  IF v_uid IS NULL OR p_union_id IS NULL THEN RETURN false; END IF;\n  IF fn_is_union_overseer(p_union_id, v_uid) THEN RETURN true; END IF;\n  RETURN EXISTS (SELECT 1 FROM profiles p\n                  WHERE p.id = v_uid AND COALESCE(p.is_admin, false));\nEND;\n$function$\n"
+    },
+    {
+      "sig": "public.fn_cashier_member_is_active(uuid,uuid)",
+      "md5": "2cabb4a5d0eb8e1cbb32d25cf4c4fa34",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_cashier_member_is_active(p_club uuid, p_user uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public', 'pg_temp'\nAS $function$\n SELECT EXISTS (\n  SELECT 1 FROM public.club_members m WHERE m.club_id=p_club AND m.user_id=p_user\n   AND NOT EXISTS (SELECT 1 FROM public.profiles p WHERE p.id=m.user_id AND p.status='deleted')\n   AND coalesce(m.status,'active') IN ('active','approved')\n   AND (coalesce(m.role,'player') NOT IN ('super_agent','agent','sub_agent')\n    OR EXISTS (SELECT 1 FROM public.agents a WHERE a.club_id=m.club_id\n     AND a.user_id=m.user_id AND a.status='active'))\n )\n$function$\n"
+    },
+    {
+      "sig": "public.fn_ca_club_data_scope(uuid)",
+      "md5": "882099046280f5245d58d07cbb99c26b",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_ca_club_data_scope(p_club_id uuid)\n RETURNS text\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n SELECT CASE\n WHEN session_user IN ('postgres','supabase_admin') OR coalesce(auth.role(),'')='service_role' THEN 'club'\n WHEN auth.uid() IS NULL THEN NULL\n WHEN EXISTS(SELECT 1 FROM public.unions u WHERE u.id=p_club_id)\n   THEN CASE WHEN public.ca_can_oversee_union(p_club_id) THEN 'club' ELSE NULL END\n WHEN EXISTS(SELECT 1 FROM public.clubs c WHERE c.id=p_club_id AND c.owner_id=auth.uid())\n   OR EXISTS(SELECT 1 FROM public.profiles pr WHERE pr.id=auth.uid() AND coalesce(pr.is_admin,false)) THEN 'club'\n WHEN EXISTS(SELECT 1 FROM public.club_members cm WHERE cm.club_id=p_club_id AND cm.user_id=auth.uid()\n   AND coalesce(cm.status,'active') NOT IN ('banned','suspended') AND cm.role IN ('owner','co_owner','admin')\n   AND public.fn_cashier_member_is_active(cm.club_id,cm.user_id)) THEN 'club'\n WHEN EXISTS(SELECT 1 FROM public.club_members cm WHERE cm.club_id=p_club_id AND cm.user_id=auth.uid()\n   AND coalesce(cm.status,'active') NOT IN ('banned','suspended') AND cm.role IN ('super_agent','agent','sub_agent')\n   AND public.fn_cashier_member_is_active(cm.club_id,cm.user_id)) THEN 'downline'\n ELSE NULL END;\n$function$\n"
+    },
+    {
+      "sig": "public.ca_can_view_whole_club_report(uuid)",
+      "md5": "b9270b60a0732bb5730f31a475083657",
+      "definition": "CREATE OR REPLACE FUNCTION public.ca_can_view_whole_club_report(p_club_id uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  SELECT COALESCE(public.fn_ca_club_data_scope(p_club_id) = 'club', false);\n$function$\n"
+    },
+    {
+      "sig": "public.fn_union_invoice_outstanding(uuid)",
+      "md5": "a3faa24ccb417c0e8a295de75634ea69",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_union_invoice_outstanding(p_invoice_id uuid)\n RETURNS numeric\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  SELECT round(si.net_amount - COALESCE((\n           SELECT SUM(cn.net_amount) FROM settlement_invoices cn\n            WHERE cn.adjusts_invoice_id = si.id\n              AND cn.invoice_type = 'union_weekly_credit_note'), 0), 2)\n    FROM settlement_invoices si WHERE si.id = p_invoice_id;\n$function$\n"
+    },
+    {
+      "sig": "public.ca_club_union_invoices(uuid,integer)",
+      "md5": "20148cb3fa6658a7b387e2a7b7496f35",
+      "definition": "CREATE OR REPLACE FUNCTION public.ca_club_union_invoices(p_club_id uuid, p_limit integer DEFAULT 12)\n RETURNS jsonb\n LANGUAGE plpgsql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\nDECLARE v_lim int := GREATEST(LEAST(COALESCE(p_limit, 12), 52), 1);\nBEGIN\n  IF NOT ca_can_view_whole_club_report(p_club_id) THEN\n    RAISE EXCEPTION 'not authorized for this club' USING ERRCODE = '42501';\n  END IF;\n\n  RETURN COALESCE((\n    SELECT jsonb_agg(jsonb_build_object(\n             'invoice_id', i.id,\n             'status', i.status,\n             -- Derived, never stored: a flag needs a job to maintain it, and a\n             -- job that does not run leaves the row lying about itself. The\n             -- union board has computed it this way since it was built; the\n             -- club side used to show the raw status, so an owner read\n             -- \"generated\" on a statement that was days past due.\n             'overdue', (i.status NOT IN ('paid','cancelled')\n                         AND i.due_at IS NOT NULL AND i.due_at < now()),\n             'paid_total', round(COALESCE((i.breakdown->>'paid_total')::numeric, 0), 2),\n             'outstanding', round(GREATEST(\n                 abs(COALESCE(i.net_amount, 0))\n                 - COALESCE((i.breakdown->>'paid_total')::numeric, 0), 0), 2),\n             'issued_at', i.created_at,\n             'due_at', i.due_at,\n             'amount', i.net_amount,\n             'direction', i.breakdown->>'direction',\n             'period_start', i.breakdown->>'period_start',\n             'period_end', i.breakdown->>'period_end',\n             'breakdown', i.breakdown,\n             'message_sent', COALESCE(i.message_sent, false))\n           ORDER BY i.created_at DESC)\n      FROM (\n        SELECT * FROM settlement_invoices s\n         WHERE s.club_id = p_club_id AND s.invoice_type = 'union_weekly_squareup'\n         ORDER BY s.created_at DESC LIMIT v_lim\n      ) i\n  ), '[]'::jsonb);\nEND;\n$function$\n"
+    }
+  ],
+  "fn_union_invoice_outstanding_after_11015": "CREATE OR REPLACE FUNCTION public.fn_union_invoice_outstanding(p_invoice_id uuid)\n RETURNS numeric\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  SELECT round(si.net_amount - COALESCE((\n           SELECT SUM(cn.net_amount) FROM settlement_invoices cn\n            WHERE cn.adjusts_invoice_id = si.id\n              AND cn.invoice_type = 'union_weekly_credit_note'\n              AND cn.status IS DISTINCT FROM 'cancelled'), 0)\n         + COALESCE((\n           SELECT SUM(dn.net_amount) FROM settlement_invoices dn\n            WHERE dn.adjusts_invoice_id = si.id\n              AND dn.invoice_type = 'union_weekly_debit_note'\n              AND dn.status IS DISTINCT FROM 'cancelled'), 0), 2)\n    FROM settlement_invoices si WHERE si.id = p_invoice_id;\n$function$\n"
+}

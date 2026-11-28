@@ -50,10 +50,8 @@ import {
   type UnionStatementBoard as Board,
   type UnionStatementClub as BoardClub,
 } from '../utils/unionStatementBoard';
-import {
-  buildUnionStatementDocument,
-  printUnionStatementDocument,
-} from '../utils/unionStatementDocument';
+import { printUnionStatementDocument } from '../utils/unionStatementDocument';
+import { loadUnionStatementDocument } from '../utils/unionStatementDownload';
 import { parseUnionInsurancePnl, type UnionInsurancePnl } from '../utils/unionInsurancePnl';
 import {
   parseUnionPresettlementReceipt,
@@ -1026,15 +1024,31 @@ export default function UnionStatementsPage() {
                 <button
                   type="button"
                   className={styles.linkBtn}
-                  onClick={() =>
-                    printUnionStatementDocument(
-                      buildUnionStatementDocument(
-                        c,
-                        board?.union_name ?? null,
-                        periodLabel.replace(/^Week: /, '')
-                      )
-                    )
-                  }
+                  onClick={() => {
+                    // The reader dates every credit and charge note; the board
+                    // row is used only while the reader is not installed.
+                    if (!c.invoice_id) return;
+                    void loadUnionStatementDocument(
+                      (fn, args) => supabase.rpc(fn, args),
+                      c.invoice_id,
+                      {
+                        club: c,
+                        unionName: board?.union_name ?? null,
+                        fallbackWeek: periodLabel.replace(/^Week: /, ''),
+                      }
+                    ).then((result) => {
+                      if (result.ok) printUnionStatementDocument(result.document);
+                      else {
+                        if (result.reason === 'failed')
+                          reportError(result.error, 'UnionStatementsPage.statement_document');
+                        toast.error(
+                          result.reason === 'denied'
+                            ? 'You Do Not Have Access To This Statement.'
+                            : 'Could Not Prepare The Statement. Try Again.'
+                        );
+                      }
+                    });
+                  }}
                   aria-label={`Download ${clubLabel} Statement`}
                 >
                   Download Statement

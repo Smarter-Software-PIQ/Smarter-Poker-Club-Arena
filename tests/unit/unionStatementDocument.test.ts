@@ -64,7 +64,7 @@ describe('union statement document', () => {
       { label: 'Outstanding', value: '6,042.96' },
     ]);
     expect(doc.adjustments).toEqual([
-      { kind: 'Credit Note', number: 'MIDWAY-2026-000045', amount: '-21.25' },
+      { kind: 'Credit Note', number: 'MIDWAY-2026-000045', date: 'Not Recorded', amount: '-21.25' },
     ]);
     expect(doc.amountToSettleAfterAdjustments).toBe('6,021.71');
     expect(doc.footer).toBe('All Amounts In Chips.');
@@ -102,7 +102,7 @@ describe('union statement document', () => {
     };
     const doc = buildUnionStatementDocument(club, 'Midway Union');
     expect(doc.adjustments).toEqual([
-      { kind: 'Charge Note', number: 'MIDWAY-2026-000046', amount: '43.86' },
+      { kind: 'Charge Note', number: 'MIDWAY-2026-000046', date: 'Not Recorded', amount: '43.86' },
     ]);
     expect(doc.amountToSettleAfterAdjustments).toBe('6,086.82');
     expect(value(doc.header, 'Amount To Settle')).toBe('6,086.82');

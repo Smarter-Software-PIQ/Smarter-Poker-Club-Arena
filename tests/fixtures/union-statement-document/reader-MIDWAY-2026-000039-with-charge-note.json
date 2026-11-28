@@ -1,0 +1,95 @@
+{
+  "generated_at": "2026-11-16T03:46:59.275536+00:00",
+  "notes": [
+    {
+      "amount": 21.25,
+      "invoice_number": "MIDWAY-2026-000045",
+      "issued_at": "2026-11-15T16:32:08.610955+00:00",
+      "kind": "credit",
+      "status": "generated"
+    },
+    {
+      "amount": 43.86,
+      "invoice_number": "TEST-CHARGE-1",
+      "issued_at": "2026-11-16T19:00:00+00:00",
+      "kind": "charge",
+      "status": "generated"
+    }
+  ],
+  "statement": {
+    "amount": 6042.96,
+    "charge_notes": [
+      {
+        "amount": 43.86,
+        "invoice_number": "TEST-CHARGE-1"
+      }
+    ],
+    "club_code": "2CC19F",
+    "club_id": "a41434bb-8d0c-400a-8f0d-e8b3d65afed4",
+    "club_name": "KINGS CLUB",
+    "club_slug": "kings-club",
+    "credit_notes": [
+      {
+        "amount": 21.25,
+        "invoice_number": "MIDWAY-2026-000045"
+      }
+    ],
+    "direction": "club owes union",
+    "due_at": "2026-11-12T08:00:00+00:00",
+    "eco_amount": -6042.96,
+    "eco_components": [
+      {
+        "activity": "cash",
+        "amount": -3397.16,
+        "base": 33971.59,
+        "base_mode": "club_profit",
+        "enabled": true,
+        "rate": 0.1,
+        "record_id": "0fae2902-622c-40a9-8986-2c48327578bc",
+        "status": "recorded",
+        "terms_id": "6c88eae7-d370-474a-aa6d-3bb8c26e3b1f"
+      },
+      {
+        "activity": "tournament",
+        "amount": -2645.8,
+        "base": 26458.04,
+        "base_mode": "club_profit",
+        "enabled": true,
+        "rate": 0.1,
+        "record_id": "7cd74b3a-8b5c-4139-bb2f-0ac9f2bb0ce5",
+        "status": "recorded",
+        "terms_id": "6c88eae7-d370-474a-aa6d-3bb8c26e3b1f"
+      }
+    ],
+    "eco_version": 2,
+    "invoice_id": "baea13d1-d00d-4e5c-961a-ebf648557842",
+    "invoice_number": "MIDWAY-2026-000039",
+    "issued_at": "2026-11-11T09:05:00.200977+00:00",
+    "message_sent": true,
+    "outstanding": 6065.57,
+    "overdue": true,
+    "paid_total": 0.0,
+    "payee_name": "Midway Union",
+    "payee_type": "union",
+    "payer_name": "KINGS CLUB",
+    "payer_type": "club",
+    "payment_details_available": true,
+    "period_end_at": "2026-11-09T08:00:00+00:00",
+    "period_start_at": "2026-11-02T08:00:00+00:00",
+    "player_pnl_net": -11306.59,
+    "players_won": -37160.83,
+    "presettled": 0.0,
+    "rake_generated": 25854.24,
+    "rakeback_due": 23268.8,
+    "remaining_after_credits": 6065.57,
+    "settled_in_chips": 11962.21,
+    "snapshot_complete": true,
+    "status": "generated",
+    "stored_outstanding": -6042.96,
+    "union_fee_kept": 2585.44,
+    "union_house": false,
+    "weekly_player_results": null
+  },
+  "union_id": "fade0000-0000-0000-0000-000000000001",
+  "union_name": "Midway Union"
+}

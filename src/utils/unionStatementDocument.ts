@@ -21,9 +21,12 @@ import {
   type UnionStatementClub,
 } from './unionStatementBoard';
 
-/** A board row, with the charge notes (debit notes) the board may carry. */
+/** A board row, with the charge notes (debit notes) the board may carry and,
+ *  when read from ca_union_statement_document, each note's issue time keyed
+ *  by its number. */
 export type StatementForDocument = UnionStatementClub & {
   charge_notes?: StatementCredit[] | null;
+  note_dates?: Record<string, string> | null;
 };
 
 export interface StatementDocumentLine {
@@ -34,6 +37,8 @@ export interface StatementDocumentLine {
 export interface StatementDocumentAdjustment {
   kind: 'Credit Note' | 'Charge Note';
   number: string;
+  /** When the note was issued, Chicago time; "Not Recorded" when the source carries no date. */
+  date: string;
   /** Signed toward what is owed: a credit note reduces it, a charge note adds to it. */
   amount: string;
 }
@@ -57,9 +62,13 @@ const chips = (value: number | null | undefined): string =>
 
 const cents = (value: number): number => Math.round(value * 100);
 
-function statusLabel(club: StatementForDocument): string {
+/* A statement with nothing left to settle (square, or credited to zero) is
+   never overdue and has no due date, whatever the board's flag says: the
+   statement's own message body (union_weekly_invoice_body) prints a due date
+   only when something remains. */
+function statusLabel(club: StatementForDocument, nothingDue: boolean): string {
   if (club.payment_details_available === false) return 'Paid Record Only';
-  if (club.overdue) return 'Overdue';
+  if (club.overdue && !nothingDue) return 'Overdue';
   return titleCase(club.status);
 }
 
@@ -81,6 +90,7 @@ export function buildUnionStatementDocument(
   const adjusted = credits.length > 0 || charges.length > 0;
   const original = Math.abs(club.amount);
   const toSettle = square ? 0 : adjusted ? (club.remaining_after_credits ?? null) : original;
+  const nothingDue = toSettle !== null && cents(toSettle) <= 0;
   const eco = (activity: 'cash' | 'tournament') =>
     club.eco_components?.find((component) => component.activity === activity) ?? null;
   const cash = eco('cash');
@@ -103,9 +113,13 @@ export function buildUnionStatementDocument(
     },
     {
       label: 'Due',
-      value: club.due_at ? `${chicagoInstantLabel(club.due_at)} Chicago Time` : NOT_RECORDED,
+      value: nothingDue
+        ? 'Nothing Due'
+        : club.due_at
+          ? `${chicagoInstantLabel(club.due_at)} Chicago Time`
+          : NOT_RECORDED,
     },
-    { label: 'Status', value: statusLabel(club) },
+    { label: 'Status', value: statusLabel(club, nothingDue) },
     { label: 'Who Pays Whom', value: unionStatementPayLine(club, clubLabel, union) },
     { label: 'Amount To Settle', value: chips(toSettle) },
   ];
@@ -125,15 +139,21 @@ export function buildUnionStatementDocument(
     { label: 'Outstanding', value: chips(square ? 0 : original) },
   ];
 
+  const noteDate = (number: string): string => {
+    const at = club.note_dates?.[number];
+    return at ? `${chicagoInstantLabel(at)} Chicago Time` : NOT_RECORDED;
+  };
   const adjustments: StatementDocumentAdjustment[] = [
     ...credits.map((note) => ({
       kind: 'Credit Note' as const,
       number: note.invoice_number,
+      date: noteDate(note.invoice_number),
       amount: formatWalletChips(-Math.abs(note.amount)),
     })),
     ...charges.map((note) => ({
       kind: 'Charge Note' as const,
       number: note.invoice_number,
+      date: noteDate(note.invoice_number),
       amount: formatWalletChips(Math.abs(note.amount)),
     })),
   ];
@@ -190,14 +210,14 @@ export function unionStatementDocumentHtml(doc: UnionStatementDocument): string 
   const header = doc.header.map((line) => row(line, line.label === 'Amount To Settle')).join('');
   const lines = doc.lines.map((line) => row(line, true)).join('');
   const adjustments = doc.adjustments.length
-    ? `<table><thead><tr><th scope="col">Adjustment</th><th scope="col">Number</th><th scope="col" class="num">Amount</th></tr></thead><tbody>${doc.adjustments
+    ? `<table><thead><tr><th scope="col">Adjustment</th><th scope="col">Number</th><th scope="col">Issued</th><th scope="col" class="num">Amount</th></tr></thead><tbody>${doc.adjustments
         .map(
           (a) =>
-            `<tr><td>${escapeHtml(a.kind)}</td><td>${escapeHtml(a.number)}</td><td class="num">${escapeHtml(a.amount)}</td></tr>`
+            `<tr><td>${escapeHtml(a.kind)}</td><td>${escapeHtml(a.number)}</td><td>${escapeHtml(a.date)}</td><td class="num">${escapeHtml(a.amount)}</td></tr>`
         )
         .join(
           ''
-        )}<tr class="total"><th scope="row" colspan="2">Amount To Settle After Adjustments</th><td class="num">${escapeHtml(doc.amountToSettleAfterAdjustments ?? NOT_RECORDED)}</td></tr></tbody></table>`
+        )}<tr class="total"><th scope="row" colspan="3">Amount To Settle After Adjustments</th><td class="num">${escapeHtml(doc.amountToSettleAfterAdjustments ?? NOT_RECORDED)}</td></tr></tbody></table>`
     : '<p>No Adjustments Are Recorded Against This Statement.</p>';
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(doc.title)}</title><style>${PRINT_CSS}</style></head><body><h1>Weekly Union Statement</h1><table>${header}</table><h2>Statement Lines</h2><table>${lines}</table><h2>Adjustments</h2>${adjustments}<ul class="notes">${doc.notes
     .map((note) => `<li>${escapeHtml(note)}</li>`)
