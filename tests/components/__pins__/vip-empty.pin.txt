@@ -1,0 +1,37 @@
+{
+  "money": {
+    "figures": [
+      "Showing Up To 10 Recent Diamond Transactions",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "Your First Month Is 4.99",
+      "5",
+      "5",
+      "250"
+    ],
+    "hooks": [
+      "data-status=none"
+    ]
+  },
+  "text": "Membership | Not A Member | Features Are Purchased Individually With Diamonds | Diamond Activity | Showing Up To 10 Recent Diamond Transactions | Recent Diamonds Earned | 0 | Recent Diamonds Spent | 0 | Transactions Shown | 0 | No Diamond Activity In This Category Yet | 0 | Diamonds | Buy Features | Not A Member? Purchase Features Individually With Diamonds, Or | . | Your First Month Is 4.99 | Rabbit Hunt | Reveal Undealt Cards | 5 | Diamonds | Show Stack BB | Show Stacks In Big Blinds | 5 | Diamonds | Offline Protection | Stay Seated | 250 | Diamonds",
+  "regions": [
+    "section||VIP Membership",
+    "div|group|Filter Diamond Activity"
+  ],
+  "controls": [
+    "a||Get VIP Membership|",
+    "button|button|All Diamond Activity0|aria-pressed=true",
+    "button|button|Diamonds Earned0|aria-pressed=false",
+    "button|button|Diamonds Spent0|aria-pressed=false",
+    "button||Buy Diamonds|",
+    "button||Buy|disabled",
+    "button||Buy|disabled",
+    "button||Buy|disabled",
+    "button||View History|"
+  ]
+}
