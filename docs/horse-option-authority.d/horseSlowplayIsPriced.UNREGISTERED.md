@@ -52,7 +52,7 @@ Unowned blanket random coin flip `H4` (`HorseLogic.ts`: `!isRiver && wetness < 0
 ## Receipts & Tests
 
 - Receipts (`HorseDataLedger.ts`): `horse_slowplay_priced_checked`, `horse_slowplay_priced_bet`.
-- Dedicated law (`docs/laws.d/server-src-engine-AHorseSlowplayIsPriced.md`): `server/src/engine/AHorseSlowplayIsPriced.law.test.ts` (r3: 30/30 passing; 13 of them fail on the r2c code, including all 12 added for r3).
+- Dedicated law (`docs/laws.d/server-src-engine-AHorseSlowplayIsPriced.md`): `server/src/engine/AHorseSlowplayIsPriced.law.test.ts` (r3: 30/30 passing; 13 of them fail on the r2c code, including all 11 added for r3).
 
 ## Replay
 
