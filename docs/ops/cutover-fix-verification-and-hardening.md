@@ -418,6 +418,42 @@ An independent review compared `scripts/release/three-hourly-readiness.py` (O36,
 - **Independent read (Step 1 checklist):** two read-only readers reviewed `#12213`, `#12216` (with its merge of `#12209`), `#12218` and `#12219`. Findings and fixes: `#12254` (readiness), `#12255` (keeper, watch, reclaim). The hand merge of `#12216` with `#12209` was found sound.
 - **Lesson:** two pull requests that each append to this file or to the hardening index conflict with each other, and every resolution costs a 30-minute check run. A fix's record now lands in one closing docs change per session, not in each fix's pull request.
 
+### 2026-11-27 Evening: Proofs Read And Five Follow-Ups (Release Custody)
+
+- **Messenger keep-serving note (Open Item G): PROVEN.** `smarter_private.ca_cutover_cycle_notes` holds a note for every keep-serving cycle since 2026-11-26 13:00 CST, and each `message_id` exists in `public.social_messages` (5 of 5, latest `2026-11-27T13`, message `ce67bdf1`).
+- **RK2 live proof:** certify job `140820290996` (Backup run `46092699049`, `eaf527c51d52`) logged `disk: removed 1 engine image(s) older than 24h; free 81 GiB; kept serving fd425990c0b8` at 19:34 CST.
+- **O35:** still no real case. No certify log since 2026-11-27 04:18 CST holds an executed `YIELDED_OBSOLETE` line (searched every completed Backup run).
+- **Operator fallback, a defect found:** both runs for the 13:00 CST cycle (12:33 and 12:41 CST) logged `UNKNOWN ... SEND FAILED: Command failed: gh api ...`. Every agent on the Mac shares the `Smarter-Poker` user's 5,000-an-hour REST quota (the exported token and gh's own login draw on one bucket), and it was spent until 12:42 CST. The log kept no cause. 13:00 had another owner, so nothing was lost. Fixed by `#12265` (records below).
+- **Readiness regression from RA1, found and fixed:** `#12251` added a `Report a refused install` job to every Apply run; it is skipped on success, a skipped job has no log (HTTP 404), and O36b read every job's log, so readiness said UNKNOWN whenever an install landed after the copy. Fixed in `#12267` (merged 20:02 CST, before the 20:30 CST readiness post).
+- **22:00 CST readiness:** READY `eaf527c51d52` at T-45m on `#11599`; a live read at 20:50 CST with main's tool said the copy (read from production 19:31:30 CST) saw no install since. `#12277` (merged 20:43 CST by another lane) touched no release-control path, so the certificate stayed selectable.
+
+### An Install In Flight Is A Risk, Not A Blind Spot (2026-11-27, `#12267`, `#12270`)
+
+- **Why it broke:** an unfinished Apply run made the whole readiness report UNKNOWN, so the early warning was blind exactly while a migration installed; the copy was dated by its restore, not by when production was read; and the RA1 report job's missing log made every later install read as unread.
+- **Fix:** an unfinished Apply run is the pending install of the one file its run and job names carry: inert or already held changes nothing, otherwise the verdict is `AT_RISK` naming the file and run (unidentifiable stays UNKNOWN). The copy is dated by the earlier of `schema-evidence.json` `capturedAt` (when bound to the certificate) and `restoredAt`. Skipped jobs are not read. `#12270` makes the `#11599` line print `AT RISK <sha12>: ...`.
+- **Hardening:** 6 new cases in `tests/operations/three-hourly-readiness.test.py` (55 pinned); two rows in "says READY, IN_FLIGHT, AT RISK, NO CHANGE or unknown in one line".
+- **Live proof:** pending the first readiness post written while an install is in flight.
+
+### The Window Opens Only Active Pull Requests (2026-11-27, `#12263`)
+
+- **Why:** each window wrote about 154 statuses at the open and 154 at the close (GitHub documents 500 content-creating requests an hour), and the close used most of its 3-minute margin; 195 of the 212 held pull requests had no update in 7 days.
+- **Fix:** a held pull request is opened only if updated within 7 days; an inactive one carries one constant text saying how to get it opened, so it is never rewritten at a boundary. `merge-window-watch.mjs` counts only pull requests active through the window and answers not-needed when none is.
+- **Hardening:** 4 new cases in `tests/a-migration-merges-only-inside-its-install-window.law.test.ts`. Expected writes per boundary: at most about 17.
+- **Live proof:** pending the first window after merge.
+
+### A Timed-Out Install Is Reported (2026-11-27, `#12269`)
+
+- **Why:** a job that exceeds `timeout-minutes` concludes `cancelled`, so the in-run refusal report never ran for the UNKNOWN outcome; and the owning pull request was the latest commit on the migration path, so a late re-report named a later one (`#12245` for `#12217`).
+- **Fix:** the report job runs on `failure` or `cancelled`; a cancelled apply job is reported only when the applier had started sending SQL, as TIMED OUT / UNKNOWN with the `schema_migrations` check to make first. The owning-commit lookup is bounded by the run's `created_at`.
+- **Hardening:** the law allows exactly `failure` and `cancelled`; unit cases from the 69 real cancelled Apply runs (54 never had a job, 11 never started applying, 3 stopped in the queue wait, 1 applied then cancelled: all skipped).
+- **Live proof:** none possible until a real timeout; no Apply run in this repository has reached one.
+
+### The Fallback Outlasts A Spent Quota (2026-11-27, `#12265`)
+
+- **Fix:** every gh failure logs gh's own reason (tokens redacted); before reading, the script asks `gh api rate_limit` (free, per GitHub's documentation), and when the quota is spent and resets before the preparation window's end less 60 s, waits once, then reads once and sends at most once. A reset after that deadline exits 4 naming both times. A per-cycle lock stops the second firing from sending twice. The cron timeout is 1080 s.
+- **Hardening:** 8 new cases in `tests/every-cycle-gets-an-owner.law.test.ts`, including that the timeout covers the longest wait.
+- **Live proof:** pending the installed copy's first run.
+
 ### Decided Against Or Deferred (2026-11-27)
 
 - **A retest after the window installs:** not built. A push after 04:15 CST refreshes the copy on its own, and a `current` keep-serving result means there is nothing new to certify.
@@ -448,8 +484,6 @@ An independent review compared `scripts/release/three-hourly-readiness.py` (O36,
 | Post-Deploy E2E live-table job (132 px against a 140 px floor)                                             | Client lane                              | Fixed (`#12059`); live proof pending                                                                                                                                                                                                                                                                                              |
 | Election when no push lands in a window (job-token runs create no Stage listener run; affects O25 and O27) | Release custody                          | Closed while the Mac Studio is on by the operator fallback cron (record above); live proof pending the first window with no other owner. Two designs recorded in `docs/changelog/2026-11-26-o27b-the-keep-serving-backup-proves-its-intent.md`: a job-token election class in the three readers, or dispatching as the estate App |
 | Estate App as the cycle owner (`#12258`)                                                                   | Release custody                          | Built and independently read; `github-app-main` has no reviewer or timer; merges in the 22:10 CST window of 2026-11-27; live proof is the first App-started Backup whose completion starts a Stage run                                                                                                                            |
-| Keeper write count: about 154 status writes per boundary                                                   | Release custody                          | Open: holding pull requests untouched for 7 days needs `merge-window-watch.mjs` reworked in the same change                                                                                                                                                                                                                       |
-| A timed-out apply job concludes `cancelled`, which the in-run refusal report does not post                 | Release custody                          | Open: covered only by the 60-minute install watch                                                                                                                                                                                                                                                                                 |
 | Shallow shared clone detection                                                                             | Release custody                          | No guard                                                                                                                                                                                                                                                                                                                          |
 
 ## For The Next Agent

@@ -129,3 +129,51 @@
     transform: none !important;
   }
 }
+
+/* ── #SmarterDesign (Dan 2026-11-27) ──────────────────────────────────────
+   The painted spade console was the old style for a page section. The rules
+   now print in the arena workspace's thin chrome case (ClubPageSection's
+   `arena`), with the title in chrome and Copy / Edit Rules as one chrome
+   switch, primary lit. The case is the container the cqw type above reads,
+   so each rule keeps the proportions it had on the glass. */
+.club-rules-page.arena-workspace.arena-workspace {
+  min-height: 100dvh;
+  overflow-x: clip;
+  padding-bottom: calc(var(--bottom-nav-clearance, 74px) + 24px);
+}
+.arena-workspace .arena-case.club-rules-console {
+  container-type: inline-size;
+  width: 100%;
+  max-width: 640px;
+  margin: 8px auto 0;
+}
+.arena-workspace .club-rules-console .arena-section-title small {
+  color: #74dfff;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.arena-workspace .club-rules-console .rules-line__number {
+  color: #74dfff;
+  text-shadow: none;
+}
+.arena-workspace .club-rules-console .rules-line__text {
+  color: #dce5ef;
+  text-shadow: none;
+}
+.arena-workspace .rules-keys {
+  justify-content: center;
+}
+.arena-workspace .rules-keys > .rules-retry {
+  flex: 0 1 160px;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.arena-workspace .club-rules-console .rules-textarea {
+  box-sizing: border-box;
+  padding: 10px;
+  background: #030b14;
+  border: 1px solid #253e57;
+  box-shadow: none;
+  color: #f1f5fc;
+}
