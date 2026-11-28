@@ -36457,7 +36457,7 @@ export class HorseLogic {
         return decision;
       }
       const called = this.legalize(
-        { action: 'call', amount: toCall, thinkTime: decision.thinkTime ?? 0 },
+        { action: 'call', amount: toCall, thinkTime: 0 },
         player,
         gs,
         vi
