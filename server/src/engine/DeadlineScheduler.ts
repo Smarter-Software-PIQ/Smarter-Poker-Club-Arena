@@ -194,6 +194,12 @@ class DeadlineHeap {
     return top;
   }
 
+  /** Peek an entry by (tableId, eventId) in O(1). */
+  get(tableId: string, eventId: string): Deadline | undefined {
+    const idx = this.pos.get(DeadlineHeap.key(tableId, eventId));
+    return idx === undefined ? undefined : this.arr[idx];
+  }
+
   /** Remove an entry by (tableId, eventId). O(log n) via the index. */
   remove(tableId: string, eventId: string): Deadline | undefined {
     const idx = this.pos.get(DeadlineHeap.key(tableId, eventId));
@@ -461,6 +467,17 @@ export class DeadlineScheduler {
   cancel(tableId: string, eventId: string): void {
     this.heap.remove(tableId, eventId);
     this.weeklyParked.delete(this.weeklyKey(tableId, eventId));
+  }
+
+  /** O(1) lookup of an armed entry's absolute deadline (0 when absent). */
+  getDeadline(tableId: string, eventId: string): number {
+    const active = this.heap.get(tableId, eventId);
+    if (active) return active.deadlineMs;
+    const parked = this.weeklyParked.get(this.weeklyKey(tableId, eventId));
+    if (parked) {
+      return parked.deadline.deadlineMs + Math.max(0, this.now() - parked.pausedAt);
+    }
+    return 0;
   }
 
   /** Cancel every deadline for a tableId. */
