@@ -28,6 +28,7 @@ import React, { StrictMode } from 'react';
 import { renderToString } from 'react-dom/server';
 import { StaticRouter } from 'react-router-dom';
 import { ROUTER_BASENAME } from '../lib/appBase';
+import { ConsoleSkinProvider } from '../components/console/consoleSkin';
 import {
   PUBLIC_PATHS,
   KINGS_PREVIEW_PATHS,
@@ -110,24 +111,34 @@ export interface PrerenderedPage {
 export function renderPublicPage(path: string): PrerenderedPage {
   const Page = PAGES[path];
   if (!Page) throw new Error(`no prerender page for ${path}`);
+  /* THE PRERENDER WEARS THE SKIN THE APP WEARS (2026-11-28). App.tsx provides
+     ConsoleSkinProvider value="smarterdesign" at the root (#12299), so every
+     SpadeConsole the running app draws is the #SmarterDesign case. This entry
+     renders the page components without App, so the context fell back to its
+     `painted` default: the landing's twelve consoles were written into
+     index.html painted, and every signed-out visitor and crawler saw the
+     painted landing until the bundle booted and swapped it for the other dress,
+     the layout shift releasePrerenderedLanding (main.tsx) exists to prevent. */
   const html = renderToString(
     <StrictMode>
-      <StaticRouter
-        basename={ROUTER_BASENAME}
-        location={`${ROUTER_BASENAME}${path === '/' ? '' : path}`}
-      >
-        {/* At runtime AppLayout supplies <main id="main-content"> around every
+      <ConsoleSkinProvider value="smarterdesign">
+        <StaticRouter
+          basename={ROUTER_BASENAME}
+          location={`${ROUTER_BASENAME}${path === '/' ? '' : path}`}
+        >
+          {/* At runtime AppLayout supplies <main id="main-content"> around every
             route but the landing, which is its own main. The static page a
             reader gets before, or without, JavaScript has the same landmark
             (discoverability phase 6, 2026-09-17). */}
-        {path === '/' ? (
-          <Page />
-        ) : (
-          <main id="main-content" tabIndex={-1}>
+          {path === '/' ? (
             <Page />
-          </main>
-        )}
-      </StaticRouter>
+          ) : (
+            <main id="main-content" tabIndex={-1}>
+              <Page />
+            </main>
+          )}
+        </StaticRouter>
+      </ConsoleSkinProvider>
     </StrictMode>
   );
   return { path, html, seo: resolveSeo(path) };
