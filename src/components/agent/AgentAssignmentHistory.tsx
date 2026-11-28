@@ -74,7 +74,7 @@ export default function AgentAssignmentHistory({
   }, [load, revision]);
   return (
     <section aria-label="Assignment History" className="agent-assignment-history">
-      <h3 className="sc-label">Assignment History</h3>
+      <h3 className="agent-assignment-subtitle">Assignment History</h3>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -82,33 +82,38 @@ export default function AgentAssignmentHistory({
           if (search.trim() === query) void load();
         }}
       >
-        <label className="sc-label">
+        <label className="agent-assignment-label">
           Search Transfers
           <input
+            className="arena-ops-well"
             aria-label="Search Transfers"
             maxLength={100}
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
         </label>
-        <button type="submit" className="sc-label sc-ink--blue" disabled={busy}>
-          Search History
-        </button>
+        <div className="arena-switch arena-ops-keys">
+          <button type="submit" disabled={busy}>
+            Search History
+          </button>
+        </div>
       </form>
       {error && (
-        <p role="alert" className="sc-copy sc-ink--red">
+        <p role="alert" className="arena-ops-copy agent-assignment-alert">
           Could Not Load Assignment History.
         </p>
       )}
       {busy && (
-        <p role="status" className="sc-copy">
+        <p role="status" className="arena-ops-copy">
           Loading Assignment History...
         </p>
       )}
-      {!busy && !error && rows.length === 0 && <p className="sc-copy">No Matching Transfers.</p>}
+      {!busy && !error && rows.length === 0 && (
+        <p className="arena-ops-copy">No Matching Transfers.</p>
+      )}
       <ol>
         {rows.map((row) => (
-          <li key={row.operation_id} className="sc-copy">
+          <li key={row.operation_id} className="arena-ledger-row agent-assignment-record">
             <p>
               {titleCase(row.source_name)} To {titleCase(row.destination_name)}
             </p>
@@ -119,7 +124,7 @@ export default function AgentAssignmentHistory({
               <time dateTime={row.created_at}>{new Date(row.created_at).toLocaleString()}</time>
             </p>
             <details>
-              <summary className="sc-label">Transfer Details</summary>
+              <summary>Transfer Details</summary>
               <p className="agent-assignment-operation">{row.operation_id}</p>
               {row.review && (
                 <p>
@@ -135,24 +140,16 @@ export default function AgentAssignmentHistory({
           </li>
         ))}
       </ol>
-      <button
-        type="button"
-        className="sc-label sc-ink--blue"
-        disabled={busy}
-        onClick={() => void load()}
-      >
-        Refresh History
-      </button>
-      {hasMore && (
-        <button
-          type="button"
-          className="sc-label sc-ink--blue"
-          disabled={busy}
-          onClick={() => void load(rows[rows.length - 1])}
-        >
-          Load More Transfers
+      <div className="arena-switch arena-ops-keys">
+        <button type="button" disabled={busy} onClick={() => void load()}>
+          Refresh History
         </button>
-      )}
+        {hasMore && (
+          <button type="button" disabled={busy} onClick={() => void load(rows[rows.length - 1])}>
+            Load More Transfers
+          </button>
+        )}
+      </div>
     </section>
   );
 }

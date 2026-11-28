@@ -12,7 +12,7 @@ import {
 } from '../../utils/playerDisplayName';
 import { titleCase } from '../../utils/titleCase';
 import { uuid } from '../../utils/uuid';
-import { SpadeConsole } from '../console/SpadeConsole';
+import { ClubPageSection } from '../club/ClubPageSection';
 import './AgentAssignmentPanel.css';
 import {
   AgentAssignmentService,
@@ -233,10 +233,10 @@ export default function AgentAssignmentPanel({ clubId }: { clubId: string }) {
     }
   };
 
-  if (loading) return <p className="sc-copy">Loading Assignment Controls...</p>;
+  if (loading) return <p className="arena-ops-copy">Loading Assignment Controls...</p>;
   if (!allowed)
     return error ? (
-      <p role="alert" className="sc-copy">
+      <p role="alert" className="arena-ops-copy agent-assignment-alert">
         {error}
       </p>
     ) : null;
@@ -250,14 +250,21 @@ export default function AgentAssignmentPanel({ clubId }: { clubId: string }) {
   const label = (id: string | null) => members.find((m) => m.user_id === id)?.label ?? 'Unassigned';
   const locked = busy || uncertain || preview !== null;
   return (
-    <SpadeConsole title="Assign And Transfer" pill="Staff" eyebrow="Club Management" foot="foot">
+    <ClubPageSection
+      arena
+      title="Assign And Transfer"
+      pill="Staff"
+      eyebrow="Club Management"
+      foot="foot"
+    >
       <div className="agent-assignment">
-        <p className="sc-copy">
+        <p className="arena-ops-copy">
           Assign Or Reassign Players. Moving An Agent Keeps Their Existing Downline Together.
         </p>
-        <label className="sc-label">
+        <label className="agent-assignment-label">
           Current Agent
           <select
+            className="arena-ops-well"
             aria-label="Current Agent"
             value={source}
             disabled={locked}
@@ -274,9 +281,10 @@ export default function AgentAssignmentPanel({ clubId }: { clubId: string }) {
             ))}
           </select>
         </label>
-        <label className="sc-label">
+        <label className="agent-assignment-label">
           Members To Move
           <select
+            className="arena-ops-well"
             multiple
             size={Math.min(8, Math.max(3, assignable.length))}
             aria-label="Members To Move"
@@ -292,17 +300,19 @@ export default function AgentAssignmentPanel({ clubId }: { clubId: string }) {
             ))}
           </select>
         </label>
-        <button
-          type="button"
-          className="sc-label sc-ink--blue"
-          disabled={locked || !assignable.length}
-          onClick={() => setSelected(assignable.map((m) => m.user_id))}
-        >
-          Select All Shown
-        </button>
-        <label className="sc-label">
+        <div className="arena-switch arena-ops-keys">
+          <button
+            type="button"
+            disabled={locked || !assignable.length}
+            onClick={() => setSelected(assignable.map((m) => m.user_id))}
+          >
+            Select All Shown
+          </button>
+        </div>
+        <label className="agent-assignment-label">
           Destination Agent
           <select
+            className="arena-ops-well"
             aria-label="Destination Agent"
             value={target}
             disabled={locked}
@@ -318,60 +328,61 @@ export default function AgentAssignmentPanel({ clubId }: { clubId: string }) {
               ))}
           </select>
         </label>
-        <p className="sc-copy">
+        <p className="arena-ops-copy">
           {selected.length.toLocaleString()} Members Selected. The Complete Transfer Succeeds Or No
           Members Move.
         </p>
         {error && (
-          <p role="alert" className="sc-copy sc-ink--red">
+          <p role="alert" className="arena-ops-copy agent-assignment-alert">
             {titleCase(error)}
           </p>
         )}
         {preview && (
-          <section aria-label="Transfer Preview" className="agent-assignment-preview">
-            <h3 className="sc-label">Review Transfer</h3>
-            <p className="sc-copy">Destination: {titleCase(preview.destination.name)}</p>
-            <p className="sc-copy">
+          <section
+            aria-label="Transfer Preview"
+            className="arena-ledger-row agent-assignment-preview"
+          >
+            <h3 className="agent-assignment-subtitle">Review Transfer</h3>
+            <p className="arena-ops-copy">Destination: {titleCase(preview.destination.name)}</p>
+            <p className="arena-ops-copy">
               {preview.selected_count.toLocaleString()} Selected /{' '}
               {preview.affected_count.toLocaleString()} Total Members Including Attached Downlines
             </p>
             <ul>
               {preview.members.map((member) => (
-                <li key={member.user_id} className="sc-copy">
+                <li key={member.user_id} className="arena-ops-copy">
                   {titleCase(member.name)} / {titleCase(member.source_name)} To{' '}
                   {titleCase(preview.destination.name)}
                 </li>
               ))}
             </ul>
-            <p className="sc-copy">
+            <p className="arena-ops-copy">
               Confirm The Complete Transfer. Changed Hierarchies Require A New Review.
             </p>
-            <button
-              type="button"
-              className="sc-label sc-ink--blue"
-              disabled={busy || uncertain}
-              onClick={() => setPreview(null)}
-            >
-              Edit Selection
-            </button>
+            <div className="arena-switch arena-ops-keys">
+              <button type="button" disabled={busy || uncertain} onClick={() => setPreview(null)}>
+                Edit Selection
+              </button>
+            </div>
           </section>
         )}
-        <button
-          type="button"
-          className="sc-label sc-ink--blue"
-          disabled={busy || (!uncertain && (!selected.length || !target))}
-          onClick={() => void (preview || uncertain ? assign() : review())}
-        >
-          {busy
-            ? 'Saving Assignment...'
-            : uncertain
-              ? 'Retry Same Assignment'
-              : preview
-                ? 'Confirm Transfer'
-                : 'Review Assignment Or Transfer'}
-        </button>
+        <div className="arena-switch arena-ops-keys arena-ops-primary">
+          <button
+            type="button"
+            disabled={busy || (!uncertain && (!selected.length || !target))}
+            onClick={() => void (preview || uncertain ? assign() : review())}
+          >
+            {busy
+              ? 'Saving Assignment...'
+              : uncertain
+                ? 'Retry Same Assignment'
+                : preview
+                  ? 'Confirm Transfer'
+                  : 'Review Assignment Or Transfer'}
+          </button>
+        </div>
         <AgentAssignmentHistory clubId={clubId} revision={historyRevision} />
       </div>
-    </SpadeConsole>
+    </ClubPageSection>
   );
 }
