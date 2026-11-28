@@ -608,7 +608,7 @@ export function TableTabBar({
                   label: isTileView ? 'Single Table View' : 'Tile View',
                   icon: <TileViewIcon />,
                   disabled: !canToggleTileView,
-                  badge: isTileView ? 'ON' : undefined,
+                  badge: isTileView ? 'On' : undefined,
                   onClick: onToggleTileView,
                 },
               ],
@@ -732,28 +732,28 @@ export function TableTabBar({
              picker is TableMenu's own in-app gallery. */
             },
             {
-              /* Every switch says ON or OFF. A switch with no badge when off
+              /* Every switch says On or Off (Title Case, Dan 2026-11-28). A switch with no badge when off
                  reads as a row that does nothing. */
-              standUpBBBadge: tabs.find((t) => t.id === activeTabId)?.standUpNextBB ? 'ON' : 'OFF',
-              straddleBadge: tabs.find((t) => t.id === activeTabId)?.straddleEnabled ? 'ON' : 'OFF',
+              standUpBBBadge: tabs.find((t) => t.id === activeTabId)?.standUpNextBB ? 'On' : 'Off',
+              straddleBadge: tabs.find((t) => t.id === activeTabId)?.straddleEnabled ? 'On' : 'Off',
               leaveNextHandBadge: tabs.find((t) => t.id === activeTabId)?.leaveNextHandQueued
-                ? 'ON'
+                ? 'On'
                 : undefined,
               autoTopUpBadge: tabs.find((t) => t.id === activeTabId)?.isAutoRebuyEnabled
-                ? 'ON'
-                : 'OFF',
+                ? 'On'
+                : 'Off',
               autoTournamentRebuyBadge: tabs.find((t) => t.id === activeTabId)?.tournamentAutoRebuy
-                ? 'ON'
-                : 'OFF',
+                ? 'On'
+                : 'Off',
               autoTournamentAddOnBadge: tabs.find((t) => t.id === activeTabId)?.tournamentAutoAddOn
-                ? 'ON'
-                : 'OFF',
-              soundsBadge: soundOn ? 'ON' : 'OFF',
-              vibrationsBadge: vibrationOn ? 'ON' : 'OFF',
+                ? 'On'
+                : 'Off',
+              soundsBadge: soundOn ? 'On' : 'Off',
+              vibrationsBadge: vibrationOn ? 'On' : 'Off',
               profitTrackingBadge: onToggleProfitTracking
                 ? profitTrackingEnabled
-                  ? 'ON'
-                  : 'OFF'
+                  ? 'On'
+                  : 'Off'
                 : undefined,
               canAddFunds: tabs.find((t) => t.id === activeTabId)?.canAddFunds,
               heroSeated: tabs.find((t) => t.id === activeTabId)?.heroSeated,

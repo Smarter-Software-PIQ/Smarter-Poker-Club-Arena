@@ -149,7 +149,7 @@
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.06em;
-  text-transform: uppercase;
+  text-transform: none;
   color: #45adff;
   font-variant-numeric: tabular-nums;
 }
@@ -218,7 +218,7 @@
   white-space: nowrap;
   font-size: 9px;
   letter-spacing: 0.05em;
-  text-transform: uppercase;
+  text-transform: none;
   color: #9aa5b3;
 }
 
@@ -344,7 +344,7 @@
   font-size: clamp(12px, 3.2vw, 16px);
   font-weight: 800;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
+  text-transform: none;
   text-align: center;
   pointer-events: none;
   animation: tournament-rebuy-flash 1.8s ease-in-out infinite;

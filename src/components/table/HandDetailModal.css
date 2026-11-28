@@ -202,7 +202,7 @@
   font-style: normal;
   font-weight: 800;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow:
     0 0 0.9cqw rgb(49 168 255 / 70%),
     0 0.2cqw 0.3cqw rgb(0 0 0 / 85%);
@@ -257,7 +257,7 @@
   font-size: 2.2cqw;
   font-weight: 800;
   letter-spacing: 0.16em;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow:
     0 0 0.9cqw rgb(49 168 255 / 70%),
     0 0.2cqw 0.3cqw rgb(0 0 0 / 85%);
@@ -313,7 +313,7 @@
   font-size: 2.7cqw;
   font-weight: 700;
   letter-spacing: 0.16em;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow:
     0 0 0.9cqw rgb(49 168 255 / 70%),
     0 0.2cqw 0.3cqw rgb(0 0 0 / 85%);
@@ -352,7 +352,7 @@
   font-size: 2.7cqw;
   font-weight: 700;
   letter-spacing: 0.16em;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow:
     0 0 0.9cqw rgb(49 168 255 / 70%),
     0 0.2cqw 0.3cqw rgb(0 0 0 / 85%);
@@ -411,7 +411,7 @@
   font-size: 2.4cqw;
   font-weight: 800;
   letter-spacing: 0.12em;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow: 0 0.2cqw 0.3cqw rgb(0 0 0 / 80%);
   white-space: nowrap;
 }
@@ -452,7 +452,7 @@
   font-size: 3.1cqw;
   font-weight: 800;
   letter-spacing: 0.12em;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow:
     0 0 1cqw rgb(134 218 255 / 70%),
     0 0.25cqw 0 rgb(0 0 0 / 70%);
@@ -528,7 +528,7 @@
   font-size: 2.4cqw;
   font-weight: 700;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow: 0 0.2cqw 0.3cqw rgb(0 0 0 / 80%);
 }
 
@@ -537,7 +537,7 @@
   font-size: 2.2cqw;
   font-weight: 800;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  text-transform: none;
   white-space: nowrap;
 }
 
@@ -586,7 +586,7 @@
   font-size: 2.9cqw;
   font-weight: 800;
   letter-spacing: 0.06em;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow: 0 0.2cqw 0.3cqw rgb(0 0 0 / 80%);
 }
 
@@ -666,7 +666,7 @@
   font-size: 2.3cqw;
   font-weight: 700;
   letter-spacing: 0.12em;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow: 0 0.2cqw 0.3cqw rgb(0 0 0 / 80%);
   white-space: nowrap;
 }
@@ -686,7 +686,7 @@
   font-size: 2.7cqw;
   font-weight: 700;
   letter-spacing: 0.16em;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow:
     0 0 0.9cqw rgb(49 168 255 / 70%),
     0 0.2cqw 0.3cqw rgb(0 0 0 / 85%);
@@ -792,7 +792,7 @@
   font-size: 3.4cqw;
   font-weight: 800;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow:
     0 0 1cqw rgb(140 210 255 / 90%),
     0 0.25cqw 0 rgb(0 0 0 / 70%);
@@ -962,7 +962,7 @@
   font-size: 2.7cqw;
   font-weight: 800;
   letter-spacing: 0.12em;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow: 0 0.2cqw 0.3cqw rgb(0 0 0 / 80%);
   cursor: pointer;
   touch-action: manipulation;
@@ -1068,7 +1068,7 @@
   font:
     800 clamp(12px, 3cqw, 20px) 'Roboto Condensed',
     sans-serif;
-  text-transform: uppercase;
+  text-transform: none;
   cursor: pointer;
 }
 .hdm-share-status {
@@ -1082,7 +1082,7 @@
   font:
     700 clamp(11px, 2.6cqw, 15px) 'Roboto Condensed',
     sans-serif;
-  text-transform: uppercase;
+  text-transform: none;
 }
 [role='dialog'] .hdm-share-status__stop {
   padding: 4px 2px;
@@ -1238,7 +1238,7 @@
     'Roboto Condensed',
     sans-serif;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
+  text-transform: none;
   cursor: pointer;
   touch-action: manipulation;
 }

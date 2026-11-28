@@ -75,7 +75,7 @@
   font-weight: 800;
   letter-spacing: 0.1em;
   line-height: 1.25;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow: 0 0.2cqw 0.3cqw rgb(0 0 0 / 80%);
   cursor: pointer;
   touch-action: manipulation;
@@ -139,7 +139,7 @@
   font-size: 2.7cqw;
   font-weight: 700;
   letter-spacing: 0.16em;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow:
     0 0 0.9cqw rgb(49 168 255 / 70%),
     0 0.2cqw 0.3cqw rgb(0 0 0 / 85%);
@@ -213,7 +213,7 @@
   font-size: 2.9cqw;
   font-weight: 800;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow: 0 0.2cqw 0.3cqw rgb(0 0 0 / 80%);
   white-space: nowrap;
 }
@@ -247,17 +247,17 @@
   font-size: 3.2cqw;
   font-weight: 800;
   letter-spacing: 0.12em;
-  text-transform: uppercase;
+  text-transform: none;
   cursor: pointer;
   touch-action: manipulation;
 }
 
 .rules-modal__manual-bomb {
-  color: #ffd700;
-  -webkit-text-fill-color: #ffd700;
+  color: #74dfff;
+  -webkit-text-fill-color: #74dfff;
   text-shadow:
-    0 0 1cqw rgb(255 215 0 / 70%),
-    0 0 2cqw rgb(255 215 0 / 30%),
+    0 0 1cqw rgb(116 223 255 / 70%),
+    0 0 2cqw rgb(116 223 255 / 30%),
     0 0.25cqw 0 rgb(0 0 0 / 70%);
 }
 
@@ -380,13 +380,13 @@
 }
 
 .rules-modal__custom-value {
-  color: #ffd700;
-  -webkit-text-fill-color: #ffd700;
+  color: #74dfff;
+  -webkit-text-fill-color: #74dfff;
   font-size: 3.4cqw;
   font-weight: 800;
   text-align: right;
   text-shadow:
-    0 0 1cqw rgb(255 215 0 / 70%),
+    0 0 1cqw rgb(116 223 255 / 70%),
     0 0.25cqw 0 rgb(0 0 0 / 70%);
   white-space: nowrap;
 }
@@ -445,7 +445,7 @@
   font-size: 3.2cqw;
   font-weight: 800;
   letter-spacing: 0.12em;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow:
     0 -0.12cqw 0 rgb(255 255 255 / 45%),
     0 0.2cqw 0 #6d747c,

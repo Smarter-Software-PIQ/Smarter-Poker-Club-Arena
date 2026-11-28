@@ -128,9 +128,9 @@
   font-size: 0.75rem;
   font-weight: 700;
   font-family: 'JetBrains Mono', monospace;
-  background: rgba(255, 184, 0, 0.2);
+  background: rgba(116, 223, 255, 0.16);
   border-radius: 6px;
-  color: var(--sp-warn);
+  color: #74dfff;
 }
 
 .share-hand__board {
@@ -203,7 +203,7 @@
 .share-hand__pot-label {
   font-size: 0.6875rem;
   font-weight: 600;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.1em;
   color: #6e7681;
 }
@@ -604,7 +604,7 @@
 .share-hand__header .share-hand__title {
   font-family: Impact, 'Arial Narrow', sans-serif;
   font-size: 1.8rem;
-  text-transform: uppercase;
+  text-transform: none;
 }
 .share-hand__header .share-hand__close {
   position: absolute;
@@ -636,7 +636,7 @@
 }
 .share-hand__result small {
   color: #c1cbd1;
-  text-transform: uppercase;
+  text-transform: none;
 }
 .share-hand__result strong {
   color: white;

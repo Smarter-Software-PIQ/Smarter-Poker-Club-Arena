@@ -27,14 +27,14 @@
   font-size: 0.82rem;
   font-weight: 800;
   letter-spacing: 0.06em;
-  text-transform: uppercase;
+  text-transform: none;
   color: #d6ad52;
 }
 
 .hand-note__private {
   font-size: 0.68rem;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
+  text-transform: none;
   opacity: 0.55;
 }
 
@@ -117,4 +117,74 @@
   .hand-note__tags-row {
     flex-direction: column;
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   #SMARTERDESIGN leftovers (2026-11-28). Inside a #SmarterDesign console (the
+   table's Hand History) Your Note is a white title over the section hairline,
+   the fields are the workspace search well, Save Note is the lit cobalt
+   primary key and the tag chips are ice. Dan: "YELLOW IS NOT A APPROVED
+   COLOR". Off a console nothing here applies.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.sc--sd .hand-note {
+  border-color: #253e57;
+  background: rgba(4, 13, 23, 0.55);
+}
+.sc--sd .hand-note__head {
+  padding-bottom: 5px;
+  border-bottom: 1px solid #253e57;
+}
+.sc--sd .hand-note__title {
+  color: #f1f5fc;
+}
+.sc--sd .hand-note__private {
+  color: #9fbacc;
+  opacity: 1;
+}
+.sc--sd .hand-note .hand-note__text,
+.sc--sd .hand-note .hand-note__tags {
+  min-height: 44px;
+  border: 1px solid #476079;
+  border-radius: 0;
+  background: #040d17;
+  color: #f1f5fc;
+  color-scheme: dark;
+  font:
+    16px/1.4 Arial,
+    sans-serif;
+}
+.sc--sd .hand-note .hand-note__save {
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 6px 16px;
+  border: 5px solid transparent;
+  border-image: var(--sd-active) 11 / 6px stretch;
+  border-radius: 0;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
+  background-clip: padding-box;
+  color: #fff;
+  font:
+    700 16px/1.1 'Rajdhani',
+    'Roboto Condensed',
+    Inter,
+    sans-serif;
+  letter-spacing: 0.02em;
+}
+.sc--sd .hand-note .hand-note__save:disabled {
+  border-image-source: var(--sd-stat);
+  background: linear-gradient(155deg, #12273b, #07111c 70%);
+  background-clip: padding-box;
+  color: #9fbacc;
+}
+.sc--sd .hand-note .hand-note__save:active {
+  filter: brightness(0.86);
+}
+.sc--sd .hand-note .hand-note__save:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+.sc--sd .hand-note__chip {
+  border-color: rgba(116, 223, 255, 0.32);
+  background: rgba(116, 223, 255, 0.12);
+  color: #d6f6ff;
 }

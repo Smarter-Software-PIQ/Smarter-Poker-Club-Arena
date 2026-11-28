@@ -80,7 +80,7 @@ export interface MenuAction {
   keepOpen?: boolean;
   /**
    * A switch's state, for assistive technology. Every `keepOpen` row is
-   * announced as a checkbox; when this is absent the row's ON badge decides.
+   * announced as a checkbox; when this is absent the row's On badge decides.
    */
   checked?: boolean;
 }
@@ -198,7 +198,7 @@ export function createDefaultMenuSections(
   state?: {
     standUpBBBadge?: string;
     straddleBadge?: string;
-    /** 'ON' while a leave is queued for the end of the hand. */
+    /** 'On' while a leave is queued for the end of the hand. */
     leaveNextHandBadge?: string;
     autoTopUpBadge?: string;
     autoTournamentRebuyBadge?: string;
@@ -647,7 +647,7 @@ export function TableMenu({
           id: 'auto-time-bank',
           label: 'Auto Time Bank',
           icon: <SettingsIcon />,
-          badge: playerSettings.auto_time_bank ? 'ON' : 'OFF',
+          badge: playerSettings.auto_time_bank ? 'On' : 'Off',
           keepOpen: true,
           onClick: () => void togglePlayerSetting('auto_time_bank'),
         },
@@ -657,7 +657,7 @@ export function TableMenu({
                 id: 'seat-change-visibility',
                 label: 'Seat Change',
                 icon: <SettingsIcon />,
-                badge: seatChangeVisible ? 'ON' : 'OFF',
+                badge: seatChangeVisible ? 'On' : 'Off',
                 keepOpen: true,
                 onClick: () => setSeatChangeVisible(!seatChangeVisible),
               },
@@ -854,7 +854,7 @@ export function TableMenu({
                           key={action.id}
                           role={action.keepOpen ? 'menuitemcheckbox' : 'menuitem'}
                           aria-checked={
-                            action.keepOpen ? (action.checked ?? action.badge === 'ON') : undefined
+                            action.keepOpen ? (action.checked ?? action.badge === 'On') : undefined
                           }
                           className={`table-menu__action ${action.danger ? 'table-menu__action--danger' : ''} ${action.disabled ? 'table-menu__action--disabled' : ''}`}
                           onClick={() => handleActionClick(action)}
