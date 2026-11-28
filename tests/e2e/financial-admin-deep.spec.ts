@@ -66,6 +66,7 @@ const LINKED_CONSOLES: readonly LinkedConsole[] = [
     relativeUrl: `settlement-dashboard?club=${encodeURIComponent(CLUB_ID)}`,
     heading: 'Weekly Accounting',
     root: 'main',
+    chassis: 'arena',
   },
   {
     label: 'CSV Exports',
