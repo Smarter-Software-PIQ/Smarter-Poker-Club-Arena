@@ -1,0 +1,13 @@
+{
+  "money": {
+    "figures": [],
+    "hooks": []
+  },
+  "text": "Could Not Load Your Daily Bonus",
+  "regions": [
+    "div|alert|"
+  ],
+  "controls": [
+    "button|button|Try Again|"
+  ]
+}

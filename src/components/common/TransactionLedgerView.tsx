@@ -16,6 +16,7 @@ import { reportError } from '../../utils/errorReporter';
 import { formatPopupText } from '../../utils/popupStyle';
 import { compactChips } from '../../utils/format';
 import './TransactionLedgerView.css';
+import './TransactionLedgerArena.css';
 
 interface LedgerEntry {
   id: string;
@@ -229,6 +230,15 @@ interface Props {
    * returns the club's ledger. Requires clubId to be a uuid.
    */
   clubScoped?: boolean;
+  /**
+   * #SmarterDesign (2026-11-28, opt-in). Inside an arena workspace page the
+   * ledger prints on the workspace's dress: each movement a chrome ledger row,
+   * Try Again a lit chrome key, inks from the workspace. Every word, figure,
+   * role, name and handler is the same; only class names change. Hosts that do
+   * not pass it (Union Operations, Agent Dashboard, Agent Portal, Financials)
+   * keep the painted-console look.
+   */
+  arena?: boolean;
 }
 
 export default function TransactionLedgerView({
@@ -238,7 +248,11 @@ export default function TransactionLedgerView({
   limit = 25,
   title = 'Transaction History',
   clubScoped = false,
+  arena = false,
 }: Props) {
+  /** The painted-console ink class, or nothing on the arena dress. */
+  const ink = (painted: string) => (arena ? '' : ` ${painted}`);
+  const stateClass = arena ? 'tlv-state tlv-state--arena' : 'tlv-state sc-copy sc-copy--center';
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -370,7 +384,7 @@ export default function TransactionLedgerView({
 
   if (loading) {
     return (
-      <div className="tlv-state sc-copy sc-copy--center" role="status" aria-live="polite">
+      <div className={stateClass} role="status" aria-live="polite">
         Loading Transactions...
       </div>
     );
@@ -378,11 +392,7 @@ export default function TransactionLedgerView({
 
   if (denied) {
     return (
-      <div
-        className="tlv-state sc-copy sc-copy--center sc-ink--muted"
-        role="status"
-        aria-live="polite"
-      >
+      <div className={`${stateClass}${ink('sc-ink--muted')}`} role="status" aria-live="polite">
         This Ledger Is Available To Club Owners, CO Owners, Admins And Super Agents.
       </div>
     );
@@ -390,30 +400,34 @@ export default function TransactionLedgerView({
 
   if (error) {
     return (
-      <div className="tlv-state sc-copy sc-copy--center sc-ink--red" role="alert">
+      <div className={`${stateClass}${ink('sc-ink--red')}`} role="alert">
         <div>{error}</div>
-        <button type="button" onClick={() => loadLedger()} className="tlv-word sc-ink--white">
-          Try Again
-        </button>
+        {arena ? (
+          <div className="arena-switch arena-ops-keys arena-ops-primary tlv-keys">
+            <button type="button" onClick={() => loadLedger()}>
+              Try Again
+            </button>
+          </div>
+        ) : (
+          <button type="button" onClick={() => loadLedger()} className="tlv-word sc-ink--white">
+            Try Again
+          </button>
+        )}
       </div>
     );
   }
 
   if (entries.length === 0) {
     return (
-      <div
-        className="tlv-state sc-copy sc-copy--center sc-ink--muted"
-        role="status"
-        aria-live="polite"
-      >
+      <div className={`${stateClass}${ink('sc-ink--muted')}`} role="status" aria-live="polite">
         No Transactions Yet
       </div>
     );
   }
 
   return (
-    <section className="tlv" aria-label={formatPopupText(title)}>
-      <div className="tlv-count sc-label sc-ink--muted">
+    <section className={arena ? 'tlv tlv--arena' : 'tlv'} aria-label={formatPopupText(title)}>
+      <div className={`tlv-count${ink('sc-label sc-ink--muted')}`}>
         {entries.length} Transaction{entries.length !== 1 ? 's' : ''} Shown
       </div>
       {/* A capped-height list that scrolls with no control inside it must take
@@ -425,17 +439,23 @@ export default function TransactionLedgerView({
           const copy = visibleLedgerCopy(e);
 
           return (
-            <li key={e.id} className="tlv-row" data-category={copy.category}>
+            <li
+              key={e.id}
+              className={arena ? 'tlv-row arena-ledger-row' : 'tlv-row'}
+              data-category={copy.category}
+            >
               <div className="tlv-detail">
-                <div className="tlv-category sc-label sc-ink--blue">{copy.category}</div>
-                <div className="tlv-path sc-copy">{copy.path}</div>
+                <div className={`tlv-category${ink('sc-label sc-ink--blue')}`}>{copy.category}</div>
+                <div className={`tlv-path${ink('sc-copy')}`}>{copy.path}</div>
                 {copy.description && (
-                  <div className="tlv-description sc-ink--muted">{copy.description}</div>
+                  <div className={`tlv-description${ink('sc-ink--muted')}`}>{copy.description}</div>
                 )}
               </div>
               <div className="tlv-amount">
-                <div className="tlv-value sc-ink--silver">{publicLedgerAmount(e.amount)}</div>
-                <time className="tlv-time sc-ink--muted" dateTime={e.created_at}>
+                <div className={`tlv-value${ink('sc-ink--silver')}`}>
+                  {publicLedgerAmount(e.amount)}
+                </div>
+                <time className={`tlv-time${ink('sc-ink--muted')}`} dateTime={e.created_at}>
                   {timeStr}
                 </time>
               </div>

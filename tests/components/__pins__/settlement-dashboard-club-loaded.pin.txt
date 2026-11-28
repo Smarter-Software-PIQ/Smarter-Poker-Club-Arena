@@ -1,0 +1,36 @@
+body 0: div
+money: {
+  "figures": [],
+  "hooks": []
+}
+text: Weekly Workspace club Kings Club
+regions: [
+  "div||||"
+]
+body 1: section
+money: {
+  "figures": [
+    "3",
+    "1,250.75",
+    "25",
+    "400,000.50"
+  ],
+  "hooks": [
+    "data-category=Transfer",
+    "data-category=Rake",
+    "data-category=Table Funding"
+  ]
+}
+text: 3 Transaction s Shown Transfer Club Treasury To Lucky Seven Weekly Top Up 1,250.75 <date>, <time> Rake Table To Club Bank 25 <date>, <time> Table Funding The Club To A Table 400,000.50 <date>, <time>
+regions: [
+  "section||Transaction History||",
+  "ol||Ledger Rows||0",
+  "time||||",
+  "time||||",
+  "time||||"
+]
+controls: [
+  "button|Back"
+]
+Club Transaction Records: 1
+Your Account Transactions: 0
