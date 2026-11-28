@@ -8,8 +8,25 @@
  * fired CRITICAL `MergedMigrationNotInstalled` an hour later (23:20 UTC),
  * stalling the next 3-hourly Backup certification and engine cutover (O7).
  *
- * WHAT. `.github/workflows/migration-apply-refusal-alert.yml` runs this on
- * `workflow_run` (`Apply Merged Migration`, `conclusion == 'failure'`). It:
+ * WHO RUNS IT (2026-11-27). The apply run reports its own refusal: the
+ * `report-refusal` job of `.github/workflows/apply-merged-migration.yml` runs
+ * this, in the same run, when its `apply` job concluded `failure`. The first
+ * version listened for `workflow_run` instead, and never heard one: the merge
+ * dispatcher starts the applier with the Actions job token, and GitHub raises
+ * no `workflow_run` event for a run the job token started. Apply run
+ * 46054847104 refused 20261127172908 at 2026-11-27 13:13 CST and no alert was
+ * posted anywhere (CLAUDE.md 10.83). `migration-apply-refusal-alert.yml` stays
+ * as the hand door (re-report a run by id) and for runs a person or an App
+ * started.
+ *
+ * Because the report job runs INSIDE the run it reports, the run's own
+ * conclusion is still null. So the decision is read from the JOB: the run's
+ * apply job completed with conclusion `failure`. The jobs API shows a
+ * completed job's conclusion while the run is in progress, and a completed
+ * job's log is readable then too (`GET /actions/jobs/{id}/logs` answers once
+ * that job has completed; only the run-level log archive waits for the run).
+ *
+ * WHAT. It:
  *   1. reads the failed run's metadata, job steps, and error log via the
  *      GitHub API (using only `github.token`; zero DB secrets, zero DB calls);
  *   2. resolves the merged PR that introduced/modified the migration on `main`;
@@ -22,7 +39,9 @@
  *     `Serving SHA:` on issue #11599, so cutover-log parsers (`cycle-without-outcome.py`,
  *     `post-cutover-receipt.mjs`) never mistake it for a cutover outcome.
  *   - Deduplicates by run ID (`<!-- migration-apply-refusal:<runId> -->`) so
- *     manual re-runs never double-post.
+ *     manual re-runs, and the two doors together, never double-post.
+ *   - A job log that could not be read is said so in the comment
+ *     ("detail unread"); it is never rendered as an alert with nothing wrong.
  */
 import { execFileSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
@@ -31,6 +50,20 @@ import { pathToFileURL } from 'node:url';
 export const LOG_ISSUE = '11599';
 export const APPLY_WORKFLOW_PATH = '.github/workflows/apply-merged-migration.yml';
 export const ALERT_PREFIX = 'Migration apply refusal alert';
+/**
+ * The jobs API names a job by its rendered `name:`, never by its YAML key. The
+ * applier's job is `Apply <file>`; the job that runs this script is named
+ * REPORT_JOB_NAME. tests/the-apply-run-reports-its-own-refusal.law.test.ts
+ * holds the workflow to both, so the report job is never read as the failure.
+ */
+export const APPLY_JOB_NAME_PREFIX = 'Apply ';
+export const REPORT_JOB_NAME = 'Report a refused install';
+export const GH_ALLOW_ESCAPES_FLAG = '--allow-escape-sequences';
+// CSI (colour and cursor), OSC (title/hyperlink) and two-byte escapes.
+const ANSI_ESCAPE_RE = /\x1b(?:\[[0-?]*[ -\/]*[@-~]|\][^\x07\x1b]*\x07?|[@-Z^_])/g;
+
+/** Pure. Remove terminal escape sequences so a coloured log line parses like a plain one. */
+export const stripAnsi = (text) => String(text ?? '').replace(ANSI_ESCAPE_RE, '');
 const MIGRATION_FILE_RE = /\b(\d{14}_[a-z0-9_]+\.sql)\b/;
 const FORBIDDEN_LOG_LINE_RE = /^(?:Cycle|Result|Sealed SHA|Serving SHA):/i;
 const REVERT_SUBJECT_RE = /^revert(?:\s*\(|:|\s+")/i;
@@ -45,18 +78,13 @@ export function alreadyReported(comments, runId) {
   const marker = dedupMarker(id);
   const prefix = `${ALERT_PREFIX} for run ${id}`;
   return (comments ?? []).some(
-    (c) =>
-      typeof c?.body === 'string' && (c.body.includes(marker) || c.body.startsWith(prefix))
+    (c) => typeof c?.body === 'string' && (c.body.includes(marker) || c.body.startsWith(prefix))
   );
 }
 
 /** Pure. Extract the migration filename from the run title or job names. */
 export function extractMigrationFile(run, jobs = []) {
-  const candidates = [
-    run?.display_title,
-    run?.name,
-    ...(jobs ?? []).map((j) => j?.name),
-  ];
+  const candidates = [run?.display_title, run?.name, ...(jobs ?? []).map((j) => j?.name)];
   for (const text of candidates) {
     if (typeof text !== 'string') continue;
     const m = MIGRATION_FILE_RE.exec(text);
@@ -65,12 +93,31 @@ export function extractMigrationFile(run, jobs = []) {
   return null;
 }
 
-/** Pure. Strip GitHub Actions ISO timestamp prefix and ANSI codes from a log line. */
+/** Pure. Strip ANSI codes, a byte-order mark and the GitHub Actions ISO timestamp prefix from a log line. */
 function cleanLogLine(line) {
-  return String(line)
+  return stripAnsi(line)
+    .replace(/^\uFEFF/, '')
     .replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s+/, '')
-    .replace(/\x1b\[[0-9;]*m/g, '')
     .trim();
+}
+
+/**
+ * Pure. The apply job that FAILED, or null. Only a completed job named
+ * `Apply <file>` with conclusion `failure` qualifies: the report job (in
+ * progress while it asks, and named REPORT_JOB_NAME) and any other job are
+ * never chosen, whatever their conclusion.
+ */
+export function pickFailedApplyJob(jobs) {
+  return (
+    (jobs ?? []).find(
+      (j) =>
+        typeof j?.name === 'string' &&
+        j.name !== REPORT_JOB_NAME &&
+        j.name.startsWith(APPLY_JOB_NAME_PREFIX) &&
+        (j.status === undefined || j.status === 'completed') &&
+        j.conclusion === 'failure'
+    ) ?? null
+  );
 }
 
 /**
@@ -78,7 +125,7 @@ function cleanLogLine(line) {
  * `Apply Merged Migration` job log, ignoring shell script source echo lines.
  */
 export function extractFailureSummary(logText) {
-  const rawLines = String(logText ?? '').split(/\r?\n/);
+  const rawLines = stripAnsi(logText).split(/\r?\n/);
   let verdict = 'FAILED';
   let durationMs = null;
   const errorLines = [];
@@ -174,6 +221,7 @@ export function formatPrComment({
   failedSteps = [],
   summaryLines = [],
   observedAt,
+  detailUnread = null,
 }) {
   const dur = durationMs != null ? ` after ${durationMs}ms` : '';
   const lines = [
@@ -183,6 +231,9 @@ export function formatPrComment({
     `- **Failed step(s):** ${failedSteps.length ? failedSteps.join(', ') : 'unknown'}`,
     `- **Impact:** This merged migration is **NOT installed** on production and will block the next Backup certification and engine cutover (O7) until fixed or reverted.`,
   ];
+  if (detailUnread) {
+    lines.push(`- **Detail unread:** ${detailUnread} Open the apply run for the verdict.`);
+  }
   if (summaryLines.length) {
     lines.push('', '```text', ...summaryLines, '```');
   }
@@ -209,6 +260,7 @@ export function formatLogIssueComment({
   owningPrUrl = null,
   summaryLines = [],
   observedAt,
+  detailUnread = null,
 }) {
   const dur = durationMs != null ? ` after ${durationMs}ms` : '';
   const prPart =
@@ -222,6 +274,9 @@ export function formatLogIssueComment({
     `- Observed: ${chicagoTime(observedAt)} — [Apply Merged Migration #${runId}](${runUrl})`,
     `- Custody note: merged migration did not install; upcoming Backup certification / engine cutover is blocked until resolved or reverted.`,
   ];
+  if (detailUnread) {
+    lines.push(`- Detail unread: ${detailUnread} Open the apply run for the verdict.`);
+  }
   for (const errLine of summaryLines.slice(0, 4)) {
     lines.push(`- Detail: \`${errLine.replace(/`/g, "'")}\``);
   }
@@ -233,7 +288,9 @@ export function formatLogIssueComment({
 export function pickOwningCommit(commits) {
   if (!Array.isArray(commits) || commits.length === 0) return null;
   for (const c of commits) {
-    const subject = String(c?.commit?.message ?? '').split('\n')[0].trim();
+    const subject = String(c?.commit?.message ?? '')
+      .split('\n')[0]
+      .trim();
     if (!REVERT_SUBJECT_RE.test(subject)) return c;
   }
   return commits[0];
@@ -246,30 +303,73 @@ export function resolveOwningPr(commit, pulls = []) {
   if (chosen?.number) {
     return { number: Number(chosen.number), url: chosen.html_url ?? null };
   }
-  const subject = String(commit?.commit?.message ?? '').split('\n')[0].trim();
+  const subject = String(commit?.commit?.message ?? '')
+    .split('\n')[0]
+    .trim();
   const m = PR_NUM_IN_SUBJECT_RE.exec(subject);
   if (m) return { number: Number(m[1]), url: null };
   return null;
 }
 
+/** Pure. True when this gh is too old to know GH_ALLOW_ESCAPES_FLAG. */
+function ghRefusedTheFlag(err) {
+  const text = `${err?.stderr ?? ''}\n${err?.message ?? ''}`;
+  return text.includes('unknown flag') && text.includes(GH_ALLOW_ESCAPES_FLAG);
+}
+
+/**
+ * Read a non-JSON GitHub REST body (a job log) as text.
+ *
+ * A job log carries terminal colour codes. gh from 2.97 refuses to print a
+ * non-JSON body that holds them ("the response contains terminal escape
+ * sequences") unless passed GH_ALLOW_ESCAPES_FLAG; older gh prints them and
+ * does not know the flag ("unknown flag", refused by the argument parser
+ * before any request is made). The log is parsed here as data and never
+ * written to a terminal, so the flag is always asked for, and the ONE answer
+ * "unknown flag" selects the old form. Any other failure is thrown as it is:
+ * it is not retried. Same rule as gh_api_get_text in
+ * scripts/release/three-hourly-readiness.py.
+ *
+ * `run(file, args, options)` has execFileSync's shape, so a test can stand in
+ * for gh.
+ */
+export function ghApiText(endpoint, run = execFileSync) {
+  const options = {
+    encoding: 'utf8',
+    maxBuffer: 20 * 1024 * 1024,
+    // stderr is captured so the "unknown flag" answer can be read off the error.
+    stdio: ['ignore', 'pipe', 'pipe'],
+  };
+  const base = ['api', endpoint];
+  try {
+    return run('gh', [...base, GH_ALLOW_ESCAPES_FLAG], options);
+  } catch (err) {
+    if (!ghRefusedTheFlag(err)) throw err;
+    return run('gh', base, options);
+  }
+}
+
 /** Real GitHub API implementation backed by `gh api` using GH_TOKEN. */
-export function createGhDeps() {
+export function createGhDeps({ run = execFileSync } = {}) {
   const apiJson = (endpoint) => {
-    const out = execFileSync('gh', ['api', endpoint], {
+    const out = run('gh', ['api', endpoint], {
       encoding: 'utf8',
       maxBuffer: 10 * 1024 * 1024,
     });
     return JSON.parse(out);
   };
-  const apiText = (endpoint) =>
-    execFileSync('gh', ['api', endpoint], {
-      encoding: 'utf8',
-      maxBuffer: 20 * 1024 * 1024,
-    });
+  const apiText = (endpoint) => ghApiText(endpoint, run);
   const postComment = (repo, issueNumber, body) => {
-    const out = execFileSync(
+    const out = run(
       'gh',
-      ['api', '--method', 'POST', `repos/${repo}/issues/${issueNumber}/comments`, '-f', `body=${body}`],
+      [
+        'api',
+        '--method',
+        'POST',
+        `repos/${repo}/issues/${issueNumber}/comments`,
+        '-f',
+        `body=${body}`,
+      ],
       { encoding: 'utf8', maxBuffer: 5 * 1024 * 1024 }
     );
     return JSON.parse(out);
@@ -287,6 +387,17 @@ export function createGhDeps() {
       apiJson(`repos/${repo}/issues/${issueNumber}/comments?per_page=100`),
     postComment,
   };
+}
+
+/** Pure. One short, credential-free line saying why a read failed. */
+function describeReadError(err) {
+  const text = stripAnsi(`${err?.stderr ?? ''}`.trim() || `${err?.message ?? err ?? ''}`.trim());
+  const last = text.split(/\r?\n/).filter(Boolean).pop() ?? 'no reason given';
+  return last
+    .replace(/postgres(?:ql)?:\/\/[^\s'"]+/gi, '<redacted-db-url>')
+    .replace(/(?:ghp|gho|ghs|github_pat)_[A-Za-z0-9_]+/g, '<redacted-token>')
+    .replace(/`/g, "'")
+    .slice(0, 200);
 }
 
 /**
@@ -311,7 +422,11 @@ export async function reportMigrationApplyRefusal({
       reason: `run ${id} belongs to ${run?.path ?? 'unknown'}, not ${APPLY_WORKFLOW_PATH}`,
     };
   }
-  if (run?.conclusion !== 'failure') {
+  // A run that has finished any other way is not a refusal. A run still in
+  // progress has no conclusion yet (this script is then running inside it),
+  // so that case is decided by the apply job below, not here.
+  const runCompleted = run?.status === 'completed' || run?.conclusion != null;
+  if (runCompleted && run?.conclusion !== 'failure') {
     return {
       status: 'skipped',
       reason: `run ${id} conclusion is ${run?.conclusion ?? 'unknown'}, not failure`,
@@ -319,21 +434,40 @@ export async function reportMigrationApplyRefusal({
   }
 
   const jobs = (await deps.getJobs(repo, id)) ?? [];
+  const failedJob = pickFailedApplyJob(jobs);
+  if (!failedJob) {
+    return {
+      status: 'skipped',
+      reason: `run ${id} has no apply job that concluded failure`,
+    };
+  }
   const migrationFile = extractMigrationFile(run, jobs);
-  const failedJob = jobs.find((j) => j?.conclusion === 'failure') ?? jobs[0] ?? null;
-  const failedSteps = (failedJob?.steps ?? [])
+  const failedSteps = (failedJob.steps ?? [])
     .filter((s) => s?.conclusion === 'failure')
     .map((s) => s.name);
 
+  // An unreadable or empty log is UNREAD, and the comment says so. It is
+  // never passed on as an empty log, which would read as "failed, no cause".
   let logText = '';
-  if (failedJob?.id) {
+  let detailUnread = null;
+  if (!failedJob.id) {
+    detailUnread = 'the failed apply job carried no id, so its log was not requested.';
+  } else {
     try {
       logText = await deps.getJobLog(repo, failedJob.id);
-    } catch {
+      if (typeof logText !== 'string' || !logText.trim()) {
+        logText = '';
+        detailUnread = 'the job log came back empty.';
+      }
+    } catch (err) {
       logText = '';
+      detailUnread = `the job log could not be read (${describeReadError(err)}).`;
     }
   }
   const { verdict, durationMs, summaryLines } = extractFailureSummary(logText);
+  if (!detailUnread && summaryLines.length === 0) {
+    detailUnread = 'the job log was read and held no refusal or error line this script recognizes.';
+  }
 
   let owningPr = null;
   if (migrationFile) {
@@ -354,11 +488,12 @@ export async function reportMigrationApplyRefusal({
     }
   }
 
-  const observedAt = run.updated_at || run.created_at || new Date().toISOString();
-  const runUrl =
-    run.html_url || `https://github.com/${repo}/actions/runs/${id}`;
+  const observedAt =
+    failedJob.completed_at || run.updated_at || run.created_at || new Date().toISOString();
+  const runUrl = run.html_url || `https://github.com/${repo}/actions/runs/${id}`;
   const owningPrUrl =
-    owningPr?.url || (owningPr?.number ? `https://github.com/${repo}/pull/${owningPr.number}` : null);
+    owningPr?.url ||
+    (owningPr?.number ? `https://github.com/${repo}/pull/${owningPr.number}` : null);
 
   const prBody = owningPr
     ? formatPrComment({
@@ -370,6 +505,7 @@ export async function reportMigrationApplyRefusal({
         failedSteps,
         summaryLines,
         observedAt,
+        detailUnread,
       })
     : null;
   const logBody = formatLogIssueComment({
@@ -382,6 +518,7 @@ export async function reportMigrationApplyRefusal({
     owningPrUrl,
     summaryLines,
     observedAt,
+    detailUnread,
   });
 
   const actions = { pr: 'none', logIssue: 'none' };
@@ -417,6 +554,7 @@ export async function reportMigrationApplyRefusal({
     failedSteps,
     owningPrNumber: owningPr?.number ?? null,
     summaryLines,
+    detailUnread,
     actions,
     prBody,
     logBody,
@@ -444,6 +582,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         `- Migration: \`${result.migrationFile ?? 'unknown'}\``,
         `- Verdict: \`${result.verdict ?? result.status}\`${result.durationMs != null ? ` (${result.durationMs}ms)` : ''}`,
         `- Owning PR: ${result.owningPrNumber ? `#${result.owningPrNumber}` : 'none found'}`,
+        ...(result.reason ? [`- Skipped because: ${result.reason}`] : []),
+        ...(result.detailUnread ? [`- Detail unread: ${result.detailUnread}`] : []),
         `- Actions: PR=\`${result.actions?.pr ?? 'none'}\`, #${LOG_ISSUE}=\`${result.actions?.logIssue ?? 'none'}\``,
       ].join('\n');
       process.stdout.write(JSON.stringify(result, null, 2) + '\n');
