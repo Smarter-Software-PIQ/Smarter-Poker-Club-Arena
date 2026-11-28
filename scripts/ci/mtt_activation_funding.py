@@ -328,6 +328,9 @@ def funding_native(e, template, catalog, activate):
            '46462000-0000-4000-8000-000000000003',
            '46468100-0000-4000-8000-000000000005',true,""" + str(target) + "); COMMIT;"
 
+    from tournament_background_admission import qualify_background_admission
+    qualify_background_admission(e, database, target_input)
+
     before = e.snapshot(database, 'target-full-before-data')
     _, answer, _ = e.sql(database, target_input(4), label='actual-attendance-target-full')
     if json.loads(answer).get('reason') != 'horse_attendance_target_met' or before != e.snapshot(database, 'target-full-after-data'):

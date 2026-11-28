@@ -301,7 +301,7 @@ const mttPreparation =
 // Actual activation reuses the same owned PG runner and its exact financial
 // and authoring dependencies. Fixture-only changes must reach this job too.
 const mttActivation =
-  /^(scripts\/ci\/(mtt_activation_native\.py$|mtt_activation_funding\.py$|mtt_activation_satellite\.py$|satellite_qualifier_fixture\.py$|mtt_break_authoring_native\.py$|fixtures\/(mtt-format-activation|satellite-qualifiers|mtt-break-authoring)\/|probes\/mtt-activation\/)|tests\/operations\/mtt-activation-results\.test\.py$)/;
+  /^(scripts\/ci\/(tournament_background_admission(?:_fixture)?\.py$|mtt_activation_native\.py$|mtt_activation_funding\.py$|mtt_activation_satellite\.py$|satellite_qualifier_fixture\.py$|mtt_break_authoring_native\.py$|fixtures\/(mtt-format-activation|satellite-qualifiers|mtt-break-authoring)\/|probes\/mtt-activation\/)|tests\/operations\/mtt-activation-results\.test\.py$)/;
 const originalPaidCustody =
   /^(?:scripts\/ci\/(?:(?:test|build)-original-paid-custody\.py$|original_paid_custody_native\.py$|fixtures\/original-paid-custody\/|probes\/original-paid-custody-authority\.sql$))/;
 // Accounting 3 loads these retained original sources and their native driver.
