@@ -601,11 +601,14 @@
   z-index: 2;
 }
 
+/* Back sits above the chrome mast (2026-11-28), one key wide, as on the
+   Announcements page. */
 :global(.arena-workspace) .back {
   margin: 0;
 }
 
 :global(.arena-workspace) .back > button {
+  flex: 0 1 auto;
   padding: 6px 14px;
 }
 

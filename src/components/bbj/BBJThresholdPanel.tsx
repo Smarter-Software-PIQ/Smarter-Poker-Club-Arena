@@ -40,8 +40,13 @@ import { isUUID, resolveClubUUID } from '../../utils/clubIdResolver';
 import { money } from '../../utils/handFormat';
 import { jackpotChips } from '../../utils/jackpotExact';
 import { titleCase } from '../../utils/titleCase';
-import { SpadeConsole } from '../console/SpadeConsole';
+/* #SmarterDesign (Dan 2026-11-27): the painted console is the old style for a
+   page section; the Announcements print in the thin chrome case of the
+   Settings page, dressed by BBJThresholdArena.css under .arena-workspace. */
+import { ClubPageSection as SpadeConsole } from '../club/ClubPageSection';
+import '../console/SpadeConsole.css';
 import './BBJThresholdPanel.css';
+import './BBJThresholdArena.css';
 
 interface Threshold {
   id: string;
@@ -206,6 +211,7 @@ export default function BBJThresholdPanel({ clubId: clubParam, canEdit }: Props)
      plates, because they have no action to take. */
   return (
     <SpadeConsole
+      arena
       as="section"
       className="bbj-threshold-panel"
       crest="diamond"
@@ -257,7 +263,7 @@ export default function BBJThresholdPanel({ clubId: clubParam, canEdit }: Props)
       ) : (
         <ul className="bbj-threshold-panel__list">
           {rows.map((row) => (
-            <li key={row.id} className="bbj-threshold-panel__row">
+            <li key={row.id} className="bbj-threshold-panel__row arena-ledger-row">
               <span className="bbj-threshold-panel__amount sc-ink--silver">
                 {money(row.amount)}
               </span>
@@ -274,7 +280,7 @@ export default function BBJThresholdPanel({ clubId: clubParam, canEdit }: Props)
                 {row.enabled ? 'On' : 'Off'}
               </span>
               {canEdit && (
-                <span className="bbj-threshold-panel__actions">
+                <span className="bbj-threshold-panel__actions arena-switch">
                   <button
                     type="button"
                     className="bbj-threshold-panel__word sc-ink--blue"

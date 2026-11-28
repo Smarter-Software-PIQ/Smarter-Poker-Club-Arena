@@ -22,9 +22,9 @@ The batch history (what each PR converted, and why) is in [SMARTERDESIGN-HISTORY
 ## Summary
 
 - Not converted: 43
-- Partial: 11
+- Partial: 4
 - UNKNOWN: 2
-- Converted: 41
+- Converted: 48
 - Excluded on purpose: 29
 - Renders no page of its own: 3
 
@@ -76,16 +76,9 @@ The batch history (what each PR converted, and why) is in [SMARTERDESIGN-HISTORY
 - **VIPPage**, `src/pages/VIPPage.tsx`: a plain flat sheet, no frames. Routes: `/vip`.
 - **XMTTPage**, `src/pages/XMTTPage.tsx`: painted console sections in `src/pages/XMTTPage.tsx` (5); the root smarterdesign skin dresses them, but there is no arena shell. Routes: `/xmtt`.
 
-## Partial (11)
+## Partial (4)
 
-- **AgentDashboardPage**, `src/pages/AgentDashboardPage.tsx`: painted console section(s) left in `src/components/agent/AgentScoreCard.tsx` (3). Routes: `/agent-dashboard`.
-- **CashierStatementsPage**, `src/pages/CashierStatementsPage.tsx`: no ArenaWorkspaceHeader mast. Routes: `/clubs/:clubId/cashier/statements`.
-- **TableBombSettingsPage**, `src/pages/club/TableBombSettingsPage.tsx`: no ArenaWorkspaceHeader mast (a PageBar only). Routes: `/clubs/:clubId/tables/:tableId/bomb-settings`.
-- **ClubBannerDisplaysPage**, `src/pages/ClubBannerDisplaysPage.tsx`: no ArenaWorkspaceHeader mast (a PageBar only). Routes: `/clubs/:clubId/banner-displays`.
-- **ClubSettingsPage**, `src/pages/ClubSettingsPage.tsx`: painted console section(s) left in `src/components/bbj/BBJThresholdPanel.tsx` (1). Routes: `/clubs/:clubId/settings`.
-- **ClubWelcomeMessagePage**, `src/pages/ClubWelcomeMessagePage.tsx`: no ArenaWorkspaceHeader mast (a PageBar only). Routes: `/clubs/:clubId/welcome-message`, `/welcome-messages`.
 - **GameManagementPage**, `src/pages/GameManagementPage.tsx`: painted console section(s) left in `src/pages/TableConfigPage.tsx` (1). Routes: `/clubs/:clubId/table-management`, `/unions/:unionId/table-management`.
-- **PromotionsPage**, `src/pages/PromotionsPage.tsx`: painted console section(s) left in `src/components/leaderboard/LeaderboardCard.tsx` (1). Routes: `/clubs/:clubId/promotions`, `/promotions`.
 - **SettlementDashboardPage**, `src/pages/SettlementDashboardPage.tsx`: no arena-workspace root; no ArenaWorkspaceHeader mast (a PageBar only); painted console section(s) left in `src/pages/SettlementDashboardPage.tsx` (3). Routes: `/settlement-dashboard`.
 - **TournamentDetails**, `src/pages/tournament/TournamentDetails.tsx`: no ArenaWorkspaceHeader mast; painted console section(s) left in `src/components/tournament/TournamentClubJoinGate.tsx` (1). Routes: `/tournaments/:tournamentId`.
 - **UnionStatementsPage**, `src/pages/UnionStatementsPage.tsx`: no arena-workspace root; no ArenaWorkspaceHeader mast; painted console section(s) left in `src/pages/UnionStatementsPage.tsx` (4). Routes: `/unions/:unionId/statements`.
@@ -95,12 +88,14 @@ The batch history (what each PR converted, and why) is in [SMARTERDESIGN-HISTORY
 - **MarketplaceRoute**, `src/pages/MarketplaceRoute.tsx`: no markup of its own and nothing this scan could follow; read the source. Routes: `/marketplace`.
 - **NotFoundPage**, `src/pages/NotFoundPage.tsx`: no markup of its own and nothing this scan could follow; read the source. Routes: `/*`.
 
-## Converted (41)
+## Converted (48)
 
 - **CashierEntrance**, `src/components/navigation/CashierEntrance.tsx`: arena-workspace root and mast. Routes: `/cashier`, `/clubs/:clubId/cashier-classic`.
+- **AgentDashboardPage**, `src/pages/AgentDashboardPage.tsx`: arena-workspace root and mast. Routes: `/agent-dashboard`.
 - **AgentManagementPage**, `src/pages/AgentManagementPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/agents`.
 - **AntiCheatPage**, `src/pages/AntiCheatPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/anti-cheat`.
 - **BlacklistManagerPage**, `src/pages/BlacklistManagerPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/blacklist`.
+- **CashierStatementsPage**, `src/pages/CashierStatementsPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/cashier/statements`.
 - **CashierTradePage**, `src/pages/CashierTradePage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/cashier`.
 - **ClubBombPotReportPage**, `src/pages/club/ClubBombPotReportPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/bomb-pot-report`.
 - **ClubDashboard**, `src/pages/club/ClubDashboard.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/dashboard-full`.
@@ -111,13 +106,17 @@ The batch history (what each PR converted, and why) is in [SMARTERDESIGN-HISTORY
 - **ClubLightningOperationsPage**, `src/pages/club/ClubLightningOperationsPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/lightning`.
 - **ClubOperationsPage**, `src/pages/club/ClubOperationsPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/operations`.
 - **ClubWheelOperationsPage**, `src/pages/club/ClubWheelOperationsPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/wheel-operations`.
+- **TableBombSettingsPage**, `src/pages/club/TableBombSettingsPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/tables/:tableId/bomb-settings`.
 - **ClubAnnouncementsPage**, `src/pages/ClubAnnouncementsPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/announcements`.
 - **ClubApplicantsPage**, `src/pages/ClubApplicantsPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/applicants`.
+- **ClubBannerDisplaysPage**, `src/pages/ClubBannerDisplaysPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/banner-displays`.
 - **ClubFinancialsPage**, `src/pages/ClubFinancialsPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/financials`.
 - **ClubHandReviewPage**, `src/pages/ClubHandReviewPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/hand-review`.
 - **ClubMemberDoor**, `src/pages/ClubMemberDoor.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/members/:userId`.
 - **ClubPlayersDoor**, `src/pages/ClubPlayersDoor.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/members`.
 - **ClubRulesPage**, `src/pages/ClubRulesPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/rules`.
+- **ClubSettingsPage**, `src/pages/ClubSettingsPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/settings`.
+- **ClubWelcomeMessagePage**, `src/pages/ClubWelcomeMessagePage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/welcome-message`, `/welcome-messages`.
 - **DisputeManagementPage**, `src/pages/DisputeManagementPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/disputes`, `/disputes`.
 - **HelpPage**, `src/pages/HelpPage.tsx`: arena-workspace root and mast. Routes: `/help`.
 - **FairGamingPage**, `src/pages/legal/FairGamingPage.tsx`: arena-workspace root and mast. Routes: `/legal/fair-gaming`.
@@ -128,6 +127,7 @@ The batch history (what each PR converted, and why) is in [SMARTERDESIGN-HISTORY
 - **PlayerStatisticsPage**, `src/pages/PlayerStatisticsPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/members/:userId/statistics`.
 - **PlayerStatsPage**, `src/pages/PlayerStatsPage.tsx`: arena-workspace root and mast. Routes: `/stats`, `/stats/:userId`.
 - **PlayerWalletPage**, `src/pages/PlayerWalletPage.tsx`: arena-workspace root and mast. Routes: `/wallet`.
+- **PromotionsPage**, `src/pages/PromotionsPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/promotions`, `/promotions`.
 - **PromoVaultPage**, `src/pages/PromoVaultPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/promo-vault`.
 - **ReportReviewPage**, `src/pages/ReportReviewPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/reports`.
 - **SettlementPage**, `src/pages/SettlementPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/settlement`, `/unions/:unionId/settlement`.
