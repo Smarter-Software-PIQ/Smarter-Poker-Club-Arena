@@ -14,10 +14,13 @@
    FULL PAGE CONTAINER
    ═══════════════════════════════════════════════════════════════════════════════ */
 
-.container {
+/* Triple-class beats .arena-workspace.arena-workspace (0,2,0) regardless of
+   chunk load order so GlobalHeader stays full-bleed and bg-vault.jpg stays visible. */
+.container.container.container {
   height: 100vh;
   height: 100dvh; /* Dynamic viewport height — respects mobile browser chrome */
   width: 100%;
+  padding: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2339,17 +2342,11 @@
   }
 }
 
-/* #SmarterDesign Batch H1: keep GlobalHeader full-bleed inside the arena-workspace
-   root while dressing the lobby mast and state cases in the arena chrome kit. */
-.container.container {
-  padding: 0;
-  background: #000;
-}
-
+/* #SmarterDesign Batch H1: lobby mast and state cases in the arena chrome kit. */
 .mastWrap {
   width: 100%;
   max-width: 960px;
-  margin: 6px auto 2px;
+  margin: 6px auto 0;
 }
 
 .stateCase {
