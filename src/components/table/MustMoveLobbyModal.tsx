@@ -336,7 +336,7 @@ export function MustMoveLobbyModal({
               <section className="mml-game">
                 <div className="mml-game-name">{game.name}</div>
                 <div className="mml-game-line">
-                  {styleLabel && <span className="mml-style">{styleLabel.toUpperCase()}</span>}
+                  {styleLabel && <span className="mml-style">{styleLabel}</span>}
                   <span className="mml-stakes">
                     {formatAmount(Number(game.sb))}/{formatAmount(Number(game.bb))}
                   </span>
