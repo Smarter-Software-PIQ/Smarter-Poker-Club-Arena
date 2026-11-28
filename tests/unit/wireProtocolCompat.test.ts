@@ -10,6 +10,7 @@ import {
   extractRpcNames,
   extractWsMessageTypes,
   runCheck,
+  scanPostgresRpcDefinitions,
   scanWorkingTree,
 } from '../../scripts/ci/check-wire-protocol-compat.mjs';
 import { isReleaseControlPath } from '../../scripts/ci/release-control-paths.mjs';
@@ -167,6 +168,106 @@ describe('scripts/ci/check-wire-protocol-compat.mjs', () => {
     );
     expect(rpcFinding).toBeDefined();
     expect(rpcFinding?.suspectedRename).toBe('fn_table_waitlist_join_v2');
+  });
+
+  it('treats removing a server outbound supabase.rpc() call as non-breaking advisory when the Postgres function remains defined in migrations', () => {
+    const base = buildContractFromSources(BASE_FILES);
+    const headFiles = BASE_FILES.map((f) =>
+      f.path === 'server/src/services/WaitlistWorker.ts'
+        ? {
+            ...f,
+            content: `
+              await supabase.rpc('fn_table_waitlist_leave', { p_table_id: id });
+            `,
+          }
+        : f
+    );
+    const head = buildContractFromSources(headFiles);
+
+    // Still defined in supabase/migrations/ (and not dropped) -> non-breaking advisory.
+    const activeRpcs = scanPostgresRpcDefinitions([
+      {
+        path: 'supabase/migrations/20260101000000_waitlist.sql',
+        content: `
+          CREATE OR REPLACE FUNCTION public.fn_table_waitlist_join(p_table_id uuid)
+          RETURNS void LANGUAGE plpgsql AS $$ BEGIN END; $$;
+        `,
+      },
+    ]);
+    const advisoryVerdict = compareWireContracts(base, head, { activePostgresRpcs: activeRpcs });
+    expect(advisoryVerdict.ok).toBe(true);
+    expect(advisoryVerdict.exitCode).toBe(EXIT_OK);
+    expect(advisoryVerdict.breakingChanges).toEqual([]);
+    expect(advisoryVerdict.advisories).toHaveLength(1);
+    expect(advisoryVerdict.advisories[0]).toMatchObject({
+      kind: 'rpc_name',
+      side: 'server',
+      identifier: 'fn_table_waitlist_join',
+    });
+
+    // Missing from migrations -> breaking!
+    const missingVerdict = compareWireContracts(base, head, { activePostgresRpcs: new Set() });
+    expect(missingVerdict.ok).toBe(false);
+    expect(missingVerdict.exitCode).toBe(EXIT_BREAKING);
+    expect(missingVerdict.breakingChanges).toHaveLength(1);
+    expect(missingVerdict.breakingChanges[0].identifier).toBe('fn_table_waitlist_join');
+
+    // Defined earlier, then dropped in a later migration -> breaking!
+    const droppedRpcs = scanPostgresRpcDefinitions([
+      {
+        path: 'supabase/migrations/20260101000000_waitlist.sql',
+        content: `CREATE FUNCTION public.fn_table_waitlist_join(p_table_id uuid) RETURNS void LANGUAGE sql AS $$ SELECT 1; $$;`,
+      },
+      {
+        path: 'supabase/migrations/20261128000000_drop_waitlist.sql',
+        content: `DROP FUNCTION IF EXISTS public.fn_table_waitlist_join(uuid);`,
+      },
+    ]);
+    const droppedVerdict = compareWireContracts(base, head, { activePostgresRpcs: droppedRpcs });
+    expect(droppedVerdict.ok).toBe(false);
+    expect(droppedVerdict.exitCode).toBe(EXIT_BREAKING);
+
+    // Dropped and re-created in chronological order -> still active -> non-breaking advisory!
+    const recreatedRpcs = scanPostgresRpcDefinitions([
+      {
+        path: 'supabase/migrations/20260101000000_waitlist.sql',
+        content: `CREATE FUNCTION public.fn_table_waitlist_join(p_table_id uuid) RETURNS void LANGUAGE sql AS $$ SELECT 1; $$;`,
+      },
+      {
+        path: 'supabase/migrations/20261128000000_recreate_waitlist.sql',
+        content: `
+          DROP FUNCTION IF EXISTS public.fn_table_waitlist_join(uuid);
+          CREATE OR REPLACE FUNCTION public.fn_table_waitlist_join(p_table_id uuid, p_extra int DEFAULT 0)
+          RETURNS void LANGUAGE sql AS $$ SELECT 1; $$;
+        `,
+      },
+    ]);
+    const recreatedVerdict = compareWireContracts(base, head, {
+      activePostgresRpcs: recreatedRpcs,
+    });
+    expect(recreatedVerdict.ok).toBe(true);
+    expect(recreatedVerdict.exitCode).toBe(EXIT_OK);
+
+    // Dropping an older overload while a newer overload stays active -> still non-breaking advisory!
+    const overloadRpcs = scanPostgresRpcDefinitions([
+      {
+        path: 'supabase/migrations/20260101000000_v1.sql',
+        content: `CREATE FUNCTION public.fn_table_waitlist_join(p_table_id uuid) RETURNS void LANGUAGE sql AS $$ SELECT 1; $$;`,
+      },
+      {
+        path: 'supabase/migrations/20260201000000_v2.sql',
+        content: `CREATE OR REPLACE FUNCTION public.fn_table_waitlist_join(p_table_id uuid, p_token text DEFAULT NULL) RETURNS void LANGUAGE sql AS $$ SELECT 1; $$;`,
+      },
+      {
+        path: 'supabase/migrations/20261128000000_drop_v1.sql',
+        content: `DROP FUNCTION IF EXISTS public.fn_table_waitlist_join(uuid);`,
+      },
+    ]);
+    const overloadVerdict = compareWireContracts(base, head, {
+      activePostgresRpcs: overloadRpcs,
+    });
+    expect(overloadVerdict.ok).toBe(true);
+    expect(overloadVerdict.exitCode).toBe(EXIT_OK);
   });
 
   it('passes cleanly on the live repository against origin/main and discovers real shared WS frames', () => {

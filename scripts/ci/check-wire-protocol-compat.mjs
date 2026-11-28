@@ -220,12 +220,229 @@ function detectSuspectedRename(removedId, addedIds) {
   return best;
 }
 
+const MIGRATION_SQL_RE = /\.sql$/;
+const SUPERSEDED_SQL_RE = /^--[ \t]*SUPERSEDED\s+BY\s+\d{14}\b/im;
+const PG_QUALIFIED_NAME_RE = String.raw`((?:"?[A-Za-z_][A-Za-z0-9_$]*"?\s*\.\s*)?"?[A-Za-z_][A-Za-z0-9_$]*"?)`;
+const PG_IDENT_RE = String.raw`("?[A-Za-z_][A-Za-z0-9_$]*"?)`;
+
+function unquotePgIdent(raw) {
+  return String(raw || '').replace(/"/g, '').trim().toLowerCase();
+}
+
+function splitPgSchemaName(raw) {
+  const clean = unquotePgIdent(raw).replace(/\s*\.\s*/, '.');
+  const dot = clean.indexOf('.');
+  if (dot < 0) return { schema: 'public', name: clean };
+  return { schema: clean.slice(0, dot), name: clean.slice(dot + 1) };
+}
+
+function stripSqlCommentsAndBodies(sql) {
+  const s = String(sql);
+  let out = '';
+  let i = 0;
+  let stmtStart = 0;
+  while (i < s.length) {
+    const c = s[i];
+    const n = s[i + 1];
+    if (c === '-' && n === '-') {
+      const e = s.indexOf('\n', i);
+      i = e < 0 ? s.length : e;
+      continue;
+    }
+    if (c === '/' && n === '*') {
+      const e = s.indexOf('*/', i + 2);
+      i = e < 0 ? s.length : e + 2;
+      out += ' ';
+      continue;
+    }
+    if (c === "'") {
+      let j = i + 1;
+      while (j < s.length) {
+        const k = s.indexOf("'", j);
+        if (k < 0) {
+          j = s.length;
+          break;
+        }
+        if (s[k + 1] === "'") {
+          j = k + 2;
+          continue;
+        }
+        j = k + 1;
+        break;
+      }
+      out += "''";
+      i = j;
+      continue;
+    }
+    if (c === '$' && !/[A-Za-z0-9_$]/.test(s[i - 1] ?? ' ')) {
+      const m = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(s.slice(i, i + 80));
+      if (m) {
+        const tag = m[0];
+        const close = s.indexOf(tag, i + tag.length);
+        const body = s.slice(i + tag.length, close < 0 ? s.length : close);
+        const stmtHeader = out.slice(stmtStart).trim();
+        if (/^DO\b/i.test(stmtHeader)) {
+          out = out.slice(0, stmtStart) + ' ' + stripSqlCommentsAndBodies(body) + ';';
+          stmtStart = out.length;
+        } else {
+          out += "''";
+        }
+        i = close < 0 ? s.length : close + tag.length;
+        continue;
+      }
+    }
+    if (c === ';') stmtStart = out.length + 1;
+    out += c;
+    i++;
+  }
+  return out;
+}
+
+function balancedParenEnd(text, openIdx) {
+  let depth = 0;
+  for (let i = openIdx; i < text.length; i++) {
+    if (text[i] === '(') depth++;
+    else if (text[i] === ')' && --depth === 0) return i + 1;
+  }
+  return text.length;
+}
+
+function countParamArity(paramListText) {
+  const trimmed = String(paramListText || '').trim();
+  if (!trimmed) return 0;
+  let count = 1;
+  let depth = 0;
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (ch === '(' || ch === '[') depth++;
+    else if (ch === ')' || ch === ']') depth = Math.max(0, depth - 1);
+    else if (ch === ',' && depth === 0) count++;
+  }
+  return count;
+}
+
+/**
+ * Scan chronological `supabase/migrations/*.sql` files and return the Set of
+ * lowercase Postgres function names that are currently defined (CREATE [OR REPLACE]
+ * FUNCTION) and NOT completely dropped (DROP FUNCTION) at HEAD. Tracks overload
+ * arity so dropping an older overload while a newer overload remains does not
+ * falsely mark the RPC as dropped.
+ */
+export function scanPostgresRpcDefinitions(migrationFiles) {
+  const activeOverloads = new Map(); // name -> Set<number>
+  const addOverload = (name, arity) => {
+    let set = activeOverloads.get(name);
+    if (!set) {
+      set = new Set();
+      activeOverloads.set(name, set);
+    }
+    set.add(arity);
+  };
+  const dropOverload = (name, arity) => {
+    if (arity === null) {
+      activeOverloads.delete(name);
+      return;
+    }
+    const set = activeOverloads.get(name);
+    if (!set) return;
+    set.delete(arity);
+    if (set.size === 0) activeOverloads.delete(name);
+  };
+
+  const sorted = [...(migrationFiles ?? [])].sort((a, b) =>
+    a.path < b.path ? -1 : a.path > b.path ? 1 : 0
+  );
+
+  for (const file of sorted) {
+    if (!file || typeof file.content !== 'string') continue;
+    if (SUPERSEDED_SQL_RE.test(file.content)) continue;
+    const cleaned = stripSqlCommentsAndBodies(file.content);
+    for (const rawStmt of cleaned.split(';')) {
+      let stmt = rawStmt.trim();
+      for (;;) {
+        const next = stmt
+          .replace(/^DECLARE\b[^;]*;\s*/i, '')
+          .replace(/^(?:BEGIN|ELSE|LOOP|EXCEPTION)\b\s*/i, '')
+          .replace(/^(?:IF|ELSIF|WHEN)\b[\s\S]*?\bTHEN\b\s*/i, '')
+          .replace(/^FOR\b[\s\S]*?\bLOOP\b\s*/i, '')
+          .trim();
+        if (next === stmt) break;
+        stmt = next;
+      }
+      if (!stmt) continue;
+
+      const createFn = new RegExp(
+        `^CREATE\\s+(?:OR\\s+REPLACE\\s+)?FUNCTION\\s+${PG_QUALIFIED_NAME_RE}\\s*\\(`,
+        'i'
+      ).exec(stmt);
+      if (createFn) {
+        const { schema, name } = splitPgSchemaName(createFn[1]);
+        const openIdx = createFn[0].length - 1;
+        const closeIdx = balancedParenEnd(stmt, openIdx);
+        const arity = countParamArity(stmt.slice(openIdx + 1, closeIdx - 1));
+        if (schema !== 'pg_temp' && name) addOverload(name, arity);
+        continue;
+      }
+
+      const dropFn = /^DROP\s+FUNCTION\s+(?:IF\s+EXISTS\s+)?/i.exec(stmt);
+      if (dropFn) {
+        let pos = dropFn[0].length;
+        while (pos < stmt.length) {
+          const nm = new RegExp(`^\\s*${PG_QUALIFIED_NAME_RE}\\s*(\\()?`).exec(stmt.slice(pos));
+          if (!nm) break;
+          pos += nm[0].length;
+          let arity = null;
+          if (nm[2]) {
+            const openIdx = pos - 1;
+            const closeIdx = balancedParenEnd(stmt, openIdx);
+            arity = countParamArity(stmt.slice(openIdx + 1, closeIdx - 1));
+            pos = closeIdx;
+          }
+          const { schema, name } = splitPgSchemaName(nm[1]);
+          if (schema !== 'pg_temp' && name) dropOverload(name, arity);
+          const comma = /^\s*,/.exec(stmt.slice(pos));
+          if (!comma) break;
+          pos += comma[0].length;
+        }
+        continue;
+      }
+
+      const renameFn = new RegExp(
+        `^ALTER\\s+FUNCTION\\s+${PG_QUALIFIED_NAME_RE}\\s*(\\([\\s\\S]*?\\))?\\s+RENAME\\s+TO\\s+${PG_IDENT_RE}`,
+        'i'
+      ).exec(stmt);
+      if (renameFn) {
+        const { schema, name } = splitPgSchemaName(renameFn[1]);
+        const newName = unquotePgIdent(renameFn[3]);
+        const arity = renameFn[2] ? countParamArity(renameFn[2].slice(1, -1)) : null;
+        if (schema !== 'pg_temp') {
+          if (name) dropOverload(name, arity);
+          if (newName) addOverload(newName, arity ?? 0);
+        }
+      }
+    }
+  }
+  return new Set(activeOverloads.keys());
+}
+
 /**
  * Compare a base wire contract against a head wire contract.
  * Flags breaking removals/renames of identifiers that live cached clients still emit or consume.
+ *
+ * When `activePostgresRpcs` (a Set/Iterable of lowercase active Postgres function
+ * names from `supabase/migrations/` at HEAD) is supplied, retiring an outbound
+ * `server/src/` `supabase.rpc()` call whose Postgres function remains defined
+ * and not dropped in `supabase/migrations/` is reported as a non-breaking
+ * advisory (cached clients call Supabase PostgREST directly, and actual SQL
+ * `DROP FUNCTION` is guarded by `check-migration-n-minus-1-compat.mjs`).
  */
-export function compareWireContracts(base, head) {
+export function compareWireContracts(base, head, { activePostgresRpcs = null } = {}) {
   const breakingChanges = [];
+  const advisories = [];
+  const activeRpcSet =
+    activePostgresRpcs !== null && activePostgresRpcs !== undefined
+      ? new Set([...activePostgresRpcs].map((s) => String(s).toLowerCase()))
+      : null;
   const added = {
     serverWsTypes: [],
     clientWsTypes: [],
@@ -293,17 +510,31 @@ export function compareWireContracts(base, head) {
   for (const id of [...baseServerRpc].sort()) {
     if (!headServerRpc.has(id) && baseClientRpc.has(id)) {
       const suspectedRename = detectSuspectedRename(id, added.serverRpcNames);
-      breakingChanges.push({
-        kind: 'rpc_name',
-        side: 'server',
-        identifier: id,
-        reason: suspectedRename
-          ? `server removed shared RPC "${id}" still referenced by live cached clients (suspected rename to "${suspectedRename}")`
-          : `server removed shared RPC "${id}" still referenced by live cached clients`,
-        suspectedRename,
-        baseServerFiles: base.server.rpcNames[id],
-        baseClientFiles: base.client.rpcNames[id],
-      });
+      if (activeRpcSet && activeRpcSet.has(id.toLowerCase())) {
+        advisories.push({
+          kind: 'rpc_name',
+          side: 'server',
+          identifier: id,
+          reason: suspectedRename
+            ? `server stopped calling Postgres RPC "${id}" (suspected rename to "${suspectedRename}"), but function remains defined in supabase/migrations/ so cached clients calling PostgREST directly are unaffected`
+            : `server stopped calling Postgres RPC "${id}", but function remains defined in supabase/migrations/ so cached clients calling PostgREST directly are unaffected`,
+          suspectedRename,
+          baseServerFiles: base.server.rpcNames[id],
+          baseClientFiles: base.client.rpcNames[id],
+        });
+      } else {
+        breakingChanges.push({
+          kind: 'rpc_name',
+          side: 'server',
+          identifier: id,
+          reason: suspectedRename
+            ? `server removed shared RPC "${id}" still referenced by live cached clients (suspected rename to "${suspectedRename}")`
+            : `server removed shared RPC "${id}" still referenced by live cached clients`,
+          suspectedRename,
+          baseServerFiles: base.server.rpcNames[id],
+          baseClientFiles: base.client.rpcNames[id],
+        });
+      }
     }
   }
 
@@ -318,8 +549,10 @@ export function compareWireContracts(base, head) {
       baseSharedRpcNames: base.shared.rpcNames.length,
       headSharedRpcNames: head.shared.rpcNames.length,
       breakingCount: breakingChanges.length,
+      advisoryCount: advisories.length,
     },
     breakingChanges,
+    advisories,
     added,
   };
 }
@@ -423,12 +656,48 @@ export function scanWorkingTree(repoRoot) {
   return buildContractFromSources(files);
 }
 
+/** Scan `supabase/migrations/*.sql` at a git ref to determine active Postgres RPC definitions. */
+export function scanMigrationsGitRef(repoRoot, ref) {
+  const listOut = gitExec(repoRoot, ['ls-tree', '-r', '--name-only', ref, '--', 'supabase/migrations']);
+  const migPaths = listOut
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((p) => p && MIGRATION_SQL_RE.test(p))
+    .sort();
+  const files = readGitBlobsBatch(repoRoot, ref, migPaths);
+  return scanPostgresRpcDefinitions(files);
+}
+
+/** Scan `supabase/migrations/*.sql` in the working tree to determine active Postgres RPC definitions. */
+export function scanMigrationsWorkingTree(repoRoot) {
+  const migDir = join(repoRoot, 'supabase/migrations');
+  if (!existsSync(migDir)) return new Set();
+  const entries = readdirSync(migDir)
+    .filter((name) => MIGRATION_SQL_RE.test(name))
+    .sort();
+  const files = entries.map((name) => ({
+    path: `supabase/migrations/${name}`,
+    content: readFileSync(join(migDir, name), 'utf8'),
+  }));
+  return scanPostgresRpcDefinitions(files);
+}
+
 export function runCheck({ repoRoot = process.cwd(), baseRef = 'origin/main', headRef = '' } = {}) {
   const absRoot = resolve(repoRoot);
   try {
     const base = scanGitRef(absRoot, baseRef);
     const head = headRef ? scanGitRef(absRoot, headRef) : scanWorkingTree(absRoot);
-    const report = compareWireContracts(base, head);
+    const hasRetiredSharedServerRpc = Object.keys(base.server.rpcNames).some(
+      (id) =>
+        !Object.prototype.hasOwnProperty.call(head.server.rpcNames, id) &&
+        Object.prototype.hasOwnProperty.call(base.client.rpcNames, id)
+    );
+    const activePostgresRpcs = hasRetiredSharedServerRpc
+      ? headRef
+        ? scanMigrationsGitRef(absRoot, headRef)
+        : scanMigrationsWorkingTree(absRoot)
+      : null;
+    const report = compareWireContracts(base, head, { activePostgresRpcs });
     return {
       ...report,
       baseRef,
