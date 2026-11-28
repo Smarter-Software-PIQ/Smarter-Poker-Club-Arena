@@ -177,7 +177,14 @@ test.describe('Watching a running tournament', () => {
       await page.waitForURL(/\/table\/[0-9a-f-]{8,}/i, { timeout: 25_000 });
     }
 
-    const actionBar = page.locator('.multi-table-page__tab-bar-wrapper');
+    /* The felt's own bar, not the pinned copy. Off a table route MultiTablePage
+       pins a copy of the strip to the top of the page; for the frame between
+       the URL reaching /table/ and React rendering it, both are in the DOM and
+       a bare class locator is a strict-mode violation, which Playwright reports
+       at once instead of retrying (post-deploy run 46116364687). */
+    const actionBar = page.locator(
+      '.multi-table-page__tab-bar-wrapper:not(.multi-table-page__tab-bar-wrapper--pinned)'
+    );
     await expect(actionBar, 'the top action bar must exist on a tournament felt').toBeVisible({
       timeout: 25_000,
     });
