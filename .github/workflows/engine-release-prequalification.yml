@@ -55,9 +55,9 @@ jobs:
           [[ "$RELEASE_TEST_SHARD" =~ ^[1-8]$ ]]
           npm ci --no-audit --no-fund
           npm run build
-          # Run this nested historical qualification once on shard 2 (median ~14.2m vs shard 1's ~26.6m, O37)
-          # before CPU-heavy tests, cutting ~3.3m off critical-path prequalification.
-          if [ "$RELEASE_TEST_SHARD" = 2 ]; then
+          # Run this nested historical qualification once on shard 7 (fastest shard ~7m54s vs shard 2's ~14m)
+          # before CPU-heavy tests, cutting ~2.8m off critical-path prequalification.
+          if [ "$RELEASE_TEST_SHARD" = 7 ]; then
             npm test -- src/engine/RetainedHistoricalCheckpointQualification.test.ts
           fi
           npm test -- --exclude src/engine/RetainedHistoricalCheckpointQualification.test.ts --shard="$RELEASE_TEST_SHARD/8"
@@ -166,18 +166,20 @@ jobs:
       needs.qualify.result == 'success' &&
       needs.prestage.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
       actions: write
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        continue-on-error: true
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout-cone-mode: false
           sparse-checkout: |
-            scripts/ci
+            scripts/ci/retire-superseded-prequalification.mjs
           persist-credentials: false
       - name: Retire strictly older in-flight prequalification runs
         continue-on-error: true
@@ -185,4 +187,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           QUALIFY_RESULT: ${{ needs.qualify.result }}
           PRESTAGE_RESULT: ${{ needs.prestage.result }}
-        run: node scripts/ci/retire-superseded-prequalification.mjs
+        run: |
+          if [ -f scripts/ci/retire-superseded-prequalification.mjs ]; then
+            node scripts/ci/retire-superseded-prequalification.mjs
+          else
+            echo "::warning::retire-superseded-prequalification.mjs absent after sparse checkout; skipping non-blocking retirement"
+          fi

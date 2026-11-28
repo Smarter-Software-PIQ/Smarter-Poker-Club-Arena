@@ -375,7 +375,7 @@ copy_tree_cow() {
 
 cmd_snapshot_copy() {
   local snap_dir="${1:-${SNAPSHOT_DIR:-$STATE_DIR/copy-snapshot}}"
-  local pgdata staging db_stopped=0
+  local pgdata staging prev_snap db_stopped=0
   assert_isolated || return 1
   assert_valid_copy || return 1
   stop_for_restore || return 1
@@ -446,8 +446,24 @@ PY_SNAP_MANIFEST
     log "snapshot: failed to write validated manifest"
     return 1
   fi
-  rm -rf -- "$snap_dir" || { rm -rf -- "$staging"; docker start "$DB_CONTAINER" >/dev/null 2>&1 || true; return 1; }
-  mv "$staging" "$snap_dir" || { rm -rf -- "$staging"; docker start "$DB_CONTAINER" >/dev/null 2>&1 || true; return 1; }
+  prev_snap="${snap_dir}.prev.$$"
+  rm -rf -- "$prev_snap" 2>/dev/null || true
+  if [ -e "$snap_dir" ]; then
+    if ! mv "$snap_dir" "$prev_snap"; then
+      rm -rf -- "$staging" 2>/dev/null || true
+      docker start "$DB_CONTAINER" >/dev/null 2>&1 || true
+      return 1
+    fi
+  fi
+  if ! mv "$staging" "$snap_dir"; then
+    if [ -e "$prev_snap" ]; then
+      mv "$prev_snap" "$snap_dir" 2>/dev/null || true
+    fi
+    rm -rf -- "$staging" 2>/dev/null || true
+    docker start "$DB_CONTAINER" >/dev/null 2>&1 || true
+    return 1
+  fi
+  rm -rf -- "$prev_snap" 2>/dev/null || true
   if [ "$db_stopped" -eq 1 ]; then
     docker start "$DB_CONTAINER" >/dev/null || return 1
     wait_db_ready 60 || { log "snapshot: database did not become ready after restart"; return 1; }
@@ -580,14 +596,21 @@ cmd_restore_snapshot() {
     [ -d "$pgdata" ] || mv "$old_pgdata" "$pgdata" 2>/dev/null || true
     rm -rf -- "$tmp_pgdata" 2>/dev/null || true
     docker start "$DB_CONTAINER" >/dev/null 2>&1 || true
+    wait_db_ready 60 >/dev/null 2>&1 || true
     fallback_full_restore "pgdata_swap_failed"
     return $?
   fi
-  rm -rf -- "$old_pgdata" 2>/dev/null || true
   if ! docker start "$DB_CONTAINER" >/dev/null 2>&1 || ! wait_db_ready 60; then
+    docker stop -t 60 "$DB_CONTAINER" >/dev/null 2>&1 || true
+    rm -rf -- "$pgdata" 2>/dev/null || true
+    mv "$old_pgdata" "$pgdata" 2>/dev/null || true
+    rm -rf -- "$tmp_pgdata" 2>/dev/null || true
+    docker start "$DB_CONTAINER" >/dev/null 2>&1 || true
+    wait_db_ready 60 >/dev/null 2>&1 || true
     fallback_full_restore "db_start_failed"
     return $?
   fi
+  rm -rf -- "$old_pgdata" 2>/dev/null || true
   docker restart supabase_rest_standby >/dev/null 2>&1 || true
   cp -p "$snap_dir/database.json" "$STATE_DIR/database.json" || { rm -f "$STATE_DIR/database.json" "$STATE_DIR/seed.json"; fallback_full_restore "receipt_copy_failed"; return $?; }
   cp -p "$snap_dir/seed.json" "$STATE_DIR/seed.json" || { rm -f "$STATE_DIR/database.json" "$STATE_DIR/seed.json"; fallback_full_restore "receipt_copy_failed"; return $?; }
@@ -1602,7 +1625,7 @@ reclaim_backup_disk() {  # candidate sha, serving sha (may be empty), fallback s
 # Best-effort host NTP/chrony clock-skew telemetry for certification receipts.
 # Non-fatal when chronyc and timedatectl are unavailable on the host.
 check_host_clock_skew() {
-  local chrony_out='' timedate_out='' source=''
+  local chrony_out='' timedate_out='' timedate_sync='' source=''
   if command -v chronyc >/dev/null 2>&1; then
     if chrony_out=$(chronyc tracking 2>/dev/null) && [ -n "$chrony_out" ]; then
       source='chronyc'
@@ -1611,14 +1634,15 @@ check_host_clock_skew() {
   if [ -z "$source" ] && command -v timedatectl >/dev/null 2>&1; then
     if timedate_out=$(timedatectl timesync-status 2>/dev/null) && [ -n "$timedate_out" ]; then
       source='timedatectl-timesync'
+      timedate_sync=$(timedatectl show -p NTPSynchronized --value 2>/dev/null || true)
     elif timedate_out=$(timedatectl show 2>/dev/null) && [ -n "$timedate_out" ]; then
       source='timedatectl-show'
     fi
   fi
-  python3 - "$source" "$chrony_out" "$timedate_out" "$BACKUP_CLOCK_SKEW_WARN_MS" <<'PY_CLOCK_SKEW'
+  python3 - "$source" "$chrony_out" "$timedate_out" "$BACKUP_CLOCK_SKEW_WARN_MS" "$timedate_sync" <<'PY_CLOCK_SKEW'
 import json, re, sys
 
-source, chrony_out, timedate_out, warn_ms_raw = sys.argv[1:5]
+source, chrony_out, timedate_out, warn_ms_raw, timedate_sync = sys.argv[1:6]
 warn_ms = float(warn_ms_raw)
 out = {
     'status': 'unavailable',
@@ -1628,6 +1652,35 @@ out = {
     'synchronized': None,
     'warnThresholdMs': warn_ms,
 }
+
+def parse_timesync_offset_ms(raw):
+    s = raw.strip()
+    if not s:
+        return None
+    sign = 1.0
+    if s[0] == '-':
+        sign = -1.0
+        s = s[1:].strip()
+    elif s[0] == '+':
+        s = s[1:].strip()
+    if not s:
+        return None
+    if re.fullmatch(r'0+(?:\.0+)?', s):
+        return 0.0
+    unit_ms = {'h': 3600000.0, 'min': 60000.0, 's': 1000.0, 'ms': 1.0, 'us': 0.001}
+    token_re = re.compile(r'([0-9]+(?:\.[0-9]+)?)\s*(h|min|ms|us|s)\b')
+    pos = 0
+    total_ms = 0.0
+    seen = False
+    for tok in token_re.finditer(s):
+        if s[pos:tok.start()].strip():
+            return None
+        total_ms += float(tok.group(1)) * unit_ms[tok.group(2)]
+        pos = tok.end()
+        seen = True
+    if not seen or s[pos:].strip():
+        return None
+    return round(sign * total_ms, 3)
 
 if source == 'chronyc':
     out['source'] = 'chronyc'
@@ -1650,17 +1703,33 @@ if source == 'chronyc':
         out['status'] = 'warn' if (not out['synchronized'] or out['absOffsetMs'] > warn_ms) else 'ok'
 elif source == 'timedatectl-timesync':
     out['source'] = 'timedatectl'
-    out['synchronized'] = True
-    m = re.search(r'Offset:\s*([+-]?[0-9]+(?:\.[0-9]+)?)(us|ms|s)\b', timedate_out)
-    if m:
-        val, unit = float(m.group(1)), m.group(2)
-        mult = 0.001 if unit == 'us' else (1.0 if unit == 'ms' else 1000.0)
-        signed_ms = round(val * mult, 3)
-        out['offsetMs'] = signed_ms
-        out['absOffsetMs'] = round(abs(signed_ms), 3)
-        out['status'] = 'warn' if out['absOffsetMs'] > warn_ms else 'ok'
+    sync_val = timedate_sync.strip().lower()
+    unsynced_markers = bool(
+        re.search(r'(?mi)^\s*Leap:\s*3\b', timedate_out)
+        or re.search(r'(?mi)^\s*Packet count:\s*0\b', timedate_out)
+    )
+    if sync_val:
+        out['synchronized'] = (sync_val == 'yes') and not unsynced_markers
+    elif unsynced_markers:
+        out['synchronized'] = False
+    offset_line = re.search(r'(?m)^\s*Offset:\s*(.+?)\s*$', timedate_out)
+    if offset_line:
+        signed_ms = parse_timesync_offset_ms(offset_line.group(1))
+        if signed_ms is not None:
+            out['offsetMs'] = signed_ms
+            out['absOffsetMs'] = round(abs(signed_ms), 3)
+            if out['synchronized'] is None:
+                out['synchronized'] = True
+            out['status'] = 'warn' if (not out['synchronized'] or out['absOffsetMs'] > warn_ms) else 'ok'
+        else:
+            out['offsetUnparseable'] = True
+            if out['synchronized'] is None:
+                out['synchronized'] = False
+            out['status'] = 'warn'
     else:
-        out['status'] = 'ok'
+        if out['synchronized'] is None:
+            out['synchronized'] = False
+        out['status'] = 'ok' if out['synchronized'] else 'warn'
 elif source == 'timedatectl-show':
     out['source'] = 'timedatectl'
     synced = re.search(r'^NTPSynchronized=(yes|no)$', timedate_out, re.M)

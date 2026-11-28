@@ -1273,10 +1273,10 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/ci/dispatch-intent.mjs write --operation backup-after-keep-serving --dir "$RUNNER_TEMP/dispatch-intents" \
-            --input "after_cycle=$RELEASE_DATE" --input refresh=true > "$RUNNER_TEMP/keep-serving-intent.json"
+            --input "after_cycle=$RELEASE_DATE" --input refresh=false > "$RUNNER_TEMP/keep-serving-intent.json"
           jq -c .body "$RUNNER_TEMP/keep-serving-intent.json" > "$RUNNER_TEMP/keep-serving-dispatch.json"
           jq -e --arg cycle "$RELEASE_DATE" \
-            '.ref == "main" and .inputs.after_cycle == $cycle and .inputs.refresh == "true" and (.inputs.intent_nonce | test("^[0-9a-f]{32}$"))' \
+            '.ref == "main" and .inputs.after_cycle == $cycle and .inputs.refresh == "false" and (.inputs.intent_nonce | test("^[0-9a-f]{32}$"))' \
             "$RUNNER_TEMP/keep-serving-dispatch.json" >/dev/null
           echo "nonce=$(jq -r .nonce "$RUNNER_TEMP/keep-serving-intent.json")" >> "$GITHUB_OUTPUT"
           echo "dispatch_body=$(cat "$RUNNER_TEMP/keep-serving-dispatch.json")" >> "$GITHUB_OUTPUT"
@@ -1390,7 +1390,7 @@ jobs:
               record=$(unzip -p "$zip" "$member" 2>/dev/null | head -c 65536) &&
               body=$(jq -ce --arg cycle "$RELEASE_DATE" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg nonce "${member%.json}" '
                 select(.operation == "backup-after-keep-serving" and .senderRunId == $run and .senderRunAttempt == $attempt and .nonce == $nonce
-                  and .inputs.after_cycle == $cycle and .inputs.refresh == "true" and ((.inputs | keys | length) == 2)) |
+                  and .inputs.after_cycle == $cycle and .inputs.refresh == "false" and ((.inputs | keys | length) == 2)) |
                 {ref: "main", inputs: {after_cycle: .inputs.after_cycle, refresh: .inputs.refresh, intent_run_id: .senderRunId, intent_run_attempt: .senderRunAttempt, intent_nonce: .nonce}}' <<< "$record" 2>/dev/null); then
               nonce="${member%.json}"
               echo "This run recorded a keep-serving intent ($nonce): cycle $RELEASE_DATE did not seal."
@@ -1449,11 +1449,11 @@ jobs:
             # against the recorded intent, so a wrong one is refused there.
             echo '::warning title=RECORDED BODY NOT RECEIVED::The recorded dispatch body did not reach this job; it is rebuilt from the recorded cycle, run, attempt and nonce.'
             DISPATCH_BODY=$(jq -cn --arg cycle "$RELEASE_DATE" --arg nonce "$INTENT_NONCE" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
-              '{ref: "main", inputs: {after_cycle: $cycle, refresh: "true", intent_run_id: $run, intent_run_attempt: $attempt, intent_nonce: $nonce}}')
+              '{ref: "main", inputs: {after_cycle: $cycle, refresh: "false", intent_run_id: $run, intent_run_attempt: $attempt, intent_nonce: $nonce}}')
           fi
           printf '%s' "$DISPATCH_BODY" > "$RUNNER_TEMP/keep-serving-dispatch.json"
           jq -e --arg cycle "$RELEASE_DATE" --arg nonce "$INTENT_NONCE" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
-            '.ref == "main" and .inputs.after_cycle == $cycle and .inputs.refresh == "true" and .inputs.intent_nonce == $nonce
+            '.ref == "main" and .inputs.after_cycle == $cycle and .inputs.refresh == "false" and .inputs.intent_nonce == $nonce
               and .inputs.intent_run_id == $run and .inputs.intent_run_attempt == $attempt and ((.inputs | keys | length) == 5) and ((keys | length) == 2)' \
             "$RUNNER_TEMP/keep-serving-dispatch.json" >/dev/null
           title="Backup after keep-serving $RELEASE_DATE $INTENT_NONCE"

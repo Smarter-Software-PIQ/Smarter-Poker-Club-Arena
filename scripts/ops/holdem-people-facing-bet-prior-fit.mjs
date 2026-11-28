@@ -85,6 +85,62 @@ export function percentileOnBoard(board, a, b) {
   return (lo + eq / 2) / tot;
 }
 
+/**
+ * A turn bet mucked at the showdown with ONE other hand shown (the winner): the turn regions (on the first four board
+ * cards) of every holding that LOSES to the shown winning hand on the final board, each such holding alike, as shares
+ * (lane nlt 2026-11-28: the public showdown says the mucked hand lost to that hand). Null otherwise. The mucked cards
+ * are never read.
+ */
+export function muckSpreadOf(board, w0, w1) {
+  if (board.length !== 5) return null;
+  const used = new Uint8Array(52);
+  for (const c of board) used[c] = 1;
+  if (used[w0] || used[w1] || w0 === w1) return null;
+  const cards = new Int8Array(7);
+  for (let i = 0; i < 5; i++) cards[i] = board[i];
+  cards[5] = w0;
+  cards[6] = w1;
+  const win = evalCards(cards, 7);
+  const turn = board.slice(0, 4);
+  const turnUsed = new Uint8Array(52);
+  for (const c of turn) turnUsed[c] = 1;
+  const scores = [];
+  const loses = [];
+  const c4 = new Int8Array(6);
+  for (let i = 0; i < 4; i++) c4[i] = turn[i];
+  for (let k = 0; k < NC; k++) {
+    const x = COMBO_A[k];
+    const y = COMBO_B[k];
+    if (turnUsed[x] || turnUsed[y]) continue;
+    c4[4] = x;
+    c4[5] = y;
+    scores.push(evalCards(c4, 6));
+    let lose = false;
+    if (!used[x] && !used[y] && x !== w0 && x !== w1 && y !== w0 && y !== w1) {
+      cards[5] = x;
+      cards[6] = y;
+      lose = evalCards(cards, 7) < win;
+    }
+    loses.push(lose);
+  }
+  const n = scores.length;
+  const order = scores.map((_, i) => i).sort((a, b) => scores[a] - scores[b]);
+  const out = REGION_FROM.map(() => 0);
+  let tot = 0;
+  for (let i = 0; i < n; ) {
+    let j = i;
+    while (j + 1 < n && scores[order[j + 1]] === scores[order[i]]) j++;
+    const region = regionOf((i + j) / 2 / Math.max(1, n - 1));
+    for (let k = i; k <= j; k++)
+      if (loses[order[k]]) {
+        out[region]++;
+        tot++;
+      }
+    i = j + 1;
+  }
+  return tot > 0 ? out.map((v) => v / tot) : null;
+}
+
 /** The river first-bet row of one parsed hand, or null: { uid, fmt, size, line, pot, region } (region null: not counted). */
 export function riverFirstBetOf(H) {
   const ds = H.decisions;
@@ -144,11 +200,17 @@ export function turnFirstBetOf(H) {
   const sd = H.sd.get(d.seat);
   let region = null;
   let hidden = null;
+  let spread = null;
   if (shown && H.board.length >= 4) {
     region = regionOf(percentileOnBoard(H.board.slice(0, 4), shown[0], shown[1]));
   } else if (sd && sd.mucked) {
     region = MUCKED_REGION;
     hidden = 'mucked';
+    const others = [...H.shown.entries()].filter(([uid]) => uid !== seat.uid);
+    if (others.length === 1) {
+      const [w0, w1] = others[0][1];
+      spread = muckSpreadOf(H.board, w0, w1);
+    }
   } else {
     // a give-up: nobody raised his turn bet, he checked the river and then folded to a bet
     const raised = ds.some(
@@ -168,6 +230,7 @@ export function turnFirstBetOf(H) {
     pot,
     region,
     hidden,
+    spread,
   };
 }
 
@@ -200,9 +263,10 @@ function main() {
   }
   const dirs = String(arg('in', '')).split(',').filter(Boolean);
   const cells = {};
-  const add = (key, region) => {
+  const add = (key, region, spread = null) => {
     const c = (cells[key] ??= REGION_FROM.map(() => 0));
-    c[region]++;
+    if (spread) for (let g = 0; g < spread.length; g++) c[g] += spread[g];
+    else c[region]++;
   };
   const seen = new Set();
   const perShown = new Map();
@@ -247,13 +311,15 @@ function main() {
           if (t.line === 'x') {
             const pt = perTurn.get(t.uid) ?? [0, 0];
             pt[1]++;
-            if (t.region >= TOP_REGIONS) pt[0]++;
+            if (t.spread) pt[0] += t.spread.slice(TOP_REGIONS).reduce((a, b) => a + b, 0);
+            else if (t.region >= TOP_REGIONS) pt[0]++;
             perTurn.set(t.uid, pt);
           }
           for (const fmt of t.fmt === 'cash' ? ['cash', 'any'] : ['any'])
             for (const size of [t.size, 'all'])
               for (const ln of [t.line, 'all'])
-                for (const pt of [t.pot, 'all']) add(`turn|${fmt}|${size}|${ln}|${pt}`, t.region);
+                for (const pt of [t.pot, 'all'])
+                  add(`turn|${fmt}|${size}|${ln}|${pt}`, t.region, t.spread);
         }
         const r = riverFirstBetOf(H);
         if (!r || r.region === null) continue;
@@ -270,10 +336,10 @@ function main() {
               for (const pt of [r.pot, 'all']) add(`river|${fmt}|${size}|${ln}|${pt}`, r.region);
       }
   const sorted = {};
-  for (const key of Object.keys(cells).sort()) sorted[key] = cells[key];
+  for (const key of Object.keys(cells).sort()) sorted[key] = cells[key].map((v) => +v.toFixed(3));
   const out = {
     version: arg('version', 'unversioned'),
-    note: "People-only FIRST bets of a heads-up NLH river (the bettor a person; shown cards only), by where the bettor's hand stood among every other holding on that board: [nut (p >= 0.95), strong (0.9 <= p < 0.95), good (0.8 <= p < 0.9), upper middle (0.7 <= p < 0.8), lower middle (0.5 <= p < 0.7; a hand mucked at showdown counts here), bottom (p < 0.5)]. Key river|fmt|size|line|pot ('all' = pooled). ownShown: the between-bettor prior strength of the not-top share of a person's shown river first bets (pseudo-bets people's cell keeps against a bettor's own shown river bets). Key turn|fmt|size|line|pot: people's FIRST bets of a heads-up turn by where the hand stood on the four-card board (line x: the flop was checked through; b: he made the flop's last wager; c: the other player did), shown cards, plus the hidden bets the public record marks as not value: mucked at the showdown (lower middle) and given up (he checked the river and folded to a bet: bottom); ownShownTurn: the same prior strength for a person's turn bets after a checked flop. scripts/ops/holdem-people-facing-bet-prior-fit.mjs.",
+    note: "People-only FIRST bets of a heads-up NLH river (the bettor a person; shown cards only), by where the bettor's hand stood among every other holding on that board: [nut (p >= 0.95), strong (0.9 <= p < 0.95), good (0.8 <= p < 0.9), upper middle (0.7 <= p < 0.8), lower middle (0.5 <= p < 0.7; a hand mucked at showdown counts here), bottom (p < 0.5)]. Key river|fmt|size|line|pot ('all' = pooled). ownShown: the between-bettor prior strength of the not-top share of a person's shown river first bets (pseudo-bets people's cell keeps against a bettor's own shown river bets). Key turn|fmt|size|line|pot: people's FIRST bets of a heads-up turn by where the hand stood on the four-card board (line x: the flop was checked through; b: he made the flop's last wager; c: the other player did), shown cards, plus the hidden bets the public record marks as not value: mucked at the showdown (spread over the turn regions of the holdings that lose to the one shown winning hand, each alike; lower middle when no single winner was shown) and given up (he checked the river and folded to a bet: bottom); ownShownTurn: the same prior strength for a person's turn bets after a checked flop. scripts/ops/holdem-people-facing-bet-prior-fit.mjs.",
     source: {
       from,
       to,

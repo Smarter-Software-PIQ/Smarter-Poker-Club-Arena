@@ -43,7 +43,10 @@ copy, never `text-transform: uppercase`. No `:hover`.
 - `scripts/ci/check-table-skin-ink.mjs` reads every stylesheet under `src/components/table`,
   `src/components/console` and `src/components/handdetail` (CI "Invariant guards"): no
   uppercase transform, no `:hover`, no raw colour literal in a banned hue band outside the
-  listed artwork stylesheets. Older literals are frozen by count per file and may only shrink.
+  listed artwork stylesheets; the stylesheets that draw the authentic Arena table (seats, pot,
+  board, seat chat bubble, Bomb Pot wheel) are exempt from hue and uppercase by the owner's
+  order of 2026-11-27 and are not restyled. The baseline of older literals was cleared to zero on 2026-11-28
+  and stays empty.
 - `tests/e2e/css/table-surfaces-wear-smarterdesign.spec.ts` mounts the real table surfaces
   offline in the skin and judges what the browser computes and paints (CSS Beat E2E, Chromium
   and WebKit): no banned hue in any ink, fill, border, outline or shadow, no computed uppercase,

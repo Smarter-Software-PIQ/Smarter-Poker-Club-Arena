@@ -56,10 +56,18 @@ describe('table overlays wear #SmarterDesign', () => {
     );
   });
 
-  it('the warm announcement accents are re-inked ice blue', () => {
-    const css = block('src/components/table/TournamentAnnouncementOverlay.css');
-    expect(css).toMatch(
-      /\[style\*='#ffd700'\][\s\S]*?--accent-color: (?:#86daff|var\(--sd-ice\)) !important;/
-    );
+  it('the announcement accents are ice blue at their source, with no override left', () => {
+    // 2026-11-28: the accents used to be brass and gold in the component and
+    // re-inked by a `[style*='#ffd700']` override; the component now carries
+    // the tokens itself, so neither the gold nor the override may come back.
+    const tsx = read('src/components/table/TournamentAnnouncementOverlay.tsx');
+    const accents = [...tsx.matchAll(/^\s*color: '([^']+)',$/gm)].map((m) => m[1]);
+    expect(accents.length).toBeGreaterThanOrEqual(7);
+    for (const a of accents) expect(a).not.toMatch(/#ffd700|#d6ad52|#ffb020|#fbbf24/i);
+    expect(accents).toContain('var(--sd-ice)');
+    expect(accents).toContain('var(--sd-ice-strong)');
+    const css = read('src/components/table/TournamentAnnouncementOverlay.css');
+    expect(css).not.toMatch(/\[style\*=/);
+    expect(css).not.toMatch(/#ffd700|#d6ad52|214 173 82/i);
   });
 });

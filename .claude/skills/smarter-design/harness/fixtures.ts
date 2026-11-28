@@ -18,6 +18,37 @@ const table = (i: number, status: string, seated: number) => ({
   created_at: now,
   is_deleted: false,
 });
+function tournamentRow(id: string, status: string, extra: Record<string, unknown>) {
+  return {
+    id,
+    club_id: CLUB_UUID,
+    name: 'Kings Sunday Major',
+    status,
+    format_contract: 'mtt-v1',
+    game_type: 'nlh',
+    variant: 'nlh',
+    starting_chips: 20000,
+    buy_in_amount: 100,
+    buy_in_fee: 10,
+    guaranteed_prize: 5000,
+    prize_pool: 1320,
+    current_level: 1,
+    current_players: 12,
+    max_players: 180,
+    min_players: 2,
+    late_reg_levels: 6,
+    start_time: new Date(Date.now() + 45 * 60_000).toISOString(),
+    blind_structure: [
+      { level: 1, small_blind: 100, big_blind: 200, ante: 0, duration: 10 },
+      { level: 2, small_blind: 150, big_blind: 300, ante: 0, duration: 10 },
+      { level: 3, small_blind: 200, big_blind: 400, ante: 50, duration: 10 },
+    ],
+    payout_structure: [],
+    short_description: 'Deep Stack Sunday Event',
+    created_at: now,
+    ...extra,
+  };
+}
 const overview = {
   generated_at: now,
   club: { id: CLUB_UUID, name: 'Kings Club', slug: SLUG },
@@ -450,7 +481,24 @@ export const fixtures = {
       joined_at: '2026-02-01T00:00:00Z',
       clubs: { id: club, name, owner_id: owner },
     })),
+    /* The routed tournament page (/tournaments/:id), one row per state it
+       shows. The stub honours .eq() on these tables so each id reads its own
+       row and t-none reads nothing (Tournament Not Found). */
     tournaments: [
+      tournamentRow('7d000000-0000-4000-8000-000000000001', 'REGISTERING', {}),
+      tournamentRow('7d000000-0000-4000-8000-000000000002', 'LATE_REG', {
+        late_reg_levels: null,
+        late_reg_mins: 30,
+        started_at: new Date(Date.now() - 5 * 60_000).toISOString(),
+        current_players: 48,
+        prize_pool: 5280,
+      }),
+      tournamentRow('7d000000-0000-4000-8000-000000000003', 'COMPLETED', {
+        started_at: new Date(Date.now() - 300 * 60_000).toISOString(),
+        ended_at: new Date(Date.now() - 10 * 60_000).toISOString(),
+        current_players: 64,
+        prize_pool: 7040,
+      }),
       {
         id: 'mtt-union-1',
         name: 'Midway Sunday Major',
@@ -462,6 +510,17 @@ export const fixtures = {
         start_time: '2026-11-30T19:00:00Z',
         union_id: UNION_UUID,
         clubs: { name: 'Kings Club' },
+      },
+    ],
+    tournament_players_public: [
+      {
+        id: 'entry-owner-1',
+        tournament_id: '7d000000-0000-4000-8000-000000000001',
+        user_id: ownerId,
+        username: 'KingDan',
+        status: 'registered',
+        chips: 20000,
+        table_id: null,
       },
     ],
     /* Settings: the jackpot Announcements (BBJThresholdPanel). */
@@ -521,7 +580,89 @@ export const fixtures = {
       },
     })),
     /* Agent Dashboard: the Performance Score (AgentScoreCard) reads. */
-    agents: [{ id: 'agent-1', user_id: ownerId, club_id: CLUB_UUID }],
+    agents: [
+      {
+        id: 'agent-1',
+        user_id: ownerId,
+        club_id: CLUB_UUID,
+        /* Credit Admin (route /credit-admin): the credit columns it reads. */
+        agent_wallet_balance: '1250.75',
+        credit_limit: '5000.00',
+        status: 'active',
+      },
+      {
+        id: 'agent-2',
+        user_id: 'member-02',
+        club_id: CLUB_UUID,
+        agent_wallet_balance: '-0.50',
+        credit_limit: '1234567.89',
+        status: 'suspended',
+      },
+      {
+        id: 'agent-3',
+        user_id: 'member-03',
+        club_id: CLUB_UUID,
+        agent_wallet_balance: '403.38',
+        credit_limit: '500.00',
+        status: 'active',
+      },
+    ],
+    credit_assignments: [
+      {
+        id: 'credit-change-1',
+        agent_id: 'agent-1',
+        old_limit: '2500.00',
+        new_limit: '5000.00',
+        created_at: '2026-11-25T18:00:00Z',
+      },
+      {
+        id: 'credit-change-2',
+        agent_id: 'agent-3',
+        old_limit: '750.00',
+        new_limit: '500.00',
+        created_at: '2026-11-20T18:00:00Z',
+      },
+    ],
+    /* Credit Admin's Credit Requests inbox: one pending request. The stub
+       ignores .eq(), so it is also read back as the viewer's own request. */
+    credit_requests: [
+      {
+        id: 'credit-request-1',
+        requester_id: ownerId,
+        approver_id: ownerId,
+        club_id: CLUB_UUID,
+        requested_amount: '2500.00',
+        approved_amount: null,
+        reason: 'friday night game',
+        status: 'pending',
+        created_at: '2026-11-27T18:00:00Z',
+        reviewed_at: null,
+        reviewed_by: null,
+        reviewer_notes: null,
+        decision_authority_version: 1,
+      },
+    ],
+    /* Settlement History (route /settlement-history): four union rake-hold cycles. */
+    settlement_invoices: [
+      ['paid', '2026-11-23T12:00:00Z', 47, '12840.55', '1284.06', '11556.49'],
+      ['paid', '2026-11-16T12:00:00Z', 46, '9310.20', '931.02', '8379.18'],
+      ['pending', '2026-11-09T12:00:00Z', 45, '403.38', '0', '403.38'],
+      ['generated', '2026-11-02T12:00:00Z', null, '7022.00', '702.20', '6319.80'],
+    ].map(([status, created, period, gross, hold, kept], i) => ({
+      id: `5e7f1a00-0000-4000-8000-00000000000${i + 1}`,
+      club_id: CLUB_UUID,
+      period_id: `5e7f1b00-0000-4000-8000-00000000000${i + 1}`,
+      invoice_type: 'union_to_club',
+      gross_amount: gross,
+      net_amount: hold,
+      breakdown: {
+        union_hold_amount: hold,
+        club_retained: kept,
+        ...(period === null ? {} : { period_number: period }),
+      },
+      status,
+      created_at: created,
+    })),
     chip_transactions: [
       { id: 'x1', amount: 100.5, clawed_back: false, to_user_id: 'member-01' },
       { id: 'x2', amount: 2500, clawed_back: true, to_user_id: 'member-02' },
@@ -544,16 +685,40 @@ export const fixtures = {
         club_arena_tos_accepted_at: '2026-11-20T00:00:00Z',
         club_arena_tos_revision: '2026-11-16-87a8e57589a09136',
       },
-      /* Connections' players (Friends page, batch P5), after the owner: a
-         single-row read takes the first row. */
-      ...['member-01', 'member-02', 'member-03', 'member-04'].map((id, i) => ({
-        id,
-        username: ['AceHigh', 'RiverRat', 'NutFlush', 'SetMiner'][i],
-        alias: ['AceHigh', 'RiverRat', 'NutFlush', 'SetMiner'][i],
-        display_name: ['AceHigh', 'RiverRat', 'NutFlush', 'SetMiner'][i],
+      /* Connections' players (Friends page, batch P5) and Credit Admin agent
+         names (batch O2), after the owner: a single-row read takes the first row. */
+      {
+        id: 'member-01',
+        username: 'AceHigh',
+        alias: 'AceHigh',
+        display_name: 'AceHigh',
         display_name_preference: 'alias',
         avatar_url: null,
-      })),
+      },
+      {
+        id: 'member-02',
+        username: 'RiverRat',
+        alias: 'RiverRat',
+        display_name: 'RiverRat',
+        display_name_preference: 'alias',
+        avatar_url: null,
+      },
+      {
+        id: 'member-03',
+        username: 'NutFlush',
+        alias: 'NutFlush',
+        display_name: 'Queen Of Hearts Long Name Player',
+        display_name_preference: 'alias',
+        avatar_url: null,
+      },
+      {
+        id: 'member-04',
+        username: 'SetMiner',
+        alias: 'SetMiner',
+        display_name: 'SetMiner',
+        display_name_preference: 'alias',
+        avatar_url: null,
+      },
     ],
   } as Record<string, unknown>,
 };

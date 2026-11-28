@@ -167,4 +167,126 @@ COMMIT;`;
     expect(res.ok).toBe(false);
     expect(res.violations[0].references.length).toBeGreaterThan(0);
   });
+
+  it('catches destructive DDL inside DO $$ ... IF / ELSIF / FOR / EXCEPTION blocks', () => {
+    const idx = makeIndex({
+      'server/src/engine/SeatService.ts': `
+        export async function loadSeats(db: any) {
+          return db.from('table_seats').select('id, stack, status');
+        }
+      `,
+    });
+    const doIfDrop = `
+BEGIN;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1) THEN
+    ALTER TABLE public.table_seats DROP COLUMN stack;
+  END IF;
+END $$;
+COMMIT;
+`;
+    const r1 = checkMigrationNMinus1Compat('20261128010010_do_if_drop.sql', doIfDrop, idx);
+    expect(r1.ok).toBe(false);
+    expect(r1.violations).toHaveLength(1);
+    expect(r1.violations[0]).toMatchObject({
+      kind: 'DROP_COLUMN',
+      target: 'public.table_seats.stack',
+    });
+
+    const doLoopExcept = `
+BEGIN;
+DO $$
+DECLARE
+  v_ok boolean := true;
+BEGIN
+  FOR r IN SELECT 1 LOOP
+    ALTER TABLE public.table_seats DROP COLUMN status;
+  END LOOP;
+EXCEPTION WHEN others THEN
+  DROP TABLE public.table_seats;
+END $$;
+COMMIT;
+`;
+    const ops = extractBreakingDdlOps(doLoopExcept);
+    expect(ops.map((o: any) => o.kind)).toEqual(['DROP_COLUMN', 'DROP_TABLE']);
+  });
+
+  it('catches destructive DDL executed dynamically via EXECUTE and EXECUTE format(...)', () => {
+    const execDirect = `
+BEGIN;
+DO $$
+BEGIN
+  EXECUTE 'ALTER TABLE public.tables DROP COLUMN status';
+END $$;
+COMMIT;
+`;
+    const r1 = checkMigrationNMinus1Compat(
+      '20261128010011_exec_direct.sql',
+      execDirect,
+      servingIndex
+    );
+    expect(r1.ok).toBe(false);
+    expect(r1.violations[0]).toMatchObject({
+      kind: 'DROP_COLUMN',
+      target: 'public.tables.status',
+    });
+
+    const execFormat = `
+BEGIN;
+DO $$
+BEGIN
+  EXECUTE format('ALTER TABLE %I.%I DROP COLUMN %I', 'public', 'tables', 'max_players');
+END $$;
+COMMIT;
+`;
+    const r2 = checkMigrationNMinus1Compat(
+      '20261128010012_exec_format.sql',
+      execFormat,
+      servingIndex
+    );
+    expect(r2.ok).toBe(false);
+    expect(r2.violations[0]).toMatchObject({
+      kind: 'DROP_COLUMN',
+      target: 'public.tables.max_players',
+    });
+  });
+
+  it('ignores -- @n-minus-1-safe: waivers hidden inside single-quoted strings or dollar-quoted bodies', () => {
+    const spoofedString = `
+BEGIN;
+INSERT INTO public.audit_notes (body) VALUES ('
+-- @n-minus-1-safe: spoofed waiver hidden inside single-quoted literal
+');
+ALTER TABLE public.tables DROP COLUMN status;
+COMMIT;
+`;
+    expect(isNMinus1SafeAnnotated(spoofedString)).toBe(false);
+    const r1 = checkMigrationNMinus1Compat(
+      '20261128010013_spoof_str.sql',
+      spoofedString,
+      servingIndex
+    );
+    expect(r1.ok).toBe(false);
+    expect(r1.annotatedSafe).toBe(false);
+
+    const spoofedDollar = `
+BEGIN;
+DO $$
+BEGIN
+  PERFORM $msg$
+-- @n-minus-1-safe: spoofed waiver hidden inside dollar-quoted body
+$msg$;
+END $$;
+ALTER TABLE public.tables DROP COLUMN status;
+COMMIT;
+`;
+    expect(isNMinus1SafeAnnotated(spoofedDollar)).toBe(false);
+    const r2 = checkMigrationNMinus1Compat(
+      '20261128010014_spoof_dollar.sql',
+      spoofedDollar,
+      servingIndex
+    );
+    expect(r2.ok).toBe(false);
+  });
 });

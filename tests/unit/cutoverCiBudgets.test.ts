@@ -61,6 +61,15 @@ describe('cutover CI budget guard', () => {
     expect(re.test('src/a.test.ts')).toBe(true);
     expect(re.test('src/engine/deep/b.test.ts')).toBe(true);
     expect(re.test('src/engine/HorseLogic.ts')).toBe(false);
+
+    // Leading and trailing slashes in .dockerignore patterns must normalize cleanly.
+    const leadingTrailing = positiveGlobToRegex('/src/testing/');
+    expect(leadingTrailing.test('src/testing/helper.ts')).toBe(true);
+    expect(leadingTrailing.test('src/testing')).toBe(true);
+    expect(leadingTrailing.test('src/other/helper.ts')).toBe(false);
+
+    const leadingGlob = positiveGlobToRegex('/src/**/*.test.ts');
+    expect(leadingGlob.test('src/engine/Foo.test.ts')).toBe(true);
   });
 
   it('counts replay passes accurately, excluding HOLDEM_REPLAY_RECORD', () => {
@@ -96,6 +105,22 @@ describe('cutover CI budget guard', () => {
         }
       `)
     ).toBe(3);
+    // Nested braces before/inside it(...) in a for-of loop must not prematurely end stripping and double-count it(.
+    expect(
+      countReplayPasses(`
+        for (const [label, extra] of [
+          ['false', {}],
+          ['preflop false', {}],
+        ] as const) {
+          const opts = { ...extra, nested: { ok: true } };
+          it(label, () => {
+            const check = { brace: '}' };
+            expect(opts).toBeTruthy();
+            expect(check).toBeTruthy();
+          });
+        }
+      `)
+    ).toBe(2);
   });
 
   it('catches Docker context leaks, oversized context, re-monolithed benchmarks, and huge new test files', () => {

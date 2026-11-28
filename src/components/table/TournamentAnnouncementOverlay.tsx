@@ -101,19 +101,22 @@ const TournamentAnnouncementOverlay: React.FC<TournamentAnnouncementProps> = ({
 
   if (!type) return null;
 
-  /* BRAND INK ONLY (#ClubArenaConsole, 2026-09-13). The accent each beat
-     paints its title, icon glow and rule in is a smarter.poker schema colour:
-     brass #d6ad52 (the warm accent), brand gold #ffd700, the lit blue #45adff
-     the console prints numerals in, the house green #3fb950 and the accent
-     red #f02849. The amber, orange, yellow and slate that used to sit here
-     were nobody's colours. This overlay is felt cinematics, not a card, so it
-     is inked rather than framed - the same ruling BombPotOverlay carries. */
+  /* #SMARTERDESIGN INK (2026-11-28). The accent each beat paints its title,
+     icon glow and rule in is a table palette token
+     (docs/SMARTERDESIGN-TABLE-PALETTE.md): ice for the bubble warning and the
+     mystery envelope, the strongest ice for the final table, the lit blue
+     #45adff the console prints numerals in for a level change, and green and
+     red only where the beat is a real win (in the money) or a knockout. The
+     brass and gold these beats used to carry were re-inked by an attribute
+     override in the stylesheet; the colour is now right at its source and the
+     override is gone. This overlay is felt cinematics, not a card, so it is
+     inked rather than framed - the same ruling BombPotOverlay carries. */
   const config: Record<string, { icon: string; title: string; subtitle: string; color: string }> = {
     hand_for_hand: {
       icon: 'H',
       title: 'Hand For Hand',
       subtitle: 'All Tables Play One Hand At A Time - Bubble Approaching!',
-      color: '#d6ad52',
+      color: 'var(--sd-ice)',
     },
     bubble_burst: {
       icon: 'W',
@@ -125,7 +128,7 @@ const TournamentAnnouncementOverlay: React.FC<TournamentAnnouncementProps> = ({
       icon: 'FT',
       title: 'Final Table',
       subtitle: `${data?.playersRemaining || 'All'} Players Remain - Final Table Begins!`,
-      color: '#ffd700',
+      color: 'var(--sd-ice-strong)',
     },
     level_up: {
       icon: '⬆',
@@ -180,7 +183,7 @@ const TournamentAnnouncementOverlay: React.FC<TournamentAnnouncementProps> = ({
           ? `${who} Opened ${victim}'s Envelope: ${amt}${big}`
           : `${who} Revealed ${amt}${big}`;
       })(),
-      color: '#ffd700',
+      color: 'var(--sd-ice)',
     },
     seven_deuce_bounty: {
       icon: '72',

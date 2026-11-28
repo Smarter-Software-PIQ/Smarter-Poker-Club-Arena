@@ -1243,6 +1243,13 @@
         "omahaFlopRealizationIsPriced"
       ]
     },
+    "omahaFlopFacingBetEquityIsPeoplePriced": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_flop_people_priced_equity"],
+      "unlessOn": []
+    },
     "omahaFlopPressureCapIsPriced": {
       "releaseDefault": "off",
       "source": "declared",
@@ -1297,6 +1304,13 @@
       "source": "declared",
       "keys": [],
       "prefixes": ["omaha_river_pot_prior_"],
+      "unlessOn": []
+    },
+    "omahaRiverBetPriorReadsHisFrequency": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_river_frequency_prior_"],
       "unlessOn": []
     },
     "omahaFacingBetFieldIsJoint": {
@@ -2586,6 +2600,22 @@
         "holdem_river_people_prior_fold_stands",
         "holdem_river_people_prior_own_record_read",
         "holdem_river_people_prior_unpriced"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_turn_plan_call",
+        "holdem_turn_plan_fold_stands",
+        "holdem_turn_plan_own_record_read",
+        "holdem_turn_plan_river_call",
+        "holdem_turn_plan_river_fold_stands",
+        "holdem_turn_plan_river_own_record_read",
+        "holdem_turn_plan_river_unpriced",
+        "holdem_turn_plan_unpriced"
       ],
       "prefixes": [],
       "unlessOn": []

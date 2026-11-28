@@ -23,6 +23,7 @@ import argparse
 import json
 import re
 import runpy
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -49,6 +50,9 @@ DEFAULT_MAX_TAIL_CHARS = 4000
 
 SECRET_PATTERNS = (
     (re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{16,}\b"), "[REDACTED_GH_TOKEN]"),
+    (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b"), "[REDACTED_GH_TOKEN]"),
+    (re.compile(r"\bsbp_[A-Za-z0-9]{20,}\b"), "[REDACTED_SUPABASE_TOKEN]"),
+    (re.compile(r"\bsb_secret_[A-Za-z0-9_-]{16,}\b"), "[REDACTED_SUPABASE_SECRET]"),
     (re.compile(r"\bBearer\s+[A-Za-z0-9._\-]{12,}\b", re.IGNORECASE), "Bearer [REDACTED]"),
     (re.compile(r"postgres(?:ql)?://[^\s'\"`]+", re.IGNORECASE), "postgresql://[REDACTED]"),
     (re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"), "[REDACTED_JWT]"),
@@ -164,6 +168,8 @@ def select_verified_failure(
     """
     if workflow not in ALLOWED_WORKFLOWS:
         raise UnreadableError(f"unsupported workflow {workflow!r}")
+    if not isinstance(min_failures, int) or isinstance(min_failures, bool) or min_failures < 1:
+        raise UnreadableError("min_failures must be an integer >= 1")
     if not isinstance(runs_payload, dict) or not isinstance(runs_payload.get("workflow_runs"), list):
         raise UnreadableError(f"{workflow} payload missing workflow_runs list")
 
@@ -186,6 +192,9 @@ def select_verified_failure(
                 if isinstance(repo_obj, dict) and repo_obj.get("full_name"):
                     if str(repo_obj["full_name"]).lower() != repo.lower():
                         raise UnreadableError(f"{workflow} run repository mismatch")
+        run_id = run.get("id")
+        if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id <= 0:
+            raise UnreadableError(f"{workflow} run missing positive integer id")
         trusted.append(run)
 
     if not trusted:
@@ -193,7 +202,7 @@ def select_verified_failure(
 
     # Sort newest first by created_at/updated_at or id
     trusted.sort(
-        key=lambda r: (str(r.get("updated_at") or r.get("created_at") or ""), int(r.get("id") or 0)),
+        key=lambda r: (str(r.get("updated_at") or r.get("created_at") or ""), r["id"]),
         reverse=True,
     )
 
@@ -491,7 +500,7 @@ def build_draft_revert_plan(
         "cd <SSD2_WORKTREE_DIR>",
         f"git revert --no-edit {sha}",
         "bash scripts/agent-push.sh",
-        f'gh pr create --draft --base main --head {branch_name} --title "{pr_title}" --body-file <PR_BODY_FILE>',
+        f"gh pr create --draft --base main --head {shlex.quote(branch_name)} --title {shlex.quote(pr_title)} --body-file <PR_BODY_FILE>",
     ]
 
     plan: dict[str, Any] = {

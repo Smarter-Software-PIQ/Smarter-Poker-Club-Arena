@@ -4,7 +4,10 @@ import { fixtures, rpcFixtures } from './fixtures';
 
 type Result = { data: unknown; error: null; count?: number };
 
-function builder(rows: unknown, single = false): any {
+/* Tables whose reads are keyed by .eq() (the tournament page reads one row by id). */
+const EQ_KEYED = new Set(['tournaments', 'tournament_players_public']);
+
+function builder(rows: unknown, single = false, eqKeyed = false): any {
   const all = Array.isArray(rows) ? rows : rows == null ? [] : [rows];
   let mode: 'list' | 'single' = single ? 'single' : 'list';
   /* Honour .in() on a column every row carries (the cashout and agent reads filter by id lists). */
@@ -22,6 +25,9 @@ function builder(rows: unknown, single = false): any {
         };
   };
   const target: any = {
+    eq: (c: string, v: unknown) => {
+      if (eqKeyed && keyed(c)) filters.push((r) => r[c] === v);
+    },
     in: (c: string, v: unknown[]) => {
       if (keyed(c) && Array.isArray(v)) filters.push((r) => v.includes(r[c]));
     },
@@ -72,7 +78,9 @@ const session = { access_token: 'h', refresh_token: 'h', expires_at: 4e9, user }
 
 export const supabase: any = {
   from: (table: string) => {
-    const b: any = chain(fixtures.tables[table] ?? []);
+    const b: any = EQ_KEYED.has(table)
+      ? builder(fixtures.tables[table] ?? [], false, true)
+      : chain(fixtures.tables[table] ?? []);
     return b;
   },
   rpc: (name: string) => chain(rpcFixtures[name] ?? null),

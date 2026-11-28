@@ -614,7 +614,9 @@ jobs:
             fi
             # Never certify twice: runs are serialized, so an earlier run for
             # this target has already finished. A success certificate stands;
-            # a failure or a stale pending is certified again.
+            # a failure proceeds to refresh -> due where FM4 judges exact
+            # (comparable_digest, live_serving, backup_projection) and either
+            # steps down via O37 or releases the host cleanly.
             state=$(gh api "$repo/commits/$sha/statuses?per_page=100" \
               --jq '[.[] | select(.context == "backup-engine/certified")][0].state // "missing"' 2>/dev/null || echo unreadable)
             if [ "$state" = success ]; then
@@ -862,7 +864,11 @@ jobs:
             # run 45883490551 waited the whole 120-minute ceiling behind two
             # newer push runs that certified main (the second sealed the 16:00
             # CST cycle), then timed out red and wrote an `error` status.
-            if { [ "${EVENT:-}" = push ] || [ "${POST_SEAL:-}" = 1 ] || [ "${KEEP_SERVING:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ] && [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]]; then
+            # So does a late-delivered nightly `schedule` run (FM3, 2026-11-28):
+            # when FREEZE_BASELINE != 1, a delayed schedule run must yield to a
+            # fresher active push run instead of stealing the Backup lease and
+            # starving it (run 46159605943 starved 46159636068 for 35m).
+            if { [ "${EVENT:-}" = push ] || [ "${EVENT:-}" = schedule ] || [ "${POST_SEAL:-}" = 1 ] || [ "${KEEP_SERVING:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ] && [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]]; then
               newer_shas=$(gh api "repos/${GITHUB_REPOSITORY:-}/actions/workflows/backup-engine.yml/runs?event=push&branch=main&per_page=100" \
                 --jq "[.workflow_runs[] | select(.id > $RUN_ID and .head_sha != \"$SHA\" and .status != \"completed\") | .head_sha] | unique | .[]" 2>/dev/null) || newer_shas=unreadable
               if [ "$newer_shas" != unreadable ] && [ -n "$newer_shas" ]; then
@@ -956,12 +962,13 @@ jobs:
       # not already certified, retarget in-place (updating SHA, CONTROL_SHA,
       # and the sparse checkout) so late_inherit, due, late_priority, and
       # certify operate on the newest server commit without forcing another
-      # runner to re-acquire. Booking, freeze-baseline, manual, nightly, and
-      # post-seal runs never retarget; unreadable answers keep SHA unchanged
-      # (CLAUDE.md 10.86).
+      # runner to re-acquire. Booking, freeze-baseline, manual, and
+      # post-seal runs never retarget; non-freeze schedule runs retarget
+      # in-place just like push runs (FM3, 2026-11-28); unreadable answers
+      # keep SHA unchanged (CLAUDE.md 10.86).
       - name: Retarget in-place to main's newest server commit after acquiring turn
         id: late_retarget
-        if: github.event_name == 'push' && steps.turn.outputs.acquired == '1' && needs.plan.outputs.freeze_baseline != '1' && needs.plan.outputs.priority != 'booking'
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && steps.turn.outputs.acquired == '1' && needs.plan.outputs.freeze_baseline != '1' && needs.plan.outputs.priority != 'booking'
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ needs.plan.outputs.sha }}
@@ -1191,103 +1198,7 @@ jobs:
           set -euo pipefail
           install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
           printf '%s\n' "$STANDBY_HOST_KEY" > ~/.ssh/known_hosts
-          owners_sha=$(sha256sum server/standby/standby-owners.sql | cut -d' ' -f1)
-          stamp=$(ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" "python3 -c 'import json;print((lambda d,s: d[\"restoredAt\"] if d.get(\"ownersSha256\") == \"$owners_sha\" and d.get(\"restoreValidated\") is True and d.get(\"schemaEvidenceValidated\") is True and d.get(\"restoreErrors\") == 0 and s.get(\"cashClusterParentsValidated\") is True and s.get(\"authFixtureVersion\") == 2 and s.get(\"tablesFailed\") == 0 and s[\"seededAt\"] >= d[\"restoredAt\"] else \"1970-01-01T00:00:00Z\")(json.load(open(\"/var/lib/club-arena-standby/database.json\")),json.load(open(\"/var/lib/club-arena-standby/seed.json\"))))'" 2>/dev/null || echo 1970-01-01T00:00:00Z)
-          copy_evidence_sha=$(ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" "python3 -c 'import json;print(json.load(open(\"/var/lib/club-arena-standby/database.json\")).get(\"schemaEvidenceSha256\") or \"\")'" 2>/dev/null || echo '')
-          ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" 'cat /var/lib/club-arena-standby/schema-evidence.json' > copy-evidence.json 2>/dev/null || : > copy-evidence.json
-          [ "$stamp" != 1970-01-01T00:00:00Z ] || copy_evidence_sha=''
-          # THE POST-SEAL COPY WAITS FOR THE POST-SEAL INSTALLS (2026-11-24, O24).
-          # Ordinary migrations merged before a cycle are held until ten minutes
-          # after its start and install from then; this run starts about two
-          # minutes after it. A copy taken first lacks them and its certificate
-          # can never be selected, so the same bounded read waits up to 25
-          # minutes (one wait, no second one) for a next-candidate run. Still
-          # uninstalled afterwards: the O7 rule below hands the host back.
-          refresh_wait=()
-          # A freeze baseline re-certified after a seal waits for nothing: the
-          # freeze holds every later migration until 04:15.
-          if [ "${POST_SEAL:-}" = 1 ] && [ "${FREEZE_BASELINE:-}" != 1 ]; then refresh_wait=(--wait 1500); fi
-          verdict=$(python3 -B server/scripts/engine-release-installed-migrations.py refresh-due \
-            --copy-evidence copy-evidence.json --copy-evidence-sha "$copy_evidence_sha" \
-            --control "$CONTROL" --sha "$SHA" --wait 240 ${refresh_wait[@]+"${refresh_wait[@]}"} 2> due-reason.txt) || verdict='due=true'
-          contents_due=$(printf '%s\n' "$verdict" | sed -n 's/^due=//p')
-          pending_migrations=$(printf '%s\n' "$verdict" | sed -n 's/^pending=//p')
-          comparable_digest=$(printf '%s\n' "$verdict" | sed -n 's/^comparable=//p')
-          [ "$contents_due" = false ] || contents_due=true
-          # PRE-SOAK UNINSTALLED-MIGRATION & PREQUALIFICATION GUARD (2026-11-22, O7;
-          # 2026-11-26, O29; 2026-11-27, O37).
-          # An ordinary push commit carrying recently-added ordinary migrations
-          # that are still absent from production after --wait (for example,
-          # held by RELEASE_SCHEMA_FREEZE_CHICAGO or O3 cycle deferral), OR a
-          # commit whose Engine release prequalification already completed with
-          # a non-success conclusion (O37), can never pass select-daily-engine.py.
-          # Before handing back, ask scripts/release/step-down-past-held-migration.py
-          # (with --repo so prequal-failed / backup-failed ancestors are skipped too)
-          # for the newest shippable commit below it (ahead of serving, same
-          # release-control projection as CONTROL, nothing uninstalled, not
-          # prequal-failed) and certify that instead; CONTROL never moves.
-          # Freeze-baseline, booking, forced push, manual without after_cycle,
-          # nightly, and explicit INPUT_SHA runs are exempt. Any unreadable
-          # answer (unknown/pending/absent) keeps existing behavior (CLAUDE.md 10.86).
-          held=0
-          if [ -n "$pending_migrations" ] && { { [ "$EVENT" = push ] && [ "$MODE" != force ]; } || [ "${POST_SEAL:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ]; then held=1; fi
-          step_eligible=0
-          if { { [ "$EVENT" = push ] && [ "$MODE" != force ]; } || [ "${POST_SEAL:-}" = 1 ] || { [ "$EVENT" = workflow_dispatch ] && [ -n "${AFTER_CYCLE:-}" ]; }; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ] && [ -z "${INPUT_SHA:-}" ]; then
-            step_eligible=1
-          fi
-          prequal_state=''; prequal_run_id=''; prequal_conclusion=''; prequal_failed=0
-          if [ "$step_eligible" = 1 ]; then
-            prequal_out=$(python3 -B scripts/release/step-down-past-held-migration.py --check-prequal-only \
-              --repo "${GITHUB_REPOSITORY:-}" --sha "$SHA" 2>/dev/null) || prequal_out=''
-            prequal_state=$(printf '%s\n' "$prequal_out" | sed -n 's/^prequal=//p' | head -1)
-            prequal_run_id=$(printf '%s\n' "$prequal_out" | sed -n 's/^run_id=//p' | head -1)
-            prequal_conclusion=$(printf '%s\n' "$prequal_out" | sed -n 's/^conclusion=//p' | head -1)
-            if [ "$prequal_state" = failed ]; then prequal_failed=1; fi
-          fi
-          step_why=''
-          if [ "$held" = 1 ] || [ "$prequal_failed" = 1 ] || { [ -n "$pending_migrations" ] && [ "$step_eligible" = 1 ]; }; then
-            serving=''
-            if [ "${POST_SEAL:-}" = 1 ]; then serving="${SEALED_SHA:-}"; fi
-            step_flags=()
-            if [ "$prequal_failed" = 1 ]; then step_flags=(--skip-failed-prequal); fi
-            step=$(python3 -B scripts/release/step-down-past-held-migration.py --sha "$SHA" --control "$CONTROL" \
-              --producer "${GITHUB_SHA:-}" --serving "$serving" --pending "$pending_migrations" \
-              --input-sha "${INPUT_SHA:-}" --repo "${GITHUB_REPOSITORY:-}" ${step_flags[@]+"${step_flags[@]}"} 2>/dev/null) && step_rc=0 || step_rc=$?
-            fallback=$(printf '%s\n' "$step" | sed -n 's/^fallback=//p')
-            if [ "$step_rc" = 0 ] && [[ "$fallback" =~ ^[0-9a-f]{40}$ ]] && { [ "$prequal_failed" != 1 ] || [ "$fallback" != "$SHA" ]; }; then
-              if [ "$fallback" = "$SHA" ]; then
-                echo "NOT HELD: migration(s) ($pending_migrations) held until the dispatcher's window were added above $SHA, which carries none of them; certifying it."
-                { echo "### Backup Engine"; echo ""; echo "- NOT HELD \`$SHA\`: held migration(s) \`$pending_migrations\` were added above it; certified as planned."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
-              elif [ "$prequal_failed" = 1 ] && [ -z "$pending_migrations" ]; then
-                echo "STEPPED DOWN: $SHA failed Engine release prequalification (${prequal_conclusion:-failure}${prequal_run_id:+, run $prequal_run_id}); certifying $fallback, the newest shippable commit below it."
-                { echo "### Backup Engine"; echo ""; echo "- STEPPED DOWN \`$SHA\` -> \`$fallback\`: failed Engine release prequalification (${prequal_conclusion:-failure}${prequal_run_id:+, run $prequal_run_id}); the newest shippable commit below is certified, no status written on \`$SHA\`."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
-              else
-                echo "STEPPED DOWN: $SHA carries held migration(s) ($pending_migrations) not installed until the dispatcher's window; certifying $fallback, the newest shippable commit below it."
-                { echo "### Backup Engine"; echo ""; echo "- STEPPED DOWN \`$SHA\` -> \`$fallback\`: held migration(s) \`$pending_migrations\`; the newest shippable commit below is certified, no status written on \`$SHA\`."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
-              fi
-              SHA="$fallback"
-              echo "sha=$fallback" >> "$GITHUB_OUTPUT"
-              verdict=$(python3 -B server/scripts/engine-release-installed-migrations.py refresh-due \
-                --copy-evidence copy-evidence.json --copy-evidence-sha "$copy_evidence_sha" \
-                --control "$CONTROL" --sha "$SHA" 2> due-reason.txt) || verdict='due=true'
-              contents_due=$(printf '%s\n' "$verdict" | sed -n 's/^due=//p')
-              comparable_digest=$(printf '%s\n' "$verdict" | sed -n 's/^comparable=//p')
-              [ "$contents_due" = false ] || contents_due=true
-              pending_migrations=''
-              held=0
-              prequal_failed=0
-            else
-              step_why=$(printf '%s\n' "$step" | sed -n 's/^reason=//p' | head -1)
-              if [ "$step_rc" = 1 ] && [ -n "$step_why" ]; then
-                step_why=" No commit below was certified: $step_why."
-              else
-                step_why=" No commit below was certified: could not tell${step_why:+ ($step_why)} (CLAUDE.md 10.86)."
-              fi
-              [ "$held" = 1 ] || [ "$prequal_failed" = 1 ] || echo "KEEP-SERVING BACKUP NOT STEPPED DOWN: $SHA carries uninstalled ordinary migration(s) ($pending_migrations); certifying it exactly as before.$step_why"
-            fi
-          fi
-          if [ "$held" = 1 ] || [ "$prequal_failed" = 1 ]; then
-            [ "$held" = 1 ] && sed -n 's/^reason=/contents: /p' due-reason.txt
+          release_turn() {
             ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
               "python3 - '$RUN_ID' '$RUN_ATTEMPT'" <<'PY' || true
           import fcntl, json, os, sys
@@ -1304,63 +1215,170 @@ jobs:
                   if cur and str(cur.get('runId')) == run_id and str(cur.get('attempt')) == attempt:
                       os.unlink(lease_path)
           PY
+          }
+          read_standing() {
+            gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/statuses?per_page=100" \
+              --jq "[.[] | select(.context == \"$STATUS_CONTEXT\")][0] | select(. != null) | \"\(.state)|\(.target_url // \"\")|\(.description // \"\")\"" 2>/dev/null || true
+          }
+          read_rehearsed() {
+            local run="$1" art=''
+            art=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?per_page=100" \
+              --jq "[.artifacts[] | select((.name | startswith(\"backup-certificate-$SHA-\")) and (.expired | not))][0].id // \"\"" 2>/dev/null) || art=''
+            if [[ "$art" =~ ^[1-9][0-9]*$ ]]; then
+              gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$art/zip" 2>/dev/null \
+                | python3 -c 'import io,json,sys,zipfile; print(json.loads(zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())).read("certificate.json")).get("rehearsedServingSha") or "")' 2>/dev/null || true
+            fi
+          }
+          read_live_serving() {
+            curl -fsS --max-time 15 https://engine.smarter.poker/health 2>/dev/null \
+              | jq -er 'select(.running == true) | .releaseSha | select(type == "string" and test("^[0-9a-f]{40}$"))' 2>/dev/null || true
+          }
+          owners_sha=$(sha256sum server/standby/standby-owners.sql | cut -d' ' -f1)
+          stamp=$(ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" "python3 -c 'import json;print((lambda d,s: d[\"restoredAt\"] if d.get(\"ownersSha256\") == \"$owners_sha\" and d.get(\"restoreValidated\") is True and d.get(\"schemaEvidenceValidated\") is True and d.get(\"restoreErrors\") == 0 and s.get(\"cashClusterParentsValidated\") is True and s.get(\"authFixtureVersion\") == 2 and s.get(\"tablesFailed\") == 0 and s[\"seededAt\"] >= d[\"restoredAt\"] else \"1970-01-01T00:00:00Z\")(json.load(open(\"/var/lib/club-arena-standby/database.json\")),json.load(open(\"/var/lib/club-arena-standby/seed.json\"))))'" 2>/dev/null || echo 1970-01-01T00:00:00Z)
+          copy_evidence_sha=$(ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" "python3 -c 'import json;print(json.load(open(\"/var/lib/club-arena-standby/database.json\")).get(\"schemaEvidenceSha256\") or \"\")'" 2>/dev/null || echo '')
+          ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" 'cat /var/lib/club-arena-standby/schema-evidence.json' > copy-evidence.json 2>/dev/null || : > copy-evidence.json
+          [ "$stamp" != 1970-01-01T00:00:00Z ] || copy_evidence_sha=''
+          # O24: post-seal next-candidate waits up to 25m for held installs; freeze baseline waits for nothing.
+          refresh_wait=()
+          if [ "${POST_SEAL:-}" = 1 ] && [ "${FREEZE_BASELINE:-}" != 1 ]; then refresh_wait=(--wait 1500); fi
+          verdict=$(python3 -B server/scripts/engine-release-installed-migrations.py refresh-due \
+            --copy-evidence copy-evidence.json --copy-evidence-sha "$copy_evidence_sha" \
+            --control "$CONTROL" --sha "$SHA" --wait 240 ${refresh_wait[@]+"${refresh_wait[@]}"} 2> due-reason.txt) || verdict='due=true'
+          contents_due=$(printf '%s\n' "$verdict" | sed -n 's/^due=//p')
+          pending_migrations=$(printf '%s\n' "$verdict" | sed -n 's/^pending=//p')
+          comparable_digest=$(printf '%s\n' "$verdict" | sed -n 's/^comparable=//p')
+          [ "$contents_due" = false ] || contents_due=true
+          # O7/O29/O37/FM2/FM3/FM4: step down or defer on held migrations, failed prequal,
+          # or prior deterministic Backup failure on identical (comparable_digest, live_serving,
+          # backup_projection). Freeze-baseline, booking, forced push, manual without after_cycle,
+          # and explicit INPUT_SHA stay exempt; unreadable answers keep existing behavior (CLAUDE.md 10.86).
+          today=''; copy_day=''
+          if [ "$EVENT" = schedule ]; then
+            today=$(TZ=America/Chicago date +%F); copy_day=$(TZ=America/Chicago date -d "$stamp" +%F)
+          fi
+          is_keep_serving=0
+          if [ "$EVENT" = workflow_dispatch ] && [ -n "${AFTER_CYCLE:-}" ] && [ -z "${INPUT_SHA:-}" ]; then is_keep_serving=1; fi
+          held=0
+          if [ -n "$pending_migrations" ] && { { [ "$EVENT" = push ] && [ "$MODE" != force ]; } || [ "${POST_SEAL:-}" = 1 ] || [ "$is_keep_serving" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ]; then held=1; fi
+          step_eligible=0
+          if { { [ "$EVENT" = push ] && [ "$MODE" != force ]; } || [ "${POST_SEAL:-}" = 1 ] || [ "$is_keep_serving" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ] && [ -z "${INPUT_SHA:-}" ]; then
+            step_eligible=1
+          fi
+          prequal_state=''; prequal_run_id=''; prequal_conclusion=''; prequal_failed=0
+          if [ "$step_eligible" = 1 ]; then
+            prequal_out=$(python3 -B scripts/release/step-down-past-held-migration.py --check-prequal-only \
+              --repo "${GITHUB_REPOSITORY:-}" --sha "$SHA" 2>/dev/null) || prequal_out=''
+            prequal_state=$(printf '%s\n' "$prequal_out" | sed -n 's/^prequal=//p' | head -1)
+            prequal_run_id=$(printf '%s\n' "$prequal_out" | sed -n 's/^run_id=//p' | head -1)
+            prequal_conclusion=$(printf '%s\n' "$prequal_out" | sed -n 's/^conclusion=//p' | head -1)
+            if [ "$prequal_state" = failed ]; then prequal_failed=1; fi
+          fi
+          already_failed=0; already_failed_reason=''; fail_check_eligible=0
+          if [ "$held" != 1 ] && [ "$prequal_failed" != 1 ] && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ] && [ -z "${INPUT_SHA:-}" ] && [[ "$comparable_digest" =~ ^[0-9a-f]{64}$ ]]; then
+            if { [ "$EVENT" = push ] && [ "$MODE" != force ]; } || [ "$is_keep_serving" = 1 ] \
+               || { [ "$EVENT" = schedule ] && [ "$MODE" != force ] && [ "$copy_day" = "$today" ] && [ "$contents_due" = false ]; }; then
+              fail_check_eligible=1
+            fi
+          fi
+          if [ "$fail_check_eligible" = 1 ]; then
+            IFS='|' read -r fail_state fail_url fail_desc <<< "$(read_standing)"
+            if [ "$fail_state" = failure ] && [[ "$fail_desc" == "Backup Engine refused: "* ]] && [ "$fail_desc" != "Backup Engine refused: see run" ]; then
+              comp12="${comparable_digest:0:12}"
+              if [[ "$fail_desc" == *"; installed migrations $comp12 serving "* ]]; then
+                fail_live_serving=$(read_live_serving)
+                if [[ "$fail_live_serving" =~ ^[0-9a-f]{40}$ ]]; then
+                  serv12="${fail_live_serving:0:12}"
+                  if [[ "$fail_desc" == *"; installed migrations $comp12 serving $serv12"* ]]; then
+                    proj_match=0
+                    cur_proj=$(python3 -B -c 'import hashlib,runpy,sys; m=runpy.run_path("scripts/ci/read-engine-prequalification.py"); print(hashlib.sha256(m["backup_projection"](sys.argv[1]).encode("utf-8")).hexdigest()[:12])' "$CONTROL" 2>/dev/null) || cur_proj=''
+                    if [[ "$cur_proj" =~ ^[0-9a-f]{12}$ ]]; then
+                      if [[ "$fail_desc" == *" proj "* ]]; then
+                        [[ "$fail_desc" == *" proj $cur_proj" ]] && proj_match=1
+                      else
+                        sha_proj=$(python3 -B -c 'import hashlib,runpy,sys; m=runpy.run_path("scripts/ci/read-engine-prequalification.py"); print(hashlib.sha256(m["backup_projection"](sys.argv[1]).encode("utf-8")).hexdigest()[:12])' "$SHA" 2>/dev/null) || sha_proj=''
+                        [ "$sha_proj" = "$cur_proj" ] && proj_match=1
+                      fi
+                    fi
+                    if [ "$proj_match" = 1 ]; then
+                      already_failed=1
+                      already_failed_reason="$fail_desc"
+                    fi
+                  fi
+                fi
+              fi
+            fi
+          fi
+          step_why=''
+          if [ "$held" = 1 ] || [ "$prequal_failed" = 1 ] || { [ "$already_failed" = 1 ] && [ "$step_eligible" = 1 ]; }; then
+            serving=''
+            if [ "${POST_SEAL:-}" = 1 ]; then serving="${SEALED_SHA:-}"; fi
+            step_flags=()
+            if [ "$prequal_failed" = 1 ] || [ "$already_failed" = 1 ]; then step_flags=(--skip-failed-prequal); fi
+            step=$(python3 -B scripts/release/step-down-past-held-migration.py --sha "$SHA" --control "$CONTROL" \
+              --producer "${GITHUB_SHA:-}" --serving "$serving" --pending "$pending_migrations" \
+              --input-sha "${INPUT_SHA:-}" --repo "${GITHUB_REPOSITORY:-}" ${step_flags[@]+"${step_flags[@]}"} 2>/dev/null) && step_rc=0 || step_rc=$?
+            fallback=$(printf '%s\n' "$step" | sed -n 's/^fallback=//p')
+            if [ "$step_rc" = 0 ] && [[ "$fallback" =~ ^[0-9a-f]{40}$ ]] && { { [ "$prequal_failed" != 1 ] && [ "$already_failed" != 1 ]; } || [ "$fallback" != "$SHA" ]; }; then
+              if [ "$fallback" = "$SHA" ]; then
+                echo "NOT HELD: migration(s) ($pending_migrations) held until the dispatcher's window were added above $SHA, which carries none of them; certifying it."
+                { echo "### Backup Engine"; echo ""; echo "- NOT HELD \`$SHA\`: held migration(s) \`$pending_migrations\` were added above it; certified as planned."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              elif [ "$prequal_failed" = 1 ] && [ -z "$pending_migrations" ]; then
+                echo "STEPPED DOWN: $SHA failed Engine release prequalification (${prequal_conclusion:-failure}${prequal_run_id:+, run $prequal_run_id}); certifying $fallback, the newest shippable commit below it."
+                { echo "### Backup Engine"; echo ""; echo "- STEPPED DOWN \`$SHA\` -> \`$fallback\`: failed Engine release prequalification (${prequal_conclusion:-failure}${prequal_run_id:+, run $prequal_run_id}); the newest shippable commit below is certified, no status written on \`$SHA\`."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              elif [ "$already_failed" = 1 ]; then
+                echo "STEPPED DOWN: $SHA already failed Backup certification deterministically for identical inputs ($already_failed_reason); certifying $fallback, the newest shippable commit below it."
+                { echo "### Backup Engine"; echo ""; echo "- STEPPED DOWN \`$SHA\` -> \`$fallback\`: already failed Backup certification deterministically on identical inputs; the newest shippable commit below is certified, no status written on \`$SHA\`."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              else
+                echo "STEPPED DOWN: $SHA carries held migration(s) ($pending_migrations) not installed until the dispatcher's window; certifying $fallback, the newest shippable commit below it."
+                { echo "### Backup Engine"; echo ""; echo "- STEPPED DOWN \`$SHA\` -> \`$fallback\`: held migration(s) \`$pending_migrations\`; the newest shippable commit below is certified, no status written on \`$SHA\`."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              fi
+              SHA="$fallback"
+              echo "sha=$fallback" >> "$GITHUB_OUTPUT"
+              verdict=$(python3 -B server/scripts/engine-release-installed-migrations.py refresh-due \
+                --copy-evidence copy-evidence.json --copy-evidence-sha "$copy_evidence_sha" \
+                --control "$CONTROL" --sha "$SHA" 2> due-reason.txt) || verdict='due=true'
+              contents_due=$(printf '%s\n' "$verdict" | sed -n 's/^due=//p')
+              comparable_digest=$(printf '%s\n' "$verdict" | sed -n 's/^comparable=//p')
+              [ "$contents_due" = false ] || contents_due=true
+              pending_migrations=''; held=0; prequal_failed=0; already_failed=0
+            else
+              step_why=$(printf '%s\n' "$step" | sed -n 's/^reason=//p' | head -1)
+              if [ "$step_rc" = 1 ] && [ -n "$step_why" ]; then
+                step_why=" No commit below was certified: $step_why."
+              else
+                step_why=" No commit below was certified: could not tell${step_why:+ ($step_why)} (CLAUDE.md 10.86)."
+              fi
+            fi
+          fi
+          if [ "$held" = 1 ] || [ "$prequal_failed" = 1 ] || [ "$already_failed" = 1 ]; then
+            [ "$held" = 1 ] && sed -n 's/^reason=/contents: /p' due-reason.txt
+            release_turn
             if [ "$held" = 1 ]; then
               echo "DEFERRED: $SHA carries uninstalled ordinary migration(s) ($pending_migrations) still absent from production after wait; certifying on a copy lacking them can never be selected. Host handed back cleanly, no status written.$step_why"
               { echo "### Backup Engine"; echo ""; echo "- DEFERRED \`$SHA\`: uninstalled ordinary migration(s) \`$pending_migrations\` still absent from production after wait; host handed back cleanly, no status written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
-            else
+            elif [ "$prequal_failed" = 1 ]; then
               echo "DEFERRED: $SHA failed Engine release prequalification (${prequal_conclusion:-failure}${prequal_run_id:+, run $prequal_run_id}); certifying an unselectable commit wastes the Backup host. Host handed back cleanly, no status written.$step_why"
               { echo "### Backup Engine"; echo ""; echo "- DEFERRED \`$SHA\`: failed Engine release prequalification (${prequal_conclusion:-failure}${prequal_run_id:+, run $prequal_run_id}); host handed back cleanly, no status written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            else
+              echo "DEFERRED: $SHA already failed Backup certification deterministically on identical inputs ($already_failed_reason); skipping duplicate soak. Host handed back cleanly, no status written.$step_why"
+              { echo "### Backup Engine"; echo ""; echo "- DEFERRED \`$SHA\`: already failed Backup certification deterministically on identical inputs; host handed back cleanly, no status written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
             fi
             echo "due=false" >> "$GITHUB_OUTPUT"
             echo "deferred=1" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # ALREADY CERTIFIED AGAINST THE NEW SERVING ENGINE (2026-11-24, O24).
-          # ONE RUN CERTIFIES A TARGET: the run that takes the host lease first.
-          # A push run for the same commit that held the host ahead of this
-          # post-seal run has already published its verdict when this run gets
-          # its turn (and a push run behind it reads this run's success in
-          # late_inherit). The standing success is kept, and the host handed
-          # back, only when it names production's current comparable installed
-          # set AND its retained certificate rehearsed the rollback against the
-          # build that just sealed; a certificate rehearsed against the previous
-          # engine cannot be selected, so it is certified again. Any unreadable
-          # answer certifies (CLAUDE.md 10.86). Since 2026-11-26 this also
-          # judges a freeze baseline the post-seal run plans again because it
-          # was claimed or done before the seal.
+          # O24: post-seal standing success rehearsed against SEALED_SHA hands host back.
           if [ "${POST_SEAL:-}" = 1 ] \
              && [[ "$comparable_digest" =~ ^[0-9a-f]{64}$ ]] && [[ "${SEALED_SHA:-}" =~ ^[0-9a-f]{40}$ ]]; then
-            standing_line=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/statuses?per_page=100" \
-              --jq "[.[] | select(.context == \"$STATUS_CONTEXT\")][0] | select(. != null) | \"\(.state)|\(.target_url // \"\")|\(.description // \"\")\"" 2>/dev/null) || standing_line=''
-            IFS='|' read -r standing_state standing_url standing_desc <<< "$standing_line"
+            IFS='|' read -r standing_state standing_url standing_desc <<< "$(read_standing)"
             standing_run="${standing_url##*/actions/runs/}"
             rehearsed=''
             if [ "$standing_state" = success ] && [[ "$standing_desc" == *"installed migrations $comparable_digest" ]] \
                && [[ "$standing_run" =~ ^[1-9][0-9]*$ ]]; then
-              artifact=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$standing_run/artifacts?per_page=100" \
-                --jq "[.artifacts[] | select((.name | startswith(\"backup-certificate-$SHA-\")) and (.expired | not))][0].id // \"\"" 2>/dev/null) || artifact=''
-              if [[ "$artifact" =~ ^[1-9][0-9]*$ ]]; then
-                rehearsed=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact/zip" 2>/dev/null \
-                  | python3 -c 'import io,json,sys,zipfile; print(json.loads(zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())).read("certificate.json")).get("rehearsedServingSha") or "")' 2>/dev/null) || rehearsed=''
-              fi
+              rehearsed=$(read_rehearsed "$standing_run")
             fi
             if [ "$rehearsed" = "$SEALED_SHA" ]; then
-              ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
-                "python3 - '$RUN_ID' '$RUN_ATTEMPT'" <<'PY' || true
-          import fcntl, json, os, sys
-          run_id, attempt = sys.argv[1], sys.argv[2]
-          lease_path = '/var/lib/club-arena-standby/run-lease.json'
-          os.makedirs('/var/lock', exist_ok=True)
-          with open('/var/lock/club-arena-standby-lease.lock', 'w') as lf:
-              fcntl.flock(lf, fcntl.LOCK_EX)
-              if os.path.exists(lease_path):
-                  try:
-                      cur = json.load(open(lease_path))
-                  except Exception:
-                      cur = None
-                  if cur and str(cur.get('runId')) == run_id and str(cur.get('attempt')) == attempt:
-                      os.unlink(lease_path)
-          PY
+              release_turn
               echo "ALREADY CERTIFIED: $SHA already carries backup-engine/certified = success from run $standing_run for current installed migrations ($comparable_digest), rehearsed against the sealed build $SEALED_SHA; that run certified it, this post-seal run hands the host back without re-soaking."
               { echo "### Backup Engine"; echo ""; echo "- ALREADY CERTIFIED \`$SHA\` by run $standing_run after the seal of \`$SEALED_SHA\`: host handed back cleanly, no status written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
               echo "due=false" >> "$GITHUB_OUTPUT"
@@ -1368,61 +1386,27 @@ jobs:
               exit 0
             fi
           fi
-          today=$(TZ=America/Chicago date +%F); copy_day=$(TZ=America/Chicago date -d "$stamp" +%F)
           due=false
           [ "$MODE" = force ] && due=true
           [ "$contents_due" = true ] && due=true
           [ "$EVENT" = schedule ] && [ "$copy_day" != "$today" ] && due=true
-          # ALREADY CERTIFIED FOR CURRENT SCHEMA WITH FRESH COPY (2026-11-22, O10;
-          # hardened 2026-11-27, O37b BUG 1A).
-          # A late-delivered schedule run (or push run) whose Backup copy is
-          # already current today (due=false) on a SHA that already carries
-          # backup-engine/certified = success for production's exact comparable
-          # installed migrations AND whose retained certificate rehearsed its
-          # rollback against the current live serving engine must not re-soak or
-          # overwrite the standing success certificate. Hand the host back
-          # cleanly and skip certify. Stale copies (due=true), forced runs,
-          # freeze baselines, mismatched digests, stale rehearsedServingSha, or
-          # unreadable statuses/health/artifacts proceed normally (CLAUDE.md 10.86).
+          # O10/O37b/FM3/FM4: standing success matching current comparable digest and live serving hands host back.
           if [ "$due" = false ] && [ "$MODE" != force ] && [ "${FREEZE_BASELINE:-}" != 1 ] \
-             && { [ "$EVENT" = schedule ] || [ "$EVENT" = push ]; } \
+             && { [ "$EVENT" = schedule ] || [ "$EVENT" = push ] || [ "$is_keep_serving" = 1 ]; } \
              && [[ "$comparable_digest" =~ ^[0-9a-f]{64}$ ]]; then
-            standing_line=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/statuses?per_page=100" \
-              --jq "[.[] | select(.context == \"$STATUS_CONTEXT\")][0] | select(. != null) | \"\(.state)|\(.target_url // \"\")|\(.description // \"\")\"" 2>/dev/null) || standing_line=''
-            IFS='|' read -r standing_state standing_url standing_desc <<< "$standing_line"
+            IFS='|' read -r standing_state standing_url standing_desc <<< "$(read_standing)"
             standing_run="${standing_url##*/actions/runs/}"
             live_serving=''; rehearsed=''
             if [ "$standing_state" = success ] && [[ "$standing_desc" == *"installed migrations $comparable_digest" ]] \
                && [[ "$standing_run" =~ ^[1-9][0-9]*$ ]]; then
-              live_serving=$(curl -fsS --max-time 15 https://engine.smarter.poker/health 2>/dev/null \
-                | jq -er 'select(.running == true) | .releaseSha | select(type == "string" and test("^[0-9a-f]{40}$"))' 2>/dev/null) || live_serving=''
+              live_serving=$(read_live_serving)
               if [[ "$live_serving" =~ ^[0-9a-f]{40}$ ]]; then
-                artifact=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$standing_run/artifacts?per_page=100" \
-                  --jq "[.artifacts[] | select((.name | startswith(\"backup-certificate-$SHA-\")) and (.expired | not))][0].id // \"\"" 2>/dev/null) || artifact=''
-                if [[ "$artifact" =~ ^[1-9][0-9]*$ ]]; then
-                  rehearsed=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact/zip" 2>/dev/null \
-                    | python3 -c 'import io,json,sys,zipfile; print(json.loads(zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())).read("certificate.json")).get("rehearsedServingSha") or "")' 2>/dev/null) || rehearsed=''
-                fi
+                rehearsed=$(read_rehearsed "$standing_run")
               fi
             fi
             if [ "$standing_state" = success ] && [[ "$standing_desc" == *"installed migrations $comparable_digest" ]] \
                && [[ "$live_serving" =~ ^[0-9a-f]{40}$ ]] && [ "$rehearsed" = "$live_serving" ]; then
-              ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
-                "python3 - '$RUN_ID' '$RUN_ATTEMPT'" <<'PY' || true
-          import fcntl, json, os, sys
-          run_id, attempt = sys.argv[1], sys.argv[2]
-          lease_path = '/var/lib/club-arena-standby/run-lease.json'
-          os.makedirs('/var/lock', exist_ok=True)
-          with open('/var/lock/club-arena-standby-lease.lock', 'w') as lf:
-              fcntl.flock(lf, fcntl.LOCK_EX)
-              if os.path.exists(lease_path):
-                  try:
-                      cur = json.load(open(lease_path))
-                  except Exception:
-                      cur = None
-                  if cur and str(cur.get('runId')) == run_id and str(cur.get('attempt')) == attempt:
-                      os.unlink(lease_path)
-          PY
+              release_turn
               echo "ALREADY CERTIFIED: $SHA already carries backup-engine/certified = success for current installed migrations ($comparable_digest), rehearsed against live serving $live_serving, and Backup copy is not due; handing host back cleanly without overwriting status or re-soaking."
               { echo "### Backup Engine"; echo ""; echo "- ALREADY CERTIFIED \`$SHA\`: standing \`backup-engine/certified = success\` already matches current installed migrations \`$comparable_digest\` and live serving \`$live_serving\`, and Backup copy is not due; host handed back cleanly, no status written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
               echo "due=false" >> "$GITHUB_OUTPUT"
@@ -1798,7 +1782,7 @@ jobs:
           yielded=0
           yield_reason=''
           check_interval="${YIELD_CHECK_INTERVAL:-60}"
-          if { [ "${EVENT:-}" = push ] || [ "${POST_SEAL:-}" = 1 ] || [ "${KEEP_SERVING:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ] && [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]]; then
+          if { [ "${EVENT:-}" = push ] || [ "${EVENT:-}" = schedule ] || [ "${POST_SEAL:-}" = 1 ] || [ "${KEEP_SERVING:-}" = 1 ]; } && [ "${FREEZE_BASELINE:-}" != 1 ] && [ "${PLAN_PRIORITY:-}" != booking ] && [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]]; then
             while kill -0 "$ssh_pid" 2>/dev/null; do
               elapsed=0
               while [ "$elapsed" -lt "$check_interval" ] && kill -0 "$ssh_pid" 2>/dev/null; do
@@ -1911,6 +1895,8 @@ jobs:
             cat certificate.out || rc=1
             if [ "$rc" = 0 ]; then
               scp -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST:/var/lib/club-arena-standby/schema-evidence.json" schema-evidence.json || rc=1
+            else
+              scp -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST:/var/lib/club-arena-standby/schema-evidence.json" schema-evidence.json 2>/dev/null || true
             fi
             echo "rc=$rc" >> "$GITHUB_OUTPUT"
             tail -1 certificate.out > certificate.json || true
@@ -1928,6 +1914,15 @@ jobs:
                 --evidence schema-evidence.json --certificate certificate.json --sha "$SHA" \
                 --control "${CONTROL_SHA:-}"); then
               echo "installed=$installed" >> "$GITHUB_OUTPUT"
+            elif [ "$rc" != 0 ] && [ -s schema-evidence.json ] && [ -s certificate.json ]; then
+              failed_installed=$(python3 -B server/scripts/engine-release-installed-migrations.py certified-digest \
+                --evidence schema-evidence.json --certificate certificate.json --sha "$SHA" \
+                --control "${CONTROL_SHA:-}" 2>/dev/null) || failed_installed=''
+              failed_serving=$(python3 -c 'import json; s=json.load(open("certificate.json")).get("rehearsedServingSha") or ""; print(s)' 2>/dev/null) || failed_serving=''
+              failed_proj=$(python3 -B -c 'import hashlib,runpy,sys; m=runpy.run_path("scripts/ci/read-engine-prequalification.py"); print(hashlib.sha256(m["backup_projection"](sys.argv[1]).encode("utf-8")).hexdigest()[:12])' "${CONTROL_SHA:-}" 2>/dev/null) || failed_proj=''
+              if [[ "$failed_installed" =~ ^[0-9a-f]{64}$ ]]; then echo "failed_installed=$failed_installed" >> "$GITHUB_OUTPUT"; fi
+              if [[ "$failed_serving" =~ ^[0-9a-f]{40}$ ]]; then echo "failed_serving=$failed_serving" >> "$GITHUB_OUTPUT"; fi
+              if [[ "$failed_proj" =~ ^[0-9a-f]{12}$ ]]; then echo "failed_proj=$failed_proj" >> "$GITHUB_OUTPUT"; fi
             fi
           fi
           exit 0
@@ -1951,6 +1946,9 @@ jobs:
             YIELDED: '${{ steps.certify.outputs.yielded }}',
             JOB_STATUS: '${{ job.status }}',
             INSTALLED: '${{ steps.certify.outputs.installed }}',
+            FAILED_INSTALLED: '${{ steps.certify.outputs.failed_installed }}',
+            FAILED_SERVING: '${{ steps.certify.outputs.failed_serving }}',
+            FAILED_PROJ: '${{ steps.certify.outputs.failed_proj }}',
             PENDING: '${{ steps.pending.outcome }}',
             WROTE_PENDING: '${{ steps.pending.outputs.wrote }}',
             POLICY: '${{ steps.policy.outcome }}',
@@ -1975,7 +1973,23 @@ jobs:
           # 12 minutes before the 03:30 selection. It reports `error` below,
           # which never replaces a success.
           elif [ "$REFRESH" != success ] && [ "${TURN:-}" != 1 ] && [ "$POLICY" != failure ]; then state=noturn
-          elif [ -n "$RC" ] || [ "$POLICY" = failure ] || [ "$REFRESH" != success ]; then state=failure; desc="Backup Engine refused: $(python3 -c 'import json;print(",".join(json.load(open("certificate.json")).get("reasons",[]))[:120])' 2>/dev/null || echo see run)"
+          elif [ -n "$RC" ] || [ "$POLICY" = failure ] || [ "$REFRESH" != success ]; then state=failure
+            reasons=$(python3 -c 'import json; r=",".join(json.load(open("certificate.json")).get("reasons",[])); print(r if r else "see run")' 2>/dev/null || echo 'see run')
+            [ -n "$reasons" ] || reasons='see run'
+            # FM4: record exact provenance (12-char comparable migrations digest,
+            # 12-char rehearsedServingSha, and optional 12-char backup_projection)
+            # on deterministic certify refusals while strictly respecting GitHub's
+            # 140-character Commit Status description limit.
+            if [ "$reasons" != 'see run' ] && [[ "${FAILED_INSTALLED:-}" =~ ^[0-9a-f]{64}$ ]] && [[ "${FAILED_SERVING:-}" =~ ^[0-9a-f]{40}$ ]]; then
+              suffix="; installed migrations ${FAILED_INSTALLED:0:12} serving ${FAILED_SERVING:0:12}"
+              if [[ "${FAILED_PROJ:-}" =~ ^[0-9a-f]{12}$ ]]; then
+                suffix="$suffix proj ${FAILED_PROJ}"
+              fi
+              max_reason=$((140 - 23 - ${#suffix}))
+              desc="Backup Engine refused: ${reasons:0:$max_reason}${suffix}"
+            else
+              desc="Backup Engine refused: ${reasons:0:117}"
+            fi
           fi
           if [ "$state" = noturn ] || { [ "$state" != success ] && [ "$state" != failure ]; }; then
             # NO VERDICT IS NOT A REFUSAL (2026-11-14, run 43565758486). The job

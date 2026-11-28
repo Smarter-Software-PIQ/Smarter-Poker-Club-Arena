@@ -310,5 +310,121 @@ class QualificationBuildCachingAndParallelProbes(unittest.TestCase):
                     f'Qualification.node path {required_node} excluded by {excluded}',
                 )
 
+    def test_fail_fast_cancels_queued_probes_before_docker_rm_and_returns_immediately(self):
+        import threading
+        import time
+
+        self.assertTrue(
+            hasattr(qualification, 'run_native_probes'),
+            'qualify-tournament-freeze-fixes.py must expose run_native_probes() with shared cancel_event',
+        )
+        containers = [f'probe-{i}' for i in range(1, 6)]
+        probe_jobs = [
+            (['docker', 'run', '--rm', '--name', c, 'img', f'job-{i}.py'], Path(f'/tmp/job-{i}.log'))
+            for i, c in enumerate(containers, 1)
+        ]
+        started = []
+        started_lock = threading.Lock()
+        running_gates = {c: threading.Event() for c in containers[1:]}
+        both_siblings_entered = threading.Event()
+        removed = []
+
+        def fake_run(argv, *, log=None):
+            name = argv[argv.index('--name') + 1]
+            with started_lock:
+                started.append(name)
+                if 'probe-2' in started and 'probe-3' in started:
+                    both_siblings_entered.set()
+            if name == 'probe-1':
+                # Wait briefly so probe-2 and probe-3 occupy the remaining 2 worker slots,
+                # leaving probe-4 and probe-5 queued in the ThreadPoolExecutor.
+                both_siblings_entered.wait(timeout=2.0)
+                raise RuntimeError('probe-1 failed fast')
+            # Running sibling blocks until docker rm -f kills it.
+            running_gates[name].wait(timeout=5.0)
+            raise RuntimeError(f'{name} terminated')
+
+        def fake_subprocess_run(argv, **kwargs):
+            if argv[:3] == ['docker', 'rm', '-f']:
+                c = argv[3]
+                removed.append(c)
+                if c in running_gates:
+                    running_gates[c].set()
+            return subprocess.CompletedProcess(argv, 0, '', '')
+
+        t0 = time.monotonic()
+        with patch.object(qualification, 'MAX_NATIVE_PROBE_WORKERS', 3), \
+             patch.object(qualification, 'run', side_effect=fake_run), \
+             patch.object(qualification.subprocess, 'run', side_effect=fake_subprocess_run):
+            with self.assertRaisesRegex(RuntimeError, 'probe-1 failed fast'):
+                qualification.run_native_probes(probe_jobs, containers)
+        elapsed = time.monotonic() - t0
+        self.assertLess(elapsed, 2.5, f'fail-fast shutdown stalled for {elapsed:.2f}s')
+        self.assertNotIn('probe-4', started, 'queued probe-4 must never invoke docker run after fail-fast')
+        self.assertNotIn('probe-5', started, 'queued probe-5 must never invoke docker run after fail-fast')
+        for c in containers:
+            self.assertGreaterEqual(
+                removed.count(c),
+                2,
+                f'expected initial + final docker rm -f cleanup pass for {c}, got {removed}',
+            )
+
+    def test_fm1_static_guard_no_referenced_qualification_path_is_dockerignored(self):
+        import re
+
+        repo_root = Path(__file__).resolve().parents[2]
+        qual_src = Path(__file__).with_name('qualify-tournament-freeze-fixes.py').read_text(encoding='utf-8')
+        sat_src = (repo_root / 'scripts' / 'ci' / 'test-satellite-qualifiers.py').read_text(encoding='utf-8')
+
+        def is_excluded(repo_rel_path: str, excludes: tuple[str, ...]) -> str | None:
+            anchored = '/' + repo_rel_path.lstrip('/')
+            for pattern in excludes:
+                if anchored == pattern or anchored.startswith(pattern + '/'):
+                    return pattern
+            return None
+
+        # 1) Every repo-relative path referenced in qualify-tournament-freeze-fixes.py and test-satellite-qualifiers.py
+        path_re = re.compile(r"""['"]((?:server|scripts|supabase|tests)/[A-Za-z0-9_./-]+)['"]""")
+        pg_referenced = set(path_re.findall(qual_src)) | set(path_re.findall(sat_src))
+        # Also explicitly include MIGRATION and award migration string
+        pg_referenced.add(qualification.MIGRATION)
+        self.assertGreater(len(pg_referenced), 15, 'expected to extract referenced qualification paths')
+        for rel in sorted(pg_referenced):
+            hit = is_excluded(rel, qualification.DOCKERIGNORE_EXCLUDES)
+            self.assertIsNone(
+                hit,
+                f'FM1 regression: Qualification.pg path {rel!r} is excluded by DOCKERIGNORE_EXCLUDES entry {hit!r}',
+            )
+
+        # 2) Every Vitest test file in TESTS and the satellite tests.extend([...]) list (under /server/)
+        node_excludes = qualification.DOCKERIGNORE_EXCLUDES + qualification.NODE_DOCKERIGNORE_EXTRA_EXCLUDES
+        vitest_paths = list(qualification.TESTS)
+        ext_match = re.search(r'tests\.extend\(\[(.*?)\]\)', qual_src, re.S)
+        self.assertIsNotNone(ext_match, 'expected tests.extend([...]) block in qualify-tournament-freeze-fixes.py')
+        vitest_paths.extend(re.findall(r"""['"](src/[^'"]+\.test\.ts)['"]""", ext_match.group(1)))
+        self.assertGreaterEqual(len(vitest_paths), len(qualification.TESTS) + 10)
+        for vt in vitest_paths:
+            rel = f'server/{vt}'
+            self.assertTrue((repo_root / rel).is_file(), f'referenced Vitest file missing from repo: {rel}')
+            hit = is_excluded(rel, node_excludes)
+            self.assertIsNone(
+                hit,
+                f'FM1 regression: Qualification.node Vitest path {rel!r} is excluded by {hit!r}',
+            )
+        for node_input in (
+            'server/Dockerfile',
+            'server/package.json',
+            'server/package-lock.json',
+            'server/native/public_hist215_wtl.cc',
+            'server/scripts/build-public-hist215-native.mjs',
+        ):
+            self.assertTrue((repo_root / node_input).is_file(), f'node build input missing: {node_input}')
+            hit = is_excluded(node_input, node_excludes)
+            self.assertIsNone(
+                hit,
+                f'FM1 regression: Qualification.node build input {node_input!r} is excluded by {hit!r}',
+            )
+
+
 if __name__ == '__main__':
     unittest.main()

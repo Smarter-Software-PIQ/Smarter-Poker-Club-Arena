@@ -395,7 +395,7 @@
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
-  background: rgba(255, 184, 0, 0.1);
+  background: rgba(134, 218, 255, 0.1);
   border-radius: 6px;
 }
 
@@ -450,8 +450,8 @@
 }
 
 .chat-message--highlighted .chat-message__bubble {
-  background: rgba(255, 184, 0, 0.2);
-  border: 1px solid rgba(255, 184, 0, 0.4);
+  background: rgba(134, 218, 255, 0.2);
+  border: 1px solid rgba(134, 218, 255, 0.4);
 }
 
 .chat-message__name {

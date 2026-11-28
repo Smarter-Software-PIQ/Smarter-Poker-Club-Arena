@@ -28,7 +28,7 @@
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: none;
-  color: #d6ad52;
+  color: var(--sd-ice);
 }
 
 .hand-note__private {
@@ -71,9 +71,9 @@
 .hand-note__save {
   padding: 8px 14px;
   border-radius: 8px;
-  border: 1px solid rgba(214, 173, 82, 0.5);
-  background: rgba(214, 173, 82, 0.16);
-  color: #f2e2bb;
+  border: 1px solid rgba(134, 218, 255, 0.5);
+  background: rgba(134, 218, 255, 0.16);
+  color: var(--sd-white);
   font-weight: 700;
   cursor: pointer;
 }
@@ -93,8 +93,8 @@
 .hand-note__chip {
   padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(214, 173, 82, 0.16);
-  border: 1px solid rgba(214, 173, 82, 0.32);
+  background: rgba(134, 218, 255, 0.16);
+  border: 1px solid rgba(134, 218, 255, 0.32);
   font-size: 0.74rem;
   letter-spacing: 0.04em;
 }

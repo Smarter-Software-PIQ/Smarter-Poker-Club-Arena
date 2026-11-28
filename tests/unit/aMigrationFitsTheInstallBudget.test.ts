@@ -675,6 +675,67 @@ COMMIT;`,
     }
   });
 
+  it('refuses install-time probes that both INSERT into operational_alert_events and call reliability_ingest_alert (PR #12325 / incident 37a45c05)', () => {
+    // Reproduces the exact bug in PR #12325 (20261128074415, Apply Merged Migration run 46134399527):
+    // INSERT INTO operational_alert_events fires the production AFTER INSERT trigger which ingests
+    // (id, 1, firing) into reliability_observations, making the direct reliability_ingest_alert call
+    // hit ON CONFLICT DO NOTHING and return NULL.
+    const doubleIngestSql = `
+      BEGIN;
+      DO $probe$
+      DECLARE v_id bigint; v_inc uuid;
+      BEGIN
+        INSERT INTO public.operational_alert_events (source, event_key, alertname, status, severity, payload)
+        VALUES ('financial-alerts-backfill', 'probe-k', 'fn_ca_hand_gap_watch', 'firing', 'critical', '{}'::jsonb)
+        RETURNING id INTO v_id;
+        v_inc := smarter_private.reliability_ingest_alert(
+          v_id, 'financial-alerts-backfill', 'probe-k', 'fn_ca_hand_gap_watch', 'firing', 'critical',
+          '{}'::jsonb, clock_timestamp(), clock_timestamp(), 1, 'new', 'INSERT'
+        );
+        RAISE EXCEPTION 'probe-unwind';
+      EXCEPTION WHEN OTHERS THEN
+        IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+      END $probe$;
+      COMMIT;
+    `;
+    const risks = migrationCostRisks('20261128170001_probe_double_ingest.sql', doubleIngestSql);
+    expect(risks.some((r) => r.includes('AFTER INSERT trigger on operational_alert_events'))).toBe(
+      true
+    );
+
+    // Direct reliability_ingest_alert call with a synthetic negative id (PR #12343 fix) is allowed.
+    const cleanProbeSql = `
+      BEGIN;
+      DO $probe$
+      DECLARE v_inc uuid;
+      BEGIN
+        v_inc := smarter_private.reliability_ingest_alert(
+          -9223372036854775001, 'financial-alerts-backfill', 'probe-k', 'fn_ca_hand_gap_watch', 'firing', 'critical',
+          '{}'::jsonb, clock_timestamp(), clock_timestamp(), 1, 'new', 'INSERT'
+        );
+        RAISE EXCEPTION 'probe-unwind';
+      EXCEPTION WHEN OTHERS THEN
+        IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+      END $probe$;
+      COMMIT;
+    `;
+    expect(migrationCostRisks('20261128170002_clean_probe.sql', cleanProbeSql)).toEqual([]);
+
+    // CREATE FUNCTION bodies referencing both are not install-time calls and remain allowed.
+    const fnBodySql = `
+      BEGIN;
+      CREATE OR REPLACE FUNCTION smarter_private.fn_probe_helper() RETURNS void LANGUAGE plpgsql AS $fn$
+      BEGIN
+        INSERT INTO public.operational_alert_events (source, event_key, alertname, status, severity, payload)
+        VALUES ('x', 'y', 'z', 'firing', 'info', '{}'::jsonb);
+        PERFORM smarter_private.reliability_ingest_alert(1, 'x', 'y', 'z', 'firing', 'info', '{}'::jsonb, now(), now(), 1, 'new', 'INSERT');
+      END;
+      $fn$;
+      COMMIT;
+    `;
+    expect(migrationCostRisks('20261128170003_fn_body_only.sql', fnBodySql)).toEqual([]);
+  });
+
   it('judges only from the cut-over on, so merged history is not re-judged', () => {
     expect(isCostChecked(`${COST_CHECKED_FROM}_x.sql`)).toBe(true);
     expect(isCostChecked('20261107133350_the_weekly_close_is_evidence_not_cache.sql')).toBe(false);

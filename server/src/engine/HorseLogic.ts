@@ -1,4 +1,5 @@
 import { omahaRiverPotKeyOf } from './HorseOmahaRiverPotPrior.js';
+import { omahaRiverFrequencySpotOf } from './HorseOmahaRiverFrequencyPrior.js';
 import {
   checkedToNonBottomBoat,
   checkedToNonBottomRiverBoat,
@@ -53,8 +54,19 @@ import {
   holdemFacingBetPotOf,
   holdemFacingBetPrice,
   holdemFacingBetRegionWins,
+  holdemFacingBetFlopWasChecked,
+  holdemTurnFacingBetOwnShares,
+  holdemTurnFacingBetPeopleShares,
 } from './HorseHoldemFacingBetPeoplePrior.js';
-import { holdemBetReadOf } from './HorseHoldemBetRead.js';
+import {
+  holdemBetReadBarrelOf,
+  holdemBetReadOf,
+  holdemBetReadTurnOf,
+} from './HorseHoldemBetRead.js';
+import {
+  holdemTurnRiverPlanRiverPrice,
+  holdemTurnRiverPlanTurnPrice,
+} from './HorseHoldemTurnRiverPlan.js';
 import {
   HOLDEM_PEOPLE_TURN_RECORD_BIG_ABOVE,
   holdemPeopleTurnFold,
@@ -276,6 +288,10 @@ import {
   omahaFlopPressureCapPricedEquity,
   omahaFlopPressureCapPricedSpot,
 } from './HorseOmahaFlopPressureCapPriced.js';
+import {
+  omahaFlopFacingBetCheckEquity,
+  omahaFlopFacingBetEquityIsPeoplePricedInScope,
+} from './HorseOmahaFlopFacingBetPeopleEquity.js';
 import {
   plo6FacingBetPriced,
   plo6FacingBetPricedScope,
@@ -3980,6 +3996,14 @@ export interface HorseDecideOpts {
    */
   omahaRiverBetPriorIsPotTypeSplit?: boolean;
   /**
+   * lead-9 lane RFQ 2026-11-27 (default OFF, read === true). PLO4/PLO5 cash, heads-up, a river BET (never a raise) in
+   * a single-raised or limped pot, only inside omahaFacingBetPriorIsPeopleMeasured's river price: the bettor's own
+   * public river first-bet frequency (OPPONENT-HUD's unopened river record) sets the prior mean of his shown-bet record
+   * (HorseOmahaRiverFrequencyPrior). Fold -> call only: the price may turn the river fold into a call, never a call
+   * into a fold.
+   */
+  omahaRiverBetPriorReadsHisFrequency?: boolean;
+  /**
    * WooWoo audit FLOP-DEFENCE 2026-11-18 (default OFF, read === true): heads-up facing the
    * first flop bet with chips behind, the fold or call is the flop verdict with the call
    * priced as a two-street tree (his measured turn/river bet rates, the Horse's priced turn
@@ -4004,6 +4028,14 @@ export interface HorseDecideOpts {
    * range; folding every hand between zero and the margin is the fold a zero-equity bluff is paid by.
    */
   omahaGiveUpPricedTurnCallIsAtIndifference?: boolean;
+  /**
+   * PLO-OWNER lead-10 lane PLX2 2026-11-28 (default OFF, read === true). PLO4/PLO5 cash, the flop, heads-up at the
+   * decision, a single bet MADE heads-up, a SINGLE-RAISED pot only, in the flop pressure cap's priced spot: the
+   * call-or-fold check reads the Horse's equity against the bettor's people-priced flop range (his record -> people's
+   * measured flop bets of this size -> equilibrium anchor) instead of min(sampler equity, that price), so the
+   * preflop-band sampler can no longer override measured postflop evidence downward only. Call vs fold only.
+   */
+  omahaFlopFacingBetEquityIsPeoplePriced?: boolean;
   /** PLO Strategy lane 2026-11-19 (owner 2026-11-16: every decision from the
    * hand and its equity against the opponent's perceived range for that
    * action, line and board and his measured tendencies; how far the Horse
@@ -6616,6 +6648,20 @@ export interface HorseDecideOpts {
    * (HorseHoldemFacingBetPeoplePrior). How often he bets is not read. It never folds a call, never raises, never
    * acts facing a raise. Off: byte-identical. */
   holdemRiverFacingBetPriorIsPeopleMeasured?: boolean;
+  /** PLO-OWNER lead-10 2026-11-28 (lane nlt; owner order of 2026-11-27 "all overfolding fixes ... No Limit"; owner rule:
+   * floating a street is right only when the Horse will continue later, calling and then folding to every later barrel
+   * must stop; 30 days of NLH cash against people: the first bet of a heads-up turn after a checked-through flop folds
+   * the Horse 57.8% of the time where a pure bluff breaks even at 36.3%, +2.26 +/- 0.58 bb per bet, 128 bets): opt-in
+   * (`=== true`), default OFF. NLH cash (table and Lightning), one board, heads-up, the flop checked through, limped
+   * and single-raised pots. TURN: facing the turn's FIRST bet, the brain's FOLD becomes a call when the call is worth
+   * more than the fold with the RIVER PLAYED TO A PLAN (HorseHoldemTurnRiverPlan): his turn range from his own turn
+   * stabs -> people's measured turn bets on that line (hidden bets counted) -> equilibrium; on every river card his
+   * barrel is the part of that range whose make-up matches his river bets after his own turn bet (his shown river bets
+   * -> people's -> equilibrium), and the Horse calls it exactly where the river price calls; the value is taken with his
+   * turn shares one standard error toward his top fifth. RIVER: facing that turn bettor's first river bet after the
+   * Horse called his stab, the brain's FOLD becomes a call where the same plan calls on the card that came. It never
+   * folds a call, never raises, never acts facing a raise or in a re-raised pot. Off: byte-identical. */
+  holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced?: boolean;
   /** PLO-OWNER lead-9 2026-11-27 (lane nlzb; daily real-hand audits list missed turn bluffs as a top Hold'em cash
    * leak; measured on people Oct 28 to Nov 27: a heads-up turn barrel is NOT a profitable pure bluff, people fold
    * 34% where break-even is 36%, while a small bet after a checked flop is, 43% where break-even is 22%): opt-in
@@ -15187,6 +15233,8 @@ let omahaFacingBetEvCountMemo: {
   hiddenGiveUps: boolean;
   /** omahaRiverBetPriorIsPotTypeSplit */
   riverPotSplit: boolean;
+  /** omahaRiverBetPriorReadsHisFrequency */
+  riverFreq: boolean;
   /** omahaFacingBetRangeIsMeasuredByLine and its siblings (HorseOmahaFacingBetPriced) */
   pricedKey: string;
   /** omahaGiveUpPricedTurnCallIsAtIndifference */
@@ -15426,6 +15474,12 @@ function omahaFacingBetEvCount(
     opts.omahaRiverBetPriorIsPotTypeSplit === true &&
     !isTournamentMode(gs) &&
     ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
+  // omahaRiverBetPriorReadsHisFrequency (default off): his river frequency inside #12116's heads-up river price
+  const riverFreq =
+    opts.omahaRiverBetPriorReadsHisFrequency === true &&
+    opts.omahaFacingBetPriorIsPeopleMeasured === true &&
+    !isTournamentMode(gs) &&
+    ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
   const turnLineHidden =
     turnLineSplit &&
     (opts as { omahaPeoplePriorCountsHiddenBets?: boolean }).omahaPeoplePriorCountsHiddenBets ===
@@ -15478,6 +15532,7 @@ function omahaFacingBetEvCount(
     memo.giveUpIndifference === giveUpIndifference &&
     memo.hiddenGiveUps === hiddenGiveUps &&
     memo.riverPotSplit === riverPotSplit &&
+    memo.riverFreq === riverFreq &&
     memo.pricedKey === pricedKey
   )
     return memo.answer;
@@ -15614,6 +15669,7 @@ function omahaFacingBetEvCount(
     // omahaFacingBetPriorIsPeopleMeasured (default off): heads-up, a bet or a raise: the non-value share is the
     // people-only measured share (river: three measured regions), the balanced share weighting a thin cell, moved
     // by the bettor's own shown bets (HorseOmahaFacingBetPeoplePrior); a raise reads the people raise cell only.
+    let riverFreqRead: typeof read | null = null;
     if (equilibriumAnchor && spot.callers + spot.allIns + spot.behind === 0) {
       try {
         const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
@@ -15640,7 +15696,7 @@ function omahaFacingBetEvCount(
           ? omahaRiverPotKeyOf(variant, spot.street, spot.isRaise === true, gs.actionHistory)
           : null;
         if (riverPotKey && telemetryOn(opts)) noteFire('omaha_river_pot_prior_read');
-        const anchored = omahaPeoplePriorShare({
+        const priorInput = {
           hidden: hiddenKey,
           riverPot: riverPotKey,
           giveUps: hiddenGiveUps && hiddenKey !== null,
@@ -15664,7 +15720,8 @@ function omahaFacingBetEvCount(
                   omahaPeoplePriorRecordCountsHidden(hiddenKey)
                 )
               : null,
-        });
+        };
+        const anchored = omahaPeoplePriorShare(priorInput);
         if (anchored) {
           readBeforeAnchor = read;
           read = {
@@ -15680,6 +15737,28 @@ function omahaFacingBetEvCount(
               : {}),
           };
           equilibriumAnchored = anchored;
+          // omahaRiverBetPriorReadsHisFrequency (default off): the same price with his river frequency as the prior
+          // mean of his record; used below only where it turns this read's fold into a call
+          if (
+            riverFreq &&
+            bettor &&
+            omahaRiverFrequencySpotOf(variant, spot.street, spot.isRaise === true, gs.actionHistory)
+          ) {
+            const frequency = HorseMind.omahaStabDefenceRecordOf(
+              bettor.user_id,
+              variant,
+              'river',
+              1
+            );
+            const withFreq = frequency ? omahaPeoplePriorShare({ ...priorInput, frequency }) : null;
+            if (telemetryOn(opts)) noteFire('omaha_river_frequency_prior_read');
+            if (withFreq && withFreq.share > anchored.share)
+              riverFreqRead = {
+                ...OMAHA_EV_UNKNOWN_READ,
+                pricedShare: withFreq.share,
+                pricedRegions: withFreq.regions,
+              };
+          }
         }
       } catch {
         equilibriumAnchored = null;
@@ -15861,6 +15940,14 @@ function omahaFacingBetEvCount(
         }
       );
     let verdict = verdictOf(spot, read);
+    // omahaRiverBetPriorReadsHisFrequency (default off): fold -> call only
+    if (riverFreqRead && verdict && !verdict.call) {
+      const withFreq = verdictOf(spot, riverFreqRead);
+      if (withFreq?.call) {
+        verdict = withFreq;
+        if (telemetryOn(opts)) noteFire('omaha_river_frequency_prior_called');
+      }
+    }
     peopleFieldPriced = verdict !== null && peopleFieldOf(spot) !== null;
     // Receipt only: the people-measured field changed the verdict the stated field constants give.
     const peopleFieldChanged =
@@ -16083,6 +16170,7 @@ function omahaFacingBetEvCount(
     giveUpIndifference,
     hiddenGiveUps,
     riverPotSplit,
+    riverFreq,
     pricedKey,
     answer,
   };
@@ -19782,6 +19870,10 @@ export class HorseLogic {
           decision = this.holdemMultiwayOpeningPriced(decision, player, gs, vi, opts);
         // holdemRiverFacingBetPriorIsPeopleMeasured (default off): a fold facing the first bet of a heads-up river
         // re-priced on the bettor's own shown river bets, then people's measured river bets.
+        // holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced (default off): a fold facing the first bet of a heads-up turn
+        // after a checked flop, and facing that bettor's river bet after the call, priced with the river played to a plan.
+        if (opts.holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced === true)
+          decision = this.holdemTurnRiverPlanOnPeople(decision, player, gs, vi, opts);
         if (opts.holdemRiverFacingBetPriorIsPeopleMeasured === true)
           decision = this.holdemRiverFacingBetOnPeople(decision, player, gs, vi, opts);
         // holdemTournamentRiverBluffIsPriced / holdemTournamentTurnBluffIsPriced (default off): the tournament bluff priced.
@@ -32542,6 +32634,7 @@ export class HorseLogic {
     // omahaFlopPressureCapIsPriced (default off): computed BEFORE the V40 block and separate from it; the block below
     // runs exactly as with the option off. Only the call-or-fold check (eqRead38) reads this number.
     let pricedCap38: number | null = null;
+    let peoplePricedLift38 = false;
     if (
       opts.omahaFlopPressureCapIsPriced === true &&
       !noMadeClassCap &&
@@ -32596,7 +32689,25 @@ export class HorseLogic {
               : null,
             hiddenKeyP
           );
-          if (priced) pricedCap38 = Math.min(eq15, priced.equity);
+          if (priced) {
+            // omahaFlopFacingBetEquityIsPeoplePriced (default off): in a single-raised pot with the bet made heads-up,
+            // the people-priced equity is the one the check reads instead of min(sampler, priced).
+            const peopleEq38 =
+              opts.omahaFlopFacingBetEquityIsPeoplePriced === true &&
+              omahaFlopFacingBetEquityIsPeoplePricedInScope({
+                enabled: true,
+                tournament: isTournamentMode(gs),
+                holeCount: (player.cards ?? []).length,
+                potType: omahaPeoplePriorFlopPotOf(gs.actionHistory),
+                oppCount,
+                history: gs.actionHistory,
+              });
+            pricedCap38 = omahaFlopFacingBetCheckEquity(eq15, priced.equity, peopleEq38);
+            if (peopleEq38 && priced.equity > eq15) {
+              peoplePricedLift38 = true;
+              if (tele15) noteFire('omaha_flop_people_priced_equity');
+            }
+          }
         }
       } catch {
         pricedCap38 = null;
@@ -35784,6 +35895,8 @@ export class HorseLogic {
         noteFire(
           takeCall38 ? 'omaha_flop_pressure_cap_priced_call' : 'omaha_flop_pressure_cap_priced_fold'
         );
+      if (pricedCall38 && peoplePricedLift38 && takeCall38 && tele15)
+        noteFire('omaha_flop_people_priced_equity_call');
       if (takeCall38) {
         if (tele15) noteFire('v38_ev_call');
         return { action: 'call', amount: toCall, thinkTime: 0 };
@@ -36821,6 +36934,175 @@ export class HorseLogic {
       return called;
     } catch {
       if (tele) noteFire('holdem_river_people_prior_unpriced');
+      return decision;
+    }
+  }
+
+  /**
+   * holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced (PLO-OWNER lead-10 2026-11-28, default off, read `=== true`): NLH
+   * cash (table and Lightning), one board, heads-up, the flop checked through, a limped or single-raised pot.
+   *  - TURN, facing the turn's FIRST bet (the Horse has nothing in on the turn, nobody raised, nobody folded to it): the
+   *    brain's FOLD becomes a call when the call, with the river played to the plan of HorseHoldemTurnRiverPlan, is worth
+   *    more than the fold with his turn shares one standard error toward his top fifth.
+   *  - RIVER, facing the river's first bet by the same player after the Horse called his turn stab: the brain's FOLD
+   *    becomes a call where that plan calls on the card that came (the same price the turn counted).
+   * Every other decision is kept: it never folds a call, never raises, and prices nothing facing a raise. Draws nothing
+   * from fastRandom.
+   */
+  private static holdemTurnRiverPlanOnPeople(
+    decision: HorseDecision,
+    player: SeatPlayer,
+    gs: HorseGameStateV2,
+    vi: VariantInfo,
+    opts: HorseDecideOpts
+  ): HorseDecision {
+    if (opts.holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced !== true) return decision;
+    if (decision.action !== 'fold' || (gs.stage !== 'turn' && gs.stage !== 'river'))
+      return decision;
+    if (
+      String(gs.gameVariant ?? '').toLowerCase() !== 'nlh' ||
+      vi.isOmaha ||
+      vi.isShortDeck ||
+      vi.isFixedLimit ||
+      vi.holeCount !== 2 ||
+      isTournamentMode(gs) ||
+      gs.bombPot === true ||
+      gs.allInOrFold === true ||
+      ((gs as { communityCards2?: readonly unknown[] }).communityCards2?.length ?? 0) > 0 ||
+      !Array.isArray(player.cards) ||
+      player.cards.length !== 2
+    )
+      return decision;
+    const live = gs.players.filter(
+      (p) => p.seat !== player.seat && !p.is_folded && (!p.is_sitting_out || p.is_all_in)
+    );
+    if (live.length !== 1) return decision;
+    const opp = live[0] as SeatPlayer;
+    const tele = telemetryOn(opts);
+    const river = gs.stage === 'river';
+    try {
+      const board = gs.communityCards ?? [];
+      if (board.length !== (river ? 5 : 4)) return decision;
+      const history = gs.actionHistory ?? [];
+      // the line: nobody bet the flop; the pot: limped or single raised (a re-raised pot is not priced)
+      if (!holdemFacingBetFlopWasChecked(history)) return decision;
+      const potType = holdemFacingBetPotOf(history);
+      if (potType === 'reraised') return decision;
+      const isWager = (a: string) => a === 'bet' || a === 'raise' || a === 'all_in';
+      // the turn: exactly one wager, his first bet, made heads-up (nobody folded to it)
+      if (history.some((x) => x.stage === 'turn' && x.action === 'fold')) return decision;
+      const turnWagers = history.filter((x) => x.stage === 'turn' && isWager(String(x.action)));
+      if (turnWagers.length !== 1 || (turnWagers[0] as { seat: number }).seat !== opp.seat)
+        return decision;
+      const heroIn = Math.max(0, Number(player.bet ?? 0));
+      const villainIn = Math.max(0, Number(opp.bet ?? 0));
+      const currentBet = Math.max(Number(gs.currentBet ?? 0), villainIn);
+      const heroStack = Math.max(0, Number(player.stack ?? 0));
+      const owed = currentBet - heroIn;
+      if (!(owed > 0) || heroIn > 0 || !(heroStack > 0)) return decision;
+      const pot = Math.max(0, Number(gs.pot ?? 0));
+      const toCall = Math.min(owed, heroStack);
+      const winnable = pot - (owed - toCall);
+      if (!(winnable > 0)) return decision;
+      const rake = rakeDrag(pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat));
+      let ratio: number;
+      if (river) {
+        // the river: the Horse called his turn bet, and his river bet is the river's first and only wager
+        const turnBet = Math.max(0, Number((turnWagers[0] as { amount?: number }).amount ?? 0));
+        const heroTurn = history.filter((x) => x.stage === 'turn' && x.seat === player.seat);
+        const heroCall = heroTurn.find((x) => String(x.action) === 'call');
+        if (!heroCall || heroTurn.some((x) => isWager(String(x.action)))) return decision;
+        if (history.some((x) => x.stage === 'river' && x.action === 'fold')) return decision;
+        const riverWagers = history.filter((x) => x.stage === 'river' && isWager(String(x.action)));
+        if (riverWagers.length !== 1 || (riverWagers[0] as { seat: number }).seat !== opp.seat)
+          return decision;
+        const turnBefore =
+          pot -
+          villainIn -
+          turnBet -
+          Math.max(0, Number((heroCall as { amount?: number }).amount ?? 0));
+        if (!(turnBet > 0) || !(turnBefore > 0)) return decision;
+        ratio = turnBet / turnBefore;
+      } else {
+        const before = pot - villainIn;
+        if (!(before > 0)) return decision;
+        ratio = villainIn / before;
+      }
+      const record = opts.mind !== false ? holdemBetReadTurnOf(opp.user_id, ratio) : null;
+      const turnShares = holdemTurnFacingBetOwnShares(ratio, potType, record);
+      if (tele && turnShares.shown > 0)
+        noteFire(
+          river ? 'holdem_turn_plan_river_own_record_read' : 'holdem_turn_plan_own_record_read'
+        );
+      let call: boolean;
+      if (river) {
+        const riverRatio = villainIn / (pot - villainIn);
+        const riverShares = holdemFacingBetOwnShares(
+          riverRatio,
+          'b',
+          potType,
+          opts.mind !== false ? holdemBetReadOf(opp.user_id, 'b', riverRatio) : null
+        );
+        const price = holdemTurnRiverPlanRiverPrice(
+          player.cards,
+          board,
+          turnShares.share,
+          riverShares,
+          winnable,
+          toCall,
+          rake
+        );
+        if (price === null) {
+          if (tele)
+            noteFire(river ? 'holdem_turn_plan_river_unpriced' : 'holdem_turn_plan_unpriced');
+          return decision;
+        }
+        call = price.call;
+      } else {
+        const riverShares = holdemFacingBetOwnShares(
+          ratio,
+          'b',
+          potType,
+          opts.mind !== false ? holdemBetReadOf(opp.user_id, 'b', ratio) : null
+        );
+        // the error of his turn shares: people's cell and his own stabs
+        const turnN = holdemTurnFacingBetPeopleShares(ratio, potType).n + turnShares.shown;
+        const behind = Math.min(heroStack - toCall, Math.max(0, Number(opp.stack ?? 0)));
+        const price = holdemTurnRiverPlanTurnPrice(player.cards, board, turnShares.share, turnN, {
+          toCall,
+          winnable,
+          behind: Math.max(0, behind),
+          riverRatio: ratio,
+          rake,
+          river: riverShares,
+          barrels: opts.mind !== false ? holdemBetReadBarrelOf(opp.user_id) : null,
+        });
+        if (price === null) {
+          if (tele)
+            noteFire(river ? 'holdem_turn_plan_river_unpriced' : 'holdem_turn_plan_unpriced');
+          return decision;
+        }
+        call = price.call;
+      }
+      if (!call) {
+        if (tele)
+          noteFire(river ? 'holdem_turn_plan_river_fold_stands' : 'holdem_turn_plan_fold_stands');
+        return decision;
+      }
+      const called = this.legalize(
+        { action: 'call', amount: toCall, thinkTime: 0 },
+        player,
+        gs,
+        vi
+      );
+      if (called.action !== 'call' && called.action !== 'all_in') {
+        if (tele) noteFire(river ? 'holdem_turn_plan_river_unpriced' : 'holdem_turn_plan_unpriced');
+        return decision;
+      }
+      if (tele) noteFire(river ? 'holdem_turn_plan_river_call' : 'holdem_turn_plan_call');
+      return called;
+    } catch {
+      if (tele) noteFire(river ? 'holdem_turn_plan_river_unpriced' : 'holdem_turn_plan_unpriced');
       return decision;
     }
   }

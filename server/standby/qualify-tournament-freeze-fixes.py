@@ -231,6 +231,39 @@ def verified_satellite_thaw(result):
     return peak
 
 
+def run_native_probes(probe_jobs, probe_containers):
+    """Run native PG17 probe containers with bounded concurrency and fail-fast cancellation."""
+    cancel_event = threading.Event()
+
+    def _run_probe(argv, log_path):
+        if cancel_event.is_set():
+            return ''
+        try:
+            return run(argv, log=log_path)
+        except BaseException:
+            cancel_event.set()
+            raise
+
+    pool = ThreadPoolExecutor(max_workers=MAX_NATIVE_PROBE_WORKERS)
+    try:
+        futures = [pool.submit(_run_probe, argv, log_path) for argv, log_path in probe_jobs]
+        for future in as_completed(futures):
+            future.result()
+    except BaseException:
+        # Fail fast: set cancel_event and cancel queued futures BEFORE removing
+        # sibling containers so a queued probe cannot start AFTER docker rm -f.
+        cancel_event.set()
+        pool.shutdown(wait=False, cancel_futures=True)
+        for container in probe_containers:
+            subprocess.run(['docker', 'rm', '-f', container], capture_output=True)
+        pool.shutdown(wait=True)
+        for container in probe_containers:
+            subprocess.run(['docker', 'rm', '-f', container], capture_output=True)
+        raise
+    else:
+        pool.shutdown(wait=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('sha')
@@ -380,20 +413,7 @@ def main():
                 ([*common, '--name', containers[5], '-e', 'TMPDIR=/evidence/tmp-feeders', native_tag,
                   'scripts/ci/test-fixed-sng-satellites.py'], output / 'satellite-feeders.log'),
             ])
-        pool = ThreadPoolExecutor(max_workers=MAX_NATIVE_PROBE_WORKERS)
-        try:
-            futures = [pool.submit(run, argv, log=log_path) for argv, log_path in probe_jobs]
-            for future in as_completed(futures):
-                future.result()
-        except BaseException:
-            # Fail fast: stop running sibling probe containers immediately so
-            # shutdown does not wait on a 20-minute sibling timeout.
-            for container in containers[1:]:
-                subprocess.run(['docker', 'rm', '-f', container], capture_output=True)
-            pool.shutdown(wait=True, cancel_futures=True)
-            raise
-        else:
-            pool.shutdown(wait=True)
+        run_native_probes(probe_jobs, containers[1:])
         hand = json.loads((evidence / 'hand/result.json').read_text())
         f06 = json.loads((evidence / 'f06/RESULTS.json').read_text())
         if (hand.get('status') != 'passed' or f06.get('passed') is not True

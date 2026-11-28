@@ -162,7 +162,7 @@
   font-weight: 700;
   color: #9fb4d0;
   letter-spacing: 0.1em;
-  text-transform: uppercase;
+  text-transform: none;
   margin-bottom: 2px;
   text-align: center;
   line-height: 1;
@@ -289,7 +289,7 @@
   font-weight: 800;
   color: #45adff;
   letter-spacing: 0.1em;
-  text-transform: uppercase;
+  text-transform: none;
   line-height: 1;
   text-shadow:
     0 0 6px rgba(49, 168, 255, 0.7),
@@ -371,11 +371,11 @@
 
 @keyframes bgPulse {
   from {
-    background: rgba(45, 27, 78, 0.85);
+    background: rgba(9, 23, 39, 0.85);
   }
 
   to {
-    background: rgba(75, 40, 120, 0.9);
+    background: rgba(18, 39, 59, 0.9);
   }
 }
 
@@ -514,7 +514,7 @@
 .bbj-particle:nth-child(4n) {
   --tx: -30vw;
   --ty: -30vh;
-  background: #ff00ff;
+  background: var(--sd-cobalt-top);
 }
 
 /* `.bbj-info__payout` (the stakes-tiered payout preview line, 2026-08-18) was
@@ -558,9 +558,9 @@
   background: linear-gradient(
     100deg,
     transparent 0%,
-    rgba(255, 235, 150, 0.16) 45%,
+    rgba(214, 246, 255, 0.16) 45%,
     rgba(255, 255, 255, 0.28) 50%,
-    rgba(255, 235, 150, 0.16) 55%,
+    rgba(214, 246, 255, 0.16) 55%,
     transparent 100%
   );
   transform: skewX(-18deg);

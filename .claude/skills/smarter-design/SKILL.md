@@ -339,10 +339,11 @@ passing one.
 
 ## 5.5 Finding the work, claiming it, and shared components (2026-11-28)
 
-### The inventory is generated; read it, never edit it
+### The inventory is printed from the code; it is never committed
 
-`docs/club-operations/SMARTERDESIGN-INVENTORY.md` is the output of
-`scripts/smarterdesign-inventory.mjs`, which resolves every route in
+`node scripts/smarterdesign-inventory.mjs` prints the inventory (`--write`
+puts the full document in the gitignored `.smarterdesign/inventory.md`, and in
+the CI step summary when there is one). It resolves every route in
 `src/App.tsx` to its page module and grades it from markers in source (the
 page file plus the page-owned components it renders one hop down):
 
@@ -365,11 +366,65 @@ Two traps it accounts for, so you do not have to:
   counts painted pages as done. It stays the measure for popups, modals,
   sheets and dialogs only.
 
-When your PR converts a page, run `node scripts/smarterdesign-inventory.mjs
---write` and commit the regenerated file in the same PR;
-`tests/the-smarterdesign-inventory-matches-the-code.law.test.ts` fails until
-you do. The batch history (what each PR changed and why) is hand-written in
-`docs/club-operations/SMARTERDESIGN-HISTORY.md`; add your batch there.
+### Record a conversion: two new files, never a shared document
+
+No lane edits a shared #SmarterDesign document. Until 2026-11-28 every batch
+rewrote the committed inventory and appended to one history file, so every
+merge to main made every other open lane conflict on both and pay a full CI
+rerun. Both files are gone; a batch now ADDS files that no other lane can
+touch:
+
+1. **The ratchet entry, one per converted page.** Run
+
+   ```bash
+   node scripts/smarterdesign-inventory.mjs --ratchet
+   ```
+
+   It writes `docs/club-operations/smarterdesign.d/<Component>` (one line, the
+   page module path) for every page that now reads as converted, and never
+   deletes one. `tests/the-smarterdesign-inventory-matches-the-code.law.test.ts`
+   fails when a converted page has no entry, when an entry no longer reads as
+   converted (the page lost its root or mast, or gained a painted section), and
+   when an entry on main disappears while its page is still routed. So the
+   Converted count only grows: fix a regression by restoring the page, never by
+   deleting its entry. An entry goes only when its page leaves the routes or is
+   moved to the script's `EXCLUDED` list by a written ruling.
+
+2. **The history file, one per batch.** Add
+   `docs/club-operations/smarterdesign-history.d/YYYY-MM-DD-<batch>.md`, opening
+   with `## Batch <id>: <what>`, with the same table and notes earlier batches
+   wrote (see that directory's `README.md`). `node scripts/smarterdesign-history.mjs`
+   prints the whole history in order;
+   `tests/the-smarterdesign-history-is-one-file-per-batch.law.test.ts` holds the
+   names and headings.
+
+### The last conflict on the retired files (open lanes, once)
+
+A branch cut before 2026-11-28 still edits
+`docs/club-operations/SMARTERDESIGN-INVENTORY.md` and
+`docs/club-operations/SMARTERDESIGN-HISTORY.md`. Main deleted both, so its next
+`git merge origin/main` stops on them once (modify/delete). Resolve it exactly
+like this, in your own worktree, with the merge still in progress:
+
+```bash
+git merge origin/main                                    # stops: both files "deleted in origin/main"
+node scripts/smarterdesign-history.mjs --rescue <batch>  # eg p7-friends-and-vip: moves YOUR added
+                                                         # history lines into smarterdesign-history.d/
+                                                         # <today>-<batch>.md and git-rm's the old file
+git rm docs/club-operations/SMARTERDESIGN-INVENTORY.md   # take main's deletion; nothing to keep
+node scripts/smarterdesign-inventory.mjs --ratchet       # your converted pages' ratchet entries
+git add docs/club-operations/smarterdesign.d docs/club-operations/smarterdesign-history.d
+# read the new history file: it holds only the lines your branch added; fix its
+# "## " heading if --rescue said so, then resolve any other conflict and commit
+npx vitest run tests/the-smarterdesign-inventory-matches-the-code.law.test.ts \
+  tests/the-smarterdesign-history-is-one-file-per-batch.law.test.ts tests/law-registry.law.test.ts
+git commit --no-edit
+```
+
+Never re-create either file, never `git checkout --ours` them (both laws
+refuse them), and never regenerate a committed inventory. The local helper
+`resolve-sd-docs.sh` that merged the two files is retired with them: do not run
+it.
 
 ### Claim before you start
 
@@ -387,7 +442,8 @@ touches it: coordinate with that PR (or `COORDINATION-INBOX.md`, CLAUDE.md
 10.8 rule 5) instead of starting a second conversion. `touched` means only
 other work touches it: expect a merge, not a duplicate. Your own PR is the
 claim; open it as a draft early if the page will take a while. The step is
-advisory: it never blocks a commit or push and never runs on a timer. Exit 3
+advisory: it never blocks a commit or push and never runs on a timer. A PR
+that adds the page's ratchet entry counts as a claim on it. Exit 3
 and `UNKNOWN` mean GitHub could not be read; that is never "unclaimed", so
 check the open PRs by hand.
 
@@ -476,8 +532,10 @@ that does not use it.
 - [ ] Every removed class name searched in `tests/e2e` and updated in the
       same PR.
 - [ ] Before/after at 393px, every state, shown to Dan before the push.
-- [ ] `--claims` run before starting; the inventory regenerated (`--write`) and
-      the batch added to `SMARTERDESIGN-HISTORY.md` in the same PR.
+- [ ] `--claims` run before starting; `--ratchet` run and its new
+      `smarterdesign.d/<Component>` files committed, and one new
+      `smarterdesign-history.d/YYYY-MM-DD-<batch>.md` for the batch, in the
+      same PR. No shared #SmarterDesign document edited.
 - [ ] Gates green; changelog under `docs/changelog/`; merged SHA verified live.
 
 ---
