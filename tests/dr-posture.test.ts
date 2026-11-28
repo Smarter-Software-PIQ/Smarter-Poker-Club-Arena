@@ -1117,3 +1117,400 @@ describe('trial_swap avoids redundant container reboot only when from is clean, 
     expect(calls).toContain('wait_live');
   });
 });
+
+describe('standby swap acceleration eliminates dead polling and duplicate CLI spawns without weakening proofs', () => {
+  it('write_env invokes supabase status exactly once to extract both keys', () => {
+    const result = standbyShell(`
+      DB_DIR="$STATE_DIR"
+      supabase() {
+        echo "call" >> "$STATE_DIR/supa-calls"
+        printf 'ANON_KEY="anon-fixture-key"\\nSERVICE_ROLE_KEY="service-fixture-key"\\n'
+      }
+      write_env
+      printf 'calls=%s\\n' "$(wc -l < "$STATE_DIR/supa-calls" | tr -d ' ')"
+      grep -E '^SUPABASE_(ANON|SERVICE_ROLE)_KEY=' "$STATE_DIR/engine.env"
+    `);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('calls=1');
+    expect(result.stdout).toContain('SUPABASE_ANON_KEY=anon-fixture-key');
+    expect(result.stdout).toContain('SUPABASE_SERVICE_ROLE_KEY=service-fixture-key');
+  });
+
+  it('uses tight polling intervals in swap/live loops while preserving soak cadence and proof bounds', () => {
+    const engine = readFileSync(root('server/standby/standby-engine.sh'), 'utf8');
+    const trials = readFileSync(root('server/standby/standby-trials.sh'), 'utf8');
+    const waitLive = engine.slice(
+      engine.indexOf('wait_live() {'),
+      engine.indexOf('crash_container() {')
+    );
+    expect(waitLive).toContain('sleep 1');
+    expect(waitLive).not.toContain('sleep 3');
+    const waitAuto = engine.slice(
+      engine.indexOf('wait_auto_recovery() {'),
+      engine.indexOf('rehearsal_failure_detail() {')
+    );
+    expect(waitAuto).toContain('sleep 1');
+    expect(waitAuto).not.toContain('sleep 3');
+    const capture = trials.slice(
+      trials.indexOf('capture_frozen_seats() {'),
+      trials.indexOf('frozen_seat_receipt() {')
+    );
+    expect(capture).toContain('sleep 1');
+    expect(capture).not.toContain('sleep 3');
+    const waitDealing = trials.slice(
+      trials.indexOf('wait_dealing() {'),
+      trials.indexOf('request_break() {')
+    );
+    expect(waitDealing).toContain('sleep 1');
+    expect(waitDealing).not.toContain('sleep 5');
+    expect(waitDealing).toContain('(( now - start < 1200 )) || return 1');
+    expect(waitDealing).toContain('(( eligible < 300 )) || return 1');
+    const witness = trials.slice(
+      trials.indexOf('start_player_witness() {'),
+      trials.indexOf('certified_player_swap() {')
+    );
+    expect(witness).toContain('sleep 0.2');
+    // Phase timing breakdown fields are emitted on every swap verdict.
+    expect(trials).toContain('\\"secondsPretrial\\"');
+    expect(trials).toContain('\\"secondsBuildTo\\"');
+    expect(trials).toContain('\\"secondsWitnessStart\\"');
+    expect(trials).toContain('\\"secondsPostThawDeal\\"');
+  });
+});
+
+describe('reclaim_backup_disk pins fallback SHA, bounds qualification history, and caps BuildKit cache', () => {
+  const CANDIDATE = 'c'.repeat(40);
+  const SERVING = 'e'.repeat(40);
+  const FALLBACK = 'f'.repeat(40);
+  const OLD_EVICTABLE = 'a'.repeat(40);
+
+  it('pins the 3rd fallback_sha argument, never evicts it, and runs bounded BuildKit storage pruning non-fatally', () => {
+    const result = standbyShell(`
+      docker() {
+        echo "$*" >> "$STATE_DIR/docker-calls"
+        case "$1 $2" in
+          "image ls")
+            case "$*" in
+              *club-arena-engine-standby*) printf '%s\\n' club-arena-engine-standby:${OLD_EVICTABLE} club-arena-engine-standby:${FALLBACK} club-arena-engine-standby:${CANDIDATE} club-arena-engine-standby:${SERVING} ;;
+              *standby-freeze*) ;;
+            esac ;;
+          "image inspect") date -u -d '-5 days' +%FT%TZ ;;
+          "builder prune")
+            case "$*" in *--keep-storage*) return 1 ;; esac ;;
+          "info -f") echo "$STATE_DIR" ;;
+        esac
+        return 0
+      }
+      df() { printf 'Filesystem 1G-blocks Used Available Capacity Mounted\\n/dev/sda 300G 250G 40G 87%% /\\n'; }
+      reclaim_backup_disk ${CANDIDATE} ${SERVING} ${FALLBACK}
+      cat "$STATE_DIR/docker-calls"
+    `);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`image rm club-arena-engine-standby:${OLD_EVICTABLE}`);
+    expect(result.stdout).not.toContain(`image rm club-arena-engine-standby:${FALLBACK}`);
+    expect(result.stdout).not.toContain(`image rm club-arena-engine-standby:${SERVING}`);
+    expect(result.stdout).not.toContain(`image rm club-arena-engine-standby:${CANDIDATE}`);
+    expect(result.stdout).toContain('builder prune -f --keep-storage 10GB');
+    expect(result.stderr).toContain(`kept serving ${SERVING.slice(0, 12)}`);
+    expect(result.stderr).toContain(`kept fallback ${FALLBACK.slice(0, 12)}`);
+  });
+
+  it('newest_certified_fallback_sha selects the newest passing certificate and ignores late failed runs', () => {
+    const failedSha = '9'.repeat(40);
+    const olderPass = '8'.repeat(40);
+    const result = standbyShell(`
+      CERT_DIR="$STATE_DIR/certs"
+      mkdir -p "$CERT_DIR"
+      printf '{"sha":"%s","verdict":"pass"}\\n' '${olderPass}' > "$CERT_DIR/${olderPass}.json"
+      printf '{"sha":"%s","verdict":"pass"}\\n' '${FALLBACK}' > "$CERT_DIR/${FALLBACK}.json"
+      printf '{"sha":"%s","verdict":"fail"}\\n' '${failedSha}' > "$CERT_DIR/${failedSha}.json"
+      python3 - "$CERT_DIR" <<'PY'
+import os, sys, time
+d = sys.argv[1]
+now = time.time()
+os.utime(os.path.join(d, '${olderPass}.json'), (now - 300, now - 300))
+os.utime(os.path.join(d, '${FALLBACK}.json'), (now - 100, now - 100))
+os.utime(os.path.join(d, '${failedSha}.json'), (now - 10, now - 10))
+PY
+      newest_certified_fallback_sha '${CANDIDATE}' '${SERVING}'
+    `);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim()).toBe(FALLBACK);
+  });
+
+  it('prunes qualifications beyond newest 20 or older than 48h while never deleting the active candidate run', () => {
+    const result = standbyShell(`
+      qdir="$STATE_DIR/qualifications"
+      mkdir -p "$qdir"
+      python3 - "$qdir" '${CANDIDATE}' <<'PY'
+import os, sys, time
+qdir, cand = sys.argv[1:3]
+now = time.time()
+# Active run is old (72h) and beyond 20, yet must NEVER be removed.
+active = os.path.join(qdir, f'{cand}-active')
+os.makedirs(active)
+os.utime(active, (now - 72 * 3600, now - 72 * 3600))
+# 24 recent runs (< 48h): newest 20 stay, oldest 4 are pruned.
+for i in range(24):
+    p = os.path.join(qdir, f'recent-{i:02d}')
+    os.makedirs(p)
+    t = now - (i + 1) * 60
+    os.utime(p, (t, t))
+# 1 stale run (> 48h): must be pruned.
+stale = os.path.join(qdir, 'stale-72h')
+os.makedirs(stale)
+os.utime(stale, (now - 72 * 3600, now - 72 * 3600))
+PY
+      prune_backup_qualifications '${CANDIDATE}'
+      ls -1 "$qdir" | sort
+    `);
+    expect(result.status, result.stderr).toBe(0);
+    const remaining = result.stdout.trim().split('\n').filter(Boolean);
+    expect(remaining).toContain(`${CANDIDATE}-active`);
+    expect(remaining).not.toContain('stale-72h');
+    expect(remaining).toContain('recent-00');
+    expect(remaining).toContain('recent-19');
+    expect(remaining).not.toContain('recent-20');
+    expect(remaining).not.toContain('recent-23');
+    expect(remaining).toHaveLength(21);
+  });
+});
+
+describe('standby connection-pool spike and host clock-skew telemetry', () => {
+  it.each([
+    [
+      'healthy',
+      '{"total":15,"active":3}',
+      ['{"total":30,"active":8}'],
+      '{"total":18,"active":2}',
+      0,
+      'pass',
+    ],
+    [
+      'warn-high',
+      '{"total":15,"active":3}',
+      ['{"total":85,"active":20}'],
+      '{"total":20,"active":2}',
+      0,
+      'warn',
+    ],
+    [
+      'fail-spike',
+      '{"total":15,"active":3}',
+      ['{"total":125,"active":40}'],
+      '{"total":20,"active":2}',
+      1,
+      'fail',
+    ],
+    [
+      'fail-leak',
+      '{"total":15,"active":3}',
+      ['{"total":50,"active":10}'],
+      '{"total":45,"active":4}',
+      1,
+      'fail',
+    ],
+    ['unreadable', '', [], '', 2, 'unreadable'],
+  ])(
+    'evaluate_swap_db_connections classifies %s accurately',
+    (_mode, baseline, samples, post, expectedRc, expectedStatus) => {
+      const result = standbyShell(`source '${root('server/standby/standby-trials.sh')}'
+        printf '%s\\n' ${samples.map((s) => JSON.stringify(s)).join(' ') || "''"} > "$STATE_DIR/samples"
+        rc=0
+        out=$(evaluate_swap_db_connections ${JSON.stringify(baseline)} "$STATE_DIR/samples" ${JSON.stringify(post)} 120 80 25) || rc=$?
+        printf 'rc=%s\\n%s\\n' "$rc" "$out"
+      `);
+      expect(result.status, result.stderr).toBe(0);
+      const [rcLine, jsonLine] = result.stdout.trim().split('\n');
+      expect(rcLine).toBe(`rc=${expectedRc}`);
+      const parsed = JSON.parse(jsonLine);
+      expect(parsed.status).toBe(expectedStatus);
+      if (expectedStatus === 'fail') {
+        expect(parsed.breaches.length).toBeGreaterThan(0);
+      }
+    }
+  );
+
+  it('certified_player_swap records SWAP_PEAK_DB_CONNECTIONS and fails closed on connection leak', () => {
+    const shaA = 'a'.repeat(40);
+    const shaB = 'b'.repeat(40);
+    const result = standbyShell(`source '${root('server/standby/standby-trials.sh')}'
+      SWAP_DB_CONN_SAMPLE_SECONDS=60
+      echo 0 > "$STATE_DIR/conn-call"
+      sample_db_connections() {
+        local n; n=$(($(cat "$STATE_DIR/conn-call") + 1)); echo "$n" > "$STATE_DIR/conn-call"
+        if [ "$n" -eq 1 ]; then echo '{"total":12,"active":2}'; else echo '{"total":55,"active":5}'; fi
+      }
+      trial_swap() {
+        printf '{"ok":true}\\n' > "$witness_dir/verdict"
+        (sleep 0) &
+        witness_pid=$!
+        return 0
+      }
+      rc=0
+      certified_player_swap '${shaA}' '${shaB}' || rc=$?
+      printf 'rc=%s\\n%s\\n' "$rc" "$SWAP_PEAK_DB_CONNECTIONS"
+    `);
+    expect(result.status, result.stderr).toBe(0);
+    const lines = result.stdout.trim().split('\n');
+    expect(lines[0]).toBe('rc=1');
+    const summary = JSON.parse(lines[1]);
+    expect(summary.status).toBe('fail');
+    expect(summary.deltaAfterSwap).toBe(43);
+    expect(summary.breaches.join(',')).toContain('db_connection_leak_after_swap');
+  });
+
+  it.each(['chronyc-ok', 'chronyc-warn', 'timedatectl-ok', 'unavailable'])(
+    'check_host_clock_skew handles %s non-fatally',
+    (mode) => {
+      const stub =
+        mode === 'chronyc-ok'
+          ? `chronyc() { printf 'Stratum : 2\\nSystem time : 0.001250000 seconds fast of NTP time\\nLeap status : Normal\\n'; }; timedatectl() { return 127; }`
+          : mode === 'chronyc-warn'
+            ? `chronyc() { printf 'Stratum : 3\\nSystem time : 0.420000000 seconds slow of NTP time\\nLeap status : Normal\\n'; }; timedatectl() { return 127; }`
+            : mode === 'timedatectl-ok'
+              ? `command() { if [ "$1" = -v ] && [ "$2" = chronyc ]; then return 1; fi; builtin command "$@"; }; timedatectl() { if [ "$1" = timesync-status ]; then printf 'Offset: -12.5ms\\n'; return 0; fi; return 1; }`
+              : `command() { if [ "$1" = -v ] && { [ "$2" = chronyc ] || [ "$2" = timedatectl ]; }; then return 1; fi; builtin command "$@"; }`;
+      const result = standbyShell(`${stub}\ncheck_host_clock_skew`);
+      expect(result.status, result.stderr).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      if (mode === 'chronyc-ok') {
+        expect(parsed).toMatchObject({
+          status: 'ok',
+          source: 'chronyc',
+          offsetMs: 1.25,
+          synchronized: true,
+        });
+      } else if (mode === 'chronyc-warn') {
+        expect(parsed).toMatchObject({ status: 'warn', source: 'chronyc', offsetMs: -420 });
+        expect(result.stderr).toContain('WARNING host clock skew');
+      } else if (mode === 'timedatectl-ok') {
+        expect(parsed).toMatchObject({ status: 'ok', source: 'timedatectl', offsetMs: -12.5 });
+      } else {
+        expect(parsed).toMatchObject({ status: 'unavailable', source: null, offsetMs: null });
+      }
+    }
+  );
+
+  it('wires swapPeakDbConnections and clockSkewCheck into the certificate JSON', () => {
+    const script = readFileSync(root(STANDBY), 'utf8');
+    expect(script).toContain('"swapPeakDbConnections": json.loads(sys.argv[10]),');
+    expect(script).toContain('"clockSkewCheck": json.loads(sys.argv[11]),');
+    expect(script).toContain("record 'swap_db_connections_exceeded'");
+  });
+});
+
+describe('CoW snapshot/restore helper binds schema evidence and falls back fail-closed', () => {
+  const dumpSha = createHash('sha256').update('fixture').digest('hex');
+  const snapshotValidCopy = {
+    ...validCopy,
+    'database.json': {
+      ...validCopy['database.json'],
+      dumpSha256: dumpSha,
+    },
+  };
+
+  it('cmd_snapshot_copy creates a validated manifest and cmd_restore_snapshot restores it via CoW', () => {
+    const result = standbyShell(
+      `
+      assert_isolated() { return 0; }
+      verify_schema_evidence() { return 0; }
+      log() { :; }
+      mkdir -p "$STATE_DIR/pgdata" "$STATE_DIR/seed"
+      printf 'pg-marker-v1' > "$STATE_DIR/pgdata/PG_VERSION"
+      PGDATA_HOST_DIR="$STATE_DIR/pgdata"
+      docker() {
+        case "$1" in
+          ps) echo '' ;;
+          stop) echo "db-stopped" >> "$STATE_DIR/ops" ;;
+          inspect) echo false ;;
+          start) echo "db-started" >> "$STATE_DIR/ops" ;;
+          restart) echo "rest-restarted" >> "$STATE_DIR/ops" ;;
+        esac
+        return 0
+      }
+      psql_db() { echo 1; return 0; }
+      cmd_snapshot_copy "$STATE_DIR/snap" > "$STATE_DIR/snap-out.json"
+      # Mutate live PGDATA, then restore from the validated snapshot.
+      printf 'mutated' > "$STATE_DIR/pgdata/PG_VERSION"
+      cmd_restore_snapshot "$STATE_DIR/schema.dump" "$STATE_DIR/seed" "$STATE_DIR/snap" > "$STATE_DIR/restore-out.json"
+      cat "$STATE_DIR/pgdata/PG_VERSION"
+      echo ""
+      cat "$STATE_DIR/restore-out.json"
+    `,
+      snapshotValidCopy
+    );
+    expect(result.status, result.stderr).toBe(0);
+    const [marker, jsonOut] = result.stdout.trim().split('\n');
+    expect(marker).toBe('pg-marker-v1');
+    const receipt = JSON.parse(jsonOut);
+    expect(receipt.restoredFromSnapshot).toBe(true);
+    expect(receipt.dumpSha256).toBe(dumpSha);
+  });
+
+  it.each([
+    'missing-manifest',
+    'schema-evidence-drift',
+    'dump-drift',
+    'tampered-seed',
+    'post-restore-verify-fails',
+  ])(
+    'cmd_restore_snapshot falls back fail-closed to full cmd_restore + cmd_seed on %s',
+    (fault) => {
+      const result = standbyShell(
+        `
+        assert_isolated() { return 0; }
+        verify_schema_evidence() { return 0; }
+        log() { printf '%s\\n' "$*" >> "$STATE_DIR/log"; }
+        mkdir -p "$STATE_DIR/pgdata" "$STATE_DIR/seed"
+        printf 'pg-live' > "$STATE_DIR/pgdata/PG_VERSION"
+        printf '{"copied":[]}' > "$STATE_DIR/seed/manifest.json"
+        PGDATA_HOST_DIR="$STATE_DIR/pgdata"
+        docker() {
+          case "$1" in
+            ps) echo '' ;;
+            inspect) echo false ;;
+          esac
+          return 0
+        }
+        psql_db() { echo 1; return 0; }
+        cmd_restore() { echo "fallback:cmd_restore:$1" >> "$STATE_DIR/fallback"; return 0; }
+        cmd_seed() { echo "fallback:cmd_seed:$1" >> "$STATE_DIR/fallback"; return 0; }
+        if [ '${fault}' != missing-manifest ]; then
+          cmd_snapshot_copy "$STATE_DIR/snap" >/dev/null
+        fi
+        case '${fault}' in
+          schema-evidence-drift) printf '{"drifted":true}' > "$STATE_DIR/schema-evidence.json" ;;
+          dump-drift) printf 'different-dump' > "$STATE_DIR/schema.dump" ;;
+          tampered-seed) printf '{"tablesFailed":1}' > "$STATE_DIR/snap/seed.json" ;;
+          post-restore-verify-fails) verify_schema_evidence() { return 1; } ;;
+        esac
+        cmd_restore_snapshot "$STATE_DIR/schema.dump" "$STATE_DIR/seed" "$STATE_DIR/snap"
+        cat "$STATE_DIR/fallback"
+      `,
+        snapshotValidCopy
+      );
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain(`fallback:cmd_restore:`);
+      expect(result.stdout).toContain(`fallback:cmd_seed:`);
+    }
+  );
+
+  it('cmd_restore_snapshot refuses without mutating PGDATA when snapshot is invalid and no fallback dump/seed is given', () => {
+    const result = standbyShell(
+      `
+      assert_isolated() { return 0; }
+      log() { :; }
+      mkdir -p "$STATE_DIR/pgdata"
+      printf 'untouched' > "$STATE_DIR/pgdata/PG_VERSION"
+      PGDATA_HOST_DIR="$STATE_DIR/pgdata"
+      rc=0
+      cmd_restore_snapshot "$STATE_DIR/schema.dump" "" "$STATE_DIR/missing-snap" || rc=$?
+      printf 'rc=%s marker=%s\\n' "$rc" "$(cat "$STATE_DIR/pgdata/PG_VERSION")"
+    `,
+      snapshotValidCopy
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim()).toBe('rc=1 marker=untouched');
+  });
+});

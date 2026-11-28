@@ -1,0 +1,31 @@
+money: {
+  "figures": [
+    "25,525.75",
+    "25,000",
+    "525.75",
+    "24,000",
+    "1,550.75",
+    "25",
+    "3",
+    "25,525.75"
+  ],
+  "hooks": [
+    "data-scope=player"
+  ]
+}
+text: Rakeback This Week No Raked Hands Recorded For You This Week Yet. Club Arena Your Chip Statement Reconciled Balance Now 25,525.75 Kings Club 25,000 Deep Stack 525.75 Reconciles. Read At <date>, <time> As 24,000 , Plus 1,550.75 In, Minus 25 Out ( 3 Movements) Equals 25,525.75 , Which Is Your Balance. No Chip Movements Yet. Generated <date>, <time> From The Chip Journal. Every Line Is A Journal Leg; Nothing Is Summarised Away. The Balance Is Your Wallet Only: Chips Sitting On A Table Or In A Tournament Are Not In It Until They Come Back, And Promo Chips Are A Separate Wallet. Refresh Up To Date Tournament Payments
+regions: [
+  "section||Rakeback This Week|",
+  "h3|||",
+  "section|||",
+  "h2|||",
+  "ul||Balance By Club|",
+  "div|status||",
+  "footer|||",
+  "button||Refresh The Statement|",
+  "button||Every Movement Is Shown|"
+]
+controls: [
+  "button|Refresh The Statement|Refresh",
+  "button|Every Movement Is Shown|Up To Date (disabled)"
+]

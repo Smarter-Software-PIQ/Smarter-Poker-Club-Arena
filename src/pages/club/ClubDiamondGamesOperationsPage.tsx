@@ -20,10 +20,12 @@
  * Every control posts a patch to fn_diamond_game_set_config, which decides who
  * may (fn_wheel_can_operate). The page shows a refusal, it never pre-empts one.
  *
- * THE PICTURE (#ClubArenaConsole). Four consoles: the readings (its plates are
- * the Plinko / Crash switch, the chosen game in white), the realised return by
- * window, the controls (fields printed on engraved lines, Close / Open on the
- * steel, Save on the blue glass) and the lifetime pool. Nothing is drawn.
+ * THE PICTURE (#SmarterDesign, Dan 2026-11-27). The arena workspace: the
+ * chrome mast with the club's name, the live figures as chrome meters, one
+ * chrome switch of the games (the chosen one lit), then thin chrome cases for
+ * the readings, the promo wallet, the settled play, the controls (dark wells,
+ * Close / Open and Save as chrome keys) and the lifetime pool. No painted
+ * plates.
  *
  * Route: /clubs/:clubId/diamond-games-operations, finance access in the
  * operations registry. The players' pages are /clubs/:clubId/plinko and
@@ -33,8 +35,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useToast } from '../../components/common/Toast';
-import { ErrorState, LoadingState } from '../../components/common/EmptyState';
-import { SpadeConsole, type ConsoleInk } from '../../components/console/SpadeConsole';
+import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
+import PageBar from '../../components/help/PageBar';
+import { ArenaState } from '../../components/ops/ArenaOps';
+import { useArenaClubName } from '../../components/ops/useArenaClubName';
+import {
+  OpsBack,
+  OpsCase,
+  OpsCell,
+  OpsField,
+  OpsFields,
+  OpsReading,
+  OpsReadings,
+  OpsTable,
+  OpsTableRow,
+  OpsToggle,
+} from '../../components/club/DiamondOpsKit';
 import DiamondGamesService, {
   type DiamondGame,
   type GameConfigPatch,
@@ -51,7 +67,6 @@ import { DIAMOND_GAME_TITLES } from '../../utils/diamondGameTitles';
 import { uuid } from '../../utils/uuid';
 import { useIsMounted } from '../../hooks/useIsMounted';
 import { designedReturn } from '../../utils/diamondDesignedReturn';
-import styles from '../diamondGames.module.css';
 
 const chips = (n: number | null | undefined) => compactChips(Number(n ?? 0));
 const pct = (n: number | null | undefined) =>
@@ -91,85 +106,12 @@ function draftFrom(m: GameMetrics | null, game: DiamondGame = 'plinko'): Draft {
 /** One name per game, from the single source, so no console can drift from it. */
 const GAME_WORD: Record<DiamondGame, string> = DIAMOND_GAME_TITLES;
 
-function Row({
-  label,
-  value,
-  ink = 'silver',
-  meta,
-}: {
-  label: string;
-  value: string;
-  ink?: ConsoleInk;
-  meta?: string;
-}) {
-  return (
-    <div className={styles.row}>
-      <span className={`sc-label sc-ink--blue ${styles.rowLabel}`}>
-        {label}
-        {meta ? <span className={`${styles.rowMeta} sc-ink--muted`}>{meta}</span> : null}
-      </span>
-      <span className={`${styles.rowValue} sc-ink--${ink}`}>{value}</span>
-    </div>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  hint,
-  mode = 'decimal',
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  hint?: string;
-  mode?: 'decimal' | 'numeric' | 'text';
-}) {
-  return (
-    <label className={styles.field}>
-      <span className="sc-label sc-ink--blue">{label}</span>
-      <input
-        className={styles.fieldInput}
-        inputMode={mode}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
-      {hint ? <span className="sc-copy sc-ink--muted">{hint}</span> : null}
-    </label>
-  );
-}
-
-/** A switch: the row IS the control, its state is its printed value. */
-function Toggle({
-  label,
-  hint,
-  on,
-  onToggle,
-}: {
-  label: string;
-  hint: string;
-  on: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button type="button" className={styles.rowButton} onClick={onToggle} aria-pressed={on}>
-      <span className={`sc-label sc-ink--silver ${styles.rowLabel}`}>
-        {label}
-        <span className={`${styles.rowMeta} sc-ink--muted`}>{hint}</span>
-      </span>
-      <span className={`${styles.rowValue} sc-ink--${on ? 'green' : 'muted'}`}>
-        {on ? 'On' : 'Off'}
-      </span>
-    </button>
-  );
-}
-
 export default function ClubDiamondGamesOperationsPage() {
   const { clubId: routeClubId } = useParams<{ clubId: string }>();
   const navigate = useNavigate();
   const toast = useToast();
   const isMountedRef = useIsMounted();
+  const clubName = useArenaClubName();
 
   const [game, setGame] = useState<DiamondGame>('plinko');
   const [clubUuid, setClubUuid] = useState<string | null>(null);
@@ -336,11 +278,46 @@ export default function ClubDiamondGamesOperationsPage() {
     );
   };
 
-  if (loading && !metrics) return <LoadingState message="Reading The Games" />;
+  const back = () => navigate(`/clubs/${routeClubId}/operations`);
+  const mast = (
+    <>
+      <OpsBack onClick={back} />
+      <ArenaWorkspaceHeader
+        area="finance"
+        title="Diamond Games"
+        context={clubName}
+        subtitle="Games Operations"
+        summary="Open And Close Each Diamond Game, Set Its Bets, Cover And Limits, And Read Whether It Pays What Its Odds Promise."
+      />
+    </>
+  );
+
+  if (loading && !metrics) {
+    return (
+      <div className="arena-workspace dops-page">
+        {mast}
+        <section className="arena-case arena-ops-case">
+          <ArenaState tone="loading" title="Reading The Games" />
+        </section>
+      </div>
+    );
+  }
   if (error) {
     return (
-      <div className={styles.page}>
-        <ErrorState message={error} onRetry={() => void load(game)} />
+      <div className="arena-workspace dops-page">
+        {mast}
+        <section className="arena-case arena-ops-case">
+          <ArenaState
+            tone="error"
+            title="Not Read"
+            message={error}
+            actions={
+              <button type="button" onClick={() => void load(game)}>
+                Try Again
+              </button>
+            }
+          />
+        </section>
       </div>
     );
   }
@@ -352,54 +329,68 @@ export default function ClubDiamondGamesOperationsPage() {
   const hostWord = metrics?.host_kind === 'union' ? 'Union' : 'Club';
   const promoDry = (metrics?.promo_chips ?? 0) <= 0;
   const set = (key: keyof Draft) => (v: string) => setDraft((d) => ({ ...d, [key]: v }));
+  const games = Object.keys(GAME_WORD) as DiamondGame[];
 
   return (
-    <div className={styles.page}>
-      <button
-        type="button"
-        className={styles.back}
-        onClick={() => navigate(`/clubs/${routeClubId}/operations`)}
-      >
-        ‹ Operations
-      </button>
+    <div className="arena-workspace dops-page">
+      {mast}
+      <PageBar
+        title="Diamond Games"
+        titleAs={false}
+        showHelp={false}
+        status={enabled ? `${word} Is Open` : `${word} Is Closed`}
+        statusTone={enabled ? 'live' : 'danger'}
+        metrics={[
+          { label: 'Cover', value: chips(metrics?.cover_chips) },
+          {
+            label: 'Promo Wallet',
+            value: formatWalletChips(metrics?.promo_chips),
+            tone: promoDry ? 'attention' : 'live',
+          },
+          { label: 'Paid Back', value: pct(metrics?.realized_rtp_lifetime) },
+          {
+            label: 'Invariant',
+            value: metrics?.invariant_ok === false ? 'Broken' : 'Holds',
+            tone: metrics?.invariant_ok === false ? 'attention' : 'live',
+          },
+        ]}
+      />
+
+      <nav aria-label="Diamond Games">
+        <div className="arena-switch arena-ops-keys">
+          {games.map((g) => (
+            <button
+              key={g}
+              type="button"
+              aria-pressed={g === game}
+              disabled={loading || saving}
+              onClick={() => setGame(g)}
+            >
+              {GAME_WORD[g]}
+            </button>
+          ))}
+        </div>
+      </nav>
 
       <DiamondSpinsOwnerTerms clubId={clubUuid} onAccepted={() => void load(game)} />
       <DiamondSpinStatements />
 
-      <SpadeConsole
+      <OpsCase
         eyebrow="Operations"
         title={word}
         titleId="diamond-games-ops-title"
         pill={enabled ? 'Open' : 'Closed'}
         pillInk={enabled ? 'green' : 'red'}
-        aria-labelledby="diamond-games-ops-title"
-        plates={{
-          secondary: {
-            label: 'Previous Game',
-            onClick: () => {
-              const games = Object.keys(GAME_WORD) as DiamondGame[];
-              setGame(games[(games.indexOf(game) + games.length - 1) % games.length]);
-            },
-            disabled: loading || saving,
-          },
-          primary: {
-            label: 'Next Game',
-            onClick: () => {
-              const games = Object.keys(GAME_WORD) as DiamondGame[];
-              setGame(games[(games.indexOf(game) + 1) % games.length]);
-            },
-            disabled: loading || saving,
-          },
-        }}
+        aria-busy={loading || undefined}
       >
-        <div className={styles.rows}>
-          <Row
+        <OpsReadings label={`${word} Readings`}>
+          <OpsReading
             label="Cover"
             value={chips(metrics?.cover_chips)}
             ink={(metrics?.cover_chips ?? 0) <= 0 ? 'red' : 'silver'}
             meta={`${formatWalletChips(metrics?.promo_chips)} Promo Plus ${formatWalletChips(metrics?.bank_chips)} Bank`}
           />
-          <Row
+          <OpsReading
             label={`${hostWord} Promo Wallet`}
             value={formatWalletChips(metrics?.promo_chips)}
             ink={promoDry ? 'gold' : 'silver'}
@@ -409,25 +400,25 @@ export default function ClubDiamondGamesOperationsPage() {
                 : 'Every Payout Is Paid From Here First'
             }
           />
-          <Row
+          <OpsReading
             label={`${hostWord} Bank`}
             value={formatWalletChips(metrics?.bank_chips)}
             ink={(metrics?.bank_chips ?? 0) <= 0 ? 'red' : 'blue'}
             meta="Behind The Promo Wallet, And Only When It Runs Dry"
           />
-          <Row
+          <OpsReading
             label="Owner Diamonds"
             value={formatWalletDiamonds(metrics?.owner_diamonds ?? 0)}
             ink="blue"
             meta="Daily Net Diamonds Arrive In One Settlement After A 20% Platform Burn"
           />
-          <Row
+          <OpsReading
             label="Exposure"
             value={chips(metrics?.exposure_chips)}
             ink={(metrics?.exposure_chips ?? 0) > 0 ? 'gold' : 'silver'}
             meta={`Room ${chips(metrics?.exposure_headroom_chips)}`}
           />
-          <Row
+          <OpsReading
             label="Paid Back"
             value={pct(metrics?.realized_rtp_lifetime)}
             ink="silver"
@@ -437,36 +428,36 @@ export default function ClubDiamondGamesOperationsPage() {
                 : `Built To Pay ${pct(designedReturn(game, metrics?.tables))}`
             }
           />
-          <Row
+          <OpsReading
             label="House Take"
             value={chips(metrics?.house_take_lifetime_chips)}
             ink="gold"
             meta="Chips"
           />
-          <Row
+          <OpsReading
             label="Capped"
             value={pct(metrics?.constrained_rate)}
             meta={game === 'crash' ? `${metrics?.open_rounds ?? 0} Open` : 'Of Rounds'}
           />
-          <Row
+          <OpsReading
             label="Invariant"
             value={metrics?.invariant_ok === false ? 'Broken' : 'Holds'}
             ink={metrics?.invariant_ok === false ? 'red' : 'green'}
             meta="Paid Plus Held"
           />
-        </div>
-        <p className="sc-copy">
+        </OpsReadings>
+        <p className="arena-ops-copy">
           Paid Plus Reserved Never Exceeds What Was Taken In Plus The Allowance, And Every Chip
           Leaves The Promo Wallet Before The Bank; The Per-Round Cap Makes That Arithmetic, And The
           Metrics Re-Derive It. Capped Rounds Are Ones The Pool Could Not Promise The Full Ceiling
           On.
         </p>
-      </SpadeConsole>
+      </OpsCase>
 
       {/* THE FLOAT, AND WHERE TO PUT IT (Dan 2026-09-10). The bank backs the
           promo wallet on its own, so the games never stop; this is how an
           operator moves the float to where it is meant to sit. */}
-      <SpadeConsole
+      <OpsCase
         eyebrow="Cover"
         title="The Promo Wallet"
         pill={promoDry ? 'On The Bank' : 'Funded'}
@@ -485,60 +476,49 @@ export default function ClubDiamondGamesOperationsPage() {
           },
         }}
       >
-        <p className="sc-copy">
+        <p className="arena-ops-copy">
           BBJ Funding Feeds The Promo Wallet. Every Chip Prize Uses It First. The {hostWord} Bank
           Pays The Shortfall When Funds Are Available; The Journal Names Which Wallet Paid Which
           Part. Keep The Promo Wallet Funded For Upcoming Prizes.
         </p>
-        <div className={styles.fields}>
-          <Field
+        <OpsFields>
+          <OpsField
             label="Move Into The Promo Wallet (Chips)"
+            mode="decimal"
             value={fundChips}
             onChange={setFundChips}
             hint="Taken From The Bank, Which Is The Same Money In A Different Pocket."
           />
-        </div>
-      </SpadeConsole>
+        </OpsFields>
+      </OpsCase>
 
       <DiamondGamesMoney clubId={clubUuid} />
 
-      <SpadeConsole eyebrow="Settled Play" title="Game Activity" foot="foot">
-        <div className={styles.rows}>
-          <div className={`${styles.grid4} ${styles.grid4Head}`}>
-            <span className="sc-label sc-ink--blue">Window</span>
-            <span className={`sc-label sc-ink--blue ${styles.cellRight}`}>Rounds</span>
-            <span className={`sc-label sc-ink--blue ${styles.cellRight}`}>Paid Back</span>
-            <span className={`sc-label sc-ink--blue ${styles.cellRight}`}>Review</span>
-          </div>
+      <OpsCase eyebrow="Settled Play" title="Game Activity">
+        <OpsTable label="Game Activity" head={['Window', 'Rounds', 'Paid Back', 'Review']}>
           {(metrics?.windows ?? []).map((w) => (
-            <div key={w.window} className={styles.grid4}>
-              <span className={`${styles.cell} ${w.drift ? 'sc-ink--red' : 'sc-ink--silver'}`}>
-                {w.window.toUpperCase()}
-                <span className={`${styles.rowMeta} sc-ink--muted`}>
-                  In {chips(w.intake_chips)}, Out {chips(w.paid_chips)}
-                  {w.constrained ? `, ${compactChips(w.constrained)} Capped` : ''}
-                  {game === 'crash' && w.instant_crashes
+            <OpsTableRow key={w.window}>
+              <OpsCell
+                ink={w.drift ? 'red' : 'silver'}
+                meta={`In ${chips(w.intake_chips)}, Out ${chips(w.paid_chips)}${
+                  w.constrained ? `, ${compactChips(w.constrained)} Capped` : ''
+                }${
+                  game === 'crash' && w.instant_crashes
                     ? `, ${compactChips(w.instant_crashes)} Instant`
-                    : ''}
-                </span>
-              </span>
-              <span className={`${styles.cell} ${styles.cellRight} sc-ink--silver`}>
-                {compactChips(w.rounds)}
-              </span>
-              <span
-                className={`${styles.cell} ${styles.cellRight} ${w.drift ? 'sc-ink--red' : 'sc-ink--silver'}`}
+                    : ''
+                }`}
               >
-                {pct(w.realized_rtp)}
-              </span>
-              <span
-                className={`${styles.cell} ${styles.cellRight} ${w.drift ? 'sc-ink--red' : 'sc-ink--muted'}`}
-              >
+                {w.window.toUpperCase()}
+              </OpsCell>
+              <OpsCell>{compactChips(w.rounds)}</OpsCell>
+              <OpsCell ink={w.drift ? 'red' : 'silver'}>{pct(w.realized_rtp)}</OpsCell>
+              <OpsCell ink={w.drift ? 'red' : 'muted'}>
                 {w.drift === null ? 'N/A' : w.drift ? 'Review' : 'Clear'}
-              </span>
-            </div>
+              </OpsCell>
+            </OpsTableRow>
           ))}
-        </div>
-        <p className="sc-copy">
+        </OpsTable>
+        <p className="arena-ops-copy">
           Paid Back Is Chips Paid Out Of Chips Taken In.{' '}
           {game === 'crash'
             ? 'Crash Returns Depend On The Cash-Out Target.'
@@ -547,9 +527,9 @@ export default function ClubDiamondGamesOperationsPage() {
           Check. Intake And Paid Chips Come From The Settled Game Records.
         </p>
         {game === 'plinko' && metrics?.tables?.length ? (
-          <div className={`${styles.rows} ${styles.rowsCompact}`}>
+          <OpsReadings label="Plinko Boards">
             {metrics.tables.map((t) => (
-              <Row
+              <OpsReading
                 key={t.version}
                 label={t.name}
                 value={multiplierLabel(t.max_multiplier_cents)}
@@ -557,11 +537,11 @@ export default function ClubDiamondGamesOperationsPage() {
                 meta={`${t.activated_at ? 'Active Table' : 'Not Yet Live'}${t.spec_rtp !== null ? `, Built To Pay ${pct(t.spec_rtp)}` : ''}`}
               />
             ))}
-          </div>
+          </OpsReadings>
         ) : null}
-      </SpadeConsole>
+      </OpsCase>
 
-      <SpadeConsole
+      <OpsCase
         eyebrow={`${word} Is ${enabled ? 'Open' : 'Closed'}`}
         title="Controls"
         plates={{
@@ -580,36 +560,39 @@ export default function ClubDiamondGamesOperationsPage() {
           },
         }}
       >
-        <p className="sc-copy">
+        <p className="arena-ops-copy">
           {enabled
             ? 'Closing It Refuses The Next Round At Once. Rounds Already Open Settle As Normal.'
             : 'Nobody Can Play Until You Open It.'}
         </p>
-        <div className={styles.fields}>
-          <Field
+        <OpsFields>
+          <OpsField
             label="Bet Sizes (Diamonds, Comma Separated)"
             mode="text"
             value={draft.bet_options}
             onChange={set('bet_options')}
             hint="25 To 2,500 Diamonds."
           />
-          <Field
+          <OpsField
             label="Exposure Allowance (Chips)"
+            mode="decimal"
             value={draft.exposure_allowance_chips}
             onChange={set('exposure_allowance_chips')}
             hint={`The Most ${word} May Pay Beyond What It Has Taken In.`}
           />
-          <p className="sc-copy">
+          <p className="arena-ops-copy">
             Entries Are 25 To 2,500 Diamonds. Earned And Purchased Diamonds Are Accepted.
           </p>
-          <Field
+          <OpsField
             label="Cap Fraction"
+            mode="decimal"
             value={draft.cap_fraction}
             onChange={set('cap_fraction')}
             hint="The Share Of The Pool Headroom One Round May Be Promised. 0.95 Keeps The Pool Alive After A Full Hit."
           />
-          <Field
+          <OpsField
             label="Multiplier Ceiling"
+            mode="decimal"
             value={draft.max_multiplier}
             onChange={set('max_multiplier')}
             hint={
@@ -619,26 +602,27 @@ export default function ClubDiamondGamesOperationsPage() {
             }
           />
           {game === 'crash' ? (
-            <Field
+            <OpsField
               label="Curve (K Per Second)"
+              mode="decimal"
               value={draft.growth_k}
               onChange={set('growth_k')}
               hint="0.08 Reaches 2x In 8.7 Seconds And 20x In 37 Seconds. 0.08 Is The Fastest Allowed; A Smaller Value Is Slower."
             />
           ) : null}
-          <Field
+          <OpsField
             label="Rounds Per Player Per Day"
             mode="numeric"
             value={draft.max_rounds_per_player_per_day}
             onChange={set('max_rounds_per_player_per_day')}
           />
-          <Field
+          <OpsField
             label="Seconds Between Rounds"
             mode="numeric"
             value={draft.min_seconds_between_rounds}
             onChange={set('min_seconds_between_rounds')}
           />
-          <Toggle
+          <OpsToggle
             label="Allow Certification Accounts"
             hint="For Burn-In Only. Their Rounds Are Kept Out Of The Fairness Statistics."
             on={draft.allow_fixture_accounts}
@@ -646,10 +630,10 @@ export default function ClubDiamondGamesOperationsPage() {
               setDraft((d) => ({ ...d, allow_fixture_accounts: !d.allow_fixture_accounts }))
             }
           />
-        </div>
-      </SpadeConsole>
+        </OpsFields>
+      </OpsCase>
 
-      <SpadeConsole
+      <OpsCase
         eyebrow="Lifetime"
         title="The Pool"
         plates={{
@@ -682,23 +666,23 @@ export default function ClubDiamondGamesOperationsPage() {
           },
         }}
       >
-        <div className={`${styles.rows} ${styles.rowsCompact}`}>
-          <Row label="Rounds" value={compactChips(pool?.rounds ?? 0)} />
-          <Row
+        <OpsReadings label="The Pool">
+          <OpsReading label="Rounds" value={compactChips(pool?.rounds ?? 0)} />
+          <OpsReading
             label="Diamonds Taken In"
             value={compactChips(pool?.intake_diamonds ?? 0)}
             ink="blue"
           />
-          <Row
+          <OpsReading
             label="Chips Taken In"
             value={chips(metrics?.intake_chips)}
             meta="At The Bridge Rate"
           />
-          <Row label="Chips Paid To Players" value={chips(pool?.chips_paid)} ink="gold" />
-          <Row label="Chips Held For Open Rounds" value={chips(pool?.reserved_chips)} />
-          <Row label="Capped Rounds" value={compactChips(pool?.constrained_rounds ?? 0)} />
-        </div>
-      </SpadeConsole>
+          <OpsReading label="Chips Paid To Players" value={chips(pool?.chips_paid)} ink="gold" />
+          <OpsReading label="Chips Held For Open Rounds" value={chips(pool?.reserved_chips)} />
+          <OpsReading label="Capped Rounds" value={compactChips(pool?.constrained_rounds ?? 0)} />
+        </OpsReadings>
+      </OpsCase>
     </div>
   );
 }

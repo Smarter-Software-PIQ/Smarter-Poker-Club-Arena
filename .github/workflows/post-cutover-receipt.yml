@@ -72,6 +72,7 @@ jobs:
       cancel-in-progress: false
     timeout-minutes: 10
     permissions:
+      actions: read
       contents: read
       issues: write
     steps:
@@ -104,3 +105,47 @@ jobs:
           AUDIT_DB_URL_ENV: AUDIT_DATABASE_URL
           AUDIT_DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: node scripts/ops/post-cutover-receipt.mjs
+
+      - name: Compare pre-cutover (:45) vs post-cutover (:15) /health baseline diff
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECEIVER_RUN_ID: ${{ needs.gate.outputs.run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$RECEIVER_RUN_ID" =~ ^[1-9][0-9]*$ ]] || exit 0
+          DIFF_DIR="$RUNNER_TEMP/post-cutover-diff-$RECEIVER_RUN_ID"
+          mkdir -p "$DIFF_DIR"
+          PRE_FILE="$DIFF_DIR/pre-cutover-health.json"
+          POST_FILE="$DIFF_DIR/post-cutover-health.json"
+          DIFF_JSON="$DIFF_DIR/baseline-diff.json"
+          DIFF_MD="$DIFF_DIR/baseline-diff.md"
+          ART_ID="$(gh api "repos/$REPO/actions/runs/$RECEIVER_RUN_ID/artifacts?per_page=30" \
+            --jq "[.artifacts[] | select((.name | startswith(\"pre-cutover-health-$RECEIVER_RUN_ID-\")) and (.expired | not))][0].id // empty" 2>/dev/null || true)"
+          if [[ "$ART_ID" =~ ^[1-9][0-9]*$ ]]; then
+            if gh api "repos/$REPO/actions/artifacts/$ART_ID/zip" > "$DIFF_DIR/pre.zip" 2>/dev/null; then
+              unzip -oq "$DIFF_DIR/pre.zip" -d "$DIFF_DIR/pre-unpacked" 2>/dev/null || true
+              FOUND="$(find "$DIFF_DIR/pre-unpacked" -maxdepth 2 -type f -name 'pre-cutover-health-*.json' | head -1 || true)"
+              [ -n "$FOUND" ] && cp "$FOUND" "$PRE_FILE"
+            fi
+          fi
+          curl -fsS --max-time 15 -H 'Cache-Control: no-cache, no-store' \
+            "https://engine.smarter.poker/health?nocache=$(date +%s%N)" -o "$POST_FILE" || : > "$POST_FILE"
+          set +e
+          python3 -B scripts/release/post-cutover-baseline-diff.py \
+            --pre "$PRE_FILE" --post "$POST_FILE" \
+            --json-out "$DIFF_JSON" --markdown-out "$DIFF_MD"
+          DIFF_RC=$?
+          set -e
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ] && [ -r "$DIFF_MD" ]; then
+            cat "$DIFF_MD" >> "$GITHUB_STEP_SUMMARY" || true
+          fi
+          case "$DIFF_RC" in
+            0) echo "Post-cutover :45 vs :15 baseline diff: HEALTHY." ;;
+            2) echo "::warning title=Post-Cutover Baseline Regression Warning::Relative telemetry regression detected at :15 (non-fatal exit 2); see job summary." ;;
+            1) echo "::error title=Post-Cutover Hard SLO Breach::Hard SLO breach detected at :15 in post-cutover baseline diff (exit 1); see job summary." ;;
+            3) echo "::warning title=Post-Cutover Baseline Diff Unreadable::Pre-cutover (:45) or post-cutover (:15) snapshot unavailable/unreadable (fail-safe exit 3)." ;;
+            *) echo "::warning title=Post-Cutover Baseline Diff Unexpected Exit::Unexpected exit code $DIFF_RC." ;;
+          esac

@@ -46,6 +46,8 @@ interface Props {
    * Omitted by the union and management screens, which keep the full selector.
    */
   tableGame?: string | null;
+  /** #SmarterDesign pages (Table Management): chrome keys instead of the painted rail. */
+  arena?: boolean;
 }
 
 const ACTIONS: Array<{ target: GameCreationTarget; label: string }> = [
@@ -64,6 +66,7 @@ export default function GameCreationActions({
   only,
   desktopOnly = false,
   tableGame,
+  arena = false,
 }: Props) {
   const navigate = useNavigate();
   const shown = only === undefined ? ACTIONS : ACTIONS.filter((action) => action.target === only);
@@ -74,7 +77,7 @@ export default function GameCreationActions({
       /* Joined rather than interpolated: two false ternaries left a trailing
          double space in the class attribute on every non-compact render. */
       className={[
-        styles.actions,
+        arena ? 'arena-switch arena-ops-keys' : styles.actions,
         compact && styles.compact,
         shown.length === 1 && styles.single,
         desktopOnly && styles.desktopOnly,

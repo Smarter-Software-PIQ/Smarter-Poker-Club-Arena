@@ -11,12 +11,6 @@
   color: #f1f5fc;
 }
 
-.arena-workspace .club-control-actions .control-policy-error {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
 .arena-workspace .club-control-actions .arena-switch {
   margin: 0;
 }

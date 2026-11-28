@@ -652,7 +652,7 @@ describe('ROUND 7 (2026-08-29) — the audit sweep', () => {
       PAGE.indexOf('MANUAL_NEXT_HAND (spec §2.1/§15.3)')
     );
     expect(ladder).toMatch(
-      /if \(bombPotRules\?\.triggerMode === 'bomb_pot_only'\)\s*return \{ text: `\$\{prefix\}BOMB POT ONLY`, state: 'eta' \};/
+      /if \(bombPotRules\?\.triggerMode === 'bomb_pot_only'\)\s*return \{ text: `\$\{prefix\}Bomb Pot Only`, state: 'eta' \};/
     );
     expect(ladder.indexOf("=== 'bomb_pot_only'")).toBeLessThan(ladder.indexOf("state: 'next'"));
   });
@@ -706,7 +706,7 @@ describe('ROUND 8 (2026-08-29) — the last of the open items', () => {
     const fn = sliceMethod(BASE, 'protected bombPotSnapshotFields()');
     expect(fn).toMatch(/this\.bombPotScheduler\.isPending\(\)/);
     expect(fn).toMatch(/bomb_pot_waiting_for: waitingFor/);
-    expect(PAGE).toMatch(/BOMB POT WAITING FOR \$\{tableState\.bombPotWaitingFor\} PLAYERS/);
+    expect(PAGE).toMatch(/Bomb Pot Waiting For \$\{tableState\.bombPotWaitingFor\} Players/);
     // And it is not URGENT — the pulse means "next hand", and a bomb that is
     // waiting on players is not coming next hand. PIN MOVED 2026-09-05 with
     // the one above: the guard is the ladder's order now, not a conjunct.

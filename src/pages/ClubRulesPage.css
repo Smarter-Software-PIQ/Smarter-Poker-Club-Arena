@@ -1,125 +1,95 @@
-/* ═══════════════════════════════════════════════════════════════════════════
-   CLUB RULES - on the spade console (2026-09-04)
+/* Club Rules in #SmarterDesign (Dan 2026-11-27). The mast, the case, the
+   ledger lines, the well and the keys come from ArenaWorkspace.css and
+   ArenaOps.css. This sheet only lays the rule lines and the editor out. No
+   :hover anywhere. */
 
-   The console, its ink and its painted plates come from SpadeConsole.css.
-   This sheet only types the rule lines and the editor, on the glass. Sizes
-   are cqw against the console; no :hover anywhere; nothing drawn.
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-.club-rules-page {
-  background: #000;
+.club-rules-page.arena-workspace {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(100%, 760px);
+  min-height: calc(100vh - 64px);
+  margin: 0 auto;
+  padding: 12px 12px 112px;
+  color: #f1f5fc;
+  background: #050d17;
+  font-family: 'Arial Narrow', Arial, sans-serif;
 }
 
-.club-rules-page .club-rules-console {
-  margin: 8px auto 0;
-  max-width: 560px;
+.club-rules-page .club-rules-pill {
+  margin-left: 8px;
+  color: #74dfff;
+}
+.club-rules-page .club-rules-pill[data-offline] {
+  color: #ff5a6a;
 }
 
 /* ── The rules ────────────────────────────────────────────────────────── */
 
-.rules-display,
-.rules-editor {
+.club-rules-page .rules-display,
+.club-rules-page .rules-editor {
   display: grid;
 }
 
-.rules-text {
+.club-rules-page .rules-text {
   display: grid;
-  gap: 3cqw;
+  gap: 4px;
   margin: 0;
-  padding: 0.5cqw 0 0;
+  padding: 0;
   list-style: none;
 }
 
-.rules-line {
+.club-rules-page .rules-line {
   display: grid;
-  grid-template-columns: 6.6cqw minmax(0, 1fr);
-  gap: 2cqw;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 8px;
   align-items: baseline;
+  padding: 10px 10px;
+}
+.club-rules-page .rules-line > * {
+  position: relative;
+  z-index: 2;
 }
 
-.rules-line__number {
-  font-size: 4.4cqw;
-  font-weight: 800;
-  line-height: 1.3;
-  letter-spacing: 0.02em;
+.club-rules-page .rules-line__number {
+  color: #74dfff;
+  font:
+    800 16px/1.3 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
   text-align: right;
 }
 
-.rules-line__text {
-  color: #dbe2ea;
+.club-rules-page .rules-line__text {
+  color: #f1f5fc;
   font:
-    500 3.6cqw/1.45 Inter,
-    system-ui,
+    14px/1.45 Arial,
     sans-serif;
   overflow-wrap: anywhere;
-  text-shadow: 0 0.2cqw 0.3cqw rgb(0 0 0 / 80%);
 }
 
-.rules-gap {
-  height: 1cqw;
+.club-rules-page .rules-gap {
+  height: 4px;
 }
 
-.rules-empty {
-  display: grid;
-  justify-items: center;
-  gap: 2.4cqw;
-  padding: 4cqw 3cqw 2cqw;
-  text-align: center;
-}
+/* ── The editor: a dark well ───────────────────────────────────────────── */
 
-/* The retry is a lit word on the glass, like a link cut into the panel. */
-.rules-retry {
-  appearance: none;
-  margin: 0;
-  padding: 1cqw 2cqw;
-  border: 0;
-  background: transparent;
-  font:
-    800 3.6cqw/1 'Roboto Condensed',
-    Inter,
-    sans-serif;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.rules-retry:active {
-  filter: brightness(1.3);
-}
-
-/* ── The editor: a groove in the glass, the caret lit blue ────────────── */
-
-.rules-textarea {
+.club-rules-page .rules-textarea {
   display: block;
-  width: 100%;
-  min-height: 52cqw;
+  min-height: 260px;
   margin: 0;
-  padding: 3cqw 1cqw;
-  border: 0;
-  border-top: 1px solid #000;
-  border-bottom: 1px solid #000;
-  border-radius: 0;
-  background: transparent;
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 9%),
-    0 1px 0 rgb(255 255 255 / 9%);
-  color: #e6e9ee;
-  font:
-    500 3.6cqw/1.5 Inter,
-    system-ui,
-    sans-serif;
   resize: vertical;
-  outline: none;
-  caret-color: #5bb8ff;
+  caret-color: #45adff;
 }
 
-.rules-textarea::placeholder {
-  color: #6b7784;
+.club-rules-page .rules-textarea::placeholder {
+  color: #6b7f92;
 }
 
-.rules-textarea:focus-visible {
-  outline: 0.6cqw solid #8fd4ff;
-  outline-offset: -0.6cqw;
+.club-rules-page .club-rules-keys {
+  margin: 2px 0 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -128,52 +98,4 @@
     opacity: 1 !important;
     transform: none !important;
   }
-}
-
-/* ── #SmarterDesign (Dan 2026-11-27) ──────────────────────────────────────
-   The painted spade console was the old style for a page section. The rules
-   now print in the arena workspace's thin chrome case (ClubPageSection's
-   `arena`), with the title in chrome and Copy / Edit Rules as one chrome
-   switch, primary lit. The case is the container the cqw type above reads,
-   so each rule keeps the proportions it had on the glass. */
-.club-rules-page.arena-workspace.arena-workspace {
-  min-height: 100dvh;
-  overflow-x: clip;
-  padding-bottom: calc(var(--bottom-nav-clearance, 74px) + 24px);
-}
-.arena-workspace .arena-case.club-rules-console {
-  container-type: inline-size;
-  width: 100%;
-  max-width: 640px;
-  margin: 8px auto 0;
-}
-.arena-workspace .club-rules-console .arena-section-title small {
-  color: #74dfff;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.arena-workspace .club-rules-console .rules-line__number {
-  color: #74dfff;
-  text-shadow: none;
-}
-.arena-workspace .club-rules-console .rules-line__text {
-  color: #dce5ef;
-  text-shadow: none;
-}
-.arena-workspace .rules-keys {
-  justify-content: center;
-}
-.arena-workspace .rules-keys > .rules-retry {
-  flex: 0 1 160px;
-  letter-spacing: normal;
-  text-transform: none;
-}
-.arena-workspace .club-rules-console .rules-textarea {
-  box-sizing: border-box;
-  padding: 10px;
-  background: #030b14;
-  border: 1px solid #253e57;
-  box-shadow: none;
-  color: #f1f5fc;
 }

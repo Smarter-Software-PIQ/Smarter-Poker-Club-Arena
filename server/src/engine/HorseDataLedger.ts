@@ -1382,6 +1382,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaMultiwayRiverBetPriorIsPeopleMeasured',
+    "lead-9 lanes MWR + RV + RV2 2026-11-27 (plo-lead7-01TLQer8/l9-river2/BUILD.md, l9-mwriver/BUILD.md). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a river first wager (never a raise) with another player in the hand besides the bettor, outside re-raised pots: the bettor's non-value share and river regions are his own shown river bets (HorseOmahaBetRead) over the people-only multiway river cell (HorseOmahaFacingBetPeoplePrior) over the balanced share, in place of the old constant and the reads against the Horse mean. It does nothing on a first encounter. Public actions and shown cards only; no identity input.",
+    'V94'
+  ),
+  flag(
     'omahaHiddenBetsArePricedAsGiveUps',
     "lead-9 lane HUOOP 2026-11-27 (plo-lead7-01TLQer8/l9-huresid/BUILD.md). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. inside omahaPeoplePriorCountsHiddenBets' heads-up turn bet (never a raise, never a re-raised pot): the hidden part of the bettor's non-value share (people's bets that checked and folded later or mucked, the one-street balanced share behind a thin cell, moved by his own record) is priced as his weakest half of holdings at full realization; Horse play never enters. HorseOmahaFacingBetEv.ts, HorseOmahaFacingBetPeoplePrior.ts, HorseOmahaPeoplePriorHidden.ts",
     'V94'
@@ -1399,6 +1404,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'omahaFacingBetFieldIsJoint',
     "PLO-OWNER lead-6 2026-11-24 (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4; multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a multiway turn or river call is priced with the bettor, the callers, the earlier all-ins and the players behind (at their measured continue rate) dealt on the same cards from measured ranges (default OFF; PLO-OWNER lead-6 2026-11-24). HorseOmahaFacingBetPriced, HorseOmahaPricedJointSample.ts",
+    'V94'
+  ),
+  flag(
+    'omahaBareOverpairContinuationIsPeoplePriced',
+    "lead-9 lane HU2 2026-11-27 (plo-lead7-01TLQer8/l9-huresid2/BUILD.md). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. heads-up on the flop, the bare big pair that checked out of position and faces one bet (the continuation of omahaBareOverpairOopFlopCheck), never a re-raised pot: the call-or-fold is priced on the Horse's equity against the bettor's PEOPLE-ONLY measured flop range (HorseOmahaFlopPressureCapPriced: people's flop bets of this size, hidden bets counted with omahaPeoplePriorCountsHiddenBets, blended toward the balanced share, moved by his own flop record) instead of the sampler's aggressor tiers; the continuation's realization, rake, margin and never-a-raise are unchanged. Real-node replay: of 44 folds in the PLO4 single-raised out-of-position cell facing a 0.7-1.1 pot flop bet, 11 were this continuation and in 10 the people-measured flop price had called. Identity never enters.",
+    'V94'
+  ),
+  flag(
+    'omahaGiveUpPricedTurnCallIsAtIndifference',
+    "lead-9 lane HU2 2026-11-27 (plo-lead7-01TLQer8/l9-huresid2/BUILD.md). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. inside omahaHiddenBetsArePricedAsGiveUps' heads-up turn bet (never a raise, never a re-raised pot, never multiway), the call is made at EV >= 0 instead of EV > 2% of the final pot: the verdict there is an exact count against a people-measured range with the give-up share priced, and the hands between zero and the margin are the ones a bluffer's price makes indifferent. Real-node replay on top of the give-up price: PLO4 flop checked through, turn bet 0.7-1.1 pot, single-raised out of position 59% -> 51% fold (zero-equity bluff +2.48 +/- 1.19 -> +0.76 +/- 1.22 bb per bet), limped 68% -> 62% (+0.86 +/- 0.32 -> +0.58 +/- 0.33). It reads no record of its own and no identity; it only turns a fold into a call.",
     'V94'
   ),
   flag(
@@ -1533,6 +1548,28 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_river_bluff_priced_on_range',
     'HorseLogic wager_rules (omahaOpeningBluffRule, omahaRiverBluffIsPricedOnRangeAdvantage)',
     'a PLO4/PLO5 cash river decision, heads-up, nothing to call, in which the final check became a bluff priced above the check where the Horse range beats his and the hand is in the weakest share the range value carries',
+    'V94'
+  ),
+  flag(
+    'omahaMultiwayRiverBluffIsPricedOnBlockers',
+    "PLO-OWNER lead-9 lane underbluff 2026-11-27. PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot, river with exactly two opponents live (three-way), nothing to call and no river wager; default off (read === true). A final check becomes the best-priced bet only when the bet, scored as lost whenever anybody continues, beats the check by more than the error of the opponents' fold rates (each opponent: his own lifetime public multiway river fold record -> people's multiway population -> the multiway equilibrium) AND the Horse's cards raise the share of the field that folds AND the Horse beats under half of the hands each opponent folds. Only a check into a bet (HorseOmahaMultiwayRiverBluff.ts).",
+    'V94'
+  ),
+  receipt(
+    'omaha_multiway_river_bluff_priced_on_blockers',
+    'HorseLogic wager_rules (omahaMultiwayRiverBluffRule, omahaMultiwayRiverBluffIsPricedOnBlockers)',
+    'a PLO4/PLO5 cash river decision, exactly two opponents live, nothing to call, in which the final check became a bluff priced above the check on the opponents card-removed fold rates where the Horse cards raise the share of the field that folds',
+    'V94'
+  ),
+  flag(
+    'omahaFourWayPlusRiverBluffIsPricedOnBlockers',
+    "PLO-OWNER lead-9 lane underbluff 2026-11-27. PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot, river with three or more opponents live (four-way and wider), nothing to call and no river wager; default off (read === true). A final check becomes the best-priced bet only when the bet, scored as lost whenever anybody continues, beats the check by more than the error of the opponents' fold rates (each opponent: his own lifetime public multiway river fold record -> people's multiway population -> the multiway equilibrium) AND the Horse's cards raise the share of the field that folds AND the Horse beats under half of the hands each opponent folds. Only a check into a bet (HorseOmahaMultiwayRiverBluff.ts).",
+    'V94'
+  ),
+  receipt(
+    'omaha_four_way_plus_river_bluff_priced_on_blockers',
+    'HorseLogic wager_rules (omahaMultiwayRiverBluffRule, omahaFourWayPlusRiverBluffIsPricedOnBlockers)',
+    'a PLO4/PLO5 cash river decision, three or more opponents live, nothing to call, in which the final check became a bluff priced above the check on the opponents card-removed fold rates where the Horse cards raise the share of the field that folds',
     'V94'
   ),
   flag(
@@ -2984,6 +3021,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'holdemRiverBluffIsPricedOnPeople',
     "PLO-OWNER + Hold'em owner lead-8 2026-11-27 (daily real-hand audits, NLH cash against people: the missed river bluff is the top Hold'em chip leak; people fold 49% of heads-up river first bets where equilibrium folds 38%; owner: late-street bluffs are math dependent and blocker dependent or have the range advantage, never random; the stats are measured from people, never from Horses). Default off (read === true). No-limit hold'em cash, table and Lightning, one board, heads-up, river, not facing a wager: the brain's check becomes a bluff at the legal priced size only when the hand has no value size, the bet prices above the check by more than the error of his fold, AND either the Horse's cards remove more of his calling part than of his folding part or the Horse's public line range outscores his on this board. His fold is read size by size in the order his own lifetime river record of that size (OPPONENT-HUD r.fb.sm.hu / r.fb.bg.hu; with none, his recent river response record) -> PEOPLE's measured fold to a heads-up river first bet for the Horse's line and that size (answers by people only; HorseHoldemPeopleRiverFoldTables.json) -> equilibrium, each shrunk to the next by 19.9 pseudo-answers (HorseHoldemPeopleRiverFold). The same formula for every opponent. Draws no random number. Off: byte-identical.",
+    "Hold'em Strategy"
+  ),
+  flag(
+    'holdemRiverFacingBetPriorIsPeopleMeasured',
+    "PLO-OWNER lead-9 2026-11-27 (lane nlof; owner: 'all overfolding fixes for PLO4, PLO5 and No Limit'; 30 days of NLH cash against people: a person's heads-up river bet of 0.7-1.1 pot folded every Horse 72.5% of the time against a pure-bluff break-even of 46.4%, +11.3 bb per bet). Default off (read === true), Evidence in docs/horse-option-authority.d. No-limit hold'em cash (table and Lightning), one board, heads-up, the river, facing the river's first bet: the brain's fold becomes a call when the call clears its sampling error against what such a bet is: what the bettor's own called river bets were shown to be (HorseHoldemBetRead), shrunk to people's measured river first bets by size, line and pot type (shown cards only), shrunk to equilibrium (HorseHoldemFacingBetPeoplePrior); how often he bets is not read. Never folds a call, never raises.",
     "Hold'em Strategy"
   ),
   flag(
@@ -6443,6 +6485,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_bare_overpair_people_priced',
+    'HorseLogic wager_rules (HorseOmahaOopChecks, the continuation; HorseOmahaFlopPressureCapPriced)',
+    "the bare-overpair flop continuation priced its call-or-fold on the Horse's equity against the bettor's people-measured flop range (omahaBareOverpairContinuationIsPeoplePriced)",
+    'V94'
+  ),
+  receipt(
+    'omaha_bare_overpair_people_priced_call',
+    'HorseLogic wager_rules (HorseOmahaOopChecks, the continuation; HorseOmahaFlopPressureCapPriced)',
+    'the bare-overpair flop continuation priced on the people-measured flop range called (omahaBareOverpairContinuationIsPeoplePriced)',
+    'V94'
+  ),
+  receipt(
+    'omaha_give_up_indifference_priced',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetEv)',
+    'the turn verdict that priced the give-up share decided its call at EV >= 0 instead of EV > the safety margin (omahaGiveUpPricedTurnCallIsAtIndifference)',
+    'V94'
+  ),
+  receipt(
+    'omaha_give_up_indifference_call',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetEv)',
+    'the turn verdict called a give-up-priced bet whose EV lies between zero and the safety margin (omahaGiveUpPricedTurnCallIsAtIndifference)',
+    'V94'
+  ),
+  receipt(
     'omaha_turn_line_prior_priced',
     'HorseLogic omahaFacingBetEvRule (HorseOmahaTurnLinePeoplePrior)',
     'the facing-bet verdict priced a turn first wager on the people-measured cell of its flop line (omahaTurnFacingBetPriorIsLineSplit)',
@@ -6470,6 +6536,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_turn_line_prior_changed',
     'HorseLogic omahaFacingBetEvRule (HorseOmahaTurnLinePeoplePrior)',
     'the verdict on the line-split turn prior differs from the verdict on the reads before it (omahaTurnFacingBetPriorIsLineSplit)',
+    'V94'
+  ),
+  receipt(
+    'omaha_mw_river_people_prior_priced',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetEv)',
+    "a multiway river first bet was priced on the people-only multiway river cell and the bettor's own river record (omahaMultiwayRiverBetPriorIsPeopleMeasured)",
+    'V94'
+  ),
+  receipt(
+    'omaha_mw_river_people_prior_record_read',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetEv)',
+    'the multiway river price read shown river bets of this bettor (omahaMultiwayRiverBetPriorIsPeopleMeasured)',
+    'V94'
+  ),
+  receipt(
+    'omaha_mw_river_people_prior_changed',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetEv)',
+    'the multiway river people cell and record changed the call-or-fold verdict the reads before them give (omahaMultiwayRiverBetPriorIsPeopleMeasured)',
     'V94'
   ),
   receipt(
@@ -10685,6 +10769,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "Hold'em Strategy"
   ),
   receipt(
+    'holdem_river_people_prior_call',
+    'HorseLogic.holdemRiverFacingBetOnPeople (holdemRiverFacingBetPriorIsPeopleMeasured)',
+    "facing the first bet of a heads-up river (NLH cash) the brain's fold became a call: priced on what the bettor's own called river bets were shown to be and people's measured river first bets of that size, line and pot type, the call clears its sampling error",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_river_people_prior_fold_stands',
+    'HorseLogic.holdemRiverFacingBetOnPeople (holdemRiverFacingBetPriorIsPeopleMeasured)',
+    "facing the first bet of a heads-up river the brain's fold was re-priced on the bettor's own shown river bets and people's measured river first bets and the call did not clear its sampling error: the fold stands",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_river_people_prior_own_record_read',
+    'HorseLogic.holdemRiverFacingBetOnPeople (holdemRiverFacingBetPriorIsPeopleMeasured)',
+    "the bettor's own shown river bets (what his called heads-up river first bets turned out to be) moved people's measured shares of a river first bet",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_river_people_prior_unpriced',
+    'HorseLogic.holdemRiverFacingBetOnPeople (holdemRiverFacingBetPriorIsPeopleMeasured)',
+    "a fold facing the first bet of a heads-up river could not be priced on people's measured river first bets: the fold stands",
+    "Hold'em Strategy"
+  ),
+  receipt(
     'holdem_turn_people_bluff_bet',
     'HorseLogic.holdemOpeningPriced (holdemTurnBluffIsPricedOnPeople)',
     "not facing a wager heads-up (NLH cash), turn after a checked-through flop, a check became a bluff: priced on his own turn record by size and people's measured turn fold for the Horse's line and the bet's size it clears the check by more than the error of his fold, and the Horse's cards block his calling part or its range outscores his",
@@ -11262,8 +11370,14 @@ export const OPTION_ACTED_RECEIPTS_DECLARED: Readonly<
   // the river frequency prior names its own receipts in its description; declared by prefix
   omahaRiverBetPriorReadsHisFrequency: { prefixes: ['omaha_river_frequency_prior_'] },
   omahaFlopPressureCapIsPriced: { prefixes: ['omaha_flop_pressure_cap_priced'] },
+  // the people-priced bare-overpair continuation names its own receipts in their descriptions; declared by prefix
+  omahaBareOverpairContinuationIsPeoplePriced: { prefixes: ['omaha_bare_overpair_people_priced'] },
+  // the indifference call inside the give-up price names its own receipts in their descriptions; declared by prefix
+  omahaGiveUpPricedTurnCallIsAtIndifference: { prefixes: ['omaha_give_up_indifference_'] },
   // the line-split turn prior names its own receipts in their descriptions; declared by prefix
   omahaTurnFacingBetPriorIsLineSplit: { prefixes: ['omaha_turn_line_prior_'] },
+  // the multiway river people prior names its own receipts in their descriptions; declared by prefix
+  omahaMultiwayRiverBetPriorIsPeopleMeasured: { prefixes: ['omaha_mw_river_people_prior_'] },
   omahaReraisedPositionVsEveryoneToAct: NO_OWN_RECEIPT(
     'a position weight inside the live re-raised-pot priced call, whose receipts fire by design'
   ),

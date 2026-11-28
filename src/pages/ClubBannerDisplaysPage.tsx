@@ -6,7 +6,7 @@ import { useAuthUser } from '../hooks/useAuthUser';
 import { ClubPageSection as SpadeConsole } from '../components/club/ClubPageSection';
 import '../components/console/SpadeConsole.css';
 import '../components/lobby/ArenaWorkspace.css';
-import PageBar from '../components/help/PageBar';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
 import StandardContentLayout from '../components/layouts/StandardContentLayout';
 import { useToast } from '../components/common/Toast';
 import { resolveClubUUIDStrict } from '../utils/clubIdResolver';
@@ -124,10 +124,12 @@ function BannerEditor({ clubId, userId }: { clubId?: string; userId?: string }) 
   return (
     <StandardContentLayout className="club-banner-page arena-workspace">
       {/* Dan, 2026-10-17: the subtitle and the intro line moved behind the
-          painted "?". The club's name stays on the head. */}
-      <PageBar
+          "?". #SmarterDesign (2026-11-28): the head is the chrome mast, which
+          carries that "?" and the club's name. */}
+      <ArenaWorkspaceHeader
+        area="control"
         title="Banner Displays"
-        titleAs={false}
+        context={club ? titleCase(club.name) : undefined}
         summary="Your Club Lobby Promotion. Manage Your Club Banner, Including In Union Clubs."
       />
       <SpadeConsole

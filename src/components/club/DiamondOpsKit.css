@@ -1,0 +1,342 @@
+/* THE DIAMOND OPERATIONS PAGES IN #SMARTERDESIGN (Dan 2026-11-27). The case,
+   tiles, switch, rows and wells come from ArenaWorkspace.css and ArenaOps.css;
+   this sheet lays out the parts the Diamond Wheel, Diamond Games and Diamond
+   Costs consoles share and dresses them in the smarter.poker chrome inks only:
+   chrome blues, gold #ffd700 and red #ff5a6a. */
+
+.arena-workspace.dops-page {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 100dvh;
+  padding-bottom: var(--bottom-nav-clearance, 74px);
+}
+@media (min-width: 721px) {
+  .arena-workspace.dops-page {
+    max-width: 980px;
+    margin-inline: auto;
+  }
+}
+
+/* The way back sits above the mast, one compact chrome key. */
+.arena-workspace .dops-back {
+  margin: 0 0 4px;
+}
+.arena-workspace .dops-back > button {
+  flex: 0 0 auto;
+  min-width: 132px;
+  color: #74dfff;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ── A case's head: eyebrow and title on the left, its state word right ── */
+.arena-workspace .dops-case__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 3px 6px;
+  border-bottom: 1px solid #253e57;
+}
+.arena-workspace .dops-case__titles {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+.arena-workspace .dops-case__title {
+  margin: 0;
+  color: #f1f5fc;
+  font:
+    800 20px/1.05 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: -0.35px;
+  overflow-wrap: anywhere;
+}
+.arena-workspace .dops-case__pill {
+  flex: 0 0 auto;
+  color: #74dfff;
+  font:
+    800 13px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
+  text-align: right;
+  text-transform: uppercase;
+}
+.arena-workspace .dops-case__keys {
+  margin-top: 4px;
+}
+
+/* ── Inks ───────────────────────────────────────────────────────────── */
+.arena-workspace .dops-case__pill[data-ink='silver'],
+.arena-workspace .dops-case__pill[data-ink='white'] {
+  color: #f1f5fc;
+}
+.arena-workspace .dops-case__pill[data-ink='green'] {
+  color: #74dfff;
+}
+.arena-workspace .dops-case__pill[data-ink='blue'] {
+  color: #45adff;
+}
+.arena-workspace .dops-case__pill[data-ink='gold'] {
+  color: #ffd700;
+}
+.arena-workspace .dops-case__pill[data-ink='red'] {
+  color: #ff5a6a;
+}
+.arena-workspace .dops-case__pill[data-ink='muted'] {
+  color: #9fbacc;
+}
+
+/* A key's ink, and the primary key on the blue glass. */
+.arena-workspace .arena-switch > button[data-ink='red'] {
+  color: #ff5a6a;
+}
+.arena-workspace .arena-switch > button[data-ink='gold'] {
+  color: #ffd700;
+}
+.arena-workspace .arena-switch > button[data-ink='muted'] {
+  color: #9fbacc;
+}
+.arena-workspace .arena-switch > button.dops-key--primary {
+  color: #fff;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
+}
+.arena-workspace .arena-switch > button.dops-key--primary[data-ink='gold'] {
+  color: #ffd700;
+}
+.arena-workspace .arena-switch > button.dops-key--primary::after {
+  border-image-source: var(--arena-active);
+}
+
+/* Copy inside a case: the plain note, a refusal and a quiet line. */
+.arena-workspace .dops-copy--danger {
+  color: #ff5a6a;
+}
+.arena-workspace .dops-copy--muted {
+  color: #9fbacc;
+}
+
+/* ── Ledger rows ────────────────────────────────────────────────────── */
+.arena-workspace .dops-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.arena-workspace .dops-row {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 2px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 10px;
+  color: #f1f5fc;
+  text-align: left;
+  font: inherit;
+}
+.arena-workspace .dops-row__label {
+  min-width: 0;
+  color: #9fd8ff;
+  font:
+    700 13px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.02em;
+}
+.arena-workspace .dops-row__value {
+  max-width: 52cqw;
+  color: #f1f5fc;
+  font:
+    800 16px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.arena-workspace .dops-row[data-wrap] .dops-row__label,
+.arena-workspace .dops-row[data-wrap] .dops-row__value {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.arena-workspace .dops-row__meta {
+  grid-column: 1 / -1;
+  min-width: 0;
+  color: #9fbacc;
+  font:
+    11px/1.35 Arial,
+    sans-serif;
+}
+.arena-workspace .dops-row[data-ink='blue'] .dops-row__value {
+  color: #45adff;
+}
+.arena-workspace .dops-row[data-ink='green'] .dops-row__value {
+  color: #74dfff;
+}
+.arena-workspace .dops-row[data-ink='gold'] .dops-row__value {
+  color: #ffd700;
+}
+.arena-workspace .dops-row[data-ink='red'] .dops-row__value {
+  color: #ff5a6a;
+}
+.arena-workspace .dops-row[data-ink='muted'] .dops-row__value {
+  color: #9fbacc;
+}
+
+/* A row that is a control lights blue while it is pressed. */
+.arena-workspace .dops-row--choice {
+  cursor: pointer;
+}
+.arena-workspace .dops-row--choice[aria-pressed='true'] {
+  border-image-source: var(--arena-active);
+  background: linear-gradient(108deg, #0c4c93, #06213f 72%);
+}
+.arena-workspace .dops-row--choice:active {
+  filter: brightness(1.2);
+}
+.arena-workspace .dops-row--choice:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.arena-workspace .dops-row--choice:focus-visible {
+  outline: 2px solid #45adff;
+  outline-offset: 2px;
+}
+
+/* ── Fields ─────────────────────────────────────────────────────────── */
+.arena-workspace .dops-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 720px) {
+  .arena-workspace .dops-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.arena-workspace .dops-fields > :is(p, button, .dops-row) {
+  grid-column: 1 / -1;
+}
+.arena-workspace .dops-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.arena-workspace .dops-field__label {
+  color: #74dfff;
+  font:
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.arena-workspace .dops-field__hint {
+  color: #9fbacc;
+  font:
+    11px/1.35 Arial,
+    sans-serif;
+}
+.arena-workspace .dops-field .arena-ops-well:disabled {
+  opacity: 0.55;
+}
+.arena-workspace .dops-field textarea.arena-ops-well {
+  min-height: 88px;
+  resize: vertical;
+}
+
+/* ── Readouts: three or more tiles still sit evenly ─────────────────── */
+.arena-workspace .dops-readings {
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+}
+@media (max-width: 720px) {
+  .arena-workspace .dops-readings {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.arena-workspace .dops-readings .arena-meter {
+  padding: 6px 4px;
+}
+.arena-workspace .dops-readings [data-tone='muted'] dd:first-of-type {
+  color: #9fbacc;
+}
+
+/* ── The dark chrome table ──────────────────────────────────────────── */
+.arena-workspace .dops-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.arena-workspace .dops-grid__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 4px solid transparent;
+  border-image: var(--arena-row) 13 / 6px stretch;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+}
+.arena-workspace .dops-grid__row--head {
+  min-height: 0;
+  padding: 0 14px 2px;
+  border: 0;
+  background: none;
+}
+.arena-workspace .dops-grid__row--head .dops-grid__cell {
+  color: #74dfff;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.arena-workspace .dops-grid__cell {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  color: #f1f5fc;
+  font:
+    700 14px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.arena-workspace .dops-grid__cell:not(:first-child) {
+  align-items: flex-end;
+  text-align: right;
+}
+.arena-workspace .dops-grid__cell[data-dim] {
+  color: #9fbacc;
+}
+.arena-workspace .dops-grid__cell[data-ink='blue'] {
+  color: #45adff;
+}
+.arena-workspace .dops-grid__cell[data-ink='green'] {
+  color: #74dfff;
+}
+.arena-workspace .dops-grid__cell[data-ink='gold'] {
+  color: #ffd700;
+}
+.arena-workspace .dops-grid__cell[data-ink='red'] {
+  color: #ff5a6a;
+}
+.arena-workspace .dops-grid__cell[data-ink='muted'] {
+  color: #9fbacc;
+}
+.arena-workspace .dops-grid__meta {
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+}

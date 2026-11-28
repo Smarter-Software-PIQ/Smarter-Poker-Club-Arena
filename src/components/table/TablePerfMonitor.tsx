@@ -9,7 +9,7 @@
  *   - Keyboard shortcut `P` (when not typing)
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './TablePerfMonitor.css';
 
 interface PerfMetrics {

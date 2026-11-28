@@ -1,10 +1,11 @@
 /**
  * The pieces the Lightning operator views share: the mode inks, the figure
  * and latency grids, and the calm states every door answers with
- * (restricted, not available yet, refused, failed). Printed on the console
- * glass; nothing here draws a frame.
+ * (restricted, not available yet, refused, failed). #SmarterDesign (Dan
+ * 2026-11-27): figures are chrome meters and every state is the one chrome
+ * ArenaState screen; the painted console is the old style.
  */
-import { type ConsoleInk } from '../../../components/console/SpadeConsole';
+import { ArenaState } from '../../../components/ops/ArenaOps';
 import { compactChips } from '../../../utils/format';
 import {
   LATENCY_LEGS,
@@ -16,7 +17,9 @@ import {
 } from '../../../lightning/lightningOperatorApi';
 import styles from '../ClubLightningOperationsPage.module.css';
 
-export const MODE_INK: Record<LightningModeTone, ConsoleInk> = {
+import { inkClass, type LightningInk } from './lightningInk';
+
+export const MODE_INK: Record<LightningModeTone, LightningInk> = {
   must_move: 'silver',
   lightning: 'blue',
   pending: 'gold',
@@ -46,12 +49,12 @@ export function Figure({
 }: {
   label: string;
   value: string;
-  ink?: ConsoleInk;
+  ink?: LightningInk;
 }) {
   return (
-    <div className={styles.figure}>
-      <dt className={`${styles.figureLabel} sc-ink--blue`}>{label}</dt>
-      <dd className={`${styles.figureValue} sc-ink--${ink}`}>{value}</dd>
+    <div className={`${styles.figure} arena-meter`}>
+      <dt className={`${styles.figureLabel} ${inkClass('blue')}`}>{label}</dt>
+      <dd className={`${styles.figureValue} ${inkClass(ink)}`}>{value}</dd>
     </div>
   );
 }
@@ -62,19 +65,21 @@ export function LatencyGrid({ legs }: { legs: LatencyLegs }) {
   return (
     <ul className={styles.grid} aria-label="Action Latency In Milliseconds">
       <li className={styles.gridRow}>
-        <span className={`${styles.gridHead} sc-ink--muted`}>Milliseconds</span>
-        <span className={`${styles.gridHead} ${styles.gridCell} sc-ink--muted`}>P50</span>
-        <span className={`${styles.gridHead} ${styles.gridCell} sc-ink--muted`}>P95</span>
-        <span className={`${styles.gridHead} ${styles.gridCell} sc-ink--muted`}>P99</span>
+        <span className={`${styles.gridHead} ${inkClass('muted')}`}>Milliseconds</span>
+        <span className={`${styles.gridHead} ${styles.gridCell} ${inkClass('muted')}`}>P50</span>
+        <span className={`${styles.gridHead} ${styles.gridCell} ${inkClass('muted')}`}>P95</span>
+        <span className={`${styles.gridHead} ${styles.gridCell} ${inkClass('muted')}`}>P99</span>
       </li>
       {present.map((leg) => {
         const r = legs[leg]!;
         return (
           <li className={styles.gridRow} key={leg}>
-            <span className={`${styles.gridName} sc-ink--blue`}>{LATENCY_LEG_LABELS[leg]}</span>
-            <span className={`${styles.gridCell} sc-ink--silver`}>{ms(r.p50)}</span>
-            <span className={`${styles.gridCell} sc-ink--silver`}>{ms(r.p95)}</span>
-            <span className={`${styles.gridCell} sc-ink--silver`}>{ms(r.p99)}</span>
+            <span className={`${styles.gridName} ${inkClass('blue')}`}>
+              {LATENCY_LEG_LABELS[leg]}
+            </span>
+            <span className={`${styles.gridCell} ${inkClass('silver')}`}>{ms(r.p50)}</span>
+            <span className={`${styles.gridCell} ${inkClass('silver')}`}>{ms(r.p95)}</span>
+            <span className={`${styles.gridCell} ${inkClass('silver')}`}>{ms(r.p99)}</span>
           </li>
         );
       })}
@@ -91,43 +96,43 @@ export function AnswerState({
   onRetry: () => void;
 }) {
   if (!answer) {
-    return (
-      <p className={`sc-copy sc-copy--center ${styles.state}`} aria-busy="true">
-        Reading Lightning...
-      </p>
-    );
+    return <ArenaState tone="loading" title="Reading Lightning..." />;
   }
   if (answer.status === 'denied') {
     return (
-      <p className={`sc-copy sc-copy--center ${styles.state}`}>
-        Lightning Operations Is Available To Club Owners And Administrators.
-      </p>
+      <ArenaState
+        tone="empty"
+        title="Restricted"
+        message="Lightning Operations Is Available To Club Owners And Administrators."
+      />
     );
   }
   if (answer.status === 'unavailable') {
     return (
-      <p className={`sc-copy sc-copy--center ${styles.state}`} role="status">
-        Not Available Yet. Lightning Operator Readings Arrive With The Next Database Release.
-      </p>
+      <ArenaState
+        tone="empty"
+        title="Not Available Yet"
+        message="Lightning Operator Readings Arrive With The Next Database Release."
+      />
     );
   }
   if (answer.status === 'refused') {
     return (
-      <p className={`sc-copy sc-copy--center ${styles.state} sc-ink--red`} role="status">
-        Lightning Refused This Read: {enumLabel(answer.code)}
-      </p>
+      <ArenaState tone="error" title={`Lightning Refused This Read: ${enumLabel(answer.code)}`} />
     );
   }
   if (answer.status === 'error') {
     return (
-      <div className={styles.words} role="alert">
-        <p className={`sc-copy sc-copy--center ${styles.state} sc-ink--red`}>{answer.message}</p>
-        <span className="arena-switch arena-ops-keys arena-ops-primary">
-          <button type="button" className={`${styles.word} sc-ink--white`} onClick={onRetry}>
+      <ArenaState
+        tone="error"
+        title="Lightning Read Failed"
+        message={answer.message}
+        actions={
+          <button type="button" onClick={onRetry}>
             Retry
           </button>
-        </span>
-      </div>
+        }
+      />
     );
   }
   return null;

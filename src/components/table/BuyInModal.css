@@ -133,7 +133,7 @@
   font-weight: 800;
   letter-spacing: 0.06em;
   line-height: 1.12;
-  text-transform: uppercase;
+  text-transform: none;
   white-space: normal;
   overflow-wrap: anywhere;
   text-shadow: 0 0.3cqw 0.5cqw #000;
@@ -170,7 +170,7 @@
     Inter,
     sans-serif;
   letter-spacing: 0.12em;
-  text-transform: uppercase;
+  text-transform: none;
   cursor: pointer;
 }
 
@@ -289,7 +289,7 @@
   font-size: 3.1cqw;
   font-weight: 700;
   letter-spacing: 0.1em;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .buy-in-modal__bay-value {
@@ -499,14 +499,14 @@
 }
 .buy-in-modal.buy-in-modal .buy-in-modal__head .sc__eyebrow {
   grid-column: 1;
-  color: #86daff;
+  color: var(--sd-ice);
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.04em;
 }
 .buy-in-modal.buy-in-modal .buy-in-modal__head .sc__title {
   grid-column: 1;
-  color: #f4f8ff;
+  color: var(--sd-white);
   font:
     700 clamp(22px, 6cqw, 28px) / 1.08 'Rajdhani',
     'Roboto Condensed',
@@ -527,7 +527,7 @@
   font-variant-numeric: tabular-nums;
 }
 .buy-in-modal.buy-in-modal .buy-in-modal__head .sc__pill.sc-ink--gold {
-  color: #86daff;
+  color: var(--sd-ice);
 }
 .buy-in-modal.buy-in-modal .buy-in-modal__head .sc__pill.sc-ink--red {
   color: #ff6b78;
@@ -550,19 +550,19 @@
   box-shadow: none;
 }
 .buy-in-modal.buy-in-modal .buy-in-modal__game-type {
-  color: #bdd0e2;
+  color: var(--sd-silver);
   font:
     700 14px / 1.2 'Rajdhani',
     'Roboto Condensed',
     sans-serif;
 }
 .buy-in-modal.buy-in-modal .buy-in-modal__current-amount .sc-label {
-  color: #86daff;
+  color: var(--sd-ice);
   font-size: 13px;
   font-weight: 600;
 }
 .buy-in-modal.buy-in-modal .buy-in-modal__amount-value {
-  color: #f4f8ff;
+  color: var(--sd-white);
   font:
     700 32px / 1.05 'Rajdhani',
     'Roboto Condensed',
@@ -582,7 +582,7 @@
 }
 .buy-in-modal.buy-in-modal .buy-in-modal__bay-label {
   justify-self: stretch;
-  color: #86daff;
+  color: var(--sd-ice);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.03em;
@@ -600,7 +600,7 @@
   border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') 11 / 5px
     stretch !important;
   background: linear-gradient(155deg, #12273b, #07111c 70%) !important;
-  color: #f4f8ff;
+  color: var(--sd-white);
   font:
     700 16px / 1.1 'Rajdhani',
     'Roboto Condensed',
@@ -609,7 +609,11 @@
 }
 .buy-in-modal.buy-in-modal .buy-in-modal__bay-button[aria-pressed='true'] {
   border-image-source: url('/assets/club-buttons/console/smarterdesign-v1/chrome-active.webp') !important;
-  background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
+  background: linear-gradient(
+    var(--sd-cobalt-top),
+    var(--sd-cobalt-mid) 55%,
+    var(--sd-cobalt-deep)
+  ) !important;
   background-clip: padding-box !important;
 }
 .buy-in-modal.buy-in-modal .buy-in-modal__bay-button .buy-in-modal__bay-value {
@@ -639,14 +643,18 @@
   border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') 11 / 6px
     stretch !important;
   background: linear-gradient(155deg, #12273b, #07111c 70%) !important;
-  color: #f1f5fc !important;
+  color: var(--sd-ink) !important;
 }
 .buy-in-modal.buy-in-modal .buy-in-modal__deck > .sc-plate::after {
   content: none;
 }
 .buy-in-modal.buy-in-modal .buy-in-modal__deck > .buy-in-modal__confirm {
   border-image-source: url('/assets/club-buttons/console/smarterdesign-v1/chrome-active.webp') !important;
-  background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
+  background: linear-gradient(
+    var(--sd-cobalt-top),
+    var(--sd-cobalt-mid) 55%,
+    var(--sd-cobalt-deep)
+  ) !important;
   background-clip: padding-box !important;
   color: #fff !important;
 }
@@ -675,8 +683,8 @@
 }
 .buy-in-modal.buy-in-modal .buy-in-modal__error,
 .buy-in-modal.buy-in-modal .cashier-error {
-  color: #ff8a93;
+  color: var(--sd-red);
 }
 .buy-in-modal.buy-in-modal .buy-in-modal__balance-retry {
-  color: #86daff;
+  color: var(--sd-ice);
 }

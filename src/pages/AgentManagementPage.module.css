@@ -1,783 +1,219 @@
 /**
- * ═══════════════════════════════════════════════════════════════════════════
- *  AGENT MANAGEMENT - on the spade console (#ClubArenaConsole, 2026-09-09)
- * ═══════════════════════════════════════════════════════════════════════════
+ * AGENT MANAGEMENT IN #SMARTERDESIGN (Dan 2026-11-27)
  *
- * The console, its ink, its painted plates and its pill slot come from
- * SpadeConsole.css. This sheet only lays the agent network out on the black
- * glass between the rails, and dresses the two dialogs the page owns.
- *
- * NOTHING HERE DRAWS A CONTROL. Gone with the markup that carried them: a
- * gradient page ground, a header bar with two rounded pill buttons, a
- * four-tile summary grid, a six-pill tab rail, a rounded card per agent with
- * a 44px avatar disc, nine capsule badge variants, a four-tile stat grid, a
- * three-tile wallet row, a drawn credit progress bar in three colours, and
- * TWO BORDERED TABLES that ran off the side of a 393px phone. The frame, the
- * plates, the pill and the chrome rule are painted in Dan's master; a status
- * here is lit type in the master's own ink, and a row is separated from the
- * row below by the engraved rule the master cuts - a black hairline with a
- * one-pixel highlight under it.
- *
- * Sizes inside a console are cqw against it (`.sc` sets container-type), so a
- * 320px phone and a 430px phone get the same picture. The two dialogs sit
- * outside any console, so they size in rem. No :hover anywhere: phones do not
- * hover and a stuck hover state is a bug.
+ * The page wears the arena workspace language: the chrome mast, thin chrome
+ * cases, chrome keys that light blue when selected, chrome meters and chrome
+ * ledger rows, all from ArenaWorkspace.css and ArenaOps.css. This sheet only
+ * lays the agent network out inside those pieces and positions the two
+ * dialogs the page owns. No painted plates, no :hover (phones do not hover).
  *
  * This file is a CSS Module and nothing else imports it.
  */
 
 .page {
-  padding: 0;
-  /* Dan 2026-08-25: was max(70px, env(safe-area-inset-bottom)). The bar is
-     74px PLUS the home-indicator inset (additive), and max() picks one or
-     the other - so this reserved 70px on every phone and hid the last row
-     of content under the footer, by 4px on a flat screen and ~38px on a
-     notched one. --bottom-nav-clearance is the token the bar itself is
-     pinned to. */
+  /* --bottom-nav-clearance is the token the bottom bar itself is pinned to. */
   padding-bottom: max(var(--bottom-nav-clearance, 74px), env(safe-area-inset-bottom));
-  background: #000;
   width: 100%;
   max-width: 100vw;
-  /* clip, not hidden — see src/styles/design-system.css on body. `hidden` on
-     one axis computes the other to `auto`, which makes this a scroll container,
-     and WebKit then resolves the fixed ClubBottomNav against IT instead of the
-     viewport. The bar leaves the bottom of the screen and rides up the page. */
+  /* clip, not hidden: `hidden` makes this a scroll container and WebKit then
+     resolves the fixed ClubBottomNav against it instead of the viewport. */
   overflow-x: hidden;
   overflow-x: clip;
 }
 
-/* One picture per card, and the pictures stack. */
-.console {
-  margin: 0 auto 14px;
-  width: 100%;
-  max-width: 560px;
-}
-
-.content {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  width: 100%;
-  min-width: 0;
-}
-
+.content,
 .playersSection,
 .commissionsSection,
 .payoutsSection {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 4px;
   width: 100%;
   min-width: 0;
 }
 
-/* ── Figures: label left in lit blue, value right in silver ───────────── */
-
-.facts {
-  display: grid;
-  gap: 0;
-  margin: 0;
-  padding: 0;
-  min-width: 0;
+.assignment {
+  margin-bottom: 8px;
 }
 
-.fact {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 3cqw;
-  padding: 1.8cqw 0;
-  min-width: 0;
-}
-
-/* The engraved rule the master uses between its own rows. Never a drawn
-   divider, never a border around the row - that would be a frame on a frame. */
-.fact + .fact {
-  border-top: 1px solid #000;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
-}
-
-.factLabel,
-.walletLabel {
-  flex: 0 0 auto;
-  margin: 0;
-  color: #45adff;
-  font:
-    700 2.7cqw/1.4 'Roboto Condensed',
-    Inter,
-    sans-serif;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  text-shadow:
-    0 0 0.9cqw rgb(49 168 255 / 70%),
-    0 0.2cqw 0.3cqw rgb(0 0 0 / 85%);
-  white-space: nowrap;
-}
-
-.factValue {
-  flex: 1 1 auto;
-  min-width: 0;
-  margin: 0;
-  font:
-    700 3.5cqw/1.35 'Roboto Condensed',
-    Inter,
-    sans-serif;
-  letter-spacing: 0.03em;
-  text-align: right;
-  font-variant-numeric: tabular-nums lining-nums;
-  overflow-wrap: anywhere;
-}
-
-/* ── Lists: one agent per row on the glass ────────────────────────────── */
-
-.list {
-  display: grid;
-  gap: 0;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
+/* ── One ledger row: name, lit words, meters, keys ─────────────────── */
 
 .row {
-  display: grid;
-  gap: 1.8cqw;
-  padding: 3.4cqw 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
   min-width: 0;
-}
-
-.row + .row {
-  border-top: 1px solid #000;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
 }
 
 .rowName {
+  color: #f1f5fc;
   font:
-    800 4.6cqw/1.2 'Roboto Condensed',
-    Inter,
+    800 17px/1.15 'Arial Narrow',
+    Arial,
     sans-serif;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
   overflow-wrap: anywhere;
 }
 
-/* Words in the master's own ink, not capsules. */
 .rowFlags {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 3cqw;
-  min-width: 0;
+  gap: 4px 12px;
+}
+
+.flag,
+.walletLabel {
+  color: #45adff;
+  font:
+    700 10px/1.3 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.flag[data-tone='live'] {
+  color: #74dfff;
+}
+
+.flag[data-tone='danger'] {
+  color: #ff5a6a;
+}
+
+.flag[data-tone='muted'] {
+  color: #9aabba;
 }
 
 .rowMeta {
+  color: #9aabba;
   font:
-    600 3cqw/1.45 Inter,
-    system-ui,
+    12px/1.35 Arial,
     sans-serif;
-  letter-spacing: 0.03em;
-  overflow-wrap: anywhere;
 }
 
-.rowActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5cqw;
-  margin-top: 0.4cqw;
+.countdown {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #ffd700;
 }
 
-/* ── A lit word cut into the glass: every row action ──────────────────── */
-
-.word {
-  appearance: none;
-  justify-self: start;
-  margin: 0;
-  /* 44px minimum tap target on a phone. */
-  min-height: 44px;
-  padding: 1cqw 0;
-  border: 0;
-  background: transparent;
-  font:
-    800 3.4cqw/1 'Roboto Condensed',
-    Inter,
-    sans-serif;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  cursor: pointer;
-  touch-action: manipulation;
+.countdown[data-tone='danger'] {
+  color: #ff5a6a;
 }
 
-.word:active {
-  filter: brightness(1.3);
-}
+/* ── The two dialogs ───────────────────────────────────────────────── */
 
-.word:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-
-.word:focus-visible {
-  outline: 0.6cqw solid #8fd4ff;
-  outline-offset: -0.6cqw;
-}
-
-/* ── The view rail: six lit words, no drawn tab ───────────────────────── */
-
-.rail {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 4cqw;
-  padding: 0.5cqw 0 1cqw;
-}
-
-.railWord {
-  appearance: none;
-  margin: 0;
-  min-height: 44px;
-  padding: 1cqw 1.2cqw;
-  border: 0;
-  background: transparent;
-  font:
-    800 3.1cqw/1 'Roboto Condensed',
-    Inter,
-    sans-serif;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  cursor: pointer;
-  touch-action: manipulation;
-}
-
-.railWord:active {
-  filter: brightness(1.3);
-}
-
-.railWord:focus-visible {
-  outline: 0.6cqw solid #8fd4ff;
-  outline-offset: -0.6cqw;
-}
-
-/* ── A field is a groove cut in the glass ─────────────────────────────── */
-
-.groove {
-  appearance: none;
-  display: block;
-  width: 100%;
-  min-width: 0;
-  min-height: 44px;
-  margin: 0;
-  padding: 1.6cqw 1cqw;
-  border: 0;
-  border-top: 1px solid #000;
-  border-bottom: 1px solid #000;
-  border-radius: 0;
-  background: transparent;
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 9%),
-    0 1px 0 rgb(255 255 255 / 9%);
-  /* 16px, not cqw: under 16px iOS zooms the page on focus. */
-  font:
-    700 16px/1.3 'Roboto Condensed',
-    Inter,
-    sans-serif;
-  text-align: right;
-  outline: none;
-  caret-color: #5bb8ff;
-}
-
-.groove:focus-visible {
-  outline: 0.6cqw solid #8fd4ff;
-  outline-offset: -0.6cqw;
-}
-
-.empty {
-  display: grid;
-  justify-items: center;
-  gap: 2.4cqw;
-  padding: 4cqw 3cqw 2cqw;
-  text-align: center;
-}
-
-.rules {
-  display: grid;
-  gap: 2cqw;
-  padding-top: 2cqw;
-  border-top: 1px solid #000;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
-}
-
-.ruleList {
-  display: grid;
-  gap: 2cqw;
-  margin: 0;
-  padding: 0 0 0 4cqw;
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   THE TWO DIALOGS THIS PAGE OWNS
-
-   Create Agent and Exclude Player sit outside any console, so they size in
-   rem rather than cqw. They still paint nothing they do not have to: the
-   overlay is a scrim, the sheet is black, every field is a groove cut into
-   it, and every action is a lit word. `metallic-popups.css` reaches the ban
-   dialog (it carries role="dialog" and aria-modal), so those declarations are
-   restated longhand where they have to win.
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-.modalOverlay,
-.banOverlay {
+.modalOverlay {
   position: fixed;
   inset: 0;
   z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1rem;
-  background: rgb(0 0 0 / 82%);
+  padding: 16px;
+  background: rgb(2 7 13 / 82%);
 }
 
-.modal,
-.banDialog {
+.modal {
   width: 100%;
-  max-width: 32rem;
-  max-height: 88vh;
+  max-width: 480px;
+  max-height: calc(100dvh - 32px);
   overflow-y: auto;
-  padding: 1.25rem;
-  border: 0;
-  border-radius: 0;
-  background: #05070a;
-  box-shadow: none;
-  color: #e6e9ee;
-  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
-}
-
-.modalHeader {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid #000;
-  box-shadow: inset 0 -1px 0 rgb(255 255 255 / 8%);
-}
-
-.modalHeader h2,
-.banDialog h3 {
-  margin: 0;
-  color: #e4e7ec;
-  font:
-    800 1.25rem/1.2 'Roboto Condensed',
-    Inter,
-    sans-serif;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  text-shadow:
-    0 -1px 0 rgb(255 255 255 / 45%),
-    0 2px 0 #050607,
-    0 5px 8px rgb(0 0 0 / 85%);
-}
-
-.closeBtn {
-  appearance: none;
-  min-width: 44px;
-  min-height: 44px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: #9aa5b3;
-  font:
-    800 1.4rem/1 'Roboto Condensed',
-    Inter,
-    sans-serif;
-  cursor: pointer;
-  touch-action: manipulation;
-}
-
-.closeBtn:active {
-  filter: brightness(1.3);
-}
-
-.closeBtn:focus-visible {
-  outline: 2px solid #8fd4ff;
-  outline-offset: -2px;
+  background: #050d17;
 }
 
 .modalBody {
-  display: grid;
-  gap: 1rem;
-  padding: 1rem 0;
-}
-
-.modalFooter,
-.banActions {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 2rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid #000;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
+  flex-direction: column;
+  gap: 10px;
 }
 
-.formGroup {
-  display: grid;
-  gap: 0.4rem;
+.formGroup,
+.banField {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
   min-width: 0;
 }
 
-.formGroup label,
+.formGroup > label,
 .banField > span {
-  color: #45adff;
+  color: #9fbacc;
   font:
-    700 0.72rem/1.4 'Roboto Condensed',
-    Inter,
+    700 11px/1.3 'Arial Narrow',
+    Arial,
     sans-serif;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  text-shadow: 0 0 8px rgb(49 168 255 / 60%);
 }
 
 .formHint {
-  color: #9aa5b3;
-  letter-spacing: 0.08em;
+  color: #9aabba;
+  text-transform: none;
+}
+
+.roleLabel {
+  display: block;
+  font-weight: 800;
+}
+
+.roleDesc {
+  display: block;
+  color: #9aabba;
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.sliderGroup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.slider {
+  flex: 1 1 auto;
+  min-width: 0;
+  accent-color: #087cfa;
+}
+
+.sliderValue {
+  min-width: 3.5em;
+  text-align: right;
+  color: #ffd700;
+  font:
+    800 16px/1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
 }
 
 .fieldDesc {
   margin: 0;
-  color: #9aa5b3;
+  color: #9aabba;
   font:
-    500 0.78rem/1.45 Inter,
-    system-ui,
+    12px/1.4 Arial,
     sans-serif;
-}
-
-/* Every field is a groove. */
-.formSelect,
-.creditInput,
-.banField textarea,
-.banField select {
-  appearance: none;
-  display: block;
-  width: 100%;
-  min-width: 0;
-  min-height: 44px;
-  margin: 0;
-  padding: 0.6rem 0.4rem;
-  border: 0 !important;
-  border-top: 1px solid #000 !important;
-  border-bottom: 1px solid #000 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  background-image: none !important;
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 9%),
-    0 1px 0 rgb(255 255 255 / 9%) !important;
-  color: #e4e7ec !important;
-  /* 16px: under 16px iOS zooms the page on focus. */
-  font:
-    600 16px/1.4 'Roboto Condensed',
-    Inter,
-    sans-serif;
-  outline: none;
-  caret-color: #5bb8ff;
-}
-
-.banField textarea {
-  min-height: 5.5rem;
-  resize: vertical;
-  font-family: Inter, system-ui, sans-serif;
-  font-weight: 500;
-}
-
-.formSelect option,
-.banField select option {
-  background: #0a0d11;
-  color: #e4e7ec;
-}
-
-.formSelect:focus-visible,
-.creditInput:focus-visible,
-.banField textarea:focus-visible,
-.banField select:focus-visible {
-  outline: 2px solid #8fd4ff;
-  outline-offset: -2px;
-}
-
-.creditInput::placeholder,
-.banField textarea::placeholder {
-  color: #6b7784;
-}
-
-.loadingSelect,
-.emptySelect {
-  padding: 0.6rem 0.4rem;
-  color: #9aa5b3;
-  font:
-    500 0.85rem/1.45 Inter,
-    system-ui,
-    sans-serif;
-}
-
-/* The role choice is three lit words, not three drawn tiles. */
-.roleSelector {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1.25rem;
-  padding: 0.25rem 0;
-}
-
-.roleOption {
-  appearance: none;
-  display: grid;
-  gap: 0.15rem;
-  min-height: 44px;
-  margin: 0;
-  padding: 0.3rem 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-  touch-action: manipulation;
-}
-
-.roleOption:active {
-  filter: brightness(1.3);
-}
-
-.roleOption:focus-visible {
-  outline: 2px solid #8fd4ff;
-  outline-offset: -2px;
-}
-
-.roleLabel {
-  color: #9aa5b3;
-  font:
-    800 0.9rem/1.1 'Roboto Condensed',
-    Inter,
-    sans-serif;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.roleDesc {
-  color: #6b7784;
-  font:
-    500 0.72rem/1.35 Inter,
-    system-ui,
-    sans-serif;
-}
-
-/* The chosen role lights up; nothing is filled or outlined. */
-.roleOption.selected .roleLabel {
-  color: #f4f7fb;
-  text-shadow:
-    0 0 10px rgb(140 210 255 / 90%),
-    0 2px 6px rgb(0 0 0 / 70%);
-}
-
-.roleOption.selected .roleDesc {
-  color: #9aa5b3;
-}
-
-/* A slider is the one thing the master does not paint, so it is the one
-   thing drawn - and it is drawn as a groove with a lit thumb. */
-.sliderGroup {
-  display: flex;
-  align-items: center;
-  gap: 0.9rem;
-  min-width: 0;
-}
-
-.slider {
-  appearance: none;
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 3px;
-  margin: 0;
-  border-radius: 0;
-  background: #000;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 9%);
-  outline: none;
-  touch-action: manipulation;
-}
-
-.slider::-webkit-slider-thumb {
-  appearance: none;
-  width: 22px;
-  height: 22px;
-  border: 0;
-  border-radius: 50%;
-  background: #45adff;
-  box-shadow: 0 0 10px rgb(49 168 255 / 80%);
-  cursor: pointer;
-}
-
-.slider::-moz-range-thumb {
-  width: 22px;
-  height: 22px;
-  border: 0;
-  border-radius: 50%;
-  background: #45adff;
-  box-shadow: 0 0 10px rgb(49 168 255 / 80%);
-  cursor: pointer;
-}
-
-.slider:focus-visible {
-  outline: 2px solid #8fd4ff;
-  outline-offset: 4px;
-}
-
-.sliderValue {
-  flex: 0 0 auto;
-  min-width: 3.2rem;
-  color: #e4e7ec;
-  font:
-    800 1rem/1 'Roboto Condensed',
-    Inter,
-    sans-serif;
-  font-variant-numeric: tabular-nums lining-nums;
-  text-align: right;
-}
-
-.creditInputGroup {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 0.75rem;
-  min-width: 0;
-}
-
-.currencySymbol {
-  color: #45adff;
-  font:
-    700 0.7rem/1 'Roboto Condensed',
-    Inter,
-    sans-serif;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
 }
 
 .formSummary {
-  display: grid;
-  gap: 0.6rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid #000;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
+  padding-top: 6px;
+  border-top: 1px solid #253e57;
 }
 
-.formSummary h4 {
-  margin: 0;
-  color: #45adff;
-  font:
-    700 0.72rem/1.4 'Roboto Condensed',
-    Inter,
-    sans-serif;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+.formSummary h3 {
+  margin: 0 0 4px;
 }
 
 .summaryGrid {
   display: grid;
-  gap: 0.4rem;
-  color: #9aa5b3;
+  gap: 3px;
+  color: #c8d6e3;
   font:
-    500 0.82rem/1.45 Inter,
-    system-ui,
+    12px/1.4 Arial,
     sans-serif;
 }
 
 .summaryGrid strong {
-  color: #e4e7ec;
-  font-weight: 700;
-}
-
-/* Cancel and Create are lit words, not filled pills. */
-.cancelBtn,
-.createBtn,
-.banCancel,
-.banConfirm {
-  appearance: none;
-  min-height: 44px;
-  margin: 0;
-  padding: 0.5rem 0;
-  border: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  background-image: none !important;
-  box-shadow: none !important;
-  transform: none !important;
-  font:
-    800 0.9rem/1 'Roboto Condensed',
-    Inter,
-    sans-serif;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  cursor: pointer;
-  touch-action: manipulation;
-}
-
-.cancelBtn,
-.banCancel {
-  color: #9aa5b3 !important;
-}
-
-.createBtn {
-  color: #f4f7fb !important;
-  text-shadow:
-    0 0 10px rgb(140 210 255 / 90%),
-    0 2px 6px rgb(0 0 0 / 70%);
-}
-
-.banConfirm {
-  color: #ff5b6e !important;
-  text-shadow:
-    0 0 10px rgb(240 40 73 / 80%),
-    0 2px 6px rgb(0 0 0 / 70%);
-}
-
-.cancelBtn:active,
-.createBtn:active,
-.banCancel:active,
-.banConfirm:active {
-  filter: brightness(1.3);
-}
-
-.cancelBtn:disabled,
-.createBtn:disabled,
-.banCancel:disabled,
-.banConfirm:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-
-.cancelBtn:focus-visible,
-.createBtn:focus-visible,
-.banCancel:focus-visible,
-.banConfirm:focus-visible {
-  outline: 2px solid #8fd4ff;
-  outline-offset: -2px;
-}
-
-.banHelp {
-  margin: 0.75rem 0;
-  color: #9aa5b3;
-  font:
-    500 0.85rem/1.5 Inter,
-    system-ui,
-    sans-serif;
-}
-
-.banField {
-  display: grid;
-  gap: 0.4rem;
-  margin-bottom: 0.9rem;
-  min-width: 0;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .row {
-    animation: none !important;
-    opacity: 1 !important;
-    transform: none !important;
-  }
+  color: #ffd700;
+  text-transform: capitalize;
 }

@@ -17,6 +17,7 @@ export const BARREN_DISCOVERY_STALE_MS = 600_000;
 export interface EngineLivenessTable {
   dealable: number;
   paused: boolean;
+  liveDecisionClock?: boolean;
   msSinceProgress: number;
 }
 
@@ -56,14 +57,14 @@ export function evaluateEngineLiveness(
 ): EngineLivenessVerdict {
   const dealableTables = observation.tables.filter((table) => table.dealable >= 2 && !table.paused);
   const deadStalledCount = dealableTables.filter(
-    (table) => table.msSinceProgress > TABLE_DEAD_STALL_MS
+    (table) => !table.liveDecisionClock && table.msSinceProgress > TABLE_DEAD_STALL_MS
   ).length;
   const dealableTableCount = dealableTables.length;
   const wholeFleetStalled = dealableTableCount > 0 && deadStalledCount >= dealableTableCount;
 
   const stillBooting = observation.processUptimeMs < ENGINE_STARTUP_GRACE_MS;
   const anyTableProgressedRecently = observation.tables.some(
-    (table) => table.msSinceProgress < TABLE_RECENT_PROGRESS_MS
+    (table) => table.liveDecisionClock === true || table.msSinceProgress < TABLE_RECENT_PROGRESS_MS
   );
   const discoveryLoopDead =
     !stillBooting &&

@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { useParams } from 'react-router-dom';
 import ClubIntegrityHeader from '../components/club/ClubIntegrityHeader';
+import { ArenaState } from '../components/ops/ArenaOps';
 import { useToast } from '../components/common/Toast';
 import { ClubPageSection as SpadeConsole } from '../components/club/ClubPageSection';
 import { useAuthUser } from '../hooks/useAuthUser';
@@ -379,27 +380,28 @@ export default function ReportReviewPage() {
 
           <div id="report-case-panel" role="tabpanel" aria-labelledby={`report-filter-${filter}`}>
             {!viewIsCurrent || loading ? (
-              <div className="report-state" role="status" aria-live="polite">
-                <strong className="report-state__title">Loading Report Queue</strong>
-                <p>Confirming The Current Club And Moderation Scope.</p>
-              </div>
+              <ArenaState
+                tone="loading"
+                title="Loading Report Queue"
+                message="Confirming The Current Club And Moderation Scope."
+              />
             ) : loadError ? (
-              <div className="report-state report-error" role="alert">
-                <strong className="report-state__title is-danger">Report Queue Unavailable</strong>
-                <p>
-                  The Live Moderation Feed Could Not Be Loaded. Existing Case Data Was Not Changed.
-                </p>
-                <div className="arena-switch arena-ops-primary">
+              <ArenaState
+                tone="error"
+                title="Report Queue Unavailable"
+                message="The Live Moderation Feed Could Not Be Loaded. Existing Case Data Was Not Changed."
+                actions={
                   <button type="button" onClick={() => void loadReports()}>
                     Retry Report Feed
                   </button>
-                </div>
-              </div>
+                }
+              />
             ) : visibleReports.length === 0 ? (
-              <div className="report-state">
-                <strong className="report-state__title">Queue Clear</strong>
-                <p>No {filter === 'pending' ? 'Pending ' : ''}Reports Match This View.</p>
-              </div>
+              <ArenaState
+                tone="empty"
+                title="Queue Clear"
+                message={`No ${filter === 'pending' ? 'Pending ' : ''}Reports Match This View.`}
+              />
             ) : (
               <div className="reports-list">
                 {/* fn_list_player_reports takes the newest 100 and offers no

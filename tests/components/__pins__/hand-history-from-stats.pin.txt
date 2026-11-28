@@ -1,0 +1,72 @@
+header figures: [
+  "dt|Won",
+  "dd|2",
+  "dt|Biggest Pot",
+  "dd|1,250.75 Chips / 3 Diamonds"
+]
+money: {
+  "figures": [
+    "3",
+    "2",
+    "0",
+    "1,250.75",
+    "3",
+    "100",
+    "1,250.75 Chips / 3 Diamonds",
+    "3",
+    "1203",
+    "1,250.75",
+    "+1,250.75",
+    "1/2",
+    "2",
+    "1202",
+    "88.50",
+    "0.00",
+    "2/5",
+    "2",
+    "1201",
+    "3",
+    "+3",
+    "0.5/1",
+    "2"
+  ],
+  "hooks": []
+}
+text: Find A Hand Any Game NLH PLO Export For Tracker Cash Games Tournaments All Hands Won Lost Big Pots Showdown All In Noted Diamond Arena Opened From Player Stats Back To Stats 3 Hands 2 Won 0 Lost + 1,250.75 Net Chips + 3 Net Diamonds 100 % VPIP 1,250.75 Chips / 3 Diamonds Biggest Pot Export Across The 3 Hands Loaded Kings Den # 1203 <date> Pot 1,250.75 NLH No Showdown +1,250.75 1/2 2 Players ▾ Kings Den # 1202 <date> Pot 88.50 PLO No Showdown 0.00 2/5 2 Players ▾ River Room # 1201 <date> Pot 3 NLH No Showdown +3 0.5/1 Diamonds 2 Players ▾
+regions: [
+  "label|||",
+  "select||Game|",
+  "input||From This Date|",
+  "input||To This Date|",
+  "div|group|Hand History Game Mode|",
+  "div|group|Filter Loaded Hands|",
+  "div|navigation|Stats Evidence Return|",
+  "div||Across The 3 Hands Loaded|",
+  "button||Export The Loaded Hands To CSV|",
+  "div|||false",
+  "article|||",
+  "article|||",
+  "article|||"
+]
+controls: [
+  "input|Hand Number, Opponent, Tag Or Note",
+  "select|Game",
+  "input|From This Date",
+  "input|To This Date",
+  "button|Export For Tracker",
+  "button|Cash Games [pressed=true]",
+  "button|Tournaments [pressed=false]",
+  "button|All Hands [pressed=true]",
+  "button|Won [pressed=false]",
+  "button|Lost [pressed=false]",
+  "button|Big Pots [pressed=false]",
+  "button|Showdown [pressed=false]",
+  "button|All In [pressed=false]",
+  "button|Noted [pressed=false]",
+  "button|Diamond Arena [pressed=false]",
+  "button|Back To Stats",
+  "button|Export The Loaded Hands To CSV",
+  "button|Kings Den#1203<date>Pot1,250.75NLHNo Showdown+1,250.751/22 Players▾ [expanded=false]",
+  "button|Kings Den#1202<date>Pot88.50PLONo Showdown0.002/52 Players▾ [expanded=false]",
+  "button|River Room#1201<date>Pot3NLHNo Showdown+30.5/1 Diamonds2 Players▾ [expanded=false]"
+]

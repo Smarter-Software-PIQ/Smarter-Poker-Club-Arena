@@ -4,8 +4,8 @@ import {
   chicagoStamp,
   classTable,
   clusteredStat,
+  aboveWatchBar,
   compareReports,
-  flagged,
   gameTable,
   gradeHand as gradeHandWith,
   horseHandClass,
@@ -452,12 +452,20 @@ describe('statistics', () => {
     expect(clusteredStat([])).toMatchObject({ n: 0, se: null });
   });
 
-  it('flags only a mean beyond 1 SE at n >= 10', () => {
-    expect(flagged({ n: 10, clusters: 10, total: 30, mean: 3, se: 2 })).toBe(true);
-    expect(flagged({ n: 9, clusters: 9, total: 27, mean: 3, se: 2 })).toBe(false);
-    expect(flagged({ n: 10, clusters: 10, total: 30, mean: 3, se: 3 })).toBe(false);
-    expect(flagged({ n: 10, clusters: 1, total: 30, mean: 3, se: null })).toBe(false);
-    expect(flagged({ n: 50, clusters: 50, total: -100, mean: -2, se: 0.5 })).toBe(false);
+  it('keeps the earlier bar (a mean beyond 1 SE at n >= 10) as the watch bar, not the flag', () => {
+    // 2026-11-28: this bar was the flag until it flagged 5 to 15 rows a day by chance alone.
+    // The flag rule is pinned in HorseDailyDecisionGradeFlagRule.test.ts.
+    expect(aboveWatchBar({ n: 10, clusters: 10, mean: 3, se: 2 })).toBe(true);
+    expect(aboveWatchBar({ n: 9, clusters: 9, mean: 3, se: 2 })).toBe(false);
+    expect(aboveWatchBar({ n: 10, clusters: 10, mean: 3, se: 3 })).toBe(false);
+    expect(aboveWatchBar({ n: 10, clusters: 1, mean: 3, se: null })).toBe(false);
+    expect(aboveWatchBar({ n: 50, clusters: 50, mean: -2, se: 0.5 })).toBe(false);
+    // one row beyond 1 SE on its own day: shown as watch, never as a flag
+    const [row] = classTable(
+      Array.from({ length: 12 }, (_, i) => d(`w${i}`, i % 2 ? 9 : -3, `p${i % 4}`))
+    );
+    expect(row.mean - row.se!).toBeGreaterThan(0);
+    expect(row).toMatchObject({ flagged: false, watch: true, onePerson: false });
   });
 
   const d = (

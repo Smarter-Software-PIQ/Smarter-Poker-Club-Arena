@@ -54,7 +54,7 @@
     Inter,
     sans-serif;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 /* The count prints straight onto the glass: the figure in red ink, its words

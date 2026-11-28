@@ -1,0 +1,610 @@
+{
+  "schemaVersion": 1,
+  "description": "Closed ratchet baseline of pre-existing server/src test files with unpinned Date.now() or Math.random(). New files must be zero; entries may only shrink or be removed.",
+  "files": {
+    "server/src/benchmark/HorseLeagueProcessPriority.integration.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/benchmark/IncrementalPressureQualification.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/benchmark/LeagueClaimRecovery.test.ts": {
+      "dateNow": 32,
+      "mathRandom": 0
+    },
+    "server/src/engine/aCarriedSitOutTakesItsTableFirst.law.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/ADiamondCashHandSendsItsRakeFacts.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/aReservedHandHeldForTheBreakIsParked.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/aRetainedOriginalWaitsForTheHandForHandRound.law.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/aSatOutLightningPlayerIsOnTheCashSitOutClock.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/engine/aSeatThatClosesAStreetIsHandedTheNext.test.ts": {
+      "dateNow": 3,
+      "mathRandom": 0
+    },
+    "server/src/engine/aSelectedPackShipsItsEvidence.law.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/ATournamentClaimsNoManualBomb.test.ts": {
+      "dateNow": 0,
+      "mathRandom": 1
+    },
+    "server/src/engine/BBJEventsSurviveAReconnect.test.ts": {
+      "dateNow": 0,
+      "mathRandom": 1
+    },
+    "server/src/engine/CashDealGap.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/CashFundingProvenanceBoundary.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/CashoutDepartureIntegration.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/CashoutDeparturePostgres.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/engine/CashoutEvictionOutcome.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/ChipConservation.property.test.ts": {
+      "dateNow": 0,
+      "mathRandom": 1
+    },
+    "server/src/engine/ChipContinuity.law.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/engine/DealStepBudget.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/DiamondAcceptedHandPipeline.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/DisconnectEngine.test.ts": {
+      "dateNow": 8,
+      "mathRandom": 0
+    },
+    "server/src/engine/EngineLifecycleDiagnostics.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/HandSettlementAlertIdentity.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/horseDecision/lane.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/horseDecision/observerPoolContinuity.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/engine/horseDecision/opponentAwareness.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/horseDecision/ownPublicHistoryRuntime.test.ts": {
+      "dateNow": 4,
+      "mathRandom": 0
+    },
+    "server/src/engine/horseDecision/plo6OpponentReadThroughWorker.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/horseDecision/ploPresumptionWorker.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/horseDecision/pooledPublicProfiles.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/horseDecision/replay/exactReplay.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/horseDecision/workerRuntime.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/HorseDecisionTurnBoundary.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/engine/HorseDormantCandidateReadiness.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/HorseFeatureAuthority.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/HorseMindDecisionEffects.test.ts": {
+      "dateNow": 3,
+      "mathRandom": 2
+    },
+    "server/src/engine/HorseMultiwayMzone.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/HorseMultiwayRiverRead.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/engine/HorseOmahaTurnRiverRaiseNeedsNuts.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/engine/HorsePhase10Authority.test.ts": {
+      "dateNow": 3,
+      "mathRandom": 0
+    },
+    "server/src/engine/HorsePhase11Authority.test.ts": {
+      "dateNow": 4,
+      "mathRandom": 0
+    },
+    "server/src/engine/HorsePhase12Authority.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/engine/HorsePhase13Authority.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/engine/HorsePhase7TournamentUtility.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/engine/HorsePlanReadReceipt.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/HorseQualifiedAuthority.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/HorseRiverEndgame.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/HorseRunItTwicePriced.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/HorseV23.test.ts": {
+      "dateNow": 3,
+      "mathRandom": 0
+    },
+    "server/src/engine/HorseV28Postflop.test.ts": {
+      "dateNow": 0,
+      "mathRandom": 1
+    },
+    "server/src/engine/HorseV37Satellites.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/IcmModel.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/engine/KillPotEngine.test.ts": {
+      "dateNow": 0,
+      "mathRandom": 1
+    },
+    "server/src/engine/LeaveAndSitOutEviction.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/engine/MttStormNoUnintendedDelay.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/NextHandGap.test.ts": {
+      "dateNow": 3,
+      "mathRandom": 0
+    },
+    "server/src/engine/PacedAllInRunout.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/engine/ParkedTimeBank.test.ts": {
+      "dateNow": 10,
+      "mathRandom": 0
+    },
+    "server/src/engine/PostHandStepRetry.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/RabbitHuntReveal.behaviour.test.ts": {
+      "dateNow": 7,
+      "mathRandom": 0
+    },
+    "server/src/engine/RebuyRowCannotBeErased.test.ts": {
+      "dateNow": 5,
+      "mathRandom": 0
+    },
+    "server/src/engine/ReconnectStormResync.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/engine/ReconnectTimeBank.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/RestartFidelity.behaviour.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/engine/RetainedOriginalCheckpointGuard.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/engine/TableWatchdog.test.ts": {
+      "dateNow": 19,
+      "mathRandom": 0
+    },
+    "server/src/engine/TeardownReconcile.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/theCoreThatLimitsEverythingIsANumber.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/engine/theDeadlineClockBelongsToNoTournament.test.ts": {
+      "dateNow": 3,
+      "mathRandom": 0
+    },
+    "server/src/engine/ThePermitIsReservedUnderTheRest.test.ts": {
+      "dateNow": 3,
+      "mathRandom": 0
+    },
+    "server/src/engine/TimeBankEngine.manualcountdown.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/TournamentAllInGapHardening.law.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/engine/TournamentBlindSnapshot.test.ts": {
+      "dateNow": 3,
+      "mathRandom": 0
+    },
+    "server/src/handlers/health.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/handoff/rollingHandoffSuccessorAndRelay.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/lightning/aCoreDecisionIsNeverFoldedAtTheLightningDoor.law.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/lightning/aFastTableNutBandBetKeepsItsSize.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/lightning/LightningManualTimeBank.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/lightning/LightningObserverProjection.test.ts": {
+      "dateNow": 0,
+      "mathRandom": 1
+    },
+    "server/src/lightning/LightningUpgradeCounters.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/maintenance/aBreakTimingNeverFreezesATournament.law.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/maintenance/checkpointPromiseCustody.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/maintenance/theLastHandPays.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/maintenance/theRestartGateNamesItsTables.law.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/MultiTablePlay.server.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/services/aFinalizedPoolIsNotFilled.test.ts": {
+      "dateNow": 6,
+      "mathRandom": 0
+    },
+    "server/src/services/aHumansOpponentSeatIsKeptForPeople.test.ts": {
+      "dateNow": 4,
+      "mathRandom": 0
+    },
+    "server/src/services/anOwedMainStartsBeforeAnExtraTable.law.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/services/aPlanGameWithNoTableStartsFirst.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/services/aRefusedHorseEntryIsNotAskedEveryPass.law.test.ts": {
+      "dateNow": 3,
+      "mathRandom": 0
+    },
+    "server/src/services/aSatelliteConservationAlertClosesItself.law.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/services/aSeatHeldForAFriendIsNotGivenToAHorse.law.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/services/engineLifecycleLog.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/services/F06Runtime.test.ts": {
+      "dateNow": 3,
+      "mathRandom": 0
+    },
+    "server/src/services/FleetAlarms.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/services/FloorParkWatch.test.ts": {
+      "dateNow": 3,
+      "mathRandom": 0
+    },
+    "server/src/services/freeBuyAuditAlert.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/services/headsUpWaitModeHold.test.ts": {
+      "dateNow": 7,
+      "mathRandom": 0
+    },
+    "server/src/services/horseCorrectiveReview/kernelIssuer.test.ts": {
+      "dateNow": 6,
+      "mathRandom": 0
+    },
+    "server/src/services/HorseDailyAudit.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/services/horseDecisionJournal/retentionIsGuaranteedByTime.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/services/horseDecisionJournal/theJournalKeepsThreeDaysAndStillYieldsAtTheDiskFloor.law.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/services/HorseLearningQueueHealth.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/services/HorseOwnPublicHistory.test.ts": {
+      "dateNow": 3,
+      "mathRandom": 0
+    },
+    "server/src/services/HorsePooledPublicBootstrap.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/services/HorseReferenceAgreementReport.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/services/HorseTableGestures.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/services/HorseTournamentCommitment.seated.test.ts": {
+      "dateNow": 4,
+      "mathRandom": 0
+    },
+    "server/src/services/LeaseCompletionRevision.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/services/MttTicketQuotaRecovery.test.ts": {
+      "dateNow": 3,
+      "mathRandom": 0
+    },
+    "server/src/services/occurrenceConformAcknowledgement.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/services/OpponentHudStore.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/services/spinsAreObservable.law.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/services/StableHandState.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/services/StableHandTags.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/services/supabase/handPostCommitChainSingleFlight.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/services/theFleetNobodyIsRunning.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/services/theSeatFirstBoardWaitsForAPerson.law.test.ts": {
+      "dateNow": 0,
+      "mathRandom": 4
+    },
+    "server/src/services/timeBankBroadcast.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/services/tournamentsAreObservable.law.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/tournament/AbandonedGenerationAdoption.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/tournament/aBreakNeverOffersTwoMembersOneChair.law.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/tournament/aFinishedChestHoldsNothing.law.test.ts": {
+      "dateNow": 8,
+      "mathRandom": 0
+    },
+    "server/src/tournament/aFreshAdoptionAsksTheDoorBeforeHoldingTheEvent.law.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/tournament/aLevelIsSpentByAnyDealtHand.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/tournament/aQuarantinedStopIsRetriedOnItsOwnSchedule.test.ts": {
+      "dateNow": 3,
+      "mathRandom": 0
+    },
+    "server/src/tournament/aRefusedFinishIsNotAStalledOne.law.test.ts": {
+      "dateNow": 3,
+      "mathRandom": 0
+    },
+    "server/src/tournament/aSeatedCapacityTableIsNeverStarvedByTheSweepBudget.law.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/tournament/aStalledEliminationSweepHandsTheEventOn.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/tournament/aStopThatKeepsFailingIsSelfRepaired.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/tournament/aStuckTableHandsTheEventOn.test.ts": {
+      "dateNow": 5,
+      "mathRandom": 0
+    },
+    "server/src/tournament/aTournamentMoveCarriesPresence.test.ts": {
+      "dateNow": 5,
+      "mathRandom": 0
+    },
+    "server/src/tournament/bigTournamentsOpenInWaves.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/tournament/BreakCountdownDurability.test.ts": {
+      "dateNow": 10,
+      "mathRandom": 0
+    },
+    "server/src/tournament/CausalCapacityWakeAdmission.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/tournament/F06OriginalManagerFlow.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/tournament/LateTicketDiscovery.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/tournament/MixedTournamentCustody.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/tournament/MultiDayStageLifecycle.test.ts": {
+      "dateNow": 0,
+      "mathRandom": 1
+    },
+    "server/src/tournament/ResumeCurrentStatus.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/tournament/RunningResumePagination.test.ts": {
+      "dateNow": 9,
+      "mathRandom": 0
+    },
+    "server/src/tournament/TerminalWinnerSequence.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/tournament/TournamentFormatCompatibility.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/transport/aSilentPeerCannotHoldShutdown.law.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    },
+    "server/src/transport/ChannelWebSocketServer.heartbeat.test.ts": {
+      "dateNow": 6,
+      "mathRandom": 0
+    },
+    "server/src/transport/PlayerSessionRevocation.test.ts": {
+      "dateNow": 3,
+      "mathRandom": 0
+    },
+    "server/src/transport/TableStateHub.backpressurePaths.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/transport/TableStateHub.decisionState.test.ts": {
+      "dateNow": 1,
+      "mathRandom": 0
+    },
+    "server/src/transport/TableStateHub.evict.test.ts": {
+      "dateNow": 0,
+      "mathRandom": 1
+    },
+    "server/src/transport/trustIsRenewedAndBounded.law.test.ts": {
+      "dateNow": 2,
+      "mathRandom": 0
+    }
+  }
+}

@@ -178,8 +178,19 @@ if [ -z "$pg_minor" ] && [ -f "$pg_minor_source" ]; then
   pg_minor="$(sed -n "s/^VERSION = '\([0-9][0-9.]*\)'\$/\1/p" "$pg_minor_source")"
 fi
 [ -n "$pg_minor" ] || { echo "::error::No pinned PostgreSQL minor: $pg_minor_source names no VERSION and PG_SERVER_MINOR is unset." >&2; exit 1; }
-if printf '%s\n' "${pg_packages[@]}" | grep -qx postgresql-17 &&
-  ! printf '%s\n' "${pg_packages[@]}" | grep -qx postgresql-client-17; then
+# Membership is read from the array itself. Piping printf into a quiet grep under pipefail
+# was a race: grep -q exits at its first match, printf can then take SIGPIPE
+# writing the rest, the pipeline reports 141, and the client was silently left
+# unpinned (seen on PR #12304's Client Unit Tests shard 6).
+pg_wants_server=0
+pg_has_client=0
+for pg_package in "${pg_packages[@]}"; do
+  case "$pg_package" in
+    postgresql-17) pg_wants_server=1 ;;
+    postgresql-client-17) pg_has_client=1 ;;
+  esac
+done
+if [ "$pg_wants_server" = 1 ] && [ "$pg_has_client" = 0 ]; then
   pg_packages+=(postgresql-client-17)
 fi
 pg_pinned=()

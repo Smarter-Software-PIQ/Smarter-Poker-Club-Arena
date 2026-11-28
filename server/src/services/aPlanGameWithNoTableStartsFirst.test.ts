@@ -236,7 +236,8 @@ describe("a plan game with no table starts before another game's extra table", (
   it('rests a game the walk could not start, so depth is not held for ever', () => {
     const memory = new VarietyStartMemory();
     const t0 = Date.parse('2026-11-18T17:00:00Z');
-    for (const g of [MADNESS_PLO5, PLO5_HALF, L_NLH_HALF]) memory.noteCouldNotStart(g, t0);
+    for (const g of [MADNESS_PLO5, PLO5_HALF, L_NLH_HALF])
+      memory.noteCouldNotStart(g, t0, 'own_reason');
     const resting = planFor(todaysFloor(), memory.resting(t0 + 1_000));
     expect(resting.owedStarts.size).toBe(0);
     expect(resting.heldStarts.size).toBe(0);

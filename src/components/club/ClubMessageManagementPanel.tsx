@@ -9,7 +9,6 @@ import { confirmDialog } from '../common/confirmDialog';
 import { useToast } from '../common/Toast';
 import { useMasterBusSubscriptions } from '../../hooks/useMasterBusSubscription';
 import { isManagementContentConflict } from '../../services/ManagementContentError';
-import { SpadeConsole, type ConsoleInk } from '../console/SpadeConsole';
 import { safeErrorMessage } from '../../utils/safeErrorMessage';
 import { titleCase } from '../../utils/titleCase';
 import styles from './ClubMessageManagementPanel.module.css';
@@ -240,54 +239,40 @@ export default function ClubMessageManagementPanel({
   const announcementBusy = busyAnnouncement === (editingId || 'new');
   const firstLoad = loading && identityRevision === null;
   const pill = loadError ? 'Locked' : firstLoad ? 'Loading' : dirty ? 'Unsaved' : 'Saved';
-  const pillInk: ConsoleInk = loadError ? 'red' : firstLoad ? 'muted' : dirty ? 'gold' : 'green';
+  const pillInk: 'red' | 'muted' | 'gold' | 'green' = loadError
+    ? 'red'
+    : firstLoad
+      ? 'muted'
+      : dirty
+        ? 'gold'
+        : 'green';
 
   return (
-    <SpadeConsole
-      family="riveted"
-      className={styles.panel}
-      eyebrow="Club Copy Control"
-      title="Club Messages"
-      titleId="club-message-management-title"
-      subtitle={clubName}
-      pill={pill}
-      pillInk={pillInk}
+    <section
+      className={`${styles.panel} arena-case arena-ops-case`}
       aria-labelledby="club-message-management-title"
-      plates={{
-        secondary: {
-          label: savingIdentity ? 'Saving…' : 'Save Identity',
-          type: 'button',
-          onClick: () => void saveIdentity(),
-          disabled:
-            loading ||
-            savingIdentity ||
-            Boolean(loadError) ||
-            identityRevision === null ||
-            !identityDirty,
-        },
-        primary: {
-          label: announcementBusy ? 'Saving…' : editingId ? 'Update Banner' : 'Publish Banner',
-          type: 'button',
-          onClick: () => void saveAnnouncement(),
-          disabled:
-            !draft.title.trim() ||
-            !draft.content.trim() ||
-            Boolean(loadError) ||
-            identityRevision === null ||
-            announcementBusy,
-          ink: 'white',
-        },
-      }}
     >
+      {/* #SmarterDesign (Dan 2026-11-27): a thin chrome case with its own
+          head; Save Identity and Publish Banner are chrome keys at its foot. */}
+      <div className={styles.panelHead}>
+        <span className="arena-ops-eyebrow">
+          Club Copy Control
+          <span className={`${styles.pill} ${styles[`ink_${pillInk}`]}`}>{pill}</span>
+        </span>
+        <h2 id="club-message-management-title" className="arena-section-title">
+          Club Messages
+        </h2>
+        <p className="arena-ops-live">{clubName}</p>
+      </div>
       <header className={styles.heading}>
         <div>
-          <span className="sc-ink--blue">Club Message Management</span>
-          <h3 className="sc-ink--silver">Every Player-Facing Club Message</h3>
-          <p className="sc-copy">
+          <span className={styles.ink_blue}>Club Message Management</span>
+          <h3 className={styles.ink_silver}>Every Player-Facing Club Message</h3>
+          <p className={styles.copy}>
             {clubName} · Edit Identity Copy And Announcement Banners From One Governed Surface.
           </p>
         </div>
-        <span className={`${styles.limitKey} sc-ink--muted`}>
+        <span className={`${styles.limitKey} ${styles.ink_muted}`}>
           Limits Are Enforced In The Database
         </span>
       </header>
@@ -434,20 +419,20 @@ export default function ClubMessageManagementPanel({
             />
           </label>
           <div className={styles.composerOptions}>
-            <label className={`sc-check${draft.isPinned ? ' sc-check--on' : ''}`}>
+            <label className={styles.toggle}>
               <input
                 type="checkbox"
-                className="sc-check__box"
+                className={styles.check}
                 checked={draft.isPinned}
                 onChange={(event) => setDraft({ ...draft, isPinned: event.target.checked })}
                 disabled={loading || Boolean(loadError)}
               />
               Pin Banner
             </label>
-            <label className={`sc-check${draft.isActive ? ' sc-check--on' : ''}`}>
+            <label className={styles.toggle}>
               <input
                 type="checkbox"
-                className="sc-check__box"
+                className={styles.check}
                 checked={draft.isActive}
                 onChange={(event) => setDraft({ ...draft, isActive: event.target.checked })}
                 disabled={loading || Boolean(loadError)}
@@ -527,12 +512,41 @@ export default function ClubMessageManagementPanel({
         </div>
       </div>
       <p
-        className={`${styles.saveStatus} ${dirty ? 'sc-ink--gold' : 'sc-ink--muted'}`}
+        className={`${styles.saveStatus} ${dirty ? styles.ink_gold : styles.ink_muted}`}
         role="status"
         aria-live="polite"
       >
         {dirty ? 'Unsaved Message Changes Are Staged Locally.' : 'All Message Changes Are Saved.'}
       </p>
-    </SpadeConsole>
+      <div className="arena-switch arena-ops-keys">
+        <button
+          type="button"
+          onClick={() => void saveIdentity()}
+          disabled={
+            loading ||
+            savingIdentity ||
+            Boolean(loadError) ||
+            identityRevision === null ||
+            !identityDirty
+          }
+        >
+          {savingIdentity ? 'Saving…' : 'Save Identity'}
+        </button>
+        <button
+          type="button"
+          className="active"
+          onClick={() => void saveAnnouncement()}
+          disabled={
+            !draft.title.trim() ||
+            !draft.content.trim() ||
+            Boolean(loadError) ||
+            identityRevision === null ||
+            announcementBusy
+          }
+        >
+          {announcementBusy ? 'Saving…' : editingId ? 'Update Banner' : 'Publish Banner'}
+        </button>
+      </div>
+    </section>
   );
 }

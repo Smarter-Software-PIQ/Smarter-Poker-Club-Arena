@@ -7,8 +7,9 @@
  * stack size and asking for confirmation before executing the cashout.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import './LeaveTableConfirm.css';
+import { exactChips } from '../../utils/format';
 
 interface LeaveTableConfirmProps {
   isOpen: boolean;
@@ -153,14 +154,8 @@ export default function LeaveTableConfirm({
             </>
           ) : (
             <>
-              You Have{' '}
-              <strong>
-                {currentStack.toLocaleString('en-US', {
-                  minimumFractionDigits: 0,
-                  maximumFractionDigits: 0,
-                })}
-              </strong>{' '}
-              Chips At <strong>{tableName}</strong>. Your Chips Will Be Returned To Your Wallet.
+              You Have <strong>{exactChips(currentStack)}</strong> Chips At{' '}
+              <strong>{tableName}</strong>. Your Chips Will Be Returned To Your Wallet.
             </>
           )}
         </p>

@@ -1,350 +1,360 @@
 /**
- * ═══════════════════════════════════════════════════════════════════════════════
- * 🌳 AGENT TREE — Premium Dark Theme CSS
- * ═══════════════════════════════════════════════════════════════════════════════
+ * AGENT TREE IN #SMARTERDESIGN (batch 6, 2026-11-28)
+ *
+ * The Hierarchy tab of Agent Team, the only page that mounts this tree. The
+ * case, the keys, the search well, each agent's chrome row and its four
+ * readout tiles come from the kit classes in the markup (`arena-case
+ * arena-ops-case`, `arena-switch arena-ops-keys`, `arena-ops-well`,
+ * `arena-ledger-row`, `arena-meter`). This sheet only lays the row's insides
+ * out and sets them in the workspace inks, and every rule is scoped under
+ * .arena-workspace like the kit itself.
+ *
+ * Gone: the rounded gradient cards, the blurred buttons, the gold avatar disc,
+ * the glowing status pills and the drawn triangle on the empty state. No new
+ * gradient, radius or shadow. Nothing reacts to a resting pointer.
  */
 
-.agentTree {
+:global(.arena-workspace) .agentTree {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 16px 0;
+  gap: 8px;
 }
 
-/* Controls */
-.controls {
-  display: flex;
-  gap: 12px;
-  padding: 0 8px;
-}
-
-.controlBtn {
-  padding: 8px 16px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.2s var(--ease-spring, cubic-bezier(0.175, 0.885, 0.32, 1.275));
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
-}
-
-/* Tree Container */
-.treeContainer {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-/* Tree Node */
-.treeNode {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.nodeCard {
+/* Search and the count on one line; the keys sit under them. */
+:global(.arena-workspace) .controls {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  background: linear-gradient(135deg, rgba(30, 30, 40, 0.9), rgba(20, 20, 30, 0.95));
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  cursor: pointer;
-  transition: all 0.2s var(--ease-spring, cubic-bezier(0.175, 0.885, 0.32, 1.275));
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
+  gap: 8px;
+  min-width: 0;
 }
 
-.nodeCard.inactive {
+:global(.arena-workspace) .controlKeys {
+  margin: 0;
+}
+
+:global(.arena-workspace) .controlBtn {
+  cursor: pointer;
+}
+
+:global(.arena-workspace) .searchInput {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px; /* under 16px makes iOS zoom the page on focus */
+}
+
+:global(.arena-workspace) .searchInput::placeholder {
+  color: #9fbacc;
+}
+
+:global(.arena-workspace) .nodeCount {
+  flex-shrink: 0;
+  color: #9fbacc;
+  font:
+    11px/1.2 Arial,
+    sans-serif;
+  white-space: nowrap;
+}
+
+:global(.arena-workspace) .treeContainer,
+:global(.arena-workspace) .treeNode {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* One agent on the chrome ledger rim; the whole row opens its commission
+   history, so it presses like a key. */
+:global(.arena-workspace) .nodeCard {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  color: #f1f5fc;
+  cursor: pointer;
+}
+
+:global(.arena-workspace) .nodeCard:active {
+  filter: brightness(0.86);
+}
+
+:global(.arena-workspace) .nodeCard.inactive {
   opacity: 0.5;
 }
 
-/* Expand Button */
-.expandBtn {
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.08);
-  border: none;
-  border-radius: 4px;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 10px;
+/* Expand and collapse: the ledger chevron of two strokes on a 44px target.
+   The arrow character stays in the button for its label; the chevron is what
+   shows, pointing right when shut and down when open. */
+:global(.arena-workspace) .expandBtn {
+  position: relative;
+  display: block;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  margin: -4px -6px -4px -4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: transparent;
+  font-size: 0;
   cursor: pointer;
-  flex-shrink: 0;
-  transition: all 0.2s ease;
 }
 
-.expandPlaceholder {
-  width: 20px;
+:global(.arena-workspace) .expandBtn::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  margin: -5px 0 0 -6px;
+  border-right: 2px solid #74dfff;
+  border-bottom: 2px solid #74dfff;
+  transform: rotate(-45deg);
+}
+
+:global(.arena-workspace) .expandBtn.expanded::after {
+  margin: -6px 0 0 -4px;
+  transform: rotate(45deg);
+}
+
+:global(.arena-workspace) .expandBtn:active {
+  filter: brightness(0.86);
+}
+
+:global(.arena-workspace) .expandBtn:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: -4px;
+}
+
+:global(.arena-workspace) .expandPlaceholder {
+  width: 34px;
   flex-shrink: 0;
 }
 
-/* Avatar */
-.nodeAvatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #fbbf24, #f59e0b);
+/* The picture, or the initial, in the field glass. */
+:global(.arena-workspace) .nodeAvatar {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
   overflow: hidden;
+  border: 1px solid #476079;
+  background: #040d17;
 }
 
-.nodeAvatar img {
+:global(.arena-workspace) .nodeAvatar img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.nodeAvatar span {
-  color: #1a1a2e;
-  font-weight: 700;
-  font-size: 16px;
+:global(.arena-workspace) .nodeAvatar span {
+  color: #74dfff;
+  font:
+    800 15px/1 'Arial Narrow',
+    Arial,
+    sans-serif;
 }
 
-/* Info */
-.nodeInfo {
+:global(.arena-workspace) .nodeInfo {
   display: flex;
+  flex: 1 1 120px;
   flex-direction: column;
   gap: 2px;
-  min-width: 150px;
+  min-width: 0;
 }
 
-.nodeName {
-  font-weight: 600;
-  color: white;
-  font-size: 14px;
-}
-
-.nodeRole {
-  font-size: 12px;
-  font-weight: 500;
-}
-
-/* Stats */
-.nodeStats {
-  display: flex;
-  gap: 20px;
-  margin-left: auto;
-  padding-right: 12px;
-}
-
-.statItem {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-}
-
-.statValue {
-  font-weight: 700;
-  color: white;
-  font-size: 14px;
-}
-
-.statLabel {
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.5);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-/* Status Badge */
-.statusBadge {
-  padding: 4px 10px;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  flex-shrink: 0;
-}
-
-.statusBadge.active {
-  background: rgba(16, 185, 129, 0.2);
-  color: #10b981;
-  box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
-}
-
-.statusBadge.pending {
-  background: rgba(251, 191, 36, 0.2);
-  color: #fbbf24;
-}
-
-.statusBadge.suspended {
-  background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
-}
-
-.statusBadge.inactive {
-  background: rgba(107, 114, 128, 0.2);
-  color: #9ca3af;
-}
-
-/* Transfer Button */
-.transferBtn {
-  width: auto;
-  min-height: 32px;
-  padding: 0 10px;
+:global(.arena-workspace) .nodeName {
+  overflow: hidden;
+  color: #f1f5fc;
+  font:
+    800 15px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+:global(.arena-workspace) .nodeRole {
+  font:
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+/* Four readout tiles under the name: value over label, the meter's type. Two
+   across on a phone so no figure is ever cut short; four across when wide. */
+:global(.arena-workspace) .nodeStats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  width: 100%;
+  order: 10;
+}
+
+:global(.arena-workspace) .statItem {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  background: rgba(251, 191, 36, 0.15);
-  border: 1px solid rgba(251, 191, 36, 0.3);
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 700;
-  color: #e4e7ec;
+  gap: 2px;
+  min-width: 0;
+}
+
+:global(.arena-workspace) .statValue {
+  max-width: 100%;
+  color: #f1f5fc;
+  font:
+    800 15px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+:global(.arena-workspace) .statLabel {
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+/* The status word in its rule ink, Title Case like every word on the page. */
+:global(.arena-workspace) .statusBadge {
+  flex-shrink: 0;
+  font:
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  text-transform: capitalize;
+}
+
+:global(.arena-workspace) .statusBadge.active {
+  color: #c8ffd2;
+}
+
+:global(.arena-workspace) .statusBadge.pending {
+  color: #ffe98a;
+}
+
+:global(.arena-workspace) .statusBadge.suspended {
+  color: #ff5b6e;
+}
+
+:global(.arena-workspace) .statusBadge.inactive {
+  color: #9fbacc;
+}
+
+/* Send Chips: one chrome key, at a key's width, under the tiles on a phone. */
+:global(.arena-workspace) .nodeKeys {
+  flex: 0 0 auto;
+  order: 11;
+  margin: 0 0 0 auto;
+}
+
+:global(.arena-workspace) .transferBtn {
+  min-width: 96px;
+  white-space: nowrap;
   cursor: pointer;
-  transition: all 0.2s ease;
-  flex-shrink: 0;
 }
 
-/* Children */
-.nodeChildren {
-  border-left: 2px solid transparent;
-  border-image: linear-gradient(
-      to bottom,
-      rgba(251, 191, 36, 0.4),
-      rgba(139, 92, 246, 0.3),
-      rgba(96, 165, 250, 0.2)
-    )
-    1;
-  margin-left: 10px;
-  padding-left: 8px;
-  position: relative;
-}
-
-.nodeChildren::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -2px;
-  width: 12px;
-  height: 2px;
-  background: linear-gradient(to right, rgba(251, 191, 36, 0.3), transparent);
-}
-
-/* Search */
-.searchInput {
-  flex: 1;
-  padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  color: #fff;
-  font-size: 16px; /* was 13px; under 16px makes iOS zoom the page on focus */
-  outline: none;
-  transition: border-color 0.2s;
-}
-
-.searchInput::placeholder {
-  color: rgba(255, 255, 255, 0.3);
-}
-
-.searchInput:focus {
-  border-color: rgba(251, 191, 36, 0.4);
-}
-
-.nodeCount {
-  padding: 4px 10px;
-  background: rgba(251, 191, 36, 0.1);
-  border: 1px solid rgba(251, 191, 36, 0.2);
-  border-radius: 8px;
-  color: #fbbf24;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-/* Legend */
-.legend {
+/* A downline hangs under its agent on the section hairline. */
+:global(.arena-workspace) .nodeChildren {
   display: flex;
-  justify-content: center;
-  gap: 24px;
-  padding: 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  margin-top: 8px;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: 4px;
+  padding-left: 4px;
+  border-left: 1px solid #253e57;
 }
 
-.legendItem {
+:global(.arena-workspace) .legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+  padding: 8px 4px 0;
+  border-top: 1px solid #253e57;
+}
+
+:global(.arena-workspace) .legendItem {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
+  color: #9fbacc;
+  font:
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
 }
 
-/* States */
-.loading,
-.error,
-.empty {
-  display: flex;
-  flex-direction: column;
+/* Loading, failed and empty sit in the same chrome case. */
+:global(.arena-workspace) .loading,
+:global(.arena-workspace) .error,
+:global(.arena-workspace) .empty {
   align-items: center;
   justify-content: center;
-  padding: 48px;
+  padding: 22px 12px;
   text-align: center;
 }
 
-.loading {
-  color: rgba(255, 255, 255, 0.6);
+:global(.arena-workspace) .loading {
+  color: #9fbacc;
+  font:
+    12px/1.45 Arial,
+    sans-serif;
 }
 
-.error {
-  color: #ef4444;
+:global(.arena-workspace) .error {
+  color: #ff5b6e;
+  font:
+    12px/1.45 Arial,
+    sans-serif;
 }
 
-.empty {
-  color: rgba(255, 255, 255, 0.5);
+:global(.arena-workspace) .empty {
+  gap: 6px;
 }
 
-.emptyIcon {
-  font-size: 48px;
-  margin-bottom: 16px;
+/* The drawn triangle was a floating glyph; the title carries the state. */
+:global(.arena-workspace) .emptyIcon {
+  display: none;
 }
 
-.empty h4 {
-  margin: 0 0 8px;
-  color: white;
-}
-
-.empty p {
+:global(.arena-workspace) .empty h4 {
   margin: 0;
-  font-size: 14px;
+  color: #f1f5fc;
+  font:
+    800 17px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
 }
 
-/* Mobile Responsive */
-@media (max-width: 768px) {
-  .nodeCard {
-    flex-wrap: wrap;
-    gap: 8px;
+:global(.arena-workspace) .empty p {
+  max-width: 46ch;
+  margin: 0;
+  color: #9fbacc;
+  font:
+    12px/1.45 Arial,
+    sans-serif;
+}
+
+@media (min-width: 721px) {
+  :global(.arena-workspace) .nodeStats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    flex: 0 1 420px;
+    width: auto;
+    order: 0;
   }
 
-  .nodeStats {
-    width: 100%;
-    justify-content: space-around;
-    margin-left: 32px;
-    padding: 8px 0 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
-  }
-
-  .statusBadge {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-  }
-
-  .nodeCard {
-    position: relative;
+  :global(.arena-workspace) .nodeKeys {
+    order: 0;
+    margin: 0;
   }
 }

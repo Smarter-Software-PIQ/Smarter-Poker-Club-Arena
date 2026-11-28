@@ -5,17 +5,26 @@ import { fixtures, rpcFixtures } from './fixtures';
 type Result = { data: unknown; error: null; count?: number };
 
 function builder(rows: unknown, single = false): any {
-  const list = Array.isArray(rows) ? rows : rows == null ? [] : [rows];
+  const all = Array.isArray(rows) ? rows : rows == null ? [] : [rows];
   let mode: 'list' | 'single' = single ? 'single' : 'list';
-  const result = (): Result =>
-    mode === 'single'
+  /* Honour .in() on a column every row carries (the cashout and agent reads filter by id lists). */
+  const filters: Array<(r: any) => boolean> = [];
+  const keyed = (c: string) => all.length > 0 && all.every((r: any) => r && c in r);
+  const filtered = () => all.filter((r) => filters.every((f) => f(r)));
+  const result = (): Result => {
+    const list = filtered();
+    return mode === 'single'
       ? { data: list[0] ?? null, error: null }
       : {
           data: Array.isArray(rows) || rows == null ? list : rows,
           error: null,
           count: list.length,
         };
+  };
   const target: any = {
+    in: (c: string, v: unknown[]) => {
+      if (keyed(c) && Array.isArray(v)) filters.push((r) => v.includes(r[c]));
+    },
     then: (ok: (r: Result) => unknown, bad?: (e: unknown) => unknown) =>
       Promise.resolve(result()).then(ok, bad),
     catch: (bad: (e: unknown) => unknown) => Promise.resolve(result()).catch(bad),

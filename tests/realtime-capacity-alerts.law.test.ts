@@ -29,6 +29,8 @@ const expectedMetrics = [
   'poker_tournament_bounty_realtime_connected',
   'poker_tournament_manager_wake_realtime_connected',
   'poker_event_loop_delay_p50_ms',
+  'poker_event_loop_delay_p99_ms',
+  'poker_main_event_loop_governor_scale',
   'poker_main_event_loop_governor_sampler_late_ms',
 ];
 
@@ -93,6 +95,8 @@ describe('realtime capacity alerts', () => {
     const warning = alert('EngineCoreOutOfHeadroom');
     expect(warning).toContain('poker_event_loop_delay_p50_ms > 40');
     expect(warning).toContain('poker_main_event_loop_governor_sampler_late_ms > 40');
+    expect(warning).toContain('poker_event_loop_delay_p99_ms > 150');
+    expect(warning).toContain('poker_main_event_loop_governor_scale < 1');
     expect(warning).toMatch(/for:\s*10m/);
     expect(warning).toContain('max_over_time(poker_maintenance_break_active[6m])');
     expect(warning).toContain('tournament-scheduler-and-engine-saturation.md');

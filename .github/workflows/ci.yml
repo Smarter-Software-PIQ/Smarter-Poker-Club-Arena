@@ -751,6 +751,7 @@ jobs:
           node scripts/ci/check-title-case.mjs
           node scripts/ci/check-painted-text-case.mjs
           node scripts/ci/check-nav-title-case.mjs
+          node scripts/ci/check-table-skin-ink.mjs
           node scripts/ci/check-no-emoji.mjs
           node scripts/ci/check-horses-are-players.mjs
           node scripts/ci/check-rake-bbj-collection-law.mjs
@@ -764,6 +765,8 @@ jobs:
           node scripts/ci/check-migration-hot-row-locks.mjs
           node scripts/ci/check-cron-deletes-are-bounded.mjs
           node scripts/ci/check-migration-preimage-collisions.mjs
+          node scripts/ci/check-server-test-determinism.mjs
+          node scripts/ci/check-cutover-ci-budgets.mjs
           GUARDS
 
           TOTAL=$(grep -c . "$OUT/list")
@@ -3970,16 +3973,16 @@ jobs:
         needs.changes.outputs.head_current != 'false' &&
         (needs.changes.result != 'success' ||
          needs.changes.outputs.server == 'true')))
-    name: Server Engine shard ${{ matrix.shard }}/4
+    name: Server Engine shard ${{ matrix.shard }}/8
     # Standard GitHub-hosted runners are free for this public repository.
     # Preserve the complete qualification matrix and fail-closed required verdict.
     runs-on: ubuntu-latest
     timeout-minutes: 80
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 8
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
 
     defaults:
       run:
@@ -4016,7 +4019,13 @@ jobs:
       # job never compiles it, so a type error here used to ship to production.
       # Same program as the opponent-memory typecheck, which ran out of Node's
       # default heap on 2026-11-27; this one gets the same 6 GB before it does too.
+      # Shard rebalancing (2026-11-28): deterministic single-run server gates
+      # (tsc, build, Postgres cash/lightning proofs, targeted freeze suite, V31
+      # controller tests, and RetainedHistoricalCheckpointQualification) run once
+      # on shard 2 (lightest Vitest shard ~9.7m vs shard 1 ~22.7m, matching
+      # engine-release-prequalification.yml O37), shaving ~7.5-12m off PR critical path.
       - name: TypeScript Check (server)
+        if: matrix.shard == 2
         env:
           NODE_OPTIONS: --max-old-space-size=6144
         run: npx tsc --noEmit
@@ -4026,6 +4035,7 @@ jobs:
       # was checked by hand). tsconfig.scripts.json covers them all except the
       # qualification vitest files, which carried a pre-existing baseline.
       - name: TypeScript Check (server scripts)
+        if: matrix.shard == 2
         run: npx tsc -p tsconfig.scripts.json --noEmit
 
       # THE PULL REQUEST BUILDS WHAT SHIPS (2026-11-27, release custody). The
@@ -4038,7 +4048,7 @@ jobs:
       # tests/the-pull-request-builds-what-ships.law.test.ts keeps every
       # prequalification command here.
       - name: Build the exact server tree (as engine prequalification does)
-        if: matrix.shard == 1
+        if: matrix.shard == 2
         env:
           NODE_OPTIONS: --max-old-space-size=6144
         run: npm run build
@@ -4047,7 +4057,7 @@ jobs:
       # as native PG17; the driver discovers the bundled major without a new
       # runner, service, install step or skip when ubuntu-latest advances.
       - name: Hourly cash caps preserve humans and pace starts and closures
-        if: matrix.shard == 1
+        if: matrix.shard == 2
         working-directory: .
         run: python3 -B scripts/ci/test-hourly-cash-caps-postgres.py
 
@@ -4055,7 +4065,7 @@ jobs:
       # is never paced and keeps its place (20261123013241). Red on the
       # installed bodies, green after the migration, on the same runner.
       - name: A called name keeps its place under the hourly cap
-        if: matrix.shard == 1
+        if: matrix.shard == 2
         working-directory: .
         run: python3 -B scripts/ci/test-a-called-name-keeps-its-place-postgres.py
 
@@ -4063,7 +4073,7 @@ jobs:
       # no table takes the freed slot before another game's waiting-list
       # feeder (20261124072701). Red on the installed body, green after.
       - name: An owed Main starts before an extra table
-        if: matrix.shard == 1
+        if: matrix.shard == 2
         working-directory: .
         run: python3 -B scripts/ci/test-an-owed-main-starts-before-an-extra-table-postgres.py
 
@@ -4071,7 +4081,7 @@ jobs:
       # hand is still running (20261124162105): red on production's preimages,
       # green after the migration, physical-table refusal unchanged.
       - name: A promo player's Lightning hand settles
-        if: matrix.shard == 1
+        if: matrix.shard == 2
         working-directory: .
         run: python3 -B scripts/ci/test-a-promo-player-lightning-hand-settles-postgres.py
 
@@ -4081,25 +4091,26 @@ jobs:
       # step, not only the full suite, so a #2537-class regression that outdates
       # them is a named red line on a required check.
       - name: Freeze + watchdog + restart-gate regression suite
+        if: matrix.shard == 2
         run: npx vitest run src/engine/FreezeRegression.test.ts src/engine/TableWatchdog.test.ts src/maintenance/MaintenanceBreak.test.ts src/maintenance/thawInstallments.test.ts --reporter=verbose
 
       - name: V31 public feature and final model-index controller contracts
-        if: matrix.shard == 1
+        if: matrix.shard == 2
         env:
           PYTHONDONTWRITEBYTECODE: '1'
           TMPDIR: ${{ runner.temp }}
         run: python3 -B -m unittest discover -s scripts -p 'test_*public215*.py'
 
       - name: Exact retained historical owners qualify before competing workloads
-        if: matrix.shard == 1
+        if: matrix.shard == 2
         run: npm test -- src/engine/RetainedHistoricalCheckpointQualification.test.ts
 
       - name: Full server test suite
         env:
           SERVER_TEST_SHARD: ${{ matrix.shard }}
         run: |
-          [[ "$SERVER_TEST_SHARD" =~ ^[1-4]$ ]]
-          npm test -- --exclude src/engine/RetainedHistoricalCheckpointQualification.test.ts --shard="$SERVER_TEST_SHARD/4"
+          [[ "$SERVER_TEST_SHARD" =~ ^[1-8]$ ]]
+          npm test -- --exclude src/engine/RetainedHistoricalCheckpointQualification.test.ts --shard="$SERVER_TEST_SHARD/8"
 
       # Guards the single highest-impact line of the freeze fix. The all-in
       # dead-buttons bug (production hand #1315: 30.1s between a river shove
@@ -4150,8 +4161,44 @@ jobs:
         timeout-minutes: 8
         run: bash scripts/verification-harness/leaderboard-native-function-batch-build.sh "${{ runner.temp }}"
 
+  # ═══════════════════════════════════════════════════════════════════════════
+  #  SHIFT-LEFT SERVER DOCKERFILE & HIST215 NATIVE SMOKE (2026-11-28)
+  # ═══════════════════════════════════════════════════════════════════════════
+  #
+  # Builds server/Dockerfile with BuildKit layer caching on PRs touching
+  # server/ and runs an offline (--network=none) container probe proving the
+  # compiled ESM JS, public_hist215_wtl.node, and legacy-census.node load and
+  # pass deterministic checks inside the exact production container image.
+  server_dockerfile_smoke:
+    needs: changes
+    if: >-
+      !cancelled() &&
+      (github.event_name == 'pull_request' || github.event_name == 'merge_group') &&
+      needs.changes.outputs.head_current != 'false' &&
+      (needs.changes.result != 'success' ||
+       needs.changes.outputs.server == 'true')
+    name: Server Dockerfile build & hist215 native smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Restore BuildKit cache for server/Dockerfile
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/server-docker-buildx-cache
+          key: server-dockerfile-smoke-${{ runner.os }}-${{ hashFiles('server/Dockerfile', 'server/package-lock.json', 'server/native/public_hist215_wtl.cc', 'server/scripts/native/legacy-census.cc') }}
+          restore-keys: |
+            server-dockerfile-smoke-${{ runner.os }}-
+      - name: Build server/Dockerfile and run offline hist215 native smoke check
+        timeout-minutes: 12
+        run: bash scripts/ci/server-dockerfile-smoke.sh "${{ (github.event.pull_request.head.sha || github.event.merge_group.head_sha) || github.sha }}" "${{ runner.temp }}/server-docker-buildx-cache"
+
   server:
-    needs: [changes, server_shards, accounting_postgres, native_qualification_image]
+    needs: [changes, server_shards, accounting_postgres, native_qualification_image, server_dockerfile_smoke]
     if: always()
     name: Server Engine (typecheck + tests)
     runs-on: ubuntu-latest
@@ -4210,6 +4257,29 @@ jobs:
                 exit 1
               fi ;;
             *) echo "::error::The native qualification image did not build or pass its fixture ($IMAGE_RESULT)."; exit 1 ;;
+          esac
+      - name: Server Dockerfile built and passed offline hist215 native smoke
+        env:
+          DOCKER_SMOKE_RESULT: ${{ needs.server_dockerfile_smoke.result }}
+          DIFF_RESULT: ${{ needs.changes.result }}
+          SERVER_CHANGED: ${{ needs.changes.outputs.server }}
+          HEAD_CURRENT: ${{ needs.changes.outputs.head_current }}
+          CI_EVENT_NAME: ${{ github.event_name }}
+        run: |
+          case "$DOCKER_SMOKE_RESULT" in
+            success) echo "Server Dockerfile built and passed offline hist215 native smoke." ;;
+            skipped)
+              if [ "$CI_EVENT_NAME" != pull_request ] && [ "$CI_EVENT_NAME" != merge_group ]; then
+                echo "Server Dockerfile smoke check is pull-request only."
+              elif [ "$DIFF_RESULT" = success ] && [ "$SERVER_CHANGED" = false ]; then
+                echo "Server Dockerfile smoke check skipped: the checked diff does not change the server."
+              elif [ "$HEAD_CURRENT" = false ]; then
+                echo "::notice title=SUPERSEDED::server Dockerfile smoke check skipped: this sha is no longer the pull request head."
+              else
+                echo "::error::Server Dockerfile smoke check was unexpectedly skipped."
+                exit 1
+              fi ;;
+            *) echo "::error::Server Dockerfile build or hist215 native smoke check did not pass ($DOCKER_SMOKE_RESULT)."; exit 1 ;;
           esac
 
   # ═══════════════════════════════════════════════════════════════════════════
@@ -5344,6 +5414,16 @@ jobs:
         # It builds the lobby from this commit's real stylesheets, measures the
         # painted edges in Chromium AND WebKit, and needs no login.
         #
+        # css/table-surfaces-wear-smarterdesign.spec.ts (2026-11-28) is named
+        # here in the commit that writes it. It mounts the real table surfaces
+        # (drawer, Hand History and Hand Detail, Leaderboard, Session Stats,
+        # Game Rules, Table Studio, Invite, Leave, chat, Buy-In, Insurance,
+        # Add-On) offline with esbuild and the repo's own stylesheets, and
+        # judges COMPUTED styles and painted pixels: no banned hue, no
+        # uppercase transform, AA contrast. Self-contained in this gate's sense:
+        # no login, no deployed site, no network. It runs in Chromium and in
+        # WebKit (webkit-footer), the Safari proxy.
+        #
         # ── THE PREVIEW OUTLIVES THIS STEP NOW (2026-09-05) ─────────────────
         # It used to be started here under `trap ... EXIT`, so it died with the
         # step and the two harness suites below each had to start a Vite DEV
@@ -5355,7 +5435,7 @@ jobs:
           # The JSON report beside the line reporter feeds the flaky-case
           # summary step below: these suites have run with one retry since
           # before 2026-09-26, and a case that passed only on retry is named.
-          PLAYWRIGHT_JSON_OUTPUT_NAME="$RUNNER_TEMP/css-beats-report.json" node scripts/ci/ui-test-selection.mjs browser tests/e2e/multi-table.spec.ts tests/e2e/live-animations.spec.ts tests/e2e/card-squeeze-visual-regression.spec.ts tests/e2e/card-squeeze-mobile.spec.ts tests/e2e/river-squeeze-interactive.spec.ts tests/e2e/spin-wheel-on-a-phone.spec.ts tests/e2e/hero-card-row.spec.ts tests/e2e/table-proportions.spec.ts tests/e2e/css/the-chairs-never-change-order.spec.ts tests/e2e/top-rail-seat.spec.ts tests/e2e/pot-above-chips.spec.ts tests/e2e/flop-fan-open.spec.ts tests/e2e/hero-cards-no-glitch.spec.ts tests/e2e/raise-panel-covers-chat.spec.ts tests/e2e/customization-controls.spec.ts tests/e2e/diamond-checkout-mobile.spec.ts tests/e2e/css/diamond-wheel-reveal.spec.ts tests/e2e/tap-sweep-rules.spec.ts tests/e2e/club-mobile-wallet-reach.spec.ts tests/e2e/mobile-lobby-chrome.spec.ts tests/e2e/css/club-lobby-sticky-selector.spec.ts tests/e2e/css/club-members-containment.spec.ts tests/e2e/css/player-detail-containment.spec.ts tests/e2e/css/hand-review-awards.spec.ts tests/e2e/css/club-data-report.spec.ts tests/e2e/footer-visual-regression.spec.ts tests/e2e/footer-route.spec.ts tests/e2e/header-portrait-frame.spec.ts --project=chromium --project=webkit-footer --reporter=line,json --retries=1 --grep="$CSS_BEAT_GREP" --shard=${{ matrix.shard }}/10
+          PLAYWRIGHT_JSON_OUTPUT_NAME="$RUNNER_TEMP/css-beats-report.json" node scripts/ci/ui-test-selection.mjs browser tests/e2e/multi-table.spec.ts tests/e2e/live-animations.spec.ts tests/e2e/card-squeeze-visual-regression.spec.ts tests/e2e/card-squeeze-mobile.spec.ts tests/e2e/river-squeeze-interactive.spec.ts tests/e2e/spin-wheel-on-a-phone.spec.ts tests/e2e/hero-card-row.spec.ts tests/e2e/table-proportions.spec.ts tests/e2e/css/the-chairs-never-change-order.spec.ts tests/e2e/top-rail-seat.spec.ts tests/e2e/pot-above-chips.spec.ts tests/e2e/flop-fan-open.spec.ts tests/e2e/hero-cards-no-glitch.spec.ts tests/e2e/raise-panel-covers-chat.spec.ts tests/e2e/customization-controls.spec.ts tests/e2e/diamond-checkout-mobile.spec.ts tests/e2e/css/diamond-wheel-reveal.spec.ts tests/e2e/tap-sweep-rules.spec.ts tests/e2e/club-mobile-wallet-reach.spec.ts tests/e2e/mobile-lobby-chrome.spec.ts tests/e2e/css/club-lobby-sticky-selector.spec.ts tests/e2e/css/club-members-containment.spec.ts tests/e2e/css/player-detail-containment.spec.ts tests/e2e/css/hand-review-awards.spec.ts tests/e2e/css/club-data-report.spec.ts tests/e2e/css/table-surfaces-wear-smarterdesign.spec.ts tests/e2e/footer-visual-regression.spec.ts tests/e2e/footer-route.spec.ts tests/e2e/header-portrait-frame.spec.ts --project=chromium --project=webkit-footer --reporter=line,json --retries=1 --grep="$CSS_BEAT_GREP" --shard=${{ matrix.shard }}/10
 
       # The CSS Beat suites run with one retry: a case that passed only on
       # retry is named, never counted as clean.

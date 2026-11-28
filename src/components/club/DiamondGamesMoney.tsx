@@ -3,7 +3,7 @@
  *  THE OPERATOR'S MONEY AND ROOM (Phase 3, 2026-09-11)
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * Three readings an operator had no way to get, on the painted chassis, shared
+ * Three readings an operator had no way to get, in chrome arena cases, shared
  * by both Diamond Games consoles so the wheel page and the games page cannot
  * drift apart:
  *
@@ -29,7 +29,15 @@
  * the page they already open, out of rows the games already wrote.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { SpadeConsole, type ConsoleInk } from '../console/SpadeConsole';
+import {
+  OpsCase,
+  OpsCell,
+  OpsRow,
+  OpsRows,
+  OpsTable,
+  OpsTableRow,
+  type OpsInk,
+} from './DiamondOpsKit';
 import DiamondGamesService, {
   type GamePnl,
   type GamePlayers,
@@ -40,7 +48,6 @@ import { compactChips, formatWalletDiamonds } from '../../utils/format';
 import { reportError } from '../../utils/errorReporter';
 import { useIsMounted } from '../../hooks/useIsMounted';
 import { DIAMOND_GAME_TITLES } from '../../utils/diamondGameTitles';
-import styles from '../../pages/diamondGames.module.css';
 
 /**
  * MONEY IN THIS TABLE IS WHOLE, AND NEVER A FALSE ZERO (2026-09-11).
@@ -70,7 +77,7 @@ const GAME_WORD: Record<string, string> = {
 };
 const gameWord = (g: string) => GAME_WORD[g] ?? g;
 
-const STATE_INK: Record<GameRoomState, ConsoleInk> = {
+const STATE_INK: Record<GameRoomState, OpsInk> = {
   open: 'green',
   thin: 'gold',
   stopped: 'red',
@@ -91,18 +98,6 @@ function worstState(room: GameRoom | null): GameRoomState {
   if (live.some((g) => g.state === 'stopped')) return 'stopped';
   if (live.some((g) => g.state === 'thin')) return 'thin';
   return 'open';
-}
-
-function Head({ cells }: { cells: string[] }) {
-  return (
-    <div className={`${styles.grid4} ${styles.grid4Head}`}>
-      {cells.map((c, i) => (
-        <span key={c} className={`sc-label sc-ink--blue ${i === 0 ? '' : styles.cellRight}`}>
-          {c}
-        </span>
-      ))}
-    </div>
-  );
 }
 
 export default function DiamondGamesMoney({ clubId }: { clubId: string | null }) {
@@ -155,208 +150,168 @@ export default function DiamondGamesMoney({ clubId }: { clubId: string | null })
 
   return (
     <>
-      <SpadeConsole
+      <OpsCase
         eyebrow="Diamonds In, Chips Out"
         title="The Money"
         pill={day ? (day.net_chips >= 0 ? 'Up Today' : 'Down Today') : 'No Rounds Yet'}
         pillInk={day && day.net_chips < 0 ? 'red' : 'green'}
-        foot="foot"
       >
-        <p className="sc-copy">
+        <p className="arena-ops-copy">
           Game Earnings Include Entry Diamonds And Prize Costs. New Entries Stay In Daily Custody;
           Diamond And Inventory Prizes Are Deducted Before One Net Owner Wallet Settlement, Which
           Burns 20% Of A Profitable Day And Credits The Remaining 80%. Chip Prizes Use The Promo
           Wallet First, Then The Bank. Welcome Spins Are Shown Separately. Daily Diamond Statements
           Show The Net, The Burn And The Exact Wallet Credit.
         </p>
-        <div className={styles.rows}>
-          {refusal ? <p className="sc-copy sc-ink--red">{refusal}</p> : null}
-          <Head cells={['Window', 'Rounds', 'Taken In', 'Net']} />
+        {refusal ? (
+          <p className="arena-ops-copy dops-copy--danger" role="alert">
+            {refusal}
+          </p>
+        ) : null}
+        <OpsTable label="The Money" head={['Window', 'Rounds', 'Taken In', 'Net']}>
           {(pnl?.windows ?? []).map((w) => (
-            <div key={w.window} className={styles.grid4}>
-              <span className={styles.cell}>{w.window}</span>
-              <span className={`${styles.cell} ${styles.cellRight}`}>{w.rounds}</span>
-              <span className={`${styles.cell} ${styles.cellRight}`}>
-                {money(w.intake_chips, rate)}
-              </span>
-              <span
-                className={`${styles.cell} ${styles.cellRight} sc-ink--${
-                  w.net_chips >= 0 ? 'green' : 'red'
-                }`}
-              >
-                {money(w.net_chips, rate)}
-              </span>
-            </div>
+            <OpsTableRow key={w.window}>
+              <OpsCell>{w.window}</OpsCell>
+              <OpsCell>{w.rounds}</OpsCell>
+              <OpsCell>{money(w.intake_chips, rate)}</OpsCell>
+              <OpsCell ink={w.net_chips >= 0 ? 'green' : 'red'}>{money(w.net_chips, rate)}</OpsCell>
+            </OpsTableRow>
           ))}
-          {day ? (
-            <>
-              <Head cells={['Today, By Game', 'Rounds', 'Paid Out', 'Net']} />
+        </OpsTable>
+        {day ? (
+          <>
+            <OpsTable label="Today, By Game" head={['Today, By Game', 'Rounds', 'Paid Out', 'Net']}>
               {day.games.map((g) => (
-                <div key={g.game} className={styles.grid4}>
-                  <span className={styles.cell}>{gameWord(g.game)}</span>
-                  <span className={`${styles.cell} ${styles.cellRight}`}>{g.rounds}</span>
-                  <span className={`${styles.cell} ${styles.cellRight}`}>
-                    {money(g.chips_paid, rate)}
-                  </span>
-                  <span
-                    className={`${styles.cell} ${styles.cellRight} sc-ink--${
-                      g.net_chips >= 0 ? 'green' : 'red'
-                    }`}
-                  >
+                <OpsTableRow key={g.game}>
+                  <OpsCell>{gameWord(g.game)}</OpsCell>
+                  <OpsCell>{g.rounds}</OpsCell>
+                  <OpsCell>{money(g.chips_paid, rate)}</OpsCell>
+                  <OpsCell ink={g.net_chips >= 0 ? 'green' : 'red'}>
                     {money(g.net_chips, rate)}
-                  </span>
-                </div>
+                  </OpsCell>
+                </OpsTableRow>
               ))}
-              {day.welcome_chips > 0 ? (
-                <div className={styles.row}>
-                  <span className={`sc-label sc-ink--blue ${styles.rowLabel}`}>
-                    Welcome Spins Today
-                    <span className={`${styles.rowMeta} sc-ink--muted`}>
-                      Given Away, Not Lost At The Table
-                    </span>
-                  </span>
-                  <span className={`${styles.rowValue} sc-ink--gold`}>
-                    {money(day.welcome_chips, rate)}
-                  </span>
-                </div>
-              ) : null}
-            </>
-          ) : null}
-          {!pnl && !loading ? <p className="sc-copy sc-ink--muted">No Figures Yet.</p> : null}
-        </div>
-      </SpadeConsole>
+            </OpsTable>
+            {day.welcome_chips > 0 ? (
+              <OpsRows>
+                <OpsRow
+                  label="Welcome Spins Today"
+                  value={money(day.welcome_chips, rate)}
+                  ink="gold"
+                  meta="Given Away, Not Lost At The Table"
+                />
+              </OpsRows>
+            ) : null}
+          </>
+        ) : null}
+        {!pnl && !loading ? (
+          <p className="arena-ops-copy dops-copy--muted">No Figures Yet.</p>
+        ) : null}
+      </OpsCase>
 
-      <SpadeConsole
+      <OpsCase
         eyebrow="Before It Stops"
         title="The Room"
         pill={STATE_WORD[state]}
         pillInk={STATE_INK[state]}
-        foot="foot"
       >
-        <p className="sc-copy">
+        <p className="arena-ops-copy">
           Top Win Is The Biggest A Player Could Take Right Now At Your Largest Bet, Against The
           Ceiling Your Settings Allow. Every Game Caps What It Offers By What Your Cover Can Pay, So
           A Game Goes Quiet Long Before The Cover Reads Zero. Thin Means The Cover Is What Is
           Holding The Top Prize Down And More Chips In The Promo Wallet Would Lift It. A Game Held
           Down By Its Own Intake Instead Is The House Rule Working, And Needs Nothing From You.
         </p>
-        <div className={styles.rows}>
-          <Head cells={['Game', 'Top Win', 'Ceiling', 'State']} />
+        <OpsTable label="The Room" head={['Game', 'Top Win', 'Ceiling', 'State']}>
           {(room?.games ?? []).map((g) => (
-            <div key={g.game} className={styles.grid4}>
-              <span className={styles.cell}>{gameWord(g.game)}</span>
-              <span className={`${styles.cell} ${styles.cellRight}`}>
+            <OpsTableRow key={g.game}>
+              <OpsCell>{gameWord(g.game)}</OpsCell>
+              <OpsCell>
                 {g.game === 'wheel'
                   ? money(g.top_chip_prize_chips, rate)
                   : money(g.max_win_chips, rate)}
-              </span>
-              <span className={`${styles.cell} ${styles.cellRight} ${styles.cellDim}`}>
+              </OpsCell>
+              <OpsCell dim>
                 {g.game === 'wheel' ? 'Fixed Table' : money(g.ceiling_win_chips, rate)}
-              </span>
-              <span className={`${styles.cell} ${styles.cellRight} sc-ink--${STATE_INK[g.state]}`}>
-                {STATE_WORD[g.state]}
-              </span>
-            </div>
+              </OpsCell>
+              <OpsCell ink={STATE_INK[g.state]}>{STATE_WORD[g.state]}</OpsCell>
+            </OpsTableRow>
           ))}
+        </OpsTable>
+        <OpsRows>
           {(room?.games ?? [])
             .filter((g) => g.enabled && g.capped_by_intake && !g.capped_by_cover)
             .map((g) => (
-              <div key={`${g.game}-intake`} className={styles.row}>
-                <span className={`sc-label sc-ink--blue ${styles.rowLabel}`}>
-                  {gameWord(g.game)}
-                  <span className={`${styles.rowMeta} sc-ink--muted`}>
-                    Held By What It Has Taken In, Not By Your Cover. Nothing To Do
-                  </span>
-                </span>
-                <span className={`${styles.rowValue} sc-ink--muted`}>
-                  {money(g.max_win_chips, rate)} Of {money(g.ceiling_win_chips, rate)}
-                </span>
-              </div>
+              <OpsRow
+                key={`${g.game}-intake`}
+                label={gameWord(g.game)}
+                value={`${money(g.max_win_chips, rate)} Of ${money(g.ceiling_win_chips, rate)}`}
+                ink="muted"
+                meta="Held By What It Has Taken In, Not By Your Cover. Nothing To Do"
+              />
             ))}
           {(room?.games ?? [])
             .filter((g) => g.enabled && g.capped_by_cover)
             .map((g) => (
-              <div key={`${g.game}-why`} className={styles.row}>
-                <span className={`sc-label sc-ink--blue ${styles.rowLabel}`}>
-                  {gameWord(g.game)}
-                  <span className={`${styles.rowMeta} sc-ink--muted`}>
-                    The Cover Is Holding This One Down
-                  </span>
-                </span>
-                <span className={`${styles.rowValue} sc-ink--gold`}>
-                  {money(g.max_win_chips, rate)} Of {money(g.intake_win_chips, rate)}
-                </span>
-              </div>
+              <OpsRow
+                key={`${g.game}-why`}
+                label={gameWord(g.game)}
+                value={`${money(g.max_win_chips, rate)} Of ${money(g.intake_win_chips, rate)}`}
+                ink="gold"
+                meta="The Cover Is Holding This One Down"
+              />
             ))}
           {(room?.games ?? []).some(
             (g) => g.game === 'wheel' && g.enabled && g.diamond_prize_covered === false
           ) ? (
-            <div className={styles.row}>
-              <span className={`sc-label sc-ink--blue ${styles.rowLabel}`}>
-                Owner Diamonds
-                <span className={`${styles.rowMeta} sc-ink--muted`}>
-                  This Balance Backs Any Daily Diamond Shortfall
-                </span>
-              </span>
-              <span className={`${styles.rowValue} sc-ink--red`}>
-                {formatWalletDiamonds(room?.owner_diamonds ?? 0)} Will Not Cover The Top Diamond
-                Prize
-              </span>
-            </div>
+            <OpsRow
+              label="Owner Diamonds"
+              value={`${formatWalletDiamonds(room?.owner_diamonds ?? 0)} Will Not Cover The Top Diamond Prize`}
+              ink="red"
+              wrap
+              meta="This Balance Backs Any Daily Diamond Shortfall"
+            />
           ) : null}
-        </div>
-      </SpadeConsole>
+        </OpsRows>
+      </OpsCase>
 
-      <SpadeConsole
+      <OpsCase
         eyebrow="Today"
         title="Who Is Playing"
         pill={`${roster.length}`}
         pillInk={roster.some((p) => p.at_spin_cap || p.at_round_cap) ? 'gold' : 'blue'}
-        foot="foot"
       >
-        <p className="sc-copy">
+        <p className="arena-ops-copy">
           Everyone Who Has Played This Host Today, Biggest Spender First, Against The Two Daily
           Ceilings. Net Is From The Player Side: A Positive Number Means They Are Ahead.
         </p>
-        <div className={styles.rows}>
-          <Head cells={['Player', 'Rounds', 'Spent', 'Net']} />
+        <OpsTable label="Who Is Playing" head={['Player', 'Rounds', 'Spent', 'Net']}>
           {roster.map((p) => (
-            <div key={p.user_id} className={styles.grid4}>
-              <span className={styles.cell}>{p.name}</span>
-              <span
-                className={`${styles.cell} ${styles.cellRight} ${
-                  p.at_spin_cap || p.at_round_cap ? 'sc-ink--gold' : ''
-                }`}
-              >
+            <OpsTableRow key={p.user_id}>
+              <OpsCell>{p.name}</OpsCell>
+              <OpsCell ink={p.at_spin_cap || p.at_round_cap ? 'gold' : undefined}>
                 {p.spins + p.rounds}
-              </span>
-              <span className={`${styles.cell} ${styles.cellRight}`}>
-                {money(p.spent_chips, rate)}
-              </span>
-              <span
-                className={`${styles.cell} ${styles.cellRight} sc-ink--${
-                  p.net_chips >= 0 ? 'green' : 'muted'
-                }`}
-              >
+              </OpsCell>
+              <OpsCell>{money(p.spent_chips, rate)}</OpsCell>
+              <OpsCell ink={p.net_chips >= 0 ? 'green' : 'muted'}>
                 {money(p.net_chips, rate)}
-              </span>
-            </div>
+              </OpsCell>
+            </OpsTableRow>
           ))}
-          {roster.length === 0 ? (
-            <p className="sc-copy sc-ink--muted">Nobody Has Played Here Today.</p>
-          ) : null}
-          {roster.some((p) => p.at_spin_cap || p.at_round_cap) ? (
-            <div className={styles.row}>
-              <span className={`sc-label sc-ink--blue ${styles.rowLabel}`}>
-                At The Daily Ceiling
-              </span>
-              <span className={`${styles.rowValue} sc-ink--gold`}>
-                {roster.filter((p) => p.at_spin_cap || p.at_round_cap).length}
-              </span>
-            </div>
-          ) : null}
-        </div>
-      </SpadeConsole>
+        </OpsTable>
+        {roster.length === 0 ? (
+          <p className="arena-ops-copy dops-copy--muted">Nobody Has Played Here Today.</p>
+        ) : null}
+        {roster.some((p) => p.at_spin_cap || p.at_round_cap) ? (
+          <OpsRows>
+            <OpsRow
+              label="At The Daily Ceiling"
+              value={String(roster.filter((p) => p.at_spin_cap || p.at_round_cap).length)}
+              ink="gold"
+            />
+          </OpsRows>
+        ) : null}
+      </OpsCase>
     </>
   );
 }

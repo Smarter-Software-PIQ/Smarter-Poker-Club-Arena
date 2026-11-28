@@ -311,7 +311,7 @@ function ShowdownRow({
       <div className="hdv__sd-who">
         <span className={`hdv__name${isYou ? ' is-you' : ''}`}>
           {row.name}
-          {isBadBeat && <span className="hdv__sd-tag">BAD BEAT</span>}
+          {isBadBeat && <span className="hdv__sd-tag">Bad Beat</span>}
           {/* HI-LO: the half this row is for. A PLO8 scoop is two rows. */}
           {row.low && <span className="hdv__sd-tag hdv__sd-tag--low">LOW</span>}
           {/* Your own mucked cards, drawn face-up for you alone. */}

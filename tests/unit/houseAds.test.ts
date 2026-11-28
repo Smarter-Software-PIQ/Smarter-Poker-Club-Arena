@@ -543,7 +543,7 @@ describe('an ad destination is resolved by the server, never by a template a cli
      The data change went live; the client that understands it had not shipped.
      A real click on the lobby strip landed on
      /hub/club-arena/invite/%7BclubId%7D -- the literal placeholder -- and the
-     page said "Club not found or invitation expired".
+     page said "Club Not Found Or Invitation Expired".
 
      Three clients across two repos and two deploy pipelines read this column.
      A placeholder only one of them expands is a literal string in the other

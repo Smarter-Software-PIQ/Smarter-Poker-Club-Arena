@@ -36,3 +36,38 @@ test('leaderboard contrast certification waits for actual entrance motion and re
   await waitForLeaderboardEntryMotion(page, 'main', 'Unreadable Settled Palette');
   expect(await contrastNodes()).toHaveLength(3);
 });
+
+test('tournament stats entrance motion is awaited before contrast certification and retains contrast refusal', async ({
+  page,
+}) => {
+  const css =
+    readFileSync('src/pages/LeaderboardPage.css', 'utf8') +
+    readFileSync('src/styles/animations.css', 'utf8');
+  await page.setContent(
+    `<style>body{background:#000}${css}</style><main class="leaderboard-page"><div class="club-page-body"><div class="tournament-stats-scroll">${[1, 2, 3].map((i) => `<div class="tournament-stats-entry animate-fade-in-up stagger-${i}" style="opacity:0;animation:animationsFadeInUp 0.7s ease-out forwards"><div class="stats-cell player-cell"><span class="rank-badge">#${i}</span><span class="player-name">Player ${i}</span></div><div class="stats-cell prizes" data-label="Total Prizes">1,250</div></div>`).join('')}</div></div></main>`
+  );
+  await page.evaluate(() => {
+    for (const el of document.querySelectorAll('.tournament-stats-entry')) {
+      const motion = el.getAnimations()[0];
+      motion.pause();
+      motion.currentTime = 120;
+    }
+  });
+  const contrastNodes = async () =>
+    (await new AxeBuilder({ page }).include('main').analyze()).violations
+      .filter((v) => v.id === 'color-contrast')
+      .flatMap((v) => v.nodes);
+  expect((await contrastNodes()).length).toBeGreaterThan(0);
+  expect(await leaderboardMotionSnapshot(page, 'main')).toEqual({ entries: 3, moving: 3 });
+  await page.evaluate(() => {
+    for (const el of document.querySelectorAll('.tournament-stats-entry')) {
+      el.getAnimations()[0].play();
+    }
+  });
+  await waitForLeaderboardEntryMotion(page, 'main', 'Tournament Stats Entrance');
+  expect(await leaderboardMotionSnapshot(page, 'main')).toEqual({ entries: 3, moving: 0 });
+  expect(await contrastNodes()).toHaveLength(0);
+  await page.addStyleTag({ content: '.leaderboard-page .player-name{color:#333}' });
+  await waitForLeaderboardEntryMotion(page, 'main', 'Tournament Stats Unreadable Palette');
+  expect(await contrastNodes()).toHaveLength(3);
+});

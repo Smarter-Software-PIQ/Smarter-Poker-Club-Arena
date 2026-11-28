@@ -45,6 +45,7 @@ import {
   type WalletFamily,
 } from '../hooks/useCashierStatement';
 import { CashierWorkspace } from '../components/wallet/CashierWorkspace';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
 import { isUUID, resolveClubUUID } from '../utils/clubIdResolver';
 import { copyCashierText, readCashierOnlineState } from '../services/CashierResilience';
 import { compactChips } from '../utils/format';
@@ -376,7 +377,20 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
       className={`${styles.page} arena-workspace arena-cashier`}
       data-cashier-surface="statements"
     >
+      {/* #SmarterDesign (2026-11-28): Back sits above the chrome mast, and the
+          mast carries the title and the "?" the page bar used to hold. */}
+      <span className={`arena-switch ${styles.back}`}>
+        <button type="button" onClick={backToCashier}>
+          Back To Cashier
+        </button>
+      </span>
+      <ArenaWorkspaceHeader
+        area="cashier"
+        title="Cashier"
+        summary="Every Chip Movement In This Club Wallet For The Dates You Choose, Ready To Copy Or Download."
+      />
       <CashierWorkspace
+        hasVisibleTitle
         title="Cashier"
         summary="Every Chip Movement In This Club Wallet For The Dates You Choose, Ready To Copy Or Download."
         pill={pillText}
@@ -385,11 +399,6 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
       >
         <div className={styles.glass}>
           <div className={styles.topBar}>
-            <span className={`arena-switch ${styles.back}`}>
-              <button type="button" onClick={backToCashier}>
-                Back To Cashier
-              </button>
-            </span>
             <span className={styles.sectionMeta}>Pacific Accounting Days</span>
           </div>
 

@@ -1,0 +1,3 @@
+# server/src/engine/anOmahaMultiwayRiverPeoplePriorIsFast.law.test.ts
+
+The multiway river people prior (omahaMultiwayRiverBetPriorIsPeopleMeasured) inside the PLO4/PLO5 facing-bet price, decided by the engine's own decide on multiway river decisions where the option actually prices the bettor with a record of his to read, costs at most 4 times the same decisions with the option off, with telemetry off and on, measured in alternating rounds on the same machine (src/testing/relativeCost.ts). It is the option's entry in OPTION_COST_LAWS, so the option cost gate (aPricedOptionProvesItsDecisionCost) holds for it.

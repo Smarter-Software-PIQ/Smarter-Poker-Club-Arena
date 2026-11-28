@@ -475,6 +475,16 @@ export class RunItTwiceEngine {
     return this.activeOffers.get(tableId)?.deadlineTs ?? 0;
   }
 
+  /**
+   * Authoritative armed deadline from the DeadlineScheduler while an RIT offer
+   * is actively awaiting player decisions (0 if no live scheduler entry exists).
+   */
+  activeOfferDeadlineMs(tableId: string): number {
+    const state = this.activeOffers.get(tableId);
+    if (!state || state.status !== 'offered') return 0;
+    return this.scheduler.getDeadline(tableId, RunItTwiceEngine.OFFER_EVENT_ID);
+  }
+
   /** True only while the offer is still awaiting player decisions. */
   isDecisionPending(tableId: string): boolean {
     const state = this.activeOffers.get(tableId);

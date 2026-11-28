@@ -70,6 +70,7 @@ import {
   observeWheelWalletReaders,
   WHEEL_WALLET_CUTOVER,
 } from './wheel-wallet-lock-observation.mjs';
+import { waitForPreDdlLocks } from './migration-pre-lock-wait.mjs';
 import { stalePinParts } from './migration-stale-pins.mjs';
 import { handPathParts } from './hand-path-shared-writes.mjs';
 
@@ -1020,6 +1021,13 @@ if (ordinaryTransaction && file === WHEEL_WALLET_CUTOVER) {
   console.log(
     '[apply] Wallet relations observed idle; the cutover still requires one NOWAIT acquisition.'
   );
+}
+
+// Pre-DDL transient lock-contention backoff (strictly before BEGIN; never
+// retries after BEGIN is sent). Checks pg_locks + pg_stat_activity for active
+// conflicting locks on target tables and backs off up to 3 x 5s = 15s max.
+if (!DRY_RUN) {
+  await waitForPreDdlLocks(client, transactionBody);
 }
 
 // Ordinary installs must not retain live row locks across an unbounded series

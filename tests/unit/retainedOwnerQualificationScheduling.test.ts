@@ -46,7 +46,7 @@ it('executes the declared CI and receiver commands with exact-once historical co
     );
     const preparation = steps[index];
     const full = steps[index + 1];
-    expect(preparation.if).toBe('matrix.shard == 1');
+    expect(preparation.if).toBe('matrix.shard == 2');
     expect(preparation['continue-on-error']).toBeUndefined();
     expect(full.name).toBe('Full server test suite');
     const release = daytime.jobs.qualify.steps.find(
@@ -55,33 +55,27 @@ it('executes the declared CI and receiver commands with exact-once historical co
     expect(release['continue-on-error']).toBeUndefined();
     for (const mode of ['ci', 'receiver']) {
       writeFileSync(log, '');
-      for (const shard of [1, 2, 3, 4]) {
-        if (mode === 'ci' && shard === 1) expect(run(preparation.run, shard).status).toBe(0);
+      for (const shard of [1, 2, 3, 4, 5, 6, 7, 8]) {
+        if (mode === 'ci' && shard === 2) expect(run(preparation.run, shard).status).toBe(0);
         expect(run(mode === 'ci' ? full.run : release.run, shard).status).toBe(0);
       }
       const calls = readFileSync(log, 'utf8')
         .trim()
         .split('\n')
         .filter((line) => line.startsWith('test '));
-      const expected =
-        mode === 'ci'
-          ? [
-              `test -- ${wrapper}`,
-              ...[1, 2, 3, 4].map((shard) => `test -- --exclude ${wrapper} --shard=${shard}/4`),
-            ]
-          : [
-              `test -- --exclude ${wrapper} --shard=1/4`,
-              `test -- ${wrapper}`,
-              ...[2, 3, 4].map((shard) => `test -- --exclude ${wrapper} --shard=${shard}/4`),
-            ];
+      const expected = [
+        `test -- --exclude ${wrapper} --shard=1/8`,
+        `test -- ${wrapper}`,
+        ...[2, 3, 4, 5, 6, 7, 8].map((shard) => `test -- --exclude ${wrapper} --shard=${shard}/8`),
+      ];
       expect(calls).toEqual(expected);
     }
     writeFileSync(log, '');
-    // Engine release prequalification runs the retained historical qualification on shard 2
-    // (O37: balances critical-path shard 1 wall-clock time).
+    // Both PR CI and engine release prequalification run the retained historical qualification
+    // on shard 2 (O37: balances critical-path shard 1 wall-clock time).
     expect(run(release.run, 2, true).status).toBe(73);
     expect(readFileSync(log, 'utf8')).not.toContain('--exclude');
-    expect(run(preparation.run, 1, true).status).toBe(73);
+    expect(run(preparation.run, 2, true).status).toBe(73);
     expect(ci.jobs.server.needs).toContain('server_shards');
     expect(receiver.jobs['engine-doors'].needs).toBe('preflight');
   } finally {

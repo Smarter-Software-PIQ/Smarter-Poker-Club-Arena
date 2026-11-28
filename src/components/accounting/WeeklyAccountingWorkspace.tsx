@@ -18,6 +18,9 @@ import ClubWeeklyAccountingSummary from './ClubWeeklyAccountingSummary';
 import { reportError } from '../../utils/errorReporter';
 import { titleCase } from '../../utils/titleCase';
 import styles from './WeeklyAccountingWorkspace.module.css';
+import '../lobby/ArenaWorkspace.css';
+import '../ops/ArenaOps.css';
+import './WeeklyAccountingArena.css';
 
 function UnionPeriodRecords({ unionId, actorId }: { unionId: string; actorId: string }) {
   const scope = useCashoutScope(actorId, `union-period-records:${unionId}`);
@@ -54,15 +57,20 @@ function UnionPeriodRecords({ unionId, actorId }: { unionId: string; actorId: st
   const visible =
     scope() && result?.scope === scope && result.read === sequence.current ? result : null;
   return (
-    <section className={styles.section} aria-label="Union Period Records">
+    <section
+      className={`${styles.section} weekly-accounting__periods`}
+      aria-label="Union Period Records"
+    >
       <h3 className={styles.sectionTitle}>Recorded Union Periods</h3>
       <p className={styles.copy}>
         Latest Up To 12 Records. Recorded Period Status Alone Does Not Prove Payment Or Complete
         Weekly Accounting.
       </p>
-      <button type="button" className={styles.word} onClick={() => setRevision((r) => r + 1)}>
-        Refresh Period Records
-      </button>
+      <div className="arena-switch arena-ops-keys arena-ops-primary">
+        <button type="button" className={styles.word} onClick={() => setRevision((r) => r + 1)}>
+          Refresh Period Records
+        </button>
+      </div>
       {!scope() || visible?.rows === null ? (
         <p className={`${styles.state} sc-ink--red`} role="alert">
           Period Records Are Unavailable.
@@ -78,7 +86,7 @@ function UnionPeriodRecords({ unionId, actorId }: { unionId: string; actorId: st
       ) : (
         <ul className={styles.records}>
           {visible.rows.map((row) => (
-            <li key={row.id}>
+            <li key={row.id} className="arena-ledger-row">
               {new Date(row.startAt).toLocaleDateString(undefined, {
                 timeZone: 'America/Los_Angeles',
               })}{' '}
@@ -160,14 +168,17 @@ export default function WeeklyAccountingWorkspace({
       </p>
     );
   return (
-    <div className={styles.workspace}>
-      <h2 className={styles.title}>{scopeKind === 'club' ? 'Club' : 'Union'} Weekly Accounting</h2>
+    <div className={`${styles.workspace} weekly-accounting`}>
+      <h2 className={`${styles.title} arena-section-title`}>
+        {scopeKind === 'club' ? 'Club' : 'Union'} Weekly Accounting
+      </h2>
       <p className={styles.copy}>
         Weekly Accounting Runs Automatically. Select A Week To Read Its Recorded Status.
       </p>
-      <label className={styles.dateField}>
+      <label className={`${styles.dateField} weekly-accounting__week arena-ledger-row`}>
         <span>Week Ending Monday</span>
         <input
+          className="arena-ops-well"
           aria-label="Week Ending Monday"
           type="date"
           value={ending}
@@ -191,7 +202,7 @@ export default function WeeklyAccountingWorkspace({
       ) : (
         <UnionPeriodRecords key={`${id}:${user.id}`} unionId={id} actorId={user.id} />
       )}
-      <p className={styles.linkRow}>
+      <p className={`${styles.linkRow} arena-switch arena-ops-keys`}>
         <Link
           className={styles.link}
           to={

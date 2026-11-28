@@ -444,7 +444,7 @@ export function useClubOperationsOverview(
           setError(null);
         } else {
           reportError(loadError, 'ClubOperationsOverview.Load_failed');
-          setError('Live club readings are unavailable right now.');
+          setError('Live Club Readings Are Unavailable Right Now.');
         }
       } finally {
         if (requestId === requestRef.current) setLoading(false);

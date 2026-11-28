@@ -21,6 +21,10 @@ registerCompactLobbyRowsCases();
 import { registerGameLobbyCardCases } from './support/gameLobbyCardCases';
 registerGameLobbyCardCases();
 import { registerDiamondJackpotReadoutCases } from './helpers/diamond-jackpot-readout-cases';
+import { registerTournamentLobbyTabPanelHeightCases } from './css/tournamentLobbyTabPanelHeightCases';
+
+// The Tournament Lobby's tab rail stays one row, so its tab panel keeps real height.
+registerTournamentLobbyTabPanelHeightCases();
 
 // The live Diamond plaque is part of this existing, required lobby chrome suite.
 registerDiamondJackpotReadoutCases();

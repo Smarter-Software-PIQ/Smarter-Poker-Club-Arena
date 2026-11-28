@@ -237,7 +237,13 @@ describe('no identity surface prints a page hero', () => {
     expect(read('src/pages/PublicProfilePage.module.css')).toContain(
       ":global([data-theme='light']) .publicProfilePage"
     );
-    expect(read('src/pages/NotificationsPage.css')).toContain("[data-theme='light'] .ca-notif");
+    /* 2026-11-28: Notifications wears the arena workspace (#SmarterDesign,
+       Dan 2026-11-27), which reads dark in either theme like every other
+       arena page; its brushed-silver mode went with the Signal Desk dress. */
+    expect(read('src/pages/NotificationsPage.tsx')).toContain(
+      'className="ca-notif arena-workspace"'
+    );
+    expect(read('src/pages/NotificationsPage.css')).not.toContain("[data-theme='light']");
     // The dead sibling stylesheets are gone, not lingering as a second owner.
     expect(existsSync(resolve(ROOT, 'src/pages/ProfilePage.css'))).toBe(false);
     expect(existsSync(resolve(ROOT, 'src/pages/SettingsPage.css'))).toBe(false);

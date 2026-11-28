@@ -203,14 +203,14 @@ export default function CompleteProfileModal({ isOpen, onComplete }: CompletePro
     if (safeAlias.length < 3) {
       setAliasAvailable(false);
       setIsCheckingAlias(false);
-      setAliasLocalError('Alias must be at least 3 characters.');
+      setAliasLocalError('Alias Must Be At Least 3 Characters.');
       return;
     }
 
     if (!/^[a-zA-Z0-9_]+$/.test(safeAlias)) {
       setAliasAvailable(false);
       setIsCheckingAlias(false);
-      setAliasLocalError('Only letters, numbers, and underscores allowed.');
+      setAliasLocalError('Only Letters, Numbers, And Underscores Allowed.');
       return;
     }
 
@@ -282,7 +282,7 @@ export default function CompleteProfileModal({ isOpen, onComplete }: CompletePro
     setError(null);
 
     if (!hasAvatar) {
-      setError('Please select an Avatar.');
+      setError('Please Select An Avatar.');
       savingRef.current = false;
       setIsSaving(false);
       return;
@@ -292,14 +292,14 @@ export default function CompleteProfileModal({ isOpen, onComplete }: CompletePro
     const safeRealName = sanitizeInput(realName) || safeAlias; // Fallback
 
     if (!safeAlias) {
-      setError('Poker Alias is required.');
+      setError('Poker Alias Is Required.');
       savingRef.current = false;
       setIsSaving(false);
       return;
     }
 
     if (aliasAvailable === false || aliasLocalError) {
-      setError(aliasLocalError || 'This Poker Alias is already taken.');
+      setError(aliasLocalError || 'This Poker Alias Is Already Taken.');
       savingRef.current = false;
       setIsSaving(false);
       return;

@@ -27,9 +27,44 @@ COMMANDS = []
 COMMANDS_LOCK = threading.Lock()
 MAX_NATIVE_PROBE_WORKERS = 3
 # Root-anchored heavy directories verified unreferenced by any qualification
-# Vitest test or native PG17 probe (~289 MB excluded from Qualification.node &
-# Qualification.pg Docker build contexts; leading '/' ensures server/src is kept).
-DOCKERIGNORE_EXCLUDES = ('/docs', '/src', '/.github', '/scripts/qualification')
+# Vitest test or native PG17 probe (leading '/' ensures server/src is kept).
+# Keeps /server, /server/src, /scripts/ci, /scripts/dev, /supabase, /tests/unit,
+# and every satellite/f06 fixture intact while stripping client/media/mobile/build
+# trees and unrelated accounting/e2e evidence from Qualification.pg & fallback builds.
+DOCKERIGNORE_EXCLUDES = (
+    '/docs',
+    '/src',
+    '/.github',
+    '/scripts/qualification',
+    '/public',
+    '/art-source',
+    '/design',
+    '/android',
+    '/ios',
+    '/dist',
+    '/dist-prerender',
+    '/dist-native',
+    '/graphify-out',
+    '/scripts/ops',
+    '/tests/e2e',
+    '/tests/components',
+    '/tests/sql',
+    '/tests/operations',
+    '/tests/_archive',
+    '/tests/fixtures/full-weekly-accounting',
+    '/tests/fixtures/horse-feature-ablation-stores',
+    '/scripts/ci/fixtures/cash-link-union-proof-index',
+    '/scripts/ci/fixtures/weekly-linked-window-proof',
+    '/scripts/ci/fixtures/tournament-quality-bounded-evidence',
+    '/scripts/ci/fixtures/cash-refusal-scope-time',
+    '/scripts/ci/fixtures/rakeback-cascade-real-runner',
+    '/scripts/ci/fixtures/launch-reset',
+    '/scripts/ci/fixtures/original-cash-three-helper-forward',
+)
+# Qualification.node only runs focused Vitest suites under /source/server and
+# never reads /scripts, /supabase, or /tests; Dockerfile-scoped ignore shrinks
+# its BuildKit transfer context to ~80 MB while Qualification.pg uses .dockerignore.
+NODE_DOCKERIGNORE_EXTRA_EXCLUDES = ('/scripts', '/supabase', '/tests')
 
 
 def _handle_sigterm(signum, _frame):
@@ -264,6 +299,9 @@ def main():
         report['sourceTrees'] = {p: run(['git', '-C', str(repo), 'rev-parse', args.sha + ':' + p])
                                  for p in ['server', 'src', 'scripts', 'supabase', 'tests', 'docs', '.github']}
         (source / '.dockerignore').write_text('\n'.join(DOCKERIGNORE_EXCLUDES) + '\n')
+        (source / 'Qualification.node.dockerignore').write_text(
+            '\n'.join(DOCKERIGNORE_EXCLUDES + NODE_DOCKERIGNORE_EXTRA_EXCLUDES) + '\n'
+        )
         dockerfile = (source / 'server/Dockerfile').read_text()
         base = re.search(r'^FROM (node:22[^\s]+@sha256:[0-9a-f]{64})', dockerfile, re.M)
         if not base:

@@ -412,7 +412,7 @@ export function GameRulesModal({
           onClose={onClose}
           as="div"
           eyebrow={stakes}
-          title={`${variant} Rules`}
+          title={`${vUpper || variant} Rules`}
           titleId="rules-modal-title"
           /* The table type in the well's painted pill slot: a cash seat
              carries the stay clock and the return floor, a tournament seat

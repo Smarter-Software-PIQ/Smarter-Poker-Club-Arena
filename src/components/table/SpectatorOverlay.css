@@ -205,12 +205,12 @@
     stretch;
   border-radius: 0;
   background: linear-gradient(155deg, #12273b, #07111c 70%);
-  color: #86daff;
+  color: var(--sd-ice);
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
   font-weight: 700;
 }
 .spectator-overlay .so-badge__count {
-  color: #f4f8ff;
+  color: var(--sd-white);
   font-variant-numeric: tabular-nums;
 }
 .spectator-overlay .so-following {
@@ -221,12 +221,12 @@
   background: linear-gradient(108deg, #13253a, #060e18 72%);
 }
 .spectator-overlay .so-following__label {
-  color: #4dc660;
+  color: var(--sd-green);
 }
 .spectator-overlay .so-following__unfollow {
   min-width: 32px;
   min-height: 32px;
-  color: #bdd0e2;
+  color: var(--sd-silver);
 }
 .spectator-overlay .so-panel {
   position: relative;
@@ -253,7 +253,7 @@
   border-bottom: 1px solid rgb(134 218 255 / 18%);
 }
 .spectator-overlay .so-panel__title {
-  color: #f4f8ff;
+  color: var(--sd-white);
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
   font-size: 1.05rem;
   font-weight: 700;
@@ -280,7 +280,7 @@
   background: linear-gradient(108deg, #13253a, #060e18 72%);
 }
 .spectator-overlay .so-viewer__name {
-  color: #f1f5fc;
+  color: var(--sd-ink);
 }
 .spectator-overlay .so-viewer__time,
 .spectator-overlay .so-panel__empty {

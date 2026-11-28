@@ -9,8 +9,9 @@
  * 8 called (pot 28), turn bet 20 called (pot 68), the river checked to hero.
  */
 import { HorseLogic, type HorseDecideOpts, type HorseGameStateV2 } from './HorseLogic.js';
-import { seedFastRandom } from './HorseEval.js';
+import { saveFastRandom, seedFastRandom } from './HorseEval.js';
 import { HorseMind } from './HorseMind.js';
+import { drainFires } from './BrainTelemetry.js';
 import type { ActionRecord, Card, SeatPlayer } from '../types.js';
 
 export const c = (rank: string, suit: string): Card => ({ rank, suit }) as Card;
@@ -275,3 +276,36 @@ export function seedOpponentRiverRead(riverFolds: number, riverOpps: number): vo
 }
 
 export const GOLDEN_SEEDS = Array.from({ length: 24 }, (_, i) => 1009 + i * 7919);
+
+export const V54_SUITE_TIMEOUT_MS =
+  60_000 * (process.env.RUNNER_ENVIRONMENT === 'self-hosted' ? 3 : 1);
+export const V54_ON: HorseDecideOpts = { v54RiverBluff: true, telemetry: true };
+/** Wall-clock measurements inside the decision receipts (policy graph and
+ *  joint-policy latencies) are not decisions; everything else is compared. */
+const V54_WALL_CLOCK = new Set(['latencyMs', 'elapsedMs', 'policyMs', 'simulationMs']);
+export const v54Stable = (d: unknown): string =>
+  JSON.stringify(d, (k, v) => (V54_WALL_CLOCK.has(k) ? undefined : v));
+// Current protected baseline60f9: preserve selected action, chips, timing and RNG.
+// Source-derived authority digests naturally change when policy source changes.
+export const v54BaselineDecision = (d: ReturnType<typeof decideSpot>): string =>
+  JSON.stringify({
+    action: d.action,
+    amount: d.amount ?? null,
+    thinkTime: d.thinkTime,
+    rngState: saveFastRandom(),
+  });
+export const V54_SEEDS = Array.from({ length: 120 }, (_, i) => 31 + i * 7919);
+/** The pot every fixture brings to the river. */
+export const V54_POT = 68;
+
+export function v54Fires(): Record<string, number> {
+  return Object.fromEntries(
+    drainFires()
+      .filter((r) => r.feature.startsWith('v54_'))
+      .map((r) => [r.feature, r.fires])
+  );
+}
+
+export const v54Folder = (): void => seedOpponentRiverRead(21, 30); // folds 70% of river bets
+export const v54Station = (): void => seedOpponentRiverRead(3, 30); // folds 10%
+export const v54Unknown = (): void => HorseMind.reset();

@@ -3,6 +3,7 @@
 // swapped for offline stand-ins, so any route renders with Kings Club data
 // and no network. See ../SKILL.md section 6.
 import { loadConfigFromFile, mergeConfig } from 'vite';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -13,6 +14,8 @@ const swaps = [
   [/\/src\/contexts\/ClubWorkspaceContext\.tsx$/, path.join(HERE, 'workspace-stub.ts')],
   [/\/src\/hooks\/useClubNavigationAccess\.ts$/, path.join(HERE, 'access-stub.ts')],
   [/\/src\/hooks\/useAuthUser\.ts$/, path.join(HERE, 'auth-stub.ts')],
+  [/\/src\/hooks\/useCashoutScope\.ts$/, path.join(HERE, 'cashout-scope-stub.ts')],
+  [/\/src\/services\/CashoutService\.ts$/, path.join(HERE, 'cashout-service-stub.ts')],
 ];
 const stubs = {
   name: 'smarter-design-harness-stubs',
@@ -35,6 +38,9 @@ export default async () => {
   ).config;
   return mergeConfig(base, {
     root: ROOT,
+    // Its own dependency cache: two checkouts sharing one node_modules would
+    // otherwise overwrite each other's pre-bundle and load two copies of React.
+    cacheDir: path.join(os.tmpdir(), 'smarter-design-harness', ROOT.replace(/[^a-z0-9]+/gi, '-')),
     plugins: [stubs],
     // No file watching: on a small container the watcher exhausts inotify.
     server: { host: '127.0.0.1', hmr: false, watch: { ignored: ['**/*'] }, fs: { allow: [ROOT] } },

@@ -167,24 +167,24 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
-/* Turn Indicator Tab (action on you at another table) — spec §9.3 gold pulse-glow */
+/* Turn Indicator Tab (action on you at another table) — spec §9.3 pulse-glow, ice since 2026-11-28 (it was gold) */
 .table-tab-bar__tab--turn {
-  border-color: rgba(255, 215, 0, 0.6);
+  border-color: rgba(116, 223, 255, 0.7);
   animation: pulseGlow 0.8s infinite alternate;
 }
 
 @keyframes pulseGlow {
   0% {
     box-shadow:
-      0 0 4px rgba(255, 215, 0, 0.3),
-      0 0 0 0 rgba(255, 215, 0, 0);
-    filter: drop-shadow(0 0 2px rgba(255, 215, 0, 0.3));
+      0 0 4px rgba(116, 223, 255, 0.3),
+      0 0 0 0 rgba(116, 223, 255, 0);
+    filter: drop-shadow(0 0 2px rgba(116, 223, 255, 0.3));
   }
   100% {
     box-shadow:
-      0 0 12px rgba(255, 215, 0, 0.6),
-      0 0 0 3px rgba(255, 215, 0, 0.2);
-    filter: drop-shadow(0 0 8px rgba(255, 215, 0, 0.5));
+      0 0 12px rgba(116, 223, 255, 0.6),
+      0 0 0 3px rgba(116, 223, 255, 0.2);
+    filter: drop-shadow(0 0 8px rgba(116, 223, 255, 0.5));
   }
 }
 
@@ -358,8 +358,8 @@
   left: 0;
   height: 3px;
   border-radius: 2px;
-  background: linear-gradient(90deg, #eab308 0%, #facc15 100%);
-  box-shadow: 0 0 6px rgba(250, 204, 21, 0.55);
+  background: linear-gradient(90deg, #22b8e8 0%, #74dfff 100%);
+  box-shadow: 0 0 6px rgba(116, 223, 255, 0.55);
   transition: width 1s linear;
   pointer-events: none;
 }
@@ -661,8 +661,8 @@
   padding: 3px 10px;
   margin-right: 8px;
   border-radius: 999px;
-  background: rgba(255, 176, 32, 0.14);
-  border: 1px solid rgba(255, 176, 32, 0.42);
+  background: rgba(159, 186, 204, 0.14);
+  border: 1px solid rgba(159, 186, 204, 0.42);
   color: var(--sp-text-bright);
   font-size: 0.72rem;
   font-weight: 600;
@@ -864,7 +864,7 @@
   padding: 6px 10px 4px;
   font-size: 0.65rem;
   font-weight: 700;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.04em;
   color: rgba(255, 255, 255, 0.45);
   white-space: nowrap;
@@ -988,12 +988,13 @@
   }
 }
 
-/* A pending non-turn decision (discard / insurance / run it) reads amber so it
-   is distinguishable from an ordinary turn at a glance. */
+/* A pending non-turn decision (discard / insurance / run it) reads white on
+   silver glass so it is distinguishable from an ordinary turn (ice) at a
+   glance. It was amber; the skin carries no yellow (2026-11-28). */
 .table-tab-bar__tab--decision {
-  border-color: rgba(251, 191, 36, 0.85);
-  background: rgba(251, 191, 36, 0.14);
-  color: #fde68a;
+  border-color: rgba(241, 245, 252, 0.85);
+  background: rgba(159, 186, 204, 0.16);
+  color: #f1f5fc;
 }
 
 .table-tab-bar__tab--decision .table-tab-bar__tab-name {

@@ -98,7 +98,7 @@ describe('browser qualification parallel delivery', () => {
       );
       expect(ci.jobs[job]['continue-on-error']).toBeUndefined();
       expect(ci.jobs[job].strategy.matrix.shard).toEqual(
-        job === 'accounting_postgres' ? [1, 2, 3, 4, 5, 6, 7] : [1, 2, 3, 4]
+        job === 'accounting_postgres' ? [1, 2, 3, 4, 5, 6, 7] : [1, 2, 3, 4, 5, 6, 7, 8]
       );
       expect(ci.jobs[job].strategy['fail-fast']).toBe(false);
     }
@@ -154,7 +154,8 @@ describe('browser qualification parallel delivery', () => {
     expect(beats.run).not.toContain('--pass-with-no-tests');
     expect(beats.run.trim()).toMatch(/--shard=\$\{\{ matrix\.shard \}\}\/10$/);
     expect(beats.run).toContain('tests/e2e/css/club-data-report.spec.ts');
-    expect((beats.run.match(/tests\/e2e\//g) || []).length).toBe(28);
+    expect(beats.run).toContain('tests/e2e/css/table-surfaces-wear-smarterdesign.spec.ts');
+    expect((beats.run.match(/tests\/e2e\//g) || []).length).toBe(29);
     for (const value of browser.steps) expect(value['continue-on-error']).toBeUndefined();
     const evidence = step('Preserve failed CSS beat browser evidence');
     expect(evidence.if).toContain("steps.css-beats.outcome == 'failure'");

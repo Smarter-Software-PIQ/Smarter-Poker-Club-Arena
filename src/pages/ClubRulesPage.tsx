@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- *  CLUB RULES PAGE — Custom Club Guidelines
+ *  CLUB RULES PAGE - Custom Club Guidelines
  * ═══════════════════════════════════════════════════════════════════════════════
  * Admin-editable club rules that members see. Stored in club_settings.
  */
@@ -17,15 +17,12 @@ import { sanitizeInput } from '../utils/sanitizeInput';
 import { resolveClubUUID, resolveClubUUIDStrict } from '../utils/clubIdResolver';
 import { resolveClubLookupFilter } from '../utils/strictClubIdResolver';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
-import './ClubRulesPage.css';
-import PageSkeleton from '../components/common/PageSkeleton';
-import StandardContentLayout from '../components/layouts/StandardContentLayout';
-import { reportError } from '../utils/errorReporter';
-/* #SmarterDesign (Dan 2026-11-27): the painted console is the old style for a
-   page section; the rules print in the thin chrome case with chrome keys. */
-import { ClubPageSection as SpadeConsole } from '../components/club/ClubPageSection';
-import '../components/console/SpadeConsole.css';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import { ArenaState } from '../components/ops/ArenaOps';
 import '../components/lobby/ArenaWorkspace.css';
+import '../components/ops/ArenaOps.css';
+import './ClubRulesPage.css';
+import { reportError } from '../utils/errorReporter';
 
 const rulesLineAnimationStyle = (index: number) => ({
   opacity: 0,
@@ -313,87 +310,47 @@ export default function ClubRulesPage() {
     }
   };
 
-  /* THE CONSOLE (2026-09-04). The rules sat in a rounded navy card under a
-     plain "Club Rules" heading with a rounded blue Edit button - the same
-     generic sheet every other page had. It is now the spade console - the
-     master every Omaha card is drawn from, cut into head, rails and foot:
-     the club's name and CLUB RULES engraved in the header well, each rule
-     printed on the glass with a lit blue numeral, and for staff the plates
-     painted into the foot (COPY on steel, EDIT RULES on the blue glass;
-     CANCEL / SAVE RULES while editing). Members see the closing foot only.
-     Same data, same handlers, same guards (the fn_set_club_rules save path
-     above is untouched). */
+  /* THE CONSOLE, NOW #SMARTERDESIGN (Dan 2026-11-27). The rules sat on the
+     painted spade console; they now sit in the arena workspace every Club
+     Operations page wears: the chrome mast with the club's name, one thin
+     chrome case, each rule a chrome ledger line with a lit blue numeral, and
+     for staff the keys as one chrome switch (Copy and Edit Rules; Cancel and
+     Save Rules while editing). Same data, same handlers, same guards (the
+     fn_set_club_rules save path above is untouched). */
   const ruleLines = rules.split('\n');
   let ruleNumber = 0;
-  const staffPlates =
-    isAdmin && !loading && !loadError
-      ? isEditing
-        ? {
-            secondary: {
-              label: 'Cancel',
-              className: 'rules-cancel',
-              onClick: () => setIsEditing(false),
-              disabled: saving,
-            },
-            primary: {
-              label: saving ? 'Saving' : 'Save Rules',
-              ink: 'white' as const,
-              className: 'rules-save',
-              onClick: () => void handleSave(),
-              disabled: saving,
-            },
-          }
-        : {
-            secondary: {
-              label: 'Copy',
-              className: 'rules-copy',
-              disabled: !rules,
-              onClick: () => {
-                void writeClipboard(rules).then(
-                  () => toast.success('Rules Copied'),
-                  () => toast.error('Could Not Copy')
-                );
-              },
-            },
-            primary: {
-              label: rules ? 'Edit Rules' : 'Add Rules',
-              ink: 'white' as const,
-              className: 'edit-btn',
-              onClick: () => {
-                setEditValue(rules);
-                setIsEditing(true);
-              },
-            },
-          }
-      : undefined;
+  const showStaffKeys = isAdmin && !loading && !loadError;
 
   return (
-    <StandardContentLayout className="club-rules-page arena-workspace">
-      <SpadeConsole
-        arena
-        className="club-rules-console"
-        aria-busy={loading || saving || undefined}
-        eyebrow={clubName || 'Club'}
+    <section className="club-rules-page arena-workspace" aria-busy={loading || saving || undefined}>
+      <ArenaWorkspaceHeader
+        area="control"
         title="Club Rules"
-        pill={loadError ? 'Offline' : isAdmin ? 'Staff' : undefined}
-        pillInk={loadError ? 'red' : 'blue'}
-        plates={staffPlates}
-        foot={staffPlates ? 'plates' : 'foot'}
-      >
+        context={clubName || undefined}
+        summary="Read The Rules And Guidelines This Club Asks Every Member To Follow."
+      />
+      <section className="arena-case arena-ops-case club-rules-case" aria-label="Club Rules">
+        <h2 className="arena-section-title">
+          Club Rules
+          {(loadError || isAdmin) && (
+            <small className="club-rules-pill" data-offline={loadError || undefined}>
+              {loadError ? 'Offline' : 'Staff'}
+            </small>
+          )}
+        </h2>
         {loading ? (
-          <div className="loading-state">
-            <PageSkeleton variant="settings" />
-          </div>
+          <ArenaState tone="loading" title="Loading Club Rules" />
         ) : loadError ? (
-          <div className="rules-empty">
-            <span className="sc-label sc-ink--red">Could Not Load</span>
-            <p className="sc-copy sc-copy--center">Failed To Load Club Rules.</p>
-            <div className="arena-switch arena-ops-keys arena-ops-primary rules-keys">
+          <ArenaState
+            tone="error"
+            title="Could Not Load"
+            message="Failed To Load Club Rules."
+            actions={
               <button type="button" className="rules-retry" onClick={() => loadRules()}>
                 Retry
               </button>
-            </div>
-          </div>
+            }
+          />
         ) : isEditing ? (
           <div className="rules-editor">
             <textarea
@@ -401,7 +358,7 @@ export default function ClubRulesPage() {
               onChange={(e) => setEditValue(e.target.value)}
               placeholder="Enter Your Club Rules And Guidelines Here...&#10;&#10;Example:&#10;1. Be Respectful To All Players&#10;2. No Slow-Rolling&#10;3. Minimum Buy-In Is 50 BB&#10;4. Seat Changes Allowed Between Hands&#10;5. No External Software Allowed"
               rows={14}
-              className="rules-textarea"
+              className="rules-textarea arena-ops-well"
               aria-label="Club Rules"
             />
           </div>
@@ -419,8 +376,12 @@ export default function ClubRulesPage() {
                   if (m) ruleNumber = Number(m[1]);
                   const body = m ? m[2] : trimmed;
                   return (
-                    <li key={i} className="rules-line" style={rulesLineAnimationStyle(i)}>
-                      <span className="rules-line__number sc-ink--blue" aria-hidden="true">
+                    <li
+                      key={i}
+                      className="rules-line arena-ledger-row"
+                      style={rulesLineAnimationStyle(i)}
+                    >
+                      <span className="rules-line__number" aria-hidden="true">
                         {label}
                       </span>
                       <span className="rules-line__text">{body}</span>
@@ -429,18 +390,67 @@ export default function ClubRulesPage() {
                 })}
               </ol>
             ) : (
-              <div className="rules-empty empty-rules">
-                <span className="sc-label sc-ink--blue">No Rules Set</span>
-                <p className="sc-copy sc-copy--center">
-                  {isAdmin
+              <ArenaState
+                tone="empty"
+                className="empty-rules"
+                title="No Rules Set"
+                message={
+                  isAdmin
                     ? 'Add Rules And Guidelines For Your Club Members.'
-                    : "The Club Owner Hasn't Set Any Rules Yet."}
-                </p>
-              </div>
+                    : "The Club Owner Hasn't Set Any Rules Yet."
+                }
+              />
             )}
           </div>
         )}
-      </SpadeConsole>
-    </StandardContentLayout>
+        {showStaffKeys &&
+          (isEditing ? (
+            <div className="arena-switch arena-ops-keys club-rules-keys">
+              <button
+                type="button"
+                className="rules-cancel"
+                onClick={() => setIsEditing(false)}
+                disabled={saving}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rules-save active"
+                onClick={() => void handleSave()}
+                disabled={saving}
+              >
+                {saving ? 'Saving' : 'Save Rules'}
+              </button>
+            </div>
+          ) : (
+            <div className="arena-switch arena-ops-keys club-rules-keys">
+              <button
+                type="button"
+                className="rules-copy"
+                disabled={!rules}
+                onClick={() => {
+                  void writeClipboard(rules).then(
+                    () => toast.success('Rules Copied'),
+                    () => toast.error('Could Not Copy')
+                  );
+                }}
+              >
+                Copy
+              </button>
+              <button
+                type="button"
+                className="edit-btn active"
+                onClick={() => {
+                  setEditValue(rules);
+                  setIsEditing(true);
+                }}
+              >
+                {rules ? 'Edit Rules' : 'Add Rules'}
+              </button>
+            </div>
+          ))}
+      </section>
+    </section>
   );
 }

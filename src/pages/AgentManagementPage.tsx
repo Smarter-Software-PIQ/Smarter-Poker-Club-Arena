@@ -1,10 +1,10 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- *  CLUB ENGINE — Agent Management Page
+ *  CLUB ENGINE - Agent Management Page
  * ═══════════════════════════════════════════════════════════════════════════════
  * Admin dashboard for managing agents, commissions and payouts. Every agent
  * is prepaid with no credit line (Dan, October 2026).
- * Real Supabase integration — no demo data
+ * Real Supabase integration - no demo data
  *
  * ── #ClubArenaConsole (2026-09-09) ────────────────────────────────────────
  * The page was a gradient header bar with two pill buttons, a four-tile
@@ -40,7 +40,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import styles from './AgentManagementPage.module.css';
 import StandardContentLayout from '../components/layouts/StandardContentLayout';
-import { SpadeConsole, type ConsoleInk } from '../components/console/SpadeConsole';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import { ArenaState } from '../components/ops/ArenaOps';
 import PageBar from '../components/help/PageBar';
 import ConfirmModal from '@/components/common/ConfirmModal';
 import { confirmDialog } from '../components/common/confirmDialog';
@@ -63,8 +64,6 @@ import { useToast } from '@/components/common/Toast';
 import AgentAssignmentPanel from '@/components/agent/AgentAssignmentPanel';
 import AgentCashoutPanel from '@/components/agent/AgentCashoutPanel';
 import { PlayerSearch } from '@/components/admin/PlayerSearch';
-import PageSkeleton from '../components/common/PageSkeleton';
-import { EmptyState, ErrorState } from '../components/common/EmptyState';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import { useSwipeTabs } from '../hooks/useSwipeTabs';
 import { resolveClubUUID } from '../utils/clubIdResolver';
@@ -97,6 +96,12 @@ const EMPTY_AGENT_FORM = {
   parentAgentId: '',
   commissionRate: 50,
 };
+
+/** The club's name as the route spells it; a raw UUID names nothing. */
+function clubContext(clubId?: string): string | undefined {
+  if (!clubId || /^[0-9a-f]{8}-/i.test(clubId)) return undefined;
+  return clubId.replace(/[-_]/g, ' ');
+}
 
 export default function AgentManagementPage() {
   const { clubId } = useParams<{ clubId: string }>();
@@ -938,33 +943,47 @@ export default function AgentManagementPage() {
   // No club selected
   if (!clubId) {
     return (
-      <StandardContentLayout className={styles.page}>
-        <EmptyState
-          icon="CLUB"
-          eyebrow="Club Context Required"
-          tone="permission"
+      <StandardContentLayout className={`arena-workspace ${styles.page}`}>
+        <ArenaState
+          tone="empty"
           title="Choose A Club To Manage Agents"
-          description="Agent Roles, Commissions, And Players Belong To One Club. Open This Tool From That Club's Operations Menu."
-          action={{ label: 'Return To Arena', onClick: () => navigate('/') }}
+          message="Agent Roles, Commissions, And Players Belong To One Club. Open This Tool From That Club's Operations Menu."
+          actions={
+            <button type="button" onClick={() => navigate('/')}>
+              Return To Arena
+            </button>
+          }
         />
       </StandardContentLayout>
     );
   }
 
+  const header = (
+    <ArenaWorkspaceHeader
+      area="operations"
+      title="Agent Management"
+      context={clubContext(clubId)}
+      summary="Manage Agents, Commissions, And Payouts."
+      steps={[
+        {
+          title: 'Agent Views',
+          body: 'Agents, Players, Hierarchy, Commissions And Payouts Each Have Their Own View. Swipe Or Tap To Switch.',
+          target: '[aria-label="Agent Views"]',
+        },
+        {
+          title: 'Add Agent',
+          body: 'Promote A Club Member To Agent And Set Their Commission. Export Downloads The Roster.',
+        },
+      ]}
+    />
+  );
+
   // Loading state
   if (isLoading) {
     return (
-      <StandardContentLayout className={styles.page}>
-        <SpadeConsole
-          className={styles.console}
-          aria-busy
-          title="Agent Management"
-          pill="Loading"
-          pillInk="muted"
-          foot="foot"
-        >
-          <PageSkeleton variant="dashboard" />
-        </SpadeConsole>
+      <StandardContentLayout className={`arena-workspace ${styles.page}`}>
+        {header}
+        <ArenaState tone="loading" title="Loading" message="Reading The Agent Network" />
       </StandardContentLayout>
     );
   }
@@ -972,95 +991,75 @@ export default function AgentManagementPage() {
   // Error state
   if (error) {
     return (
-      <StandardContentLayout className={styles.page}>
-        <ErrorState
+      <StandardContentLayout className={`arena-workspace ${styles.page}`}>
+        {header}
+        <ArenaState
+          tone="error"
+          title="Agent Management"
           message={error}
-          onRetry={() => {
-            void refreshAgentsForCurrentScope('retry', true);
-          }}
+          actions={
+            <button
+              type="button"
+              onClick={() => {
+                void refreshAgentsForCurrentScope('retry', true);
+              }}
+            >
+              Retry
+            </button>
+          }
         />
       </StandardContentLayout>
     );
   }
 
   return (
-    <StandardContentLayout className={styles.page}>
-      {/* Dan, 2026-10-17: "PAGES DON'T NEED TITLES LIKE THIS". The eyebrow and
-          the descriptive subtitle moved behind the painted "?"; the head keeps
-          its title and its live pill. */}
+    <StandardContentLayout className={`arena-workspace ${styles.page}`}>
+      {/* #SmarterDesign (Dan 2026-11-27): the arena mast carries the title, the
+          club and the chrome "?" help; the roster's own figures sit under it
+          as chrome meters. */}
+      {header}
       <PageBar
         title="Agent Management"
         titleAs={false}
-        summary="Manage Agents, Commissions, And Payouts."
-        steps={[
+        showHelp={false}
+        metrics={[
           {
-            title: 'Agent Views',
-            body: 'Agents, Players, Hierarchy, Commissions And Payouts Each Have Their Own View. Swipe Or Tap To Switch.',
-            target: '[aria-label="Agent Views"]',
+            label: 'Active Agents',
+            value: `${compactChips(activeAgents)}/${compactChips(totalAgents)}`,
+            tone: activeAgents > 0 ? 'live' : 'default',
           },
-          {
-            title: 'Add Agent',
-            body: 'Promote A Club Member To Agent And Set Their Commission. Export Downloads The Roster.',
-          },
+          { label: 'Total Players', value: compactChips(totalPlayers) },
+          { label: 'Weekly Rake', value: formatMoney(weeklyRake), tone: 'live' },
+          { label: 'Funding', value: 'Prepaid' },
         ]}
       />
-      {/* ── The head: the roster's own figures as rows on the glass ──── */}
-      <SpadeConsole
-        className={styles.console}
-        title="Agent Management"
-        pill={compactChips(totalAgents)}
-        pillInk={totalAgents === 0 ? 'muted' : 'blue'}
-        foot="plates"
-        /* TWO ACTIONS OR NONE: the foot paints both plates, so Export is
-           always present and simply disabled with an empty roster, rather
-           than leaving a painted plate with no word on it. */
-        plates={{
-          secondary: {
-            label: 'Export',
-            disabled: agents.length === 0,
-            onClick: handleExportAgents,
-          },
-          primary: {
-            label: 'Add Agent',
-            ink: 'white',
-            onClick: () => setShowAddModal(true),
-          },
-        }}
-      >
+      <section className="arena-case arena-ops-case" aria-label="Agent Management">
+        <h2 className="arena-section-title">
+          Agent Network<small>{compactChips(totalAgents)} Agents</small>
+        </h2>
         {/* AgentService.getAgents reads at most QUERY_LIMITS.MODERATE rows. A
             club at the cap sees exactly the cap, which used to look like the
             whole roster. */}
         {agents.length >= QUERY_LIMITS.MODERATE && (
-          <p className="sc-copy" role="status">
+          <p className="arena-ops-copy" role="status">
             Showing The First {fmt(QUERY_LIMITS.MODERATE)} Agents. The Club Has More; The Summary
             Counts Only These.
           </p>
         )}
 
-        <dl className={styles.facts}>
-          <div className={styles.fact}>
-            <dt className={`${styles.factLabel} sc-label sc-ink--blue`}>Active Agents</dt>
-            <dd className={`${styles.factValue} sc-ink--silver`}>
-              {compactChips(activeAgents)}/{compactChips(totalAgents)}
-            </dd>
-          </div>
-          <div className={styles.fact}>
-            <dt className={`${styles.factLabel} sc-label sc-ink--blue`}>Total Players</dt>
-            <dd className={`${styles.factValue} sc-ink--silver`}>{compactChips(totalPlayers)}</dd>
-          </div>
-          <div className={styles.fact}>
-            <dt className={`${styles.factLabel} sc-label sc-ink--blue`}>Weekly Rake</dt>
-            <dd className={`${styles.factValue} sc-ink--green`}>{formatMoney(weeklyRake)}</dd>
-          </div>
-          <div className={styles.fact}>
-            <dt className={`${styles.factLabel} sc-label sc-ink--blue`}>Funding</dt>
-            <dd className={`${styles.factValue} sc-ink--silver`}>Prepaid</dd>
-          </div>
-        </dl>
+        {/* Add Agent is the primary key; Export is always present and simply
+            disabled with an empty roster. */}
+        <div className="arena-switch arena-ops-keys arena-ops-primary">
+          <button type="button" onClick={() => setShowAddModal(true)}>
+            Add Agent
+          </button>
+          <button type="button" disabled={agents.length === 0} onClick={handleExportAgents}>
+            Export
+          </button>
+        </div>
 
-        {/* The six views are lit words cut into the glass. The master paints
-            no tab, so nothing here draws one. */}
-        <nav className={styles.rail} role="tablist" aria-label="Agent Views">
+        {/* The five views are one chrome switch; the open view lights blue. */}
+        <nav className="arena-switch arena-ops-keys" role="tablist" aria-label="Agent Views">
           {(['agents', 'players', 'hierarchy', 'commissions', 'payouts'] as TabType[]).map(
             (tab) => (
               <button
@@ -1068,9 +1067,6 @@ export default function AgentManagementPage() {
                 type="button"
                 role="tab"
                 aria-selected={activeTab === tab}
-                className={`${styles.railWord} ${
-                  activeTab === tab ? 'sc-ink--silver' : 'sc-ink--muted'
-                }`}
                 onClick={() => setActiveTab(tab)}
               >
                 {tab === 'agents' && 'Agents'}
@@ -1082,31 +1078,26 @@ export default function AgentManagementPage() {
             )
           )}
         </nav>
-      </SpadeConsole>
+      </section>
 
-      {/* Tab Content — Swipeable */}
+      {/* Tab Content - Swipeable */}
       <div className={styles.content} {...swipeHandlers}>
         {/* ═══════════════════════════════════════════════════════════════════════════════ */}
         {/* AGENTS TAB */}
         {/* ═══════════════════════════════════════════════════════════════════════════════ */}
         {activeTab === 'agents' && (
-          <SpadeConsole
-            className={styles.console}
-            eyebrow="Agent Network"
-            title="Agents"
-            pill={agents.length === 0 ? 'Empty' : compactChips(agents.length)}
-            pillInk={agents.length === 0 ? 'muted' : 'blue'}
-            foot="foot"
-          >
+          <section className="arena-case arena-ops-case" aria-label="Agents">
+            <h2 className="arena-section-title">
+              Agents<small>{agents.length === 0 ? 'Empty' : compactChips(agents.length)}</small>
+            </h2>
             {agents.length === 0 ? (
-              <div className={styles.empty}>
-                <span className="sc-label sc-ink--muted">No Agents Yet</span>
-                <p className="sc-copy sc-copy--center">
-                  Promote A Member To Start The Agent Network For This Club.
-                </p>
-              </div>
+              <ArenaState
+                tone="empty"
+                title="No Agents Yet"
+                message="Promote A Member To Start The Agent Network For This Club."
+              />
             ) : (
-              <ol className={styles.list}>
+              <ol className="arena-ops-rows arena-ops-rows--single">
                 {agents.map((agent) => (
                   /* THE STAGGER STILL PLAYS. Same `visibleAgents` set, same
                      step, same eight-pixel lift - it runs on the global
@@ -1114,7 +1105,7 @@ export default function AgentManagementPage() {
                      copy of it. */
                   <li
                     key={agent.id}
-                    className={styles.row}
+                    className={`arena-ledger-row ${styles.row}`}
                     style={
                       visibleAgents.has(agent.id)
                         ? {
@@ -1125,12 +1116,10 @@ export default function AgentManagementPage() {
                         : { opacity: 0, transform: 'translateY(8px)' }
                     }
                   >
-                    <span className={`${styles.rowName} sc-ink--silver`}>
-                      {agent.displayName || 'Unknown Agent'}
-                    </span>
-                    {/* Words in the master's own ink, never capsules. */}
+                    <span className={styles.rowName}>{agent.displayName || 'Unknown Agent'}</span>
+                    {/* Lit words, never capsules. */}
                     <span className={styles.rowFlags}>
-                      <span className="sc-label sc-ink--blue">
+                      <span className={styles.flag}>
                         {agent.role === 'super_agent'
                           ? 'Super Agent'
                           : agent.role === 'agent'
@@ -1138,79 +1127,61 @@ export default function AgentManagementPage() {
                             : 'Sub-Agent'}
                       </span>
                       <span
-                        className={`sc-label ${
-                          agent.status === 'active' ? 'sc-ink--green' : 'sc-ink--red'
-                        }`}
+                        className={styles.flag}
+                        data-tone={agent.status === 'active' ? 'live' : 'danger'}
                       >
                         {agent.status}
                       </span>
                       {agent.parentAgentName && (
-                        <span className="sc-label sc-ink--muted">
+                        <span className={styles.flag} data-tone="muted">
                           Under: {agent.parentAgentName}
                         </span>
                       )}
                     </span>
 
-                    <dl className={styles.facts}>
-                      <div className={styles.fact}>
-                        <dt className={`${styles.factLabel} sc-label sc-ink--blue`}>Commission</dt>
-                        <dd className={`${styles.factValue} sc-ink--silver`}>
-                          {formatPercent(agent.commissionRate)}
-                        </dd>
+                    <dl className="arena-ops-readings">
+                      <div className="arena-meter">
+                        <dt>Commission</dt>
+                        <dd>{formatPercent(agent.commissionRate)}</dd>
                       </div>
-                      <div className={styles.fact}>
-                        <dt className={`${styles.factLabel} sc-label sc-ink--blue`}>Rakeback</dt>
-                        <dd className={`${styles.factValue} sc-ink--silver`}>
-                          {formatPercent(agent.playerRakebackRate)}
-                        </dd>
+                      <div className="arena-meter">
+                        <dt>Rakeback</dt>
+                        <dd>{formatPercent(agent.playerRakebackRate)}</dd>
                       </div>
-                      <div className={styles.fact}>
-                        <dt className={`${styles.factLabel} sc-label sc-ink--blue`}>Players</dt>
-                        <dd className={`${styles.factValue} sc-ink--silver`}>
+                      <div className="arena-meter">
+                        <dt>Players</dt>
+                        <dd>
                           {fmt(agent.activePlayerCount)}/{fmt(agent.totalPlayers)}
                         </dd>
                       </div>
-                      <div className={styles.fact}>
-                        <dt className={`${styles.factLabel} sc-label sc-ink--blue`}>Weekly Rake</dt>
-                        <dd className={`${styles.factValue} sc-ink--green`}>
-                          {formatMoney(agent.weeklyRakeGenerated)}
-                        </dd>
+                      <div className="arena-meter" data-tone="live">
+                        <dt>Weekly Rake</dt>
+                        <dd>{formatMoney(agent.weeklyRakeGenerated)}</dd>
                       </div>
                       {/* Three balances used to sit beside one glyph and two
                           empty spans, so two of the three had no name. */}
-                      <div className={styles.fact}>
+                      <div className="arena-meter" data-tone="attention">
                         <dt className={styles.walletLabel}>Agent</dt>
-                        <dd className={`${styles.factValue} sc-ink--silver`}>
-                          {formatMoney(agent.businessBalance)}
-                        </dd>
+                        <dd>{formatMoney(agent.businessBalance)}</dd>
                       </div>
-                      <div className={styles.fact}>
+                      <div className="arena-meter" data-tone="attention">
                         <dt className={styles.walletLabel}>Player</dt>
-                        <dd className={`${styles.factValue} sc-ink--silver`}>
-                          {formatMoney(agent.playerBalance)}
-                        </dd>
+                        <dd>{formatMoney(agent.playerBalance)}</dd>
                       </div>
-                      <div className={styles.fact}>
+                      <div className="arena-meter" data-tone="attention">
                         <dt className={styles.walletLabel}>Promo</dt>
-                        <dd className={`${styles.factValue} sc-ink--silver`}>
-                          {formatMoney(agent.promoBalance)}
-                        </dd>
+                        <dd>{formatMoney(agent.promoBalance)}</dd>
                       </div>
                     </dl>
 
-                    <div className={styles.rowActions}>
+                    <div className="arena-switch arena-ops-keys">
                       {agent.status === 'active' ? (
                         <>
-                          <button
-                            type="button"
-                            className={`${styles.word} sc-ink--red`}
-                            onClick={() => handleSuspendAgent(agent.id)}
-                          >
+                          <button type="button" onClick={() => handleSuspendAgent(agent.id)}>
                             Suspend
                           </button>
                           <button
                             type="button"
-                            className={`${styles.word} sc-ink--blue`}
                             onClick={() => {
                               setTransferAgentId(agent.userId);
                               setShowTransferModal(true);
@@ -1221,7 +1192,6 @@ export default function AgentManagementPage() {
                           {agent.role === 'agent' && (
                             <button
                               type="button"
-                              className={`${styles.word} sc-ink--gold`}
                               onClick={() => handlePromoteAgent(agent.id, agent.role)}
                             >
                               Promote
@@ -1230,7 +1200,6 @@ export default function AgentManagementPage() {
                           {agent.role === 'super_agent' && (
                             <button
                               type="button"
-                              className={`${styles.word} sc-ink--gold`}
                               onClick={() => handlePromoteAgent(agent.id, agent.role)}
                             >
                               Demote
@@ -1238,7 +1207,6 @@ export default function AgentManagementPage() {
                           )}
                           <button
                             type="button"
-                            className={`${styles.word} sc-ink--blue`}
                             onClick={() => {
                               setPlayerInviteAgentUserId(agent.userId);
                               setShowPlayerInviteModal(true);
@@ -1248,7 +1216,6 @@ export default function AgentManagementPage() {
                           </button>
                           <button
                             type="button"
-                            className={`${styles.word} sc-ink--blue`}
                             onClick={() => {
                               setCommissionAgentId(agent.id);
                               setCommissionAgentName(agent.displayName || 'Agent');
@@ -1259,11 +1226,7 @@ export default function AgentManagementPage() {
                           </button>
                         </>
                       ) : (
-                        <button
-                          type="button"
-                          className={`${styles.word} sc-ink--green`}
-                          onClick={() => handleReinstateAgent(agent.id)}
-                        >
+                        <button type="button" onClick={() => handleReinstateAgent(agent.id)}>
                           Reinstate
                         </button>
                       )}
@@ -1272,11 +1235,11 @@ export default function AgentManagementPage() {
                 ))}
               </ol>
             )}
-          </SpadeConsole>
+          </section>
         )}
 
         {/* ═══════════════════════════════════════════════════════════════════════════════ */}
-        {/* PLAYERS TAB — Search and Manage Players */}
+        {/* PLAYERS TAB - Search and Manage Players */}
         {/* ═══════════════════════════════════════════════════════════════════════════════ */}
         {activeTab === 'players' && (
           <div className={styles.playersSection}>
@@ -1303,103 +1266,115 @@ export default function AgentManagementPage() {
                 already claimed back and the seconds left are all the
                 database's, from fn_agent_wallet_reversible. */}
             {recentDistributions.length > 0 && (
-              <SpadeConsole
-                className={styles.console}
-                eyebrow="Agent Wallet"
-                title="Sends You Can Still Take Back"
-                pill={compactChips(recentDistributions.length)}
-                pillInk="gold"
-                foot="foot"
+              <section
+                className="arena-case arena-ops-case"
+                aria-label="Sends You Can Still Take Back"
               >
-                {recentDistributions.map((tx) => {
-                  const mins = Math.floor(tx.seconds_left / 60);
-                  const secs = tx.seconds_left % 60;
-                  const partial = Number(tx.claimed_back) > 0;
-                  return (
-                    <div key={tx.transaction_id} className={styles.row}>
-                      <span className={`${styles.rowName} sc-ink--silver`}>
-                        {fmtChips(tx.remaining)} Chips To {tx.to_name}
-                      </span>
-                      <span className={`${styles.rowMeta} sc-ink--muted`}>
-                        {partial
-                          ? `${fmtChips(tx.claimed_back)} Of ${fmtChips(tx.amount)} Already Taken Back - `
-                          : ''}
-                        {/* Gold while the window is open, red inside the last
-                            ten seconds, exactly as a countdown reads
-                            everywhere else on the master. */}
-                        <span className={tx.seconds_left <= 10 ? 'sc-ink--red' : 'sc-ink--gold'}>
-                          {mins}:{String(secs).padStart(2, '0')} Left
+                <p className="arena-ops-eyebrow">Agent Wallet</p>
+                <h2 className="arena-section-title">
+                  Sends You Can Still Take Back
+                  <small>{compactChips(recentDistributions.length)}</small>
+                </h2>
+                <ul className="arena-ops-rows arena-ops-rows--single">
+                  {recentDistributions.map((tx) => {
+                    const mins = Math.floor(tx.seconds_left / 60);
+                    const secs = tx.seconds_left % 60;
+                    const partial = Number(tx.claimed_back) > 0;
+                    return (
+                      <li key={tx.transaction_id} className={`arena-ledger-row ${styles.row}`}>
+                        <span className={styles.rowName}>
+                          {fmtChips(tx.remaining)} Chips To {tx.to_name}
                         </span>
-                      </span>
-                      <button
-                        type="button"
-                        className={`${styles.word} sc-ink--red`}
-                        onClick={async () => {
-                          if (clawbackBusy.current) return;
-                          if (
-                            !(await confirmDialog({
-                              title: 'Take This Send Back',
-                              message: `Take back ${fmtChips(tx.remaining)} chips from ${tx.to_name}? This returns them to your agent wallet.`,
-                              confirmText: 'Take It Back',
-                              variant: 'danger',
-                            }))
-                          )
-                            return;
-                          if (clawbackBusy.current) return;
-                          clawbackBusy.current = true;
-                          setClawbackProcessing(tx.transaction_id);
-                          try {
-                            const operationId =
-                              clawbackOperationIds.current.get(tx.transaction_id) ||
-                              crypto.randomUUID();
-                            clawbackOperationIds.current.set(tx.transaction_id, operationId);
-                            const result = await AgentService.claimBackDistribution(
-                              clubId!,
-                              tx.transaction_id,
-                              tx.remaining,
-                              'Taken back from the agent network console',
-                              operationId
-                            );
-                            if (result.success) {
-                              clawbackOperationIds.current.delete(tx.transaction_id);
-                              toast.success(
-                                `Took Back ${fmtChips(result.claimedBack || tx.remaining)} Chips.`
-                              );
-                              loadRecentDistributions();
-                            } else {
-                              toast.error(result.error || 'That Claim Back Was Refused.');
-                            }
-                          } catch (err: unknown) {
-                            if (isAuthzError(err)) {
-                              reportError(err, 'AgentManagementPage.clawback_authority_revoked', {
-                                clubId,
-                                transactionId: tx.transaction_id,
-                              });
-                              revokeAgentManagementAccess();
-                              return;
-                            }
-                            toast.error(
-                              err instanceof Error ? err.message : 'That Claim Back Was Refused.'
-                            );
-                          } finally {
-                            clawbackBusy.current = false;
-                            setClawbackProcessing(null);
-                          }
-                        }}
-                        disabled={clawbackProcessing === tx.transaction_id}
-                      >
-                        {clawbackProcessing === tx.transaction_id ? 'Working' : 'Take Back'}
-                      </button>
-                    </div>
-                  );
-                })}
-              </SpadeConsole>
+                        <span className={styles.rowMeta}>
+                          {partial
+                            ? `${fmtChips(tx.claimed_back)} Of ${fmtChips(tx.amount)} Already Taken Back - `
+                            : ''}
+                          {/* Gold while the window is open, red inside the last
+                            ten seconds. */}
+                          <span
+                            className={styles.countdown}
+                            data-tone={tx.seconds_left <= 10 ? 'danger' : 'attention'}
+                          >
+                            {mins}:{String(secs).padStart(2, '0')} Left
+                          </span>
+                        </span>
+                        <div className="arena-switch arena-ops-keys">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (clawbackBusy.current) return;
+                              if (
+                                !(await confirmDialog({
+                                  title: 'Take This Send Back',
+                                  message: `Take back ${fmtChips(tx.remaining)} chips from ${tx.to_name}? This returns them to your agent wallet.`,
+                                  confirmText: 'Take It Back',
+                                  variant: 'danger',
+                                }))
+                              )
+                                return;
+                              if (clawbackBusy.current) return;
+                              clawbackBusy.current = true;
+                              setClawbackProcessing(tx.transaction_id);
+                              try {
+                                const operationId =
+                                  clawbackOperationIds.current.get(tx.transaction_id) ||
+                                  crypto.randomUUID();
+                                clawbackOperationIds.current.set(tx.transaction_id, operationId);
+                                const result = await AgentService.claimBackDistribution(
+                                  clubId!,
+                                  tx.transaction_id,
+                                  tx.remaining,
+                                  'Taken back from the agent network console',
+                                  operationId
+                                );
+                                if (result.success) {
+                                  clawbackOperationIds.current.delete(tx.transaction_id);
+                                  toast.success(
+                                    `Took Back ${fmtChips(result.claimedBack || tx.remaining)} Chips.`
+                                  );
+                                  loadRecentDistributions();
+                                } else {
+                                  toast.error(result.error || 'That Claim Back Was Refused.');
+                                }
+                              } catch (err: unknown) {
+                                if (isAuthzError(err)) {
+                                  reportError(
+                                    err,
+                                    'AgentManagementPage.clawback_authority_revoked',
+                                    {
+                                      clubId,
+                                      transactionId: tx.transaction_id,
+                                    }
+                                  );
+                                  revokeAgentManagementAccess();
+                                  return;
+                                }
+                                toast.error(
+                                  err instanceof Error
+                                    ? err.message
+                                    : 'That Claim Back Was Refused.'
+                                );
+                              } finally {
+                                clawbackBusy.current = false;
+                                setClawbackProcessing(null);
+                              }
+                            }}
+                            disabled={clawbackProcessing === tx.transaction_id}
+                          >
+                            {clawbackProcessing === tx.transaction_id ? 'Working' : 'Take Back'}
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
             )}
           </div>
         )}
 
         {/* ═══════════════════════════════════════════════════════════════════════════════ */}
-        {/* DISTRIBUTION HISTORY + AGENT ANALYTICS (Phase 4 — New Features) */}
+        {/* DISTRIBUTION HISTORY + AGENT ANALYTICS (Phase 4 - New Features) */}
         {/* ═══════════════════════════════════════════════════════════════════════════════ */}
         {activeTab === 'players' && user && clubId && (
           <>
@@ -1409,10 +1384,10 @@ export default function AgentManagementPage() {
         )}
 
         {/* ═══════════════════════════════════════════════════════════════════════════════ */}
-        {/* HIERARCHY TAB — Visual Tree View */}
+        {/* HIERARCHY TAB - Visual Tree View */}
         {/* ═══════════════════════════════════════════════════════════════════════════════ */}
         {activeTab === 'hierarchy' && clubId && (
-          <div style={{ marginBottom: 20 }}>
+          <div className={styles.assignment}>
             <AgentAssignmentPanel clubId={clubId} />
           </div>
         )}
@@ -1453,7 +1428,7 @@ export default function AgentManagementPage() {
         {activeTab === 'payouts' && (
           <div className={styles.payoutsSection}>
             {/* Player Cashout Requests (wired to CashoutService) */}
-            <AgentCashoutPanel clubId={clubId} />
+            <AgentCashoutPanel clubId={clubId} arena />
 
             {/*
               THE SCHEDULE THIS BLOCK USED TO PRINT WAS THREE LINES OF STATIC
@@ -1469,64 +1444,55 @@ export default function AgentManagementPage() {
             {/* SIX COLUMNS OF COMMISSION ON A 393px PHONE, GONE. One row per
                 agent with its fields stacked; every figure is the ledger's,
                 unchanged. */}
-            <SpadeConsole
-              className={styles.console}
-              eyebrow="Commission Ledger"
-              title="What This Club Owes Its Agents"
-              pill={payables ? fmtChips(payables.total_owed) : undefined}
-              pillInk="gold"
-              foot="foot"
+            <section
+              className="arena-case arena-ops-case"
+              aria-label="What This Club Owes Its Agents"
             >
+              <p className="arena-ops-eyebrow">Commission Ledger</p>
+              <h2 className="arena-section-title">
+                What This Club Owes Its Agents
+                {payables && <small>{fmtChips(payables.total_owed)}</small>}
+              </h2>
               {payablesError ? (
-                <p className="sc-copy sc-ink--red">{payablesError}</p>
+                <ArenaState tone="error" title="Commission Ledger" message={payablesError} />
               ) : !payables ? (
-                <p className="sc-copy" aria-busy="true">
-                  Reading The Commission Ledger
-                </p>
+                <ArenaState tone="loading" title="Reading The Commission Ledger" />
               ) : (
                 <>
-                  <p className="sc-copy">
+                  <p className="arena-ops-copy">
                     Unsettled Commission Across {fmt(payables.agents)}{' '}
                     {payables.agents === 1 ? 'Agent' : 'Agents'}, From {fmt(payables.total_rows)}{' '}
                     Earned {payables.total_rows === 1 ? 'Row' : 'Rows'}
                   </p>
-                  <ol className={styles.list}>
+                  <ol className="arena-ops-rows arena-ops-rows--single">
                     {payables.rows.map((row) => (
-                      <li key={row.agent_id} className={styles.row}>
-                        <span className={`${styles.rowName} sc-ink--silver`}>{row.name}</span>
+                      <li key={row.agent_id} className={`arena-ledger-row ${styles.row}`}>
+                        <span className={styles.rowName}>{row.name}</span>
                         <span className={styles.rowFlags}>
-                          <span className="sc-label sc-ink--blue">
+                          <span className={styles.flag}>
                             {AGENT_ROLE_LABELS[row.role] || row.role}
                           </span>
                         </span>
-                        <dl className={styles.facts}>
-                          <div className={styles.fact}>
-                            <dt className={`${styles.factLabel} sc-label sc-ink--blue`}>Owed</dt>
-                            <dd className={`${styles.factValue} sc-ink--gold`}>
-                              {fmtChips(row.owed)}
-                            </dd>
+                        <dl className="arena-ops-readings">
+                          <div className="arena-meter" data-tone="attention">
+                            <dt>Owed</dt>
+                            <dd>{fmtChips(row.owed)}</dd>
                           </div>
-                          <div className={styles.fact}>
-                            <dt className={`${styles.factLabel} sc-label sc-ink--blue`}>
-                              Earned Rows
-                            </dt>
-                            <dd className={`${styles.factValue} sc-ink--silver`}>
-                              {fmt(row.rows_behind)}
-                            </dd>
+                          <div className="arena-meter">
+                            <dt>Earned Rows</dt>
+                            <dd>{fmt(row.rows_behind)}</dd>
                           </div>
-                          <div className={styles.fact}>
-                            <dt className={`${styles.factLabel} sc-label sc-ink--blue`}>
-                              Oldest Unsettled
-                            </dt>
-                            <dd className={`${styles.factValue} sc-ink--silver`}>
+                          <div className="arena-meter">
+                            <dt>Oldest Unsettled</dt>
+                            <dd>
                               {row.oldest_unsettled
                                 ? timeAgo(row.oldest_unsettled)
                                 : 'Nothing Owed'}
                             </dd>
                           </div>
-                          <div className={styles.fact}>
-                            <dt className={`${styles.factLabel} sc-label sc-ink--blue`}>Funding</dt>
-                            <dd className={`${styles.factValue} sc-ink--silver`}>
+                          <div className="arena-meter">
+                            <dt>Funding</dt>
+                            <dd>
                               {row.is_prepaid
                                 ? 'Prepaid'
                                 : `${fmtChips(row.credit_limit)} Credit Line (Tracking Only)`}
@@ -1537,14 +1503,14 @@ export default function AgentManagementPage() {
                     ))}
                   </ol>
                   {payables.agents > payables.rows.length && (
-                    <p className="sc-copy">
+                    <p className="arena-ops-copy">
                       Showing The {fmt(payables.rows.length)} Agents Who Are Owed The Most, Of{' '}
                       {fmt(payables.agents)}. The Total Above Counts Every One Of Them.
                     </p>
                   )}
                 </>
               )}
-            </SpadeConsole>
+            </section>
           </div>
         )}
       </div>
@@ -1554,29 +1520,36 @@ export default function AgentManagementPage() {
       {/* ═══════════════════════════════════════════════════════════════════════════════ */}
       {showAddModal && (
         <div className={styles.modalOverlay} onClick={handleCloseModal}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <h2>Create New Agent</h2>
-              <button className={styles.closeBtn} onClick={handleCloseModal}>
-                ×
-              </button>
-            </div>
+          <div
+            className={`arena-case arena-ops-case ${styles.modal}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="arena-section-title">
+              Create New Agent
+              <span className="arena-switch">
+                <button type="button" aria-label="Close" onClick={handleCloseModal}>
+                  ×
+                </button>
+              </span>
+            </h2>
 
             <div className={styles.modalBody}>
               {/* Member Selection */}
               <div className={styles.formGroup}>
                 <label>Select Member To Promote *</label>
                 {isLoadingMembers ? (
-                  <div className={styles.loadingSelect}>Loading Members...</div>
+                  <ArenaState tone="loading" title="Loading Members..." />
                 ) : availableMembers.length === 0 ? (
-                  <div className={styles.emptySelect}>
-                    No Eligible Members Found. Members Must Be Active And Not Already Agents.
-                  </div>
+                  <ArenaState
+                    tone="empty"
+                    title="No Eligible Members Found"
+                    message="Members Must Be Active And Not Already Agents."
+                  />
                 ) : (
                   <select
                     value={newAgentForm.userId}
                     onChange={(e) => setNewAgentForm({ ...newAgentForm, userId: e.target.value })}
-                    className={styles.formSelect}
+                    className="arena-ops-well"
                   >
                     <option value="">Choose A Member To Promote...</option>
                     {availableMembers.map((m) => (
@@ -1591,10 +1564,10 @@ export default function AgentManagementPage() {
               {/* Role Selection */}
               <div className={styles.formGroup}>
                 <label>Agent Role *</label>
-                <div className={styles.roleSelector}>
+                <div className="arena-switch arena-ops-keys">
                   <button
                     type="button"
-                    className={`${styles.roleOption} ${newAgentForm.role === 'super_agent' ? styles.selected : ''}`}
+                    aria-pressed={newAgentForm.role === 'super_agent'}
                     onClick={() =>
                       setNewAgentForm({ ...newAgentForm, role: 'super_agent', parentAgentId: '' })
                     }
@@ -1604,7 +1577,7 @@ export default function AgentManagementPage() {
                   </button>
                   <button
                     type="button"
-                    className={`${styles.roleOption} ${newAgentForm.role === 'agent' ? styles.selected : ''}`}
+                    aria-pressed={newAgentForm.role === 'agent'}
                     onClick={() => setNewAgentForm({ ...newAgentForm, role: 'agent' })}
                   >
                     <span className={styles.roleLabel}>Agent</span>
@@ -1612,7 +1585,7 @@ export default function AgentManagementPage() {
                   </button>
                   <button
                     type="button"
-                    className={`${styles.roleOption} ${newAgentForm.role === 'sub_agent' ? styles.selected : ''}`}
+                    aria-pressed={newAgentForm.role === 'sub_agent'}
                     onClick={() => setNewAgentForm({ ...newAgentForm, role: 'sub_agent' })}
                   >
                     <span className={styles.roleLabel}>Sub-Agent</span>
@@ -1637,7 +1610,7 @@ export default function AgentManagementPage() {
                       onChange={(e) =>
                         setNewAgentForm({ ...newAgentForm, parentAgentId: e.target.value })
                       }
-                      className={styles.formSelect}
+                      className="arena-ops-well"
                     >
                       <option value="">Select Parent Agent...</option>
                       {agents
@@ -1689,7 +1662,7 @@ export default function AgentManagementPage() {
 
               {/* Summary */}
               <div className={styles.formSummary}>
-                <h4>Agent Summary</h4>
+                <h3 className="arena-ops-eyebrow">Agent Summary</h3>
                 <div className={styles.summaryGrid}>
                   <div>
                     Role: <strong>{newAgentForm.role.replace('_', ' ')}</strong>
@@ -1704,16 +1677,16 @@ export default function AgentManagementPage() {
               </div>
             </div>
 
-            <div className={styles.modalFooter}>
-              <button className={styles.cancelBtn} onClick={handleCloseModal}>
-                Cancel
-              </button>
+            <div className="arena-switch arena-ops-keys arena-ops-primary">
               <button
-                className={styles.createBtn}
+                type="button"
                 onClick={handleCreateAgent}
                 disabled={isCreating || !newAgentForm.userId}
               >
                 {isCreating ? 'Creating...' : 'Create Agent'}
+              </button>
+              <button type="button" onClick={handleCloseModal}>
+                Cancel
               </button>
             </div>
           </div>
@@ -1763,27 +1736,30 @@ export default function AgentManagementPage() {
       {/* Exclusion dialog: reason and expiry go to the record. */}
       {banTarget && (
         <div
-          className={styles.banOverlay}
+          className={styles.modalOverlay}
           onClick={() => !banBusy && setBanTarget(null)}
           onKeyDown={(e) => {
             if (e.key === 'Escape' && !banBusy) setBanTarget(null);
           }}
         >
           <div
-            className={styles.banDialog}
+            className={`arena-case arena-ops-case ${styles.modal}`}
             role="dialog"
             aria-modal="true"
             aria-labelledby="ban-dialog-title"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 id="ban-dialog-title">Exclude Player From This Club</h3>
-            <p className={styles.banHelp}>
+            <h3 id="ban-dialog-title" className="arena-section-title">
+              Exclude Player From This Club
+            </h3>
+            <p className="arena-ops-copy">
               They Will Not Be Able To Buy In, Rebuy Or Register Here. Their Chips Stay In Their
               Wallet And Their Seat Is Not Closed.
             </p>
             <label className={styles.banField}>
               <span>Reason</span>
               <textarea
+                className="arena-ops-well"
                 value={banReason}
                 onChange={(e) => setBanReason(e.target.value)}
                 rows={3}
@@ -1794,6 +1770,7 @@ export default function AgentManagementPage() {
             <label className={styles.banField}>
               <span>Expires</span>
               <select
+                className="arena-ops-well"
                 value={banDays}
                 onChange={(e) => setBanDays(e.target.value as typeof banDays)}
               >
@@ -1803,22 +1780,16 @@ export default function AgentManagementPage() {
                 <option value="90">In 90 Days</option>
               </select>
             </label>
-            <div className={styles.banActions}>
+            <div className="arena-switch arena-ops-keys arena-ops-primary">
               <button
                 type="button"
-                className={styles.banCancel}
-                onClick={() => setBanTarget(null)}
-                disabled={banBusy}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className={styles.banConfirm}
                 onClick={() => void executeBan()}
                 disabled={banBusy || banReason.trim().length < 3}
               >
                 {banBusy ? 'Excluding...' : 'Exclude Player'}
+              </button>
+              <button type="button" onClick={() => setBanTarget(null)} disabled={banBusy}>
+                Cancel
               </button>
             </div>
           </div>

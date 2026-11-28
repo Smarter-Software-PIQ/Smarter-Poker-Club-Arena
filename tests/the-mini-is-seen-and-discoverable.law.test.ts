@@ -410,7 +410,7 @@ describe('the popup: three pages, each with a mini of its own', () => {
   });
 
   it('the header follows the row rather than showing the main pool under a mini tab', () => {
-    expect(modal).toMatch(/\{isMini \? 'MINI BAD BEAT JACKPOT' : 'BAD BEAT JACKPOT'\}/);
+    expect(modal).toMatch(/\{isMini \? 'Mini Bad Beat Jackpot' : 'Bad Beat Jackpot'\}/);
     expect(modal).toMatch(/bbj-modal__amount--mini/);
     expect(modal).toMatch(/miniTier\.payable[\s\S]{0,200}?'Paused'/);
   });

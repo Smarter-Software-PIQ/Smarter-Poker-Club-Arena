@@ -1712,7 +1712,7 @@ export default function ClubDataPage({
             setLedgerSource('cold');
             setError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
           } else if (isAuthzError(rpcError)) {
-            setError('You need to be an owner or admin of this club to see its data.');
+            setError('You Need To Be An Owner Or Admin Of This Club To See Its Data.');
             removeClubDataCaches(userId, clubUuid);
             setLedgerSource('cold');
           } else {
@@ -2144,7 +2144,7 @@ export default function ClubDataPage({
             setError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
             setPlayersError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
           } else if (isAuthzError(rpcError)) {
-            setPlayersError('You need to be an owner or admin of this club to see player data.');
+            setPlayersError('You Need To Be An Owner Or Admin Of This Club To See Player Data.');
             removeClubDataCaches(userId, clubUuid);
           } else {
             reportError(rpcError, 'ClubDataPage.players_rpc');

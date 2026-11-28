@@ -124,7 +124,7 @@
     Inter,
     sans-serif;
   letter-spacing: 0.16em;
-  text-transform: uppercase;
+  text-transform: none;
   cursor: pointer;
 }
 
@@ -172,7 +172,7 @@
     sans-serif;
   letter-spacing: 0.16em;
   text-align: left;
-  text-transform: uppercase;
+  text-transform: none;
   white-space: nowrap;
 }
 
@@ -253,7 +253,7 @@
     Inter,
     sans-serif;
   letter-spacing: 0.16em;
-  text-transform: uppercase;
+  text-transform: none;
   cursor: pointer;
 }
 

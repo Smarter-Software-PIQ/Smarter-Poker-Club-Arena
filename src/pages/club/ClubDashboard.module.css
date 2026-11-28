@@ -84,12 +84,10 @@
 .chartBlock {
   margin-top: 8px;
 }
+/* The chart's loading screen holds the chart's height so nothing jumps. */
 .chartLoading {
-  display: grid;
-  place-items: center;
-  height: 240px;
-  color: #9fbacc;
-  font-size: 13px;
+  justify-content: center;
+  min-height: 240px;
 }
 .subTitle {
   margin: 8px 0 2px;
@@ -272,14 +270,6 @@
     sans-serif;
 }
 
-.empty {
-  margin: 0;
-  padding: 12px 3px;
-  color: #9fbacc;
-  font:
-    13px/1.4 Arial,
-    sans-serif;
-}
 .loading {
   display: grid;
   min-height: 50vh;

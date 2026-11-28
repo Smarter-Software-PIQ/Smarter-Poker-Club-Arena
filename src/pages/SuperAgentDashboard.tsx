@@ -1,5 +1,5 @@
 /**
- * SUPER AGENT DASHBOARD — Agent Network Management with Live Updates
+ * SUPER AGENT DASHBOARD - Agent Network Management with Live Updates
  */
 
 import { useState, useEffect, useMemo, useRef } from 'react';
@@ -30,11 +30,15 @@ const AGENT_ROLE_LABELS: Record<string, string> = {
   sub_agent: 'Sub-Agent',
 };
 import CreditRequestWidget from '../components/agent/CreditRequestWidget';
-import PageSkeleton from '../components/common/PageSkeleton';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import PageBar from '../components/help/PageBar';
+import { ArenaReadings, ArenaRow, ArenaState } from '../components/ops/ArenaOps';
+import { useArenaClubName } from '../components/ops/useArenaClubName';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import { resolveClubUUID } from '../utils/clubIdResolver';
 import { SEND_DESTINATION_LABELS } from '../utils/cashierSendWallets';
 import { useRecipientWalletBalances, walletOptionLabel } from '../hooks/useRecipientWalletBalances';
+import '../components/ops/ArenaOps.css';
 import './SuperAgentDashboard.css';
 import { reportError } from '../utils/errorReporter';
 import { platformFrozenMessage } from '../utils/platformFrozen';
@@ -45,8 +49,18 @@ type DashboardTab = 'overview' | 'agents' | 'players' | 'commissions' | 'transfe
 export default function SuperAgentDashboard() {
   const { clubId } = useParams();
   const { user, isHydrating } = useAuthUser();
-  if (isHydrating) return <PageSkeleton variant="dashboard" />;
-  if (!user?.id || !clubId) return <p>Sign In And Select A Club To Open Your Agent Dashboard.</p>;
+  if (isHydrating)
+    return (
+      <div className="arena-workspace super-agent-dashboard">
+        <ArenaState tone="loading" title="Loading" />
+      </div>
+    );
+  if (!user?.id || !clubId)
+    return (
+      <div className="arena-workspace super-agent-dashboard">
+        <ArenaState tone="empty" title="Sign In And Select A Club To Open Your Agent Dashboard." />
+      </div>
+    );
   // A different account or route owns a different component and every pending
   // read/action belonging to the old surface loses permission to update it.
   return (
@@ -66,6 +80,7 @@ function SuperAgentDashboardForScope({ userId, clubId }: { userId: string; clubI
     loadDashboardData();
   });
 
+  const clubName = useArenaClubName();
   const [activeTab, setActiveTab] = useState<DashboardTab>('overview');
   const [agent, setAgent] = useState<Agent | null>(null);
   const [creditApproverUserId, setCreditApproverUserId] = useState<string | undefined>();
@@ -168,7 +183,7 @@ function SuperAgentDashboardForScope({ userId, clubId }: { userId: string; clubI
               // movement anywhere on the platform was decoded and delivered to
               // every open super-agent dashboard, which then reloaded a view
               // that only ever shows THIS club. chip_transactions carries
-              // club_id — scope to it, and do not widen it again.
+              // club_id - scope to it, and do not widen it again.
               filter: `club_id=eq.${resolvedId}`,
             },
             () => loadDashboardData()
@@ -419,96 +434,91 @@ function SuperAgentDashboardForScope({ userId, clubId }: { userId: string; clubI
     if (isMounted.current) setIsTransferring(false);
   };
 
+  const header = (
+    <ArenaWorkspaceHeader
+      area="operations"
+      title="Agent Network"
+      context={clubName}
+      summary="Your Balances, Rates, Sub-Agents, Players, Commissions And Chip Sends In One Place."
+    />
+  );
+
   if (loading) {
     return (
-      <div className="super-agent-dashboard">
-        <PageSkeleton variant="dashboard" />
+      <div className="arena-workspace super-agent-dashboard">
+        {header}
+        <ArenaState tone="loading" title="Loading" message="Reading Your Agent Network" />
       </div>
     );
   }
 
   if (!agent) {
     return (
-      <div className="super-agent-dashboard">
-        <div className="empty-state">
-          <span className="empty-icon">♠</span>
-          <p>
-            {loadFailed
+      <div className="arena-workspace super-agent-dashboard">
+        {header}
+        <ArenaState
+          tone={loadFailed ? 'error' : 'empty'}
+          title={
+            loadFailed
               ? 'Your Agent Details Could Not Be Loaded. This Is Not The Same As Holding No Agency Here.'
-              : 'You Are Not An Agent In This Club'}
-          </p>
-          <button className="btn btn-primary" onClick={() => navigate(-1)}>
-            Go Back
-          </button>
-        </div>
+              : 'You Are Not An Agent In This Club'
+          }
+          actions={
+            <button type="button" onClick={() => navigate(-1)}>
+              Go Back
+            </button>
+          }
+        />
       </div>
     );
   }
 
-  return (
-    <div className="super-agent-dashboard">
-      {/* Stats Grid */}
-      <div className="stats-grid">
-        <div
-          className="stat-card"
-          style={{
-            opacity: visibleStatCards.has(0) ? 1 : 0,
-            transform: visibleStatCards.has(0) ? 'translateY(0)' : 'translateY(8px)',
-            transition: 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-          }}
-        >
-          <span className="stat-icon">●</span>
-          <div className="stat-info">
-            <span className="stat-value">{fmt(agent.totalPlayers)}</span>
-            <span className="stat-label">Total Players</span>
-          </div>
-        </div>
-        <div
-          className="stat-card"
-          style={{
-            opacity: visibleStatCards.has(1) ? 1 : 0,
-            transform: visibleStatCards.has(1) ? 'translateY(0)' : 'translateY(8px)',
-            transition: 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-          }}
-        >
-          <span className="stat-icon">▶</span>
-          <div className="stat-info">
-            <span className="stat-value">{fmt(agent.activePlayerCount)}</span>
-            <span className="stat-label">Active Now</span>
-          </div>
-        </div>
-        <div
-          className="stat-card"
-          style={{
-            opacity: visibleStatCards.has(2) ? 1 : 0,
-            transform: visibleStatCards.has(2) ? 'translateY(0)' : 'translateY(8px)',
-            transition: 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-          }}
-        >
-          <span className="stat-icon">■</span>
-          <div className="stat-info">
-            <span className="stat-value">{fmt(agent.subAgentCount)}</span>
-            <span className="stat-label">Sub-Agents</span>
-          </div>
-        </div>
-        <div
-          className="stat-card highlight"
-          style={{
-            opacity: visibleStatCards.has(3) ? 1 : 0,
-            transform: visibleStatCards.has(3) ? 'translateY(0)' : 'translateY(8px)',
-            transition: 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-          }}
-        >
-          <span className="stat-icon">◉</span>
-          <div className="stat-info">
-            <span className="stat-value">{agent.weeklyRakeGenerated.toLocaleString()}</span>
-            <span className="stat-label">Weekly Rake</span>
-          </div>
-        </div>
-      </div>
+  /* The stagger still plays: each readout and row rises in on its own timer. */
+  const rise = (visible: boolean) => ({
+    opacity: visible ? 1 : 0,
+    transform: visible ? 'translateY(0)' : 'translateY(8px)',
+    transition: 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+  });
 
-      {/* Tabs */}
-      <div className="dashboard-tabs">
+  return (
+    <div className="arena-workspace super-agent-dashboard">
+      {header}
+      <PageBar
+        title="Agent Network"
+        titleAs={false}
+        showHelp={false}
+        metrics={[
+          { label: 'Role', value: AGENT_ROLE_LABELS[agent.role] || agent.role },
+          {
+            label: 'Agent Rakeback',
+            value: `${((agent.commissionRate || 0) * 100).toFixed(1)}%`,
+            tone: 'live',
+          },
+        ]}
+      />
+
+      {/* Stats */}
+      <dl className="arena-ops-readings" aria-label="Agent Summary">
+        <div className="arena-meter" style={rise(visibleStatCards.has(0))}>
+          <dt>Total Players</dt>
+          <dd>{fmt(agent.totalPlayers)}</dd>
+        </div>
+        <div className="arena-meter" data-tone="live" style={rise(visibleStatCards.has(1))}>
+          <dt>Active Now</dt>
+          <dd>{fmt(agent.activePlayerCount)}</dd>
+        </div>
+        <div className="arena-meter" style={rise(visibleStatCards.has(2))}>
+          <dt>Sub-Agents</dt>
+          <dd>{fmt(agent.subAgentCount)}</dd>
+        </div>
+        <div className="arena-meter" data-tone="attention" style={rise(visibleStatCards.has(3))}>
+          <dt>Weekly Rake</dt>
+          <dd>{agent.weeklyRakeGenerated.toLocaleString()}</dd>
+        </div>
+      </dl>
+
+      {/* Tabs: one chrome switch; the open view lights blue. */}
+      <nav className="arena-switch arena-ops-keys" aria-label="Agent Network Views">
         {(
           [
             'overview',
@@ -521,67 +531,81 @@ function SuperAgentDashboardForScope({ userId, clubId }: { userId: string; clubI
         ).map((tab) => (
           <button
             key={tab}
-            className={activeTab === tab ? 'active' : ''}
+            type="button"
+            aria-pressed={activeTab === tab}
             onClick={() => setActiveTab(tab)}
           >
             {tab === 'backoffice' ? 'Back Office' : tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
-      </div>
+      </nav>
 
-      {/* Content */}
-      <div className="dashboard-content">
-        {activeTab === 'overview' && (
-          <div className="overview-section">
-            <div className="balance-cards">
-              <div className="balance-card">
-                <span className="label">Business Balance</span>
-                <span className="value">{formatWalletChips(agent.businessBalance)}</span>
-              </div>
-              <div className="balance-card">
-                <span className="label">Player Balance</span>
-                <span className="value">{formatWalletChips(agent.playerBalance)}</span>
-              </div>
-              <div className="balance-card">
-                <span className="label">Credit Line (Tracking Only)</span>
-                <span className="value">{formatWalletChips(agent.creditLimit)}</span>
-              </div>
-            </div>
-            <div className="rates-card">
-              <h3>Your Rates</h3>
-              <div className="rate-row">
-                <span>Your Rakeback (Set By The Club)</span>
-                <span className="rate-value">
-                  {((agent.commissionRate || 0) * 100).toFixed(1)}%
-                </span>
-              </div>
-              <div className="rate-row">
-                <span>Rakeback You Give Your Players</span>
-                <span className="rate-value">
-                  {((agent.playerRakebackRate || 0) * 100).toFixed(1)}%
-                </span>
-              </div>
-              <div className="form-row rate-edit">
-                <label htmlFor="player-rakeback-input">
-                  Set Your Players&apos; Rakeback (0 To{' '}
-                  {Math.min(50, (agent.commissionRate || 0) * 100).toLocaleString()}%)
-                </label>
-                <div className="rate-edit__controls">
-                  <input
-                    id="player-rakeback-input"
-                    type="number"
-                    inputMode="decimal"
-                    min={0}
-                    max={Math.min(50, (agent.commissionRate || 0) * 100)}
-                    step={1}
-                    placeholder={((agent.playerRakebackRate || 0) * 100).toString()}
-                    value={playerRakebackInput}
-                    onChange={(e) => setPlayerRakebackInput(e.target.value)}
-                    disabled={savingPlayerRakeback || agent.status !== 'active'}
-                  />
+      {activeTab === 'overview' && (
+        <>
+          <section className="arena-case arena-ops-case" aria-label="Balances">
+            <h2 className="arena-section-title">Balances</h2>
+            <ArenaReadings
+              readings={[
+                {
+                  id: 'business',
+                  label: 'Business Balance',
+                  value: formatWalletChips(agent.businessBalance),
+                  tone: 'attention',
+                },
+                {
+                  id: 'player',
+                  label: 'Player Balance',
+                  value: formatWalletChips(agent.playerBalance),
+                  tone: 'attention',
+                },
+                {
+                  id: 'credit',
+                  label: 'Credit Line (Tracking Only)',
+                  value: formatWalletChips(agent.creditLimit),
+                },
+              ]}
+            />
+          </section>
+          <section className="arena-case arena-ops-case" aria-label="Your Rates">
+            <h2 className="arena-section-title">Your Rates</h2>
+            <ArenaReadings
+              readings={[
+                {
+                  id: 'own',
+                  label: 'Your Rakeback (Set By The Club)',
+                  value: `${((agent.commissionRate || 0) * 100).toFixed(1)}%`,
+                  tone: 'live',
+                },
+                {
+                  id: 'players',
+                  label: 'Rakeback You Give Your Players',
+                  value: `${((agent.playerRakebackRate || 0) * 100).toFixed(1)}%`,
+                  tone: 'live',
+                },
+              ]}
+            />
+            <div className="super-agent-field">
+              <label htmlFor="player-rakeback-input">
+                Set Your Players&apos; Rakeback (0 To{' '}
+                {Math.min(50, (agent.commissionRate || 0) * 100).toLocaleString()}%)
+              </label>
+              <div className="super-agent-inline">
+                <input
+                  id="player-rakeback-input"
+                  className="arena-ops-well"
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  max={Math.min(50, (agent.commissionRate || 0) * 100)}
+                  step={1}
+                  placeholder={((agent.playerRakebackRate || 0) * 100).toString()}
+                  value={playerRakebackInput}
+                  onChange={(e) => setPlayerRakebackInput(e.target.value)}
+                  disabled={savingPlayerRakeback || agent.status !== 'active'}
+                />
+                <div className="arena-switch arena-ops-primary">
                   <button
                     type="button"
-                    className="btn btn-primary"
                     onClick={() => void handleSavePlayerRakeback()}
                     disabled={
                       savingPlayerRakeback ||
@@ -592,185 +616,186 @@ function SuperAgentDashboardForScope({ userId, clubId }: { userId: string; clubI
                     {savingPlayerRakeback ? 'Saving...' : 'Save'}
                   </button>
                 </div>
-                <p className="rate-edit__note">
-                  Paid Out Of Your Own Rakeback, So It Cannot Be Higher Than Your Rate.
-                </p>
               </div>
+              <p className="arena-ops-copy">
+                Paid Out Of Your Own Rakeback, So It Cannot Be Higher Than Your Rate.
+              </p>
             </div>
-            {/* Credit Request Widget */}
-            <div className="credit-section">
-              <h3>Credit</h3>
-              <CreditRequestWidget
-                userId={userId}
-                clubId={agent.clubId}
-                approverUserId={creditApproverUserId}
-                canRequest={agent.status === 'active'}
-                canReview={canReviewCredit}
-                currentCreditLimit={agent.creditLimit}
-                currentCreditUsed={agent.creditUsed}
-              />
-            </div>
-          </div>
-        )}
+          </section>
+          {/* Credit Request Widget */}
+          <section className="arena-case arena-ops-case" aria-label="Credit">
+            <h2 className="arena-section-title">Credit</h2>
+            <CreditRequestWidget
+              userId={userId}
+              clubId={agent.clubId}
+              approverUserId={creditApproverUserId}
+              canRequest={agent.status === 'active'}
+              canReview={canReviewCredit}
+              currentCreditLimit={agent.creditLimit}
+              currentCreditUsed={agent.creditUsed}
+            />
+          </section>
+        </>
+      )}
 
-        {activeTab === 'agents' && (
-          <div className="agents-section">
-            <h3>Your Sub-Agents ({subAgents.length})</h3>
-            {subAgents.length === 0 ? (
-              <p className="empty-text">No Sub-Agents Yet</p>
-            ) : (
-              <div className="agent-list">
-                {subAgents.map((sub, index) => (
-                  <div
-                    key={sub.id}
-                    className="agent-row"
-                    style={{
-                      opacity: visibleAgentRows.has(index) ? 1 : 0,
-                      transform: visibleAgentRows.has(index) ? 'translateY(0)' : 'translateY(8px)',
-                      transition: 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-                    }}
-                  >
-                    <div className="agent-info">
-                      <span className="agent-name">{sub.displayName || 'Agent'}</span>
-                      <span className="agent-role">{AGENT_ROLE_LABELS[sub.role] || sub.role}</span>
-                    </div>
-                    <div className="agent-stats">
-                      <span>{fmt(sub.totalPlayers)} Players</span>
-                      <span className="rake">{sub.weeklyRakeGenerated.toLocaleString()}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+      {activeTab === 'agents' && (
+        <section className="arena-case arena-ops-case" aria-label="Your Sub-Agents">
+          <h2 className="arena-section-title">
+            Your Sub-Agents<small>{fmt(subAgents.length)}</small>
+          </h2>
+          {subAgents.length === 0 ? (
+            <ArenaState tone="empty" title="No Sub-Agents Yet" />
+          ) : (
+            <ul className="arena-ops-rows">
+              {subAgents.map((sub, index) => (
+                <li key={sub.id} style={rise(visibleAgentRows.has(index))}>
+                  <ArenaRow
+                    title={sub.displayName || 'Agent'}
+                    line={`${AGENT_ROLE_LABELS[sub.role] || sub.role} - ${fmt(sub.totalPlayers)} Players`}
+                    signal={sub.weeklyRakeGenerated.toLocaleString()}
+                    signalTone="attention"
+                    signalLabel="Weekly Rake"
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
-        {activeTab === 'players' && (
-          <div className="players-section">
-            <h3>Your Players ({players.length})</h3>
-            <div className="player-list">
+      {activeTab === 'players' && (
+        <section className="arena-case arena-ops-case" aria-label="Your Players">
+          <h2 className="arena-section-title">
+            Your Players<small>{fmt(players.length)}</small>
+          </h2>
+          {players.length === 0 ? (
+            <ArenaState tone="empty" title="No Players Yet" />
+          ) : (
+            <ul className="arena-ops-rows">
               {players.map((player, index) => (
-                <div
+                <li
                   key={player.id}
-                  className="player-row"
-                  style={{
-                    opacity: visiblePlayerRows.has(index) ? 1 : 0,
-                    transform: visiblePlayerRows.has(index) ? 'translateY(0)' : 'translateY(8px)',
-                    transition: 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-                  }}
+                  className="arena-ledger-row super-agent-player"
+                  style={rise(visiblePlayerRows.has(index))}
                 >
-                  <div className="player-avatar">
+                  <span className="super-agent-avatar">
                     {player.avatarUrl ? (
                       <img src={player.avatarUrl} alt="" loading="lazy" />
                     ) : (
                       <span>{(player.displayName || 'P')[0].toUpperCase()}</span>
                     )}
                     {(livePresence.get(player.userId) ?? player.isOnline) && (
-                      <span className="online-dot" />
+                      <span className="super-agent-online" />
                     )}
-                  </div>
-                  <div className="player-info">
-                    <span className="player-name">{player.displayName}</span>
-                    <span className="player-rakeback">
-                      {((player.rakebackPercent || 0) * 100).toFixed(1)}% Rakeback
-                    </span>
-                  </div>
-                  <div className="player-balance">{formatWalletChips(player.chipBalance ?? 0)}</div>
-                </div>
+                  </span>
+                  <span className="arena-ops-row__copy">
+                    <strong>{player.displayName}</strong>
+                    <small>{((player.rakebackPercent || 0) * 100).toFixed(1)}% Rakeback</small>
+                  </span>
+                  <span className="arena-ops-row__signal" data-tone="attention">
+                    {formatWalletChips(player.chipBalance ?? 0)}
+                  </span>
+                </li>
               ))}
-            </div>
-          </div>
-        )}
+            </ul>
+          )}
+        </section>
+      )}
 
-        {activeTab === 'commissions' && spread && (
-          <div className="commissions-section">
-            <h3>Commission Breakdown</h3>
-            <div className="commission-summary">
-              <div className="commission-row">
-                <span>Gross Commission Rate</span>
-                <span className="value">
-                  {((spread.grossCommissionRate || 0) * 100).toFixed(1)}%
-                </span>
-              </div>
-              <div className="commission-row">
-                <span>Paid To Downlines</span>
-                <span className="value negative">-{spread.payoutToDownlines.toLocaleString()}</span>
-              </div>
-              <div className="commission-row total">
-                <span>Net Margin</span>
-                <span className="value">{spread.netMargin.toLocaleString()}</span>
-              </div>
-            </div>
-          </div>
-        )}
+      {activeTab === 'commissions' && spread && (
+        <section className="arena-case arena-ops-case" aria-label="Commission Breakdown">
+          <h2 className="arena-section-title">Commission Breakdown</h2>
+          <ArenaReadings
+            readings={[
+              {
+                id: 'gross',
+                label: 'Gross Commission Rate',
+                value: `${((spread.grossCommissionRate || 0) * 100).toFixed(1)}%`,
+              },
+              {
+                id: 'downlines',
+                label: 'Paid To Downlines',
+                value: `-${spread.payoutToDownlines.toLocaleString()}`,
+                tone: 'danger',
+              },
+              {
+                id: 'net',
+                label: 'Net Margin',
+                value: spread.netMargin.toLocaleString(),
+                tone: 'attention',
+              },
+            ]}
+          />
+        </section>
+      )}
 
-        {activeTab === 'transfers' && (
-          <div className="transfers-section">
-            <h3>Send Chips</h3>
-            <div className="transfer-form">
-              <div className="form-row">
-                <label>Select Recipient</label>
-                <select
-                  value={transferPlayerId}
-                  onChange={(e) => setTransferPlayerId(e.target.value)}
-                >
-                  <option value="">Choose Recipient...</option>
-                  {players.map((p) => (
-                    <option key={p.id} value={p.userId}>
-                      {p.displayName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {transferRecipient && (
-                <div className="form-row">
-                  <label htmlFor="super-agent-recipient-wallet">Recipient Wallet</label>
-                  <select
-                    id="super-agent-recipient-wallet"
-                    value={transferDestination}
-                    disabled={isTransferring}
-                    onChange={(event) =>
-                      setTransferWallet(event.target.value as ClubBankRecipientWallet)
-                    }
-                  >
-                    {transferWallets.map((wallet) => (
-                      <option key={wallet} value={wallet}>
-                        {walletOptionLabel(
-                          SEND_DESTINATION_LABELS[wallet],
-                          transferBalances,
-                          wallet
-                        )}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div className="form-row">
-                <label>Amount</label>
-                <input
-                  type="number"
-                  placeholder="0.00"
-                  value={transferAmount}
-                  onChange={(e) => setTransferAmount(e.target.value)}
-                />
-              </div>
-              <button
-                className="btn btn-primary"
-                onClick={handleTransfer}
-                disabled={isTransferring || !transferRecipient || !transferAmount}
+      {activeTab === 'transfers' && (
+        <section className="arena-case arena-ops-case" aria-label="Send Chips">
+          <h2 className="arena-section-title">Send Chips</h2>
+          <div className="super-agent-field">
+            <label htmlFor="super-agent-recipient">Select Recipient</label>
+            <select
+              id="super-agent-recipient"
+              className="arena-ops-well"
+              value={transferPlayerId}
+              onChange={(e) => setTransferPlayerId(e.target.value)}
+            >
+              <option value="">Choose Recipient...</option>
+              {players.map((p) => (
+                <option key={p.id} value={p.userId}>
+                  {p.displayName}
+                </option>
+              ))}
+            </select>
+          </div>
+          {transferRecipient && (
+            <div className="super-agent-field">
+              <label htmlFor="super-agent-recipient-wallet">Recipient Wallet</label>
+              <select
+                id="super-agent-recipient-wallet"
+                className="arena-ops-well"
+                value={transferDestination}
+                disabled={isTransferring}
+                onChange={(event) =>
+                  setTransferWallet(event.target.value as ClubBankRecipientWallet)
+                }
               >
-                {isTransferring ? 'Sending...' : 'Send Chips'}
-              </button>
+                {transferWallets.map((wallet) => (
+                  <option key={wallet} value={wallet}>
+                    {walletOptionLabel(SEND_DESTINATION_LABELS[wallet], transferBalances, wallet)}
+                  </option>
+                ))}
+              </select>
             </div>
+          )}
+          <div className="super-agent-field">
+            <label htmlFor="super-agent-amount">Amount</label>
+            <input
+              id="super-agent-amount"
+              className="arena-ops-well"
+              type="number"
+              placeholder="0.00"
+              value={transferAmount}
+              onChange={(e) => setTransferAmount(e.target.value)}
+            />
           </div>
-        )}
+          <div className="arena-switch arena-ops-primary">
+            <button
+              type="button"
+              onClick={handleTransfer}
+              disabled={isTransferring || !transferRecipient || !transferAmount}
+            >
+              {isTransferring ? 'Sending...' : 'Send Chips'}
+            </button>
+          </div>
+        </section>
+      )}
 
-        {activeTab === 'backoffice' && (
-          <div className="backoffice-section">
-            <AgentBackOffice />
-          </div>
-        )}
-      </div>
+      {activeTab === 'backoffice' && (
+        <section className="arena-case arena-ops-case" aria-label="Back Office">
+          <AgentBackOffice />
+        </section>
+      )}
     </div>
   );
 }

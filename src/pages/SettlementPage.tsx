@@ -1,46 +1,58 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthUser } from '../hooks/useAuthUser';
 import WeeklyAccountingWorkspace from '../components/accounting/WeeklyAccountingWorkspace';
-/* #SmarterDesign (Dan 2026-11-27): the painted console is the old style for a
-   page section; Weekly Accounting prints in the thin chrome case. Only the
-   shell changes: the accounting workspace inside is untouched. */
-import { ClubPageSection as SpadeConsole } from '../components/club/ClubPageSection';
-import '../components/console/SpadeConsole.css';
-import '../components/lobby/ArenaWorkspace.css';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
 import PageBar from '../components/help/PageBar';
-import styles from './SettlementPage.module.css';
+import { ArenaState } from '../components/ops/ArenaOps';
+import { useArenaClubName } from '../components/ops/useArenaClubName';
+import './SettlementPage.css';
 
-/** Route-scoped automatic accounting. No browser open, close or payout controls. */
+const SUMMARY =
+  'Weekly Accounting For This Club Or Union Is Posted Automatically And Verified. Nothing Here Opens, Closes Or Pays A Week By Hand.';
+
+/** The union's name as the route spells it; a raw UUID names nothing. */
+function routeContext(reference?: string): string | undefined {
+  if (!reference || /^[0-9a-f]{8}-/i.test(reference)) return undefined;
+  return reference.replace(/[-_]/g, ' ');
+}
+
+/**
+ * Route-scoped automatic accounting. No browser open, close or payout controls.
+ *
+ * #SmarterDesign (Dan 2026-11-27): the painted spade console is gone. The page
+ * wears the arena workspace: the finance mast with the club's name, the scope
+ * as a chrome status line, Back as a chrome key above the case and the weekly
+ * workspace inside one thin chrome case.
+ */
 export default function SettlementPage() {
   const { clubId, unionId } = useParams<{ clubId: string; unionId: string }>();
   const { user } = useAuthUser();
   const navigate = useNavigate();
   const kind = clubId && !unionId ? 'club' : unionId && !clubId ? 'union' : null;
   const reference = kind === 'club' ? clubId : unionId;
+  const clubName = useArenaClubName();
   return (
-    <main className={`${styles.page} arena-workspace`}>
-      {/* Dan, 2026-10-17: the decorative eyebrow is gone; what this page is
-          lives behind the painted "?". */}
+    <main className="settlement-page arena-workspace">
+      <div className="arena-switch arena-ops-keys">
+        <button type="button" onClick={() => navigate(-1)}>
+          Back
+        </button>
+      </div>
+      {/* Dan, 2026-10-17: what this page is lives behind the "?". */}
+      <ArenaWorkspaceHeader
+        area="finance"
+        title="Weekly Accounting"
+        context={kind === 'club' ? clubName : routeContext(reference)}
+        summary={SUMMARY}
+      />
       <PageBar
         title="Weekly Accounting"
         titleAs={false}
-        summary="Weekly Accounting For This Club Or Union Is Posted Automatically And Verified. Nothing Here Opens, Closes Or Pays A Week By Hand."
+        showHelp={false}
+        status={kind === 'club' ? 'Club' : kind === 'union' ? 'Union' : 'Unavailable'}
+        statusTone={kind ? 'live' : 'danger'}
       />
-      <SpadeConsole
-        arena
-        className={styles.console}
-        family="spade"
-        title="Weekly Accounting"
-        titleAs="h1"
-        pill={kind === 'club' ? 'Club' : kind === 'union' ? 'Union' : 'Unavailable'}
-        pillInk={kind ? 'blue' : 'red'}
-        foot="foot"
-      >
-        <span className={`arena-switch ${styles.backKeys}`}>
-          <button type="button" className={styles.backButton} onClick={() => navigate(-1)}>
-            Back
-          </button>
-        </span>
+      <section className="arena-case arena-ops-case settlement-page__case">
         {kind && reference ? (
           <WeeklyAccountingWorkspace
             key={`${kind}:${reference}:${user?.id ?? ''}`}
@@ -48,11 +60,13 @@ export default function SettlementPage() {
             scopeRef={reference}
           />
         ) : (
-          <p className={`${styles.state} sc-ink--red`} role="alert">
-            Choose A Club Or Union To View Its Weekly Accounting.
-          </p>
+          <ArenaState
+            tone="error"
+            title="Weekly Accounting"
+            message="Choose A Club Or Union To View Its Weekly Accounting."
+          />
         )}
-      </SpadeConsole>
+      </section>
     </main>
   );
 }

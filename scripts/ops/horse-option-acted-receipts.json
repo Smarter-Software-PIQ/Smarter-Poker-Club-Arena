@@ -1278,6 +1278,13 @@
       "prefixes": ["omaha_turn_line_prior_"],
       "unlessOn": []
     },
+    "omahaMultiwayRiverBetPriorIsPeopleMeasured": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_mw_river_people_prior_"],
+      "unlessOn": []
+    },
     "omahaHiddenBetsArePricedAsGiveUps": {
       "releaseDefault": "off",
       "source": "declared",
@@ -1305,6 +1312,20 @@
       "keys": [],
       "prefixes": ["omaha_priced_facing_bet_"],
       "unlessOn": ["omahaFacingBetIndifferenceCalls", "omahaFacingBetRangeIsMeasuredByLine"]
+    },
+    "omahaBareOverpairContinuationIsPeoplePriced": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_bare_overpair_people_priced"],
+      "unlessOn": []
+    },
+    "omahaGiveUpPricedTurnCallIsAtIndifference": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_give_up_indifference_"],
+      "unlessOn": []
     },
     "omahaMultiwayCallNeedsNutShare": {
       "releaseDefault": "off",
@@ -1452,6 +1473,20 @@
       "releaseDefault": "off",
       "source": "ledger",
       "keys": ["omaha_river_bluff_priced_on_range"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaMultiwayRiverBluffIsPricedOnBlockers": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_multiway_river_bluff_priced_on_blockers"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaFourWayPlusRiverBluffIsPricedOnBlockers": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_four_way_plus_river_bluff_priced_on_blockers"],
       "prefixes": [],
       "unlessOn": []
     },
@@ -2546,6 +2581,18 @@
         "holdem_river_people_bluff_below_check",
         "holdem_river_people_bluff_bet",
         "holdem_river_people_bluff_no_edge"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "holdemRiverFacingBetPriorIsPeopleMeasured": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_river_people_prior_call",
+        "holdem_river_people_prior_fold_stands",
+        "holdem_river_people_prior_own_record_read",
+        "holdem_river_people_prior_unpriced"
       ],
       "prefixes": [],
       "unlessOn": []

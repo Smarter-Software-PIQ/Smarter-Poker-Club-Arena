@@ -74,7 +74,7 @@ export function useClubNavigationAccess(clubId: string | null | undefined): Club
         if (!cancelled) {
           setFallbackRole(null);
           setFallbackPlatformStaff(false);
-          setFallbackError('Club permissions could not be confirmed.');
+          setFallbackError('Club Permissions Could Not Be Confirmed.');
         }
       } finally {
         if (!cancelled) setFallbackLoading(false);

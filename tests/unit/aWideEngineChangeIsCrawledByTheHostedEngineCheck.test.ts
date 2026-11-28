@@ -99,10 +99,10 @@ const HUB = 'server/src/engine/Hub.ts';
 describe('a wide engine change is crawled by the hosted engine check', () => {
   it('the hosted shards run the whole server project and nothing narrower', () => {
     const shards = job('server_shards');
-    expect(shards).toContain('shard: [1, 2, 3, 4]');
+    expect(shards).toContain('shard: [1, 2, 3, 4, 5, 6, 7, 8]');
     expect(shards).toContain('working-directory: server');
     expect(shards).toContain(
-      'npm test -- --exclude src/engine/RetainedHistoricalCheckpointQualification.test.ts --shard="$SERVER_TEST_SHARD/4"'
+      'npm test -- --exclude src/engine/RetainedHistoricalCheckpointQualification.test.ts --shard="$SERVER_TEST_SHARD/8"'
     );
     // The one excluded file runs by name on shard 1, so no file is left out.
     expect(shards).toContain(

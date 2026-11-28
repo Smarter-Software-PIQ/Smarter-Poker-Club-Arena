@@ -16,6 +16,7 @@ import { supabase } from '../../lib/supabase';
 import { masterBus } from '../../core/MasterBus';
 import { resolveClubUUID } from '../../utils/clubIdResolver';
 import './DistributionHistory.css';
+import './DistributionHistoryArena.css';
 import { reportError } from '../../utils/errorReporter';
 import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../../utils/playerDisplayName';
 
@@ -120,14 +121,14 @@ export default function DistributionHistory({ userId, clubId }: DistributionHist
   const uniqueRecipients = new Set(filtered.map((r) => r.to_user_id)).size;
 
   return (
-    <div className="dh-container">
+    <div className="dh-container arena-case arena-ops-case">
       <div className="dh-header">
-        <h3 className="dh-title">Distribution History</h3>
-        <div className="dh-filters">
+        <h3 className="dh-title arena-section-title">Distribution History</h3>
+        <div className="dh-filters arena-switch">
           {(['7d', '30d', '90d', 'all'] as DateRange[]).map((range) => (
             <button
               key={range}
-              className={`dh-range-btn ${dateRange === range ? 'dh-range-active' : ''}`}
+              className={`dh-range-btn ${dateRange === range ? 'dh-range-active active' : ''}`}
               onClick={() => setDateRange(range)}
             >
               {range === 'all' ? 'All' : range}
@@ -138,21 +139,21 @@ export default function DistributionHistory({ userId, clubId }: DistributionHist
 
       {/* Stats summary */}
       <div className="dh-stats">
-        <div className="dh-stat">
+        <div className="dh-stat arena-meter">
           <span className="dh-stat-label">Total</span>
           <span className="dh-stat-value">{totalDistributed.toLocaleString()}</span>
         </div>
-        <div className="dh-stat">
+        <div className="dh-stat arena-meter">
           <span className="dh-stat-label">Clawed Back</span>
           <span className="dh-stat-value dh-negative">{totalClawedBack.toLocaleString()}</span>
         </div>
-        <div className="dh-stat">
+        <div className="dh-stat arena-meter">
           <span className="dh-stat-label">Net Out</span>
           <span className="dh-stat-value dh-positive">
             {(totalDistributed - totalClawedBack).toLocaleString()}
           </span>
         </div>
-        <div className="dh-stat">
+        <div className="dh-stat arena-meter">
           <span className="dh-stat-label">Recipients</span>
           <span className="dh-stat-value">{uniqueRecipients}</span>
         </div>
@@ -161,7 +162,7 @@ export default function DistributionHistory({ userId, clubId }: DistributionHist
       {/* Search */}
       <input
         type="text"
-        className="dh-search"
+        className="dh-search arena-ops-well"
         placeholder="Search By Player Name..."
         value={searchTerm}
         onChange={(e) => setSearchTerm(e.target.value)}
@@ -171,7 +172,7 @@ export default function DistributionHistory({ userId, clubId }: DistributionHist
       {loading ? (
         <div className="dh-loading">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="dh-skeleton" />
+            <div key={i} className="dh-skeleton arena-ledger-row" />
           ))}
         </div>
       ) : filtered.length === 0 ? (
@@ -186,7 +187,10 @@ export default function DistributionHistory({ userId, clubId }: DistributionHist
               minute: '2-digit',
             });
             return (
-              <div key={r.id} className={`dh-row ${r.clawed_back ? 'dh-row-clawedback' : ''}`}>
+              <div
+                key={r.id}
+                className={`dh-row arena-ledger-row ${r.clawed_back ? 'dh-row-clawedback' : ''}`}
+              >
                 <div className="dh-row-info">
                   <span className="dh-row-name">{r.recipientName}</span>
                   <span className="dh-row-date">{dateStr}</span>

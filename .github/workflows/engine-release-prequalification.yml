@@ -23,13 +23,13 @@ permissions:
 jobs:
   qualify:
     if: github.ref == 'refs/heads/main'
-    name: Qualify exact engine (${{ matrix.shard }}/4)
+    name: Qualify exact engine (${{ matrix.shard }}/8)
     runs-on: ubuntu-24.04
     timeout-minutes: 80
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -52,7 +52,7 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=6144
         run: |
           set -euo pipefail
-          [[ "$RELEASE_TEST_SHARD" =~ ^[1-4]$ ]]
+          [[ "$RELEASE_TEST_SHARD" =~ ^[1-8]$ ]]
           npm ci --no-audit --no-fund
           npm run build
           # Run this nested historical qualification once on shard 2 (median ~14.2m vs shard 1's ~26.6m, O37)
@@ -60,7 +60,7 @@ jobs:
           if [ "$RELEASE_TEST_SHARD" = 2 ]; then
             npm test -- src/engine/RetainedHistoricalCheckpointQualification.test.ts
           fi
-          npm test -- --exclude src/engine/RetainedHistoricalCheckpointQualification.test.ts --shard="$RELEASE_TEST_SHARD/4"
+          npm test -- --exclude src/engine/RetainedHistoricalCheckpointQualification.test.ts --shard="$RELEASE_TEST_SHARD/8"
 
   prestage:
     if: github.ref == 'refs/heads/main' && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
@@ -157,3 +157,32 @@ jobs:
           PYTHON
       - name: Prepared image ${{ steps.stage.outputs.image }} rollback ${{ steps.stage.outputs.rollback }} tree ${{ steps.stage.outputs.tree }}
         run: 'true'
+
+  prequalification:
+    name: Retire superseded prequalification runs
+    needs: [qualify, prestage]
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      needs.qualify.result == 'success' &&
+      needs.prestage.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout: |
+            scripts/ci
+          persist-credentials: false
+      - name: Retire strictly older in-flight prequalification runs
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUALIFY_RESULT: ${{ needs.qualify.result }}
+          PRESTAGE_RESULT: ${{ needs.prestage.result }}
+        run: node scripts/ci/retire-superseded-prequalification.mjs

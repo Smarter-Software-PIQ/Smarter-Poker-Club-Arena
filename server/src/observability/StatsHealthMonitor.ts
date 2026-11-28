@@ -117,6 +117,13 @@ export interface StatsHealthAlert {
 export interface StatsHealthMonitorDeps {
   /** One round trip to `ca_stats_health()`; resolves to the jsonb it returns. */
   read: () => Promise<unknown>;
+  /**
+   * Optional one-shot bulk index refresh (`ca_refresh_hand_player_index`) invoked
+   * strictly on the maintenance-break exit transition (or once on cold boot)
+   * when the watermark already lags past one 15-minute cadence because the
+   * external cron skipped its `:00` run during the platform freeze.
+   */
+  catchUpIndex?: () => Promise<unknown> | unknown;
   raise: (alert: StatsHealthAlert) => Promise<unknown> | unknown;
   resolve: (alertname: string, component: string, note: string) => Promise<unknown> | unknown;
   /** True while a maintenance break is on; suppresses the lag alert. */
@@ -133,6 +140,13 @@ export const STATS_EV_COVERAGE_ALERT = 'ClubArenaStatsEvCoverage';
 
 /** 30 minutes: six maintenance breaks, two Open Claw ticks. */
 export const STATS_INDEX_LAG_THRESHOLD_S = 30 * 60;
+/**
+ * One 15-minute scheduled refresh cadence: if the watermark is already past
+ * this when a maintenance break ends (or when a fresh engine boots right after
+ * one), the `:00` cron run was skipped by the freeze and a single post-break
+ * catch-up advances the watermark before it can cross the 30-minute bar at :10.
+ */
+export const STATS_INDEX_POST_BREAK_CATCHUP_LAG_S = 15 * 60;
 export const STATS_HEALTH_PERIOD_MS = 60 * 1000;
 /**
  * EV coverage: raise when fewer than 99% of the week's all-in RUNOUTS carry
@@ -359,6 +373,9 @@ export class StatsHealthMonitor {
   /** Direct tick() probes are valid before start, but not after stop. */
   private acceptingTicks = true;
   private inFlight = false;
+  /** Explicit state-transition latches for one-shot post-break / cold-boot index catch-up. */
+  private sawPausedBeforeCatchUp = false;
+  private initialTickObserved = false;
   private readonly now: () => number;
   private readonly log: (msg: string) => void;
 
@@ -432,6 +449,8 @@ export class StatsHealthMonitor {
     if (this.timer) return;
     this.isRunning = true;
     this.acceptingTicks = true;
+    this.sawPausedBeforeCatchUp = false;
+    this.initialTickObserved = false;
     const generation = ++this.lifecycleGeneration;
     this.launchTick(generation);
     this.timer = setInterval(() => this.launchTick(generation), periodMs);
@@ -466,14 +485,65 @@ export class StatsHealthMonitor {
       try {
         const raw = await this.deps.read();
         if (this.lifecycleEnded(generation)) return;
-        this.snapshot = parseStatsHealth(raw, new Date(this.now()).toISOString());
+        let effectiveRaw = raw;
+        let parsed = parseStatsHealth(effectiveRaw, new Date(this.now()).toISOString());
+        this.snapshot = parsed;
         this.snapshotAt = this.now();
         this.lastError = null;
+
+        // One-shot post-break / cold-boot watermark catch-up:
+        // World Hub's :00/:15/:30/:45 club-stats-maintenance route skips :00
+        // during a platform maintenance break, and migration 20261111131639
+        // holds v_bound at now() - 5m. Without a single post-break catch-up,
+        // lag climbs from 25m at :05 to >30m at :10 and ~35m before :15 finishes.
+        // Strictly bound to explicit break-exit or first-tick-after-boot so an
+        // actually broken external scheduler still fires at 30 minutes.
+        const isPaused = this.deps.paused();
+        if (isPaused) {
+          this.sawPausedBeforeCatchUp = true;
+          this.initialTickObserved = true;
+        } else {
+          const onBreakExitOrBoot = this.sawPausedBeforeCatchUp || !this.initialTickObserved;
+          this.sawPausedBeforeCatchUp = false;
+          this.initialTickObserved = true;
+          if (
+            onBreakExitOrBoot &&
+            this.deps.catchUpIndex &&
+            parsed.indexLagSeconds !== null &&
+            parsed.indexLagSeconds > STATS_INDEX_POST_BREAK_CATCHUP_LAG_S
+          ) {
+            let caughtUp = false;
+            try {
+              await this.deps.catchUpIndex();
+              caughtUp = true;
+            } catch (err) {
+              this.log(
+                `[StatsHealthMonitor] post-break index catch-up failed: ${(err as Error)?.message ?? String(err)}`
+              );
+            }
+            if (this.lifecycleEnded(generation)) return;
+            if (caughtUp) {
+              try {
+                const refreshedRaw = await this.deps.read();
+                if (this.lifecycleEnded(generation)) return;
+                effectiveRaw = refreshedRaw;
+                parsed = parseStatsHealth(effectiveRaw, new Date(this.now()).toISOString());
+                this.snapshot = parsed;
+                this.snapshotAt = this.now();
+              } catch (err) {
+                this.log(
+                  `[StatsHealthMonitor] post-catch-up re-read failed: ${(err as Error)?.message ?? String(err)}`
+                );
+              }
+            }
+          }
+        }
+
         await this.evaluate(
-          this.snapshot,
+          parsed,
           generation,
-          statsGapMeasurement(raw, this.snapshot),
-          indexLagMeasurement(raw, this.snapshot)
+          statsGapMeasurement(effectiveRaw, parsed),
+          indexLagMeasurement(effectiveRaw, parsed)
         );
       } catch (err) {
         if (this.lifecycleEnded(generation)) return;

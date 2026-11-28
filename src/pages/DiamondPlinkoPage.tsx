@@ -618,7 +618,7 @@ function DiamondPlinkoGame() {
       setError(
         cause instanceof BonusRefusal
           ? cause.message
-          : 'Drop confirmation pending. Tap again to check the same drop.'
+          : 'Drop Confirmation Pending. Tap Again To Check The Same Drop.'
       );
       reportError(cause, 'DiamondPlinkoPage.release');
     } finally {

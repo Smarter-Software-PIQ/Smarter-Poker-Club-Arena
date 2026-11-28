@@ -16,14 +16,17 @@
  *  off a query that failed.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useIsMounted } from '../../hooks/useIsMounted';
 import { useMasterBusSubscription } from '../../hooks/useMasterBusSubscription';
 import { supabase } from '../../lib/supabase';
-import { SpadeConsole, type ConsoleInk } from '../console/SpadeConsole';
+import type { ConsoleInk } from '../console/SpadeConsole';
+import '../console/SpadeConsole.css';
+import '../ops/ArenaOps.css';
 import { compactChips } from '../../utils/format';
 import { titleCase } from '../../utils/titleCase';
 import './AgentScoreCard.css';
+import './AgentScoreCardArena.css';
 import { reportError } from '../../utils/errorReporter';
 import { chipCents } from '../../utils/cashierAmount';
 
@@ -188,51 +191,31 @@ export default function AgentScoreCard({ userId, clubId }: AgentScoreCardProps) 
 
   if (loading) {
     return (
-      <SpadeConsole
-        className="agent-score-card"
-        eyebrow="Agent"
-        title="Performance Score"
-        titleId="agent-score-title"
-        pill="Scoring"
-        pillInk="muted"
-        foot="foot"
-      >
+      <ScoreCase eyebrow="Agent" pill="Scoring" pillInk="muted">
         <p className="sc-copy sc-copy--center asc__state" aria-busy="true">
           Scoring The Last 30 Days...
         </p>
-      </SpadeConsole>
+      </ScoreCase>
     );
   }
 
   if (!data) {
     return (
-      <SpadeConsole
-        className="agent-score-card"
-        eyebrow="Agent"
-        title="Performance Score"
-        titleId="agent-score-title"
-        pill="No Data"
-        pillInk="muted"
-        foot="foot"
-      >
+      <ScoreCase eyebrow="Agent" pill="No Data" pillInk="muted">
         <p className="sc-copy sc-copy--center asc__state">No Performance Data Available Yet</p>
-      </SpadeConsole>
+      </ScoreCase>
     );
   }
 
   const overallInk = getScoreInk(data.overallScore);
 
   return (
-    <SpadeConsole
-      className="agent-score-card"
+    <ScoreCase
       eyebrow="Agent / Last 30 Days"
-      title="Performance Score"
-      titleId="agent-score-title"
       pill={`Grade ${getGrade(data.overallScore)}`}
       pillInk={overallInk}
-      foot="foot"
     >
-      <div className="asc__row asc__row--overall">
+      <div className="asc__row asc__row--overall arena-meter">
         <span className="asc__row-label sc-ink--blue">Overall Score</span>
         <span className={`asc__overall sc-ink--${overallInk}`}>{data.overallScore}</span>
       </div>
@@ -267,13 +250,13 @@ export default function AgentScoreCard({ userId, clubId }: AgentScoreCardProps) 
 
       {/* Headline figures */}
       <section className="asc__section" aria-label="Headline Figures">
-        <div className="asc__row">
+        <div className="asc__row arena-ledger-row">
           <span className="asc__row-label sc-ink--blue">Avg Distribution</span>
           <span className="asc__row-value sc-ink--silver">
             {compactChips(data.avgDistribution)}
           </span>
         </div>
-        <div className="asc__row">
+        <div className="asc__row arena-ledger-row">
           <span className="asc__row-label sc-ink--blue">Clawback Rate</span>
           <span
             className={`asc__row-value ${data.clawbackRate > 10 ? 'sc-ink--red' : 'sc-ink--green'}`}
@@ -281,7 +264,7 @@ export default function AgentScoreCard({ userId, clubId }: AgentScoreCardProps) 
             {data.clawbackRate.toFixed(1)}%
           </span>
         </div>
-        <div className="asc__row">
+        <div className="asc__row arena-ledger-row">
           <span className="asc__row-label sc-ink--blue">Retention</span>
           <span
             className={`asc__row-value ${data.retentionRate > 50 ? 'sc-ink--green' : 'sc-ink--gold'}`}
@@ -290,7 +273,35 @@ export default function AgentScoreCard({ userId, clubId }: AgentScoreCardProps) 
           </span>
         </div>
       </section>
-    </SpadeConsole>
+    </ScoreCase>
+  );
+}
+
+/* #SmarterDesign (Dan 2026-11-27): the painted console is the old style for a
+   page section. The Agent Dashboard already seats this card in its own chrome
+   case (section "Score"), so the card prints no second frame: the eyebrow,
+   the chrome section title with the grade riding its right edge, and the rows
+   on the case's glass (AgentScoreCardArena.css). */
+function ScoreCase({
+  eyebrow,
+  pill,
+  pillInk,
+  children,
+}: {
+  eyebrow: string;
+  pill: string;
+  pillInk: ConsoleInk;
+  children: ReactNode;
+}) {
+  return (
+    <section className="agent-score-card">
+      <p className="arena-ops-eyebrow">{eyebrow}</p>
+      <h2 id="agent-score-title" className="arena-section-title">
+        Performance Score
+        <small className={`asc__pill sc-ink--${pillInk}`}>{pill}</small>
+      </h2>
+      {children}
+    </section>
   );
 }
 
@@ -306,7 +317,7 @@ function ScoreRow({
   detail: string;
 }) {
   return (
-    <div className="asc__row">
+    <div className="asc__row arena-ledger-row">
       <span className="asc__row-lead">
         <span className="asc__row-label sc-ink--blue">{label}</span>
         <span className="asc__row-detail sc-ink--muted">{titleCase(detail)}</span>

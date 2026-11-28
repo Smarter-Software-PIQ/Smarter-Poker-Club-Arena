@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { resolveReleaseIdentity } from '../releaseIdentity.js';
 import type { EngineAlertInput } from './engineAlerts.js';
 import type {
   ActiveAlert,
@@ -17,6 +18,8 @@ type Options = {
   raised?: (input: EngineAlertInput, startsAt: string) => void;
   now?: () => string;
   id?: () => string;
+  /** Resolve exact 40-char lowercase engine build SHA for alert attribution. */
+  releaseSha?: () => string | null;
   retryMs?: number;
   automatic?: boolean;
 };
@@ -39,10 +42,12 @@ export class EngineAlertDelivery {
   private lastAcknowledgedAt: string | null = null;
   private readonly now: () => string;
   private readonly id: () => string;
+  private readonly releaseSha: () => string | null;
 
   constructor(private readonly options: Options) {
     this.now = options.now ?? (() => new Date().toISOString());
     this.id = options.id ?? randomUUID;
+    this.releaseSha = options.releaseSha ?? (() => resolveReleaseIdentity().releaseSha);
     if (options.automatic !== false) {
       this.timer = setInterval(() => {
         void this.sendOne();
@@ -78,6 +83,9 @@ export class EngineAlertDelivery {
     let active: ActiveAlert;
     let alert: JournalAlert;
     const eventId = this.id();
+    const rawSha = this.releaseSha();
+    const engineRelease =
+      typeof rawSha === 'string' && /^[0-9a-f]{40}$/.test(rawSha) ? rawSha : null;
     if ('input' in observation) {
       if (existing) return undefined;
       active = {
@@ -94,6 +102,7 @@ export class EngineAlertDelivery {
         fingerprint,
         startsAt: active.startsAt,
         labels: {
+          ...(engineRelease ? { engine_release: engineRelease } : {}),
           ...(raised.labels ?? {}),
           alertname: raised.alertname,
           severity: raised.severity,
@@ -119,6 +128,7 @@ export class EngineAlertDelivery {
         startsAt: active.startsAt,
         endsAt: observedAt,
         labels: {
+          ...(engineRelease ? { engine_release: engineRelease } : {}),
           alertname: active.alertname,
           severity: 'info',
           component: active.component,

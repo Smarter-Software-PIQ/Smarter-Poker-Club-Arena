@@ -175,12 +175,12 @@ capture_frozen_seats() { # absolute bounded deadline [drained]; result in FROZEN
   while [ "$(date +%s)" -lt "$1" ]; do
     # Drain is read first: a parked engine deals nothing, so the frozen sample
     # that follows cannot be moved by a hand settling behind it.
-    if [ "${2:-}" = drained ] && ! serving_drained; then waiting=serving_engine_not_drained; sleep 3; continue; fi
+    if [ "${2:-}" = drained ] && ! serving_drained; then waiting=serving_engine_not_drained; sleep 1; continue; fi
     waiting=capture_deadline_expired
     snapshot=$(frozen_seat_snapshot 2>&1) || { record_seat_rejection "$snapshot" snapshot_read_failed; return 1; }
     state=$(frozen_seat_state "$snapshot" '' poll 2>&1) || { record_seat_rejection "$snapshot" "$state"; return 1; }
     if [ "$state" = frozen ]; then FROZEN_SEATS=$snapshot; return 0; fi
-    sleep 3
+    sleep 1
   done
   record_seat_rejection '{}' "$waiting"
   return 1
@@ -194,7 +194,7 @@ wait_frozen_seats() { # original, deadline; keep checking until real thaw
     state=$(frozen_seat_state "$current" "$1" poll 2>&1) || { record_seat_rejection "$current" "$state"; return 1; }
     if [ "$state" = thawed ]; then THAW_OBSERVED_AT=$(date +%s); return 0; fi
     FROZEN_SEATS_LAST=$current
-    sleep 3
+    sleep 1
   done
   record_seat_rejection "$FROZEN_SEATS_LAST" thaw_deadline_expired
   return 1
@@ -233,22 +233,31 @@ SQL_SEAT_RECEIPT
 # Only the controlled candidate replacement can admit one owner rotation.
 # Subsequent observations stay pinned to that admitted successor token.
 swap_target_identity() {
-  local binding id sha running restarts h instance liveness
+  local binding id sha running restarts h
   binding=$(docker inspect -f '{{.Id}} {{index .Config.Labels "com.smarterpoker.standby.sha"}} {{.State.Running}} {{.RestartCount}}' "$CONTAINER") || return 1
   read -r id sha running restarts <<< "$binding"
   [[ "$id" =~ ^[0-9a-f]{64}$ ]] && [ "$sha" = "$1" ] && [ "$running" = true ] || return 1
-  h=$(health) || return 1
-  [ "$(printf '%s' "$h" | health_field releaseSha)" = "$1" ] \
-    && [ "$(printf '%s' "$h" | health_field version)" = "${1:0:8}" ] || return 1
   [[ "$restarts" =~ ^[0-9]+$ ]] || return 1
-  instance=$(printf '%s' "$h" | health_field instanceId) || return 1
-  liveness=$(printf '%s' "$h" | health_field liveness) || return 1
-  [ -n "$instance" ] && [ "$instance" != null ] || return 1
-  [ "$liveness" = ok ] || [ "$liveness" = standby ] || return 1
-  python3 - "$id" "$instance" "$restarts" "$1" <<'PY_IDENTITY'
+  h=$(health) || return 1
+  printf '%s' "$h" | python3 -c '
 import json, sys
-print(json.dumps(dict(containerId=sys.argv[1], instanceId=sys.argv[2], restartCount=int(sys.argv[3]), releaseSha=sys.argv[4])))
-PY_IDENTITY
+cid, restarts, expected_sha = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+try:
+    h = json.loads(sys.stdin.read() or "{}")
+except ValueError:
+    sys.exit(1)
+if not isinstance(h, dict):
+    sys.exit(1)
+if h.get("releaseSha") != expected_sha or h.get("version") != expected_sha[:8]:
+    sys.exit(1)
+instance = h.get("instanceId")
+liveness = h.get("liveness")
+if not isinstance(instance, str) or not instance or instance == "null":
+    sys.exit(1)
+if liveness not in ("ok", "standby"):
+    sys.exit(1)
+print(json.dumps(dict(containerId=cid, instanceId=instance, restartCount=restarts, releaseSha=expected_sha)))
+' "$id" "$restarts" "$1"
 }
 
 trial_elapsed() { # Missing observations are unknown, never negative durations.
@@ -266,7 +275,7 @@ wait_dealing() {  # wait until the engine reports hands dealt in its window
   local deadline=$(( $(date +%s) + $1 )) n
   while [ "$(date +%s)" -lt "$deadline" ]; do
     n=$(hands_in_window); [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -gt 0 ] && return 0
-    sleep 5
+    sleep 1
   done
   return 1
 }
@@ -275,7 +284,7 @@ wait_pretrial_dealing() {
   # The old sequential waits allowed 300 seconds for play plus 900 for maintenance.
   local baseline current sha="$1"
   baseline=$(swap_target_identity "$sha") || return 1
-  local start now previous eligible=0 was_playing=0 since h phase live db
+  local start now previous eligible=0 was_playing=0 since h parsed phase live db
   start=$(date +%s); previous=$start; since=$((start + 1))
   while :; do
     now=$(date +%s)
@@ -284,8 +293,14 @@ wait_pretrial_dealing() {
     (( eligible < 300 )) || return 1
     previous=$now
     h=$(health) || return 1
-    phase=$(printf '%s' "$h" | health_field maintenance.phase) || return 1
-    live=$(printf '%s' "$h" | health_field liveness) || return 1
+    parsed=$(printf '%s' "$h" | python3 -c 'import json,sys
+try: d=json.loads(sys.stdin.read() or "{}")
+except Exception: d={}
+m=d.get("maintenance") if isinstance(d,dict) else None
+phase=m.get("phase") if isinstance(m,dict) else None
+live=d.get("liveness") if isinstance(d,dict) else None
+print((phase or "") + "\t" + (live or ""))') || return 1
+    IFS=$'\t' read -r phase live <<< "$parsed"
     case "$live" in ok|standby) ;; *) return 1 ;; esac
     case "$phase" in last_hand|counting_down|pausing|idle) ;; *) return 1 ;; esac
     # A single database snapshot also catches an announcement between health and SQL.
@@ -324,7 +339,7 @@ SQL_PRETRIAL
         return
       fi
     fi
-    sleep 5
+    sleep 1
   done
 }
 
@@ -366,6 +381,147 @@ trial_break() {
   trial_verdict break "$v" ",\"sha\":\"$sha\",\"secondsToFreeze\":$(trial_elapsed "$t0" "${frozen_at:-}"),\"secondsFrozen\":$(trial_elapsed "${frozen_at:-}" "${thaw_at:-}"),\"unparkedAtFreeze\":\"${unparked}\",\"frozenSeatBoundary\":$seats_before,\"lastVerifiedFrozenSnapshot\":$FROZEN_SEATS_LAST,\"rejectedSeatObservation\":${FROZEN_SEATS_REJECTION:-null},\"reasons\":\"${reasons#,}\""
 }
 
+# Connection-pool spike & post-swap leak telemetry thresholds (well below
+# Supabase's pool ceiling). Overridable via environment for calibration/tests.
+SWAP_WARN_DB_CONNECTIONS=${SWAP_WARN_DB_CONNECTIONS:-80}
+SWAP_MAX_DB_CONNECTIONS=${SWAP_MAX_DB_CONNECTIONS:-120}
+SWAP_MAX_DB_CONNECTION_LEAK=${SWAP_MAX_DB_CONNECTION_LEAK:-25}
+SWAP_DB_CONN_SAMPLE_SECONDS=${SWAP_DB_CONN_SAMPLE_SECONDS:-2}
+
+sample_db_connections() {
+  psql_db -XqAt <<'SQL_DB_CONNS'
+\set QUIET on
+SET statement_timeout = '3s';
+SELECT json_build_object(
+  'total', count(*)::int,
+  'active', count(*) FILTER (WHERE state = 'active')::int,
+  'idle', count(*) FILTER (WHERE state = 'idle')::int,
+  'idleInTx', count(*) FILTER (WHERE state IN ('idle in transaction', 'idle in transaction (aborted)'))::int,
+  'waiting', count(*) FILTER (WHERE wait_event_type IS NOT NULL AND state = 'active')::int
+)
+FROM pg_stat_activity
+WHERE datname = current_database()
+  AND pid <> pg_backend_pid();
+SQL_DB_CONNS
+}
+
+# Evaluates pg_stat_activity connection samples across a certified swap.
+# Prints one JSON summary on stdout. Returns 0 on pass/warn, 1 on threshold or
+# post-swap leak breach, 2 when no readable sample was captured.
+evaluate_swap_db_connections() { # baseline_json samples_file post_json [max_total] [warn_total] [max_leak]
+  local baseline="${1:-}" samples_file="${2:-}" post="${3:-}"
+  local max_total="${4:-$SWAP_MAX_DB_CONNECTIONS}"
+  local warn_total="${5:-$SWAP_WARN_DB_CONNECTIONS}"
+  local max_leak="${6:-$SWAP_MAX_DB_CONNECTION_LEAK}"
+  python3 - "$baseline" "$samples_file" "$post" "$max_total" "$warn_total" "$max_leak" <<'PY_DB_CONNS'
+import json, os, sys
+
+baseline_raw, samples_path, post_raw = sys.argv[1:4]
+max_total, warn_total, max_leak = int(sys.argv[4]), int(sys.argv[5]), int(sys.argv[6])
+
+def parse_sample(raw):
+    raw = (raw or '').strip()
+    if not raw:
+        return None
+    try:
+        obj = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(obj, dict):
+        return None
+    total = obj.get('total')
+    active = obj.get('active', 0)
+    if type(total) is not int or total < 0 or type(active) is not int or active < 0:
+        return None
+    idle = obj.get('idle', 0)
+    idle_in_tx = obj.get('idleInTx', 0)
+    waiting = obj.get('waiting', 0)
+    return {
+        'total': total,
+        'active': active,
+        'idle': idle if type(idle) is int and idle >= 0 else 0,
+        'idleInTx': idle_in_tx if type(idle_in_tx) is int and idle_in_tx >= 0 else 0,
+        'waiting': waiting if type(waiting) is int and waiting >= 0 else 0,
+    }
+
+samples = []
+baseline = parse_sample(baseline_raw)
+if baseline is not None:
+    samples.append(baseline)
+if samples_path and os.path.exists(samples_path):
+    try:
+        with open(samples_path, encoding='utf-8', errors='replace') as handle:
+            for line in handle:
+                parsed = parse_sample(line)
+                if parsed is not None:
+                    samples.append(parsed)
+    except OSError:
+        pass
+post = parse_sample(post_raw)
+if post is not None:
+    samples.append(post)
+
+thresholds = {'warnTotal': warn_total, 'maxTotal': max_total, 'maxLeakDelta': max_leak}
+if not samples:
+    out = {
+        'status': 'unreadable',
+        'baselineTotal': None,
+        'peakTotal': None,
+        'peakActive': None,
+        'peakIdleInTx': None,
+        'peakWaiting': None,
+        'postTotal': None,
+        'deltaAfterSwap': None,
+        'samples': 0,
+        'thresholds': thresholds,
+        'warnings': [],
+        'breaches': [],
+    }
+    print(json.dumps(out))
+    sys.exit(2)
+
+peak_total = max(s['total'] for s in samples)
+peak_active = max(s['active'] for s in samples)
+peak_idle_in_tx = max(s['idleInTx'] for s in samples)
+peak_waiting = max(s['waiting'] for s in samples)
+baseline_total = baseline['total'] if baseline is not None else None
+post_total = post['total'] if post is not None else None
+delta = (post_total - baseline_total) if (baseline_total is not None and post_total is not None) else None
+
+warnings = []
+breaches = []
+if peak_total > max_total:
+    breaches.append(f'peak_db_connections_exceeded:{peak_total}>{max_total}')
+elif peak_total > warn_total:
+    warnings.append(f'peak_db_connections_high:{peak_total}>{warn_total}')
+if delta is not None and delta > max_leak:
+    breaches.append(f'db_connection_leak_after_swap:+{delta}>{max_leak}')
+
+status = 'fail' if breaches else ('warn' if warnings else 'pass')
+out = {
+    'status': status,
+    'baselineTotal': baseline_total,
+    'peakTotal': peak_total,
+    'peakActive': peak_active,
+    'peakIdleInTx': peak_idle_in_tx,
+    'peakWaiting': peak_waiting,
+    'postTotal': post_total,
+    'deltaAfterSwap': delta,
+    'samples': len(samples),
+    'thresholds': thresholds,
+    'warnings': warnings,
+    'breaches': breaches,
+}
+print(json.dumps(out))
+if breaches:
+    print(f"standby-trials: FAIL swap DB connections: {'; '.join(breaches)} (baseline={baseline_total}, peak={peak_total}, peakActive={peak_active}, post={post_total})", file=sys.stderr)
+    sys.exit(1)
+if warnings:
+    print(f"standby-trials: WARNING swap DB connections: {'; '.join(warnings)} (baseline={baseline_total}, peak={peak_total}, peakActive={peak_active}, post={post_total})", file=sys.stderr)
+sys.exit(0)
+PY_DB_CONNS
+}
+
 start_player_witness() {
   local from=$1 to=$2 row table user seat script=/usr/local/share/club-arena-standby/player-reconnect.mjs
   row=$(psql_db -Atc "select s.table_id,s.user_id,s.seat_number from public.table_seats s join public.profiles p on p.id=s.user_id where p.is_horse and s.left_at is null and exists (select from public.hand_history h where h.table_id=s.table_id and h.created_at > now()-interval '5 minutes') order by s.table_id,s.seat_number limit 1") || return 1
@@ -385,21 +541,46 @@ start_player_witness() {
   local end=$((SECONDS + 45))
   until [ -f "$witness_dir/connected" ]; do
     kill -0 "$witness_pid" 2>/dev/null && (( SECONDS < end )) || return 1
-    sleep 1
+    sleep 0.2
   done
 }
 
 certified_player_swap() {
-  local witness_dir witness_name witness_pid='' result=1
+  local witness_dir witness_name witness_pid='' conn_sampler_pid='' result=1
+  local baseline_conn='' post_conn='' conn_rc=0
+  SWAP_PEAK_DB_CONNECTIONS=null
   witness_dir=$(mktemp -d "$STATE_DIR/player-proof.XXXXXXXX") || return 1
   witness_name="standby-${witness_dir##*/}"
+  baseline_conn=$(sample_db_connections 2>/dev/null || true)
+  : > "$witness_dir/db-conns.jsonl"
+  (
+    sleep_pid=''
+    trap '[ -n "$sleep_pid" ] && kill "$sleep_pid" 2>/dev/null || true; exit 0' TERM INT
+    while :; do
+      sample_db_connections >> "$witness_dir/db-conns.jsonl" 2>/dev/null || true
+      sleep "${SWAP_DB_CONN_SAMPLE_SECONDS:-2}" &
+      sleep_pid=$!
+      wait "$sleep_pid" 2>/dev/null || true
+      sleep_pid=''
+    done
+  ) </dev/null >/dev/null 2>&1 &
+  conn_sampler_pid=$!
   if trial_swap "$1" "$2" && wait "$witness_pid"; then
     cat "$witness_dir/verdict" >&2
     result=0
   fi
+  if [ -n "$conn_sampler_pid" ]; then
+    kill "$conn_sampler_pid" 2>/dev/null || true
+    wait "$conn_sampler_pid" 2>/dev/null || true
+  fi
   if [ -n "$witness_pid" ]; then
     docker rm -f "$witness_name" >/dev/null 2>&1 || true
     wait "$witness_pid" 2>/dev/null || true
+  fi
+  post_conn=$(sample_db_connections 2>/dev/null || true)
+  SWAP_PEAK_DB_CONNECTIONS=$(evaluate_swap_db_connections "$baseline_conn" "$witness_dir/db-conns.jsonl" "$post_conn") || conn_rc=$?
+  if [ "$conn_rc" -eq 1 ]; then
+    result=1
   fi
   rm -rf -- "$witness_dir"
   return "$result"
@@ -407,6 +588,7 @@ certified_player_swap() {
 
 trial_swap() {
   local from="$1" to="$2" t0 frozen_at stop_at live_at thaw_at reasons=""
+  local pretrial_t0 pretrial_end build_t0 build_end witness_t0 witness_end post_deal_t0 post_deal_end
   valid_sha "$from"; valid_sha "$to"
   # Skip a redundant stop+reboot only when the copy is valid, the exact $from
   # image is present (needed by start_player_witness), and $CONTAINER is already
@@ -422,11 +604,17 @@ trial_swap() {
     cmd_run "$from" || return 1
   fi
   wait_live 600 >/dev/null || { trial_verdict swap fail ',"reason":"from_never_live"'; return 1; }
+  pretrial_t0=$(date +%s)
   wait_pretrial_dealing "$from" || { trial_verdict swap fail ',"reason":"from_never_dealt"'; return 1; }
+  pretrial_end=$(date +%s)
+  build_t0=$(date +%s)
   cmd_build "$to" >/dev/null || { trial_verdict swap fail ',"reason":"to_build_failed"'; return 1; }
+  build_end=$(date +%s)
+  witness_t0=$(date +%s)
   if [ -n "${witness_dir:-}" ]; then
     start_player_witness "$from" "$to" || { trial_verdict swap fail ',"reason":"player_session_unavailable"'; return 1; }
   fi
+  witness_end=$(date +%s)
   local seats_before count_before post_boot seat_owner target_id adoption_state
   t0=$(date +%s)
   request_break >/dev/null || { trial_verdict swap fail ',"reason":"break_request_refused"'; return 1; }
@@ -464,10 +652,12 @@ except ValueError: print("null")' "$post_boot") || return 1
     || reasons="$reasons,frozen_seat_boundary_failed"
   # Start a fresh database observation after thaw. The health window alone
   # can still contain hands from before the swap.
+  post_deal_t0=$(date +%s)
   wait_pretrial_dealing "$to" || reasons="$reasons,to_did_not_deal_after_thaw"
+  post_deal_end=$(date +%s)
   frozen_seat_receipt "$seat_owner" "${to:0:8}" || reasons="$reasons,frozen_seat_receipt_failed"
   local v=pass; [ -z "$reasons" ] || v=fail
-  trial_verdict swap "$v" ",\"from\":\"$from\",\"to\":\"$to\",\"seats\":$count_before,\"frozenSeatBoundary\":$seats_before,\"lastVerifiedFrozenSnapshot\":$FROZEN_SEATS_LAST,\"rejectedSeatObservation\":${FROZEN_SEATS_REJECTION:-null},\"secondsToFreeze\":$(trial_elapsed "$t0" "${frozen_at:-}"),\"postBootSeatSnapshot\":$post_boot,\"adoptedRuntimeIdentity\":$target_id,\"secondsBootToLive\":$(trial_elapsed "${stop_at:-}" "${live_at:-}"),\"secondsFrozenTotal\":$(trial_elapsed "${frozen_at:-}" "${thaw_at:-}"),\"reasons\":\"${reasons#,}\""
+  trial_verdict swap "$v" ",\"from\":\"$from\",\"to\":\"$to\",\"seats\":$count_before,\"frozenSeatBoundary\":$seats_before,\"lastVerifiedFrozenSnapshot\":$FROZEN_SEATS_LAST,\"rejectedSeatObservation\":${FROZEN_SEATS_REJECTION:-null},\"secondsPretrial\":$(trial_elapsed "$pretrial_t0" "${pretrial_end:-}"),\"secondsBuildTo\":$(trial_elapsed "$build_t0" "${build_end:-}"),\"secondsWitnessStart\":$(trial_elapsed "$witness_t0" "${witness_end:-}"),\"secondsToFreeze\":$(trial_elapsed "$t0" "${frozen_at:-}"),\"postBootSeatSnapshot\":$post_boot,\"adoptedRuntimeIdentity\":$target_id,\"secondsBootToLive\":$(trial_elapsed "${stop_at:-}" "${live_at:-}"),\"secondsFrozenTotal\":$(trial_elapsed "${frozen_at:-}" "${thaw_at:-}"),\"secondsPostThawDeal\":$(trial_elapsed "$post_deal_t0" "${post_deal_end:-}"),\"reasons\":\"${reasons#,}\""
 }
 
 trial_table_kill() {

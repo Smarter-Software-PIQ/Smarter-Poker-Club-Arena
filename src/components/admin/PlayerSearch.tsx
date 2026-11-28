@@ -9,6 +9,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useIsMounted } from '../../hooks/useIsMounted';
 import { supabase } from '../../lib/supabase';
 import './PlayerSearch.css';
+import './PlayerSearchArena.css';
 import { generateDefaultAvatar } from '../../utils/avatarGenerator';
 import { reportError } from '../../utils/errorReporter';
 
@@ -260,14 +261,14 @@ export const PlayerSearch: React.FC<PlayerSearchProps> = ({
   };
 
   return (
-    <div className="player-search">
+    <div className="player-search arena-case arena-ops-case">
       <div className="search-header">
-        <h2>Player Search</h2>
+        <h2 className="arena-section-title">Player Search</h2>
       </div>
 
       {/* Search Bar */}
       <div className="search-controls">
-        <div className="search-type">
+        <div className="search-type arena-switch">
           {(['username', 'id'] as const).map((type) => (
             <button
               key={type}
@@ -278,9 +279,10 @@ export const PlayerSearch: React.FC<PlayerSearchProps> = ({
             </button>
           ))}
         </div>
-        <div className="search-input">
+        <div className="search-input arena-switch">
           <input
             type="text"
+            className="arena-ops-well"
             placeholder={`Search By ${searchType}...`}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -318,7 +320,7 @@ export const PlayerSearch: React.FC<PlayerSearchProps> = ({
           results.map((player, i) => (
             <div
               key={player.id}
-              className="player-row"
+              className="player-row arena-ledger-row"
               onClick={() => onPlayerSelect?.(player)}
               style={{
                 opacity: visibleItems.has(i) ? 1 : 0,
@@ -353,7 +355,7 @@ export const PlayerSearch: React.FC<PlayerSearchProps> = ({
                   <span>Balance: {formatWalletChips(player.balance)}</span>
                 </div>
               </div>
-              <div className="player-actions">
+              <div className="player-actions arena-switch">
                 <button
                   className="action-btn view"
                   onClick={(e) => {

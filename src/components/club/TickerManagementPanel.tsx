@@ -10,7 +10,6 @@ import {
 import { useToast } from '../common/Toast';
 import { isManagementContentConflict } from '../../services/ManagementContentError';
 import { confirmDialog } from '../common/confirmDialog';
-import { SpadeConsole, type ConsoleInk } from '../console/SpadeConsole';
 import { safeErrorMessage } from '../../utils/safeErrorMessage';
 import { titleCase } from '../../utils/titleCase';
 import styles from './TickerManagementPanel.module.css';
@@ -217,36 +216,31 @@ export default function TickerManagementPanel({
   // The pill reports what players see NOW - the saved state - never the draft.
   const onAir = savedSettings?.enabled ?? null;
   const pill = onAir === null ? (loadError ? 'Locked' : 'Loading') : onAir ? 'On Air' : 'Off Air';
-  const pillInk: ConsoleInk =
+  const pillInk: 'red' | 'muted' | 'green' =
     onAir === null ? (loadError ? 'red' : 'muted') : onAir ? 'green' : 'muted';
 
   return (
-    <SpadeConsole
-      family="shark"
-      className={styles.panel}
-      eyebrow="Broadcast Control"
-      title="Ticker Management"
-      titleId="ticker-management-title"
-      /* The club or union name alone: with the suffix the shark's narrow
-         subtitle zone fitted a long name down to nine pixels. The heading
-         below the head says what the rail is. */
-      subtitle={titleCase(scopeName || 'Live Message Rail')}
-      pill={pill}
-      pillInk={pillInk}
+    <section
+      className={`${styles.panel} arena-case arena-ops-case`}
       aria-labelledby="ticker-management-title"
       aria-busy={loading || saving}
-      plates={{
-        primary: {
-          label: saving ? 'Saving…' : 'Save Ticker',
-          type: 'button',
-          onClick: () => void save(),
-          disabled: loading || saving || revision === null || !dirty || Boolean(contrastError),
-          ink: 'white',
-        },
-      }}
     >
+      {/* #SmarterDesign (Dan 2026-11-27): a thin chrome case with its own
+          head; Save Ticker is a chrome key at its foot. */}
+      <header className={styles.panelHead}>
+        <span className="arena-ops-eyebrow">
+          Broadcast Control
+          <span className={`${styles.pill} ${styles[`ink_${pillInk}`]}`}>{pill}</span>
+        </span>
+        <h2 id="ticker-management-title" className="arena-section-title">
+          Ticker Management
+        </h2>
+        {/* The club or union name alone; the heading below says what the
+            rail is. */}
+        <p className="arena-ops-live">{titleCase(scopeName || 'Live Message Rail')}</p>
+      </header>
       <div className={styles.monitor}>
-        <span className={`${styles.sectionLabel} sc-ink--blue`}>On-Air Preview</span>
+        <span className={`${styles.sectionLabel} ${styles.ink_blue}`}>On-Air Preview</span>
         <div
           className={styles.preview}
           role="img"
@@ -269,21 +263,21 @@ export default function TickerManagementPanel({
 
       <div className={styles.heading}>
         <div>
-          <h3 className="sc-ink--silver">Control The Live Message Rail</h3>
-          <p className="sc-copy">
+          <h3 className={styles.ink_silver}>Control The Live Message Rail</h3>
+          <p className={styles.copy}>
             Choose What Earns The Top Strip, Then Tune Its Pace And Visual Treatment.
           </p>
         </div>
-        <label className={`${styles.master} sc-check${settings.enabled ? ' sc-check--on' : ''}`}>
+        <label className={styles.master}>
           <input
             type="checkbox"
-            className="sc-check__box"
+            className={styles.check}
             aria-label="Ticker Enabled"
             checked={settings.enabled}
             onChange={(e) => update('enabled', e.target.checked)}
             disabled={loading || saving || revision === null || Boolean(loadError)}
           />
-          <span className={settings.enabled ? 'sc-ink--green' : 'sc-ink--muted'}>
+          <span className={settings.enabled ? styles.ink_green : styles.ink_muted}>
             {settings.enabled ? 'Ticker On' : 'Ticker Off'}
           </span>
         </label>
@@ -313,18 +307,13 @@ export default function TickerManagementPanel({
         aria-label="Ticker Settings"
         disabled={loading || saving || revision === null || Boolean(loadError)}
       >
-        <span className={`${styles.sectionLabel} sc-ink--blue`}>Message Sources</span>
+        <span className={`${styles.sectionLabel} ${styles.ink_blue}`}>Message Sources</span>
         <div className={styles.sourceGrid}>
           {SOURCE_OPTIONS.map((source) => (
-            <label
-              key={source.key}
-              className={`${styles.source} sc-check${
-                settings.sources[source.key] ? ' sc-check--on' : ''
-              }`}
-            >
+            <label key={source.key} className={styles.source}>
               <input
                 type="checkbox"
-                className="sc-check__box"
+                className={styles.check}
                 aria-label={source.label}
                 checked={settings.sources[source.key]}
                 onChange={(e) =>
@@ -338,7 +327,7 @@ export default function TickerManagementPanel({
             </label>
           ))}
         </div>
-        <span className={`${styles.sectionLabel} sc-ink--blue`}>Pace And Treatment</span>
+        <span className={`${styles.sectionLabel} ${styles.ink_blue}`}>Pace And Treatment</span>
         <div className={styles.customizer}>
           <label className={styles.speed}>
             <span className={styles.speedCopy}>
@@ -498,7 +487,7 @@ export default function TickerManagementPanel({
         </div>
       </fieldset>
       <p
-        className={`${styles.status} ${contrastError ? 'sc-ink--red' : 'sc-ink--muted'}`}
+        className={`${styles.status} ${contrastError ? styles.ink_red : styles.ink_muted}`}
         role="status"
         aria-live="polite"
       >
@@ -510,6 +499,16 @@ export default function TickerManagementPanel({
               ? 'Unsaved Ticker Changes Are Staged Locally.'
               : 'All Ticker Changes Are Saved.'}
       </p>
-    </SpadeConsole>
+      <div className="arena-switch arena-ops-keys">
+        <button
+          type="button"
+          className="active"
+          onClick={() => void save()}
+          disabled={loading || saving || revision === null || !dirty || Boolean(contrastError)}
+        >
+          {saving ? 'Saving…' : 'Save Ticker'}
+        </button>
+      </div>
+    </section>
   );
 }

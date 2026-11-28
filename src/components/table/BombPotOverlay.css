@@ -555,8 +555,8 @@
   pointer-events: none;
 }
 .bomb-pot-overlay .bpo-letter {
-  color: #f4f8ff;
-  background: linear-gradient(180deg, #ffffff 0%, #d8e7f3 40%, #86daff 72%, #3c8fd6 100%);
+  color: var(--sd-white);
+  background: linear-gradient(180deg, #ffffff 0%, #d8e7f3 40%, var(--sd-ice) 72%, #3c8fd6 100%);
   -webkit-background-clip: text;
   background-clip: text;
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
@@ -564,10 +564,10 @@
   text-shadow: 0 0 30px rgb(66 185 255 / 55%);
 }
 .bomb-pot-overlay .bpo-subtitle {
-  color: #86daff;
+  color: var(--sd-ice);
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
 }
 .bomb-pot-overlay .bpo-ante {
-  color: #bdd0e2;
+  color: var(--sd-silver);
   font-variant-numeric: tabular-nums;
 }

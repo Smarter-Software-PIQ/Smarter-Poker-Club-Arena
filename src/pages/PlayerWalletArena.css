@@ -1,0 +1,487 @@
+/*
+ * THE WALLET IN #SMARTERDESIGN (Dan 2026-11-27; player pages batch P3,
+ * 2026-11-28).
+ *
+ * The page root carries `arena-workspace`, so the shell, the chrome mast, the
+ * thin chrome cases, the chrome-stat keys, the readout tiles and the ledger
+ * rows all come from src/components/lobby/ArenaWorkspace.css and
+ * src/components/ops/ArenaOps.css. This sheet only lays them out for the
+ * wallet and dresses the wallet's own insides with the workspace's inks.
+ *
+ * EVERY RULE HERE IS SCOPED UNDER `.wallet-page.arena-workspace`. Two of the
+ * things it dresses are shared: CashierWorkspace (the Cashier, Statements and
+ * Trade pages mount it too) and DiamondLedgerMore's Load Older key. Scoping
+ * keeps them exactly as they were everywhere else
+ * (tests/unit/walletArenaDressIsScoped.test.ts).
+ *
+ * PlayerWalletPage.css still holds the base desk rules; nothing here removes
+ * them, it outranks them on this page only.
+ */
+
+.wallet-page.arena-workspace {
+  width: 100%;
+  padding-bottom: calc(190px + env(safe-area-inset-bottom, 0px));
+  font-family: 'Roboto Condensed', 'Arial Narrow', Arial, sans-serif;
+}
+
+.wallet-page.arena-workspace > * {
+  box-sizing: border-box;
+  width: min(1000px, 100%);
+  margin-inline: auto;
+}
+
+/* ── The shared Cashier workspace: no glass of its own under the mast ── */
+.wallet-page.arena-workspace .cashier-workspace {
+  background: none;
+}
+
+.wallet-page.arena-workspace .cashier-workspace .cashier-workspace__content {
+  gap: 0;
+  padding: 0;
+}
+
+/* ── The balance: one centred figure in a chrome case ─────────────── */
+.wallet-page.arena-workspace .wallet-balance {
+  align-items: center;
+  gap: 8px;
+  padding: 18px 12px 14px;
+  text-align: center;
+}
+
+/* The vault render stays behind the figure, under the case's chrome. */
+.wallet-page.arena-workspace .wallet-balance > .wallet-balance__art {
+  position: absolute;
+  z-index: 0;
+  opacity: 0.26;
+}
+
+.wallet-page.arena-workspace .wallet-balance__label {
+  color: #9fbacc;
+  font:
+    700 12px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  text-shadow: none;
+}
+
+.wallet-page.arena-workspace .wallet-balance__figure {
+  color: #f1f5fc;
+  font-family: 'Roboto Condensed', 'Arial Narrow', Arial, sans-serif;
+}
+
+.wallet-page.arena-workspace .wallet-balance__meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 130px), 1fr));
+  gap: 4px;
+  width: 100%;
+  margin: 4px 0 0;
+}
+
+.wallet-page.arena-workspace .wallet-balance__item {
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 4px;
+}
+
+.wallet-page.arena-workspace .wallet-balance__item dt {
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  text-shadow: none;
+}
+
+.wallet-page.arena-workspace .wallet-balance__item dd {
+  color: #f1f5fc;
+  font:
+    800 18px/1.1 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.wallet-page.arena-workspace .wallet-balance__item.is-live dd,
+.wallet-page.arena-workspace .wallet-balance__item.is-diamond dd {
+  color: #74dfff;
+}
+
+.wallet-page.arena-workspace .wallet-balance__item.is-held dd {
+  max-width: none;
+  color: #ffe98a;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+/* ── The action case: the read status over four chrome keys ───────── */
+.wallet-page.arena-workspace .wallet-dock {
+  display: flex;
+  min-height: 0;
+  padding: 12px;
+  background-image: none;
+}
+
+.wallet-page.arena-workspace .wallet-dock__line {
+  justify-content: flex-start;
+  color: #74dfff;
+  font:
+    700 12px/1.25 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.wallet-page.arena-workspace .wallet-dock__line.is-gold {
+  color: #ffe98a;
+}
+
+.wallet-page.arena-workspace .wallet-dock__line.is-red {
+  color: #ff5b6e;
+}
+
+/* Every key in a wallet switch keeps its words as written. */
+.wallet-page.arena-workspace
+  :is(.wallet-dock__actions, .wallet-tabs, .wallet-row__doors)
+  > :is(button, a) {
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.wallet-page.arena-workspace
+  :is(.wallet-dock__actions, .wallet-tabs, .wallet-row__doors)
+  > :is(button, a):disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── The lit key: one per group (Add Chips, the open arena door, and each
+   pane's own primary), the workspace's lit blue on the active rim. ──── */
+.wallet-page.arena-workspace .wallet-dock__actions > .wallet-dock__action.is-lit,
+.wallet-page.arena-workspace .wallet-row__doors > .wallet-plate__cta.is-lit,
+.wallet-page.arena-workspace .vault-btn.primary {
+  color: white;
+  background: linear-gradient(#1678ec, #064da9 52%, #082d60);
+  text-shadow: none;
+}
+
+.wallet-page.arena-workspace .wallet-dock__actions > .wallet-dock__action.is-lit::after,
+.wallet-page.arena-workspace .wallet-row__doors > .wallet-plate__cta.is-lit::after,
+.wallet-page.arena-workspace .vault-btn.primary::after {
+  border-image-source: var(--arena-active);
+}
+
+/* ── The pane keys: the switch's chrome-stat key, standing alone ──── */
+.wallet-page.arena-workspace .vault-btn {
+  position: relative;
+  min-width: 96px;
+  min-height: 44px;
+  width: auto;
+  aspect-ratio: auto;
+  padding: 6px 14px;
+  color: #dce5ef;
+  background: linear-gradient(#152639, #06111e 65%);
+  border: 0;
+  border-radius: 6px;
+  font:
+    700 14px/1.1 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+  text-shadow: none;
+}
+
+.wallet-page.arena-workspace .vault-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+}
+
+.wallet-page.arena-workspace .vault-btn.small {
+  min-width: 64px;
+  font-size: 13px;
+}
+
+.wallet-page.arena-workspace .vault-btn--wide {
+  width: 100%;
+}
+
+.wallet-page.arena-workspace :is(.vault-btn, .wallet-dock__action, .wallet-plate__cta):active {
+  filter: brightness(0.86);
+}
+
+.wallet-page.arena-workspace .vault-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.wallet-page.arena-workspace .vault-link {
+  color: #74dfff;
+}
+
+/* ── The tabs: one chrome switch, lit by aria-selected ────────────── */
+.wallet-page.arena-workspace .wallet-tabs {
+  justify-content: stretch;
+  margin: 7px 0;
+  padding: 0;
+  border-bottom: 0;
+  box-shadow: none;
+}
+
+.wallet-page.arena-workspace .wallet-tabs > button {
+  padding-inline: 2px;
+  white-space: nowrap;
+  text-shadow: none;
+}
+
+.wallet-page.arena-workspace .wallet-content {
+  gap: 0;
+}
+
+/* ── Wallet rows: chrome ledger rows in one chrome case ───────────── */
+.wallet-page.arena-workspace .wallet-rows {
+  gap: 6px;
+}
+
+.wallet-page.arena-workspace .wallet-row {
+  gap: 8px;
+  padding: 8px 10px 10px;
+}
+
+.wallet-page.arena-workspace .wallet-row__art {
+  width: 52px;
+  height: 52px;
+}
+
+.wallet-page.arena-workspace .wallet-row__name {
+  color: #f1f5fc;
+  font-size: 17px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.wallet-page.arena-workspace :is(.wallet-row__sub, .wallet-row__desc) {
+  color: #9fbacc;
+  font-family: Arial, sans-serif;
+  text-shadow: none;
+}
+
+.wallet-page.arena-workspace .wallet-row__value {
+  color: #f1f5fc;
+}
+
+.wallet-page.arena-workspace .wallet-row__value.is-diamond,
+.wallet-page.arena-workspace .wallet-row__split dd.is-live {
+  color: #74dfff;
+}
+
+.wallet-page.arena-workspace :is(.wallet-row__label, .wallet-row__split dt, .wallet-row__note) {
+  color: #9fbacc;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  text-shadow: none;
+}
+
+.wallet-page.arena-workspace .wallet-row__split {
+  border-top: 1px solid #253e57;
+  box-shadow: none;
+}
+
+.wallet-page.arena-workspace .wallet-row__split dd {
+  color: #f1f5fc;
+}
+
+.wallet-page.arena-workspace .wallet-row__meter {
+  background: #040d17;
+}
+
+.wallet-page.arena-workspace .wallet-row__meter-fill {
+  background: #74dfff;
+}
+
+.wallet-page.arena-workspace .wallet-row__doors {
+  margin: 0;
+}
+
+/* The arena's doors were the painted plate: here they are chrome keys. */
+.wallet-page.arena-workspace .wallet-row__doors > .wallet-plate__cta {
+  width: auto;
+  max-width: none;
+  aspect-ratio: auto;
+  color: #dce5ef;
+}
+
+.wallet-page.arena-workspace .wallet-row__doors > .wallet-row__note {
+  flex: 1 1 100%;
+  justify-content: center;
+}
+
+/* ── Panes: each a chrome case under a section title ──────────────── */
+.wallet-page.arena-workspace .wallet-grid {
+  gap: 0 8px;
+}
+
+.wallet-page.arena-workspace .vault-panel__title {
+  margin: 0;
+  padding-bottom: 5px;
+  border-bottom: 1px solid #253e57;
+  box-shadow: none;
+  color: #f1f5fc;
+  font-family: 'Roboto Condensed', 'Arial Narrow', Arial, sans-serif;
+  letter-spacing: -0.35px;
+  text-transform: none;
+}
+
+.wallet-page.arena-workspace :is(.vault-panel__sub, .vault-form__hint, .vault-empty) {
+  color: #9fbacc;
+  font-family: Arial, sans-serif;
+  text-shadow: none;
+}
+
+.wallet-page.arena-workspace :is(.vault-field__label, .receive-ids__row dt, .earn-stat dt) {
+  color: #9fbacc;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  text-shadow: none;
+}
+
+/* The fields are the workspace's dark wells; 16px so iOS does not zoom. */
+.wallet-page.arena-workspace :is(.vault-select, .vault-input).arena-ops-well {
+  min-height: 44px;
+  border-color: #476079;
+  color-scheme: dark;
+  font:
+    16px/1.2 Arial,
+    sans-serif;
+}
+
+.wallet-page.arena-workspace :is(.vault-select, .vault-input):focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+
+/* The Chip Statement paints its own case; it is never a frame in a frame. */
+.wallet-page.arena-workspace .vault-panel--statement {
+  margin: 7px 0;
+}
+
+/* ── Rows: received, sent, the receive ids and the earn doors ─────── */
+.wallet-page.arena-workspace .incoming-list {
+  gap: 4px;
+}
+
+.wallet-page.arena-workspace :is(.incoming-row, .receive-ids__row) {
+  padding: 6px 10px;
+}
+
+.wallet-page.arena-workspace .incoming-row__label,
+.wallet-page.arena-workspace .receive-ids__value {
+  color: #f1f5fc;
+}
+
+.wallet-page.arena-workspace :is(.incoming-row__desc, .incoming-row__time) {
+  color: #9fbacc;
+  font-family: Arial, sans-serif;
+  text-shadow: none;
+}
+
+.wallet-page.arena-workspace .incoming-row__amount {
+  color: #74dfff;
+}
+
+.wallet-page.arena-workspace .incoming-row__amount.is-outgoing {
+  color: #ff5b6e;
+}
+
+.wallet-page.arena-workspace .earn-stats {
+  gap: 4px;
+}
+
+.wallet-page.arena-workspace .earn-stat {
+  padding: 6px 4px;
+}
+
+.wallet-page.arena-workspace .earn-stat dd {
+  color: #f1f5fc;
+}
+
+.wallet-page.arena-workspace .earn-stat dd:is(.positive, .diamond) {
+  color: #74dfff;
+}
+
+.wallet-page.arena-workspace .earn-meter {
+  height: 4px;
+  background: #040d17;
+  border: 1px solid #253e57;
+}
+
+.wallet-page.arena-workspace .earn-meter__fill {
+  background: #74dfff;
+}
+
+.wallet-page.arena-workspace .earn-doors {
+  gap: 4px;
+}
+
+.wallet-page.arena-workspace .earn-door {
+  padding: 6px 10px;
+}
+
+.wallet-page.arena-workspace .earn-door::after {
+  color: #74dfff;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.wallet-page.arena-workspace .earn-door__title {
+  color: #f1f5fc;
+  font-weight: 700;
+}
+
+.wallet-page.arena-workspace .earn-door__sub {
+  color: #9fbacc;
+  text-shadow: none;
+}
+
+.wallet-page.arena-workspace
+  :is(.wallet-dock__action, .wallet-plate__cta, .earn-door):focus-visible,
+.wallet-page.arena-workspace .wallet-tabs > button:focus-visible,
+.wallet-page.arena-workspace .vault-btn:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .wallet-page.arena-workspace {
+    padding-inline: 6px;
+  }
+
+  .wallet-page.arena-workspace .wallet-dock {
+    background-image: none;
+  }
+
+  .wallet-page.arena-workspace .wallet-tabs > button {
+    font-size: 13px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wallet-page.arena-workspace :is(.vault-btn, .wallet-dock__action, .wallet-plate__cta) {
+    transition: none;
+  }
+}

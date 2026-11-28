@@ -9,6 +9,7 @@ import { usePlayerPreference } from '../hooks/usePlayerPreference';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { ArenaState } from '../components/ops/ArenaOps';
 import ClubIntegrityHeader from '../components/club/ClubIntegrityHeader';
 import { useToast } from '../components/common/Toast';
 import { ClubPageSection as SpadeConsole } from '../components/club/ClubPageSection';
@@ -60,27 +61,31 @@ function when(iso: string): string {
 function HandReviewState({
   title,
   message,
-  tone = 'blue',
+  tone = 'empty',
   action,
 }: {
   title: string;
   message: string;
-  tone?: 'blue' | 'red' | 'gold';
+  tone?: 'loading' | 'error' | 'empty';
   action?: { label: string; onClick: () => void };
 }) {
   return (
     <div className="chr-page arena-workspace" data-arena-surface="club">
       <section className="chr-state-wrap">
-        <SpadeConsole
-          arena
-          title={title}
-          pill={tone === 'red' ? 'Attention' : 'Protected'}
-          plates={
-            action ? { primary: { label: action.label, onClick: action.onClick } } : undefined
-          }
-        >
-          <p className={`chr-state is-${tone}`}>{message}</p>
-        </SpadeConsole>
+        <section className="arena-case arena-ops-case">
+          <ArenaState
+            tone={tone}
+            title={title}
+            message={message}
+            actions={
+              action ? (
+                <button type="button" onClick={action.onClick}>
+                  {action.label}
+                </button>
+              ) : undefined
+            }
+          />
+        </section>
       </section>
     </div>
   );
@@ -324,7 +329,11 @@ export default function ClubHandReviewPage() {
 
   if (state === 'notFound') {
     return (
-      <HandReviewState title="Club Not Found" message="That Club Could Not Be Found." tone="red" />
+      <HandReviewState
+        title="Club Not Found"
+        message="That Club Could Not Be Found."
+        tone="error"
+      />
     );
   }
 
@@ -333,6 +342,7 @@ export default function ClubHandReviewPage() {
       <HandReviewState
         title="Loading Hand Review"
         message="Confirming The Current Club, Operator Access And Flagged Hand Queue."
+        tone="loading"
       />
     );
   }
@@ -342,7 +352,7 @@ export default function ClubHandReviewPage() {
       <HandReviewState
         title="Queue Unavailable"
         message="The Current Club Queue Could Not Be Loaded. No Case Data Was Changed."
-        tone="red"
+        tone="error"
         action={{
           label: 'Retry Queue',
           onClick: () => {
@@ -359,7 +369,7 @@ export default function ClubHandReviewPage() {
       <HandReviewState
         title="Operator Access Required"
         message="Hand Review Is For Club Operators."
-        tone="gold"
+        tone="empty"
       />
     );
   }
@@ -477,9 +487,10 @@ export default function ClubHandReviewPage() {
 
         {activeRead && !model && (
           <SpadeConsole arena className="chr-hand" title="Replay Unavailable" pill="Protected">
-            <p className="chr-state is-red">
-              The Hand Was Read And Logged, But Its Replay Could Not Be Built.
-            </p>
+            <ArenaState
+              tone="error"
+              title="The Hand Was Read And Logged, But Its Replay Could Not Be Built."
+            />
           </SpadeConsole>
         )}
 
@@ -508,11 +519,15 @@ export default function ClubHandReviewPage() {
           </div>
 
           {flags.length === 0 ? (
-            <p className="chr-empty">
-              {filter === 'open'
-                ? 'No Hands Are Waiting On You.'
-                : 'No Flagged Hands Match That Filter.'}
-            </p>
+            <ArenaState
+              tone="empty"
+              title={filter === 'open' ? 'Queue Clear' : 'No Matches'}
+              message={
+                filter === 'open'
+                  ? 'No Hands Are Waiting On You.'
+                  : 'No Flagged Hands Match That Filter.'
+              }
+            />
           ) : (
             <ul className="chr-list">
               {flags.map((flag) => (

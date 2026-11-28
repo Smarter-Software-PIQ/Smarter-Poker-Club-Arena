@@ -96,7 +96,7 @@
   font-size: 1.05rem;
   font-weight: 700;
   letter-spacing: 0.06em;
-  text-transform: uppercase;
+  text-transform: none;
   color: var(--mml-chrome-hot);
   text-shadow:
     var(--mml-engrave),
@@ -151,7 +151,7 @@
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.16em;
-  text-transform: uppercase;
+  text-transform: none;
   color: var(--mml-chrome);
   text-shadow: var(--mml-engrave);
   margin-bottom: 6px;
@@ -249,7 +249,7 @@
   font-size: 0.6rem;
   font-weight: 600;
   letter-spacing: 0.12em;
-  text-transform: uppercase;
+  text-transform: none;
   color: var(--mml-muted);
 }
 
@@ -331,7 +331,7 @@
   font-weight: 700;
   font-size: 0.84rem;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow: var(--mml-engrave);
   min-height: 44px;
   padding: 0 18px;
@@ -470,7 +470,7 @@
   font-size: 0.64rem;
   font-weight: 700;
   letter-spacing: 0.12em;
-  text-transform: uppercase;
+  text-transform: none;
   padding: 2px 7px;
   border-radius: 4px;
   background: var(--mml-obsidian);
@@ -507,7 +507,7 @@
   font-size: 0.62rem;
   font-weight: 700;
   letter-spacing: 0.1em;
-  text-transform: uppercase;
+  text-transform: none;
   color: rgba(255, 255, 255, 0.55);
 }
 
@@ -647,7 +647,7 @@
   font-size: 0.6rem;
   font-weight: 700;
   letter-spacing: 0.1em;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow: var(--mml-engrave);
   vertical-align: middle;
 }
@@ -724,7 +724,7 @@
   box-shadow: none;
 }
 .mml-panel.mml-panel .tlm-title {
-  color: #f4f8ff;
+  color: var(--sd-white);
   font-family: 'Rajdhani', 'Roboto Condensed', sans-serif;
   font-size: 1.35rem;
   letter-spacing: 0.01em;
@@ -739,7 +739,7 @@
   border-radius: 0 !important;
   background: linear-gradient(155deg, #12273b, #07111c 70%) !important;
   box-shadow: none !important;
-  color: #f1f5fc !important;
+  color: var(--sd-ink) !important;
   font-family: 'Rajdhani', 'Roboto Condensed', sans-serif;
   font-size: 1rem;
   font-weight: 700;
@@ -753,7 +753,11 @@
 }
 .mml-panel.mml-panel :is(.mml-join, .mml-btn:not(.mml-btn--ghost)) {
   border-image-source: url('/assets/club-buttons/console/smarterdesign-v1/chrome-active.webp') !important;
-  background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
+  background: linear-gradient(
+    var(--sd-cobalt-top),
+    var(--sd-cobalt-mid) 55%,
+    var(--sd-cobalt-deep)
+  ) !important;
   background-clip: padding-box !important;
   color: #fff !important;
 }
@@ -792,13 +796,13 @@
   border-image-source: url('/assets/club-buttons/console/smarterdesign-v1/chrome-active.webp');
 }
 .mml-panel.mml-panel .mml-error {
-  color: #ff8a93;
+  color: var(--sd-red);
 }
 .mml-panel.mml-panel .mml-loading {
-  color: #bdd0e2;
+  color: var(--sd-silver);
 }
 .mml-panel.mml-panel .mml-section-title {
-  color: #86daff;
+  color: var(--sd-ice);
   font-family: 'Rajdhani', 'Roboto Condensed', sans-serif;
   font-size: 0.95rem;
   letter-spacing: 0.03em;
@@ -806,16 +810,16 @@
   text-shadow: none;
 }
 .mml-panel.mml-panel .mml-game-name {
-  color: #f4f8ff;
+  color: var(--sd-white);
   font-size: 1.3rem;
   text-shadow: none;
 }
 .mml-panel.mml-panel .mml-game-line,
 .mml-panel.mml-panel .mml-hand {
-  color: #bdd0e2;
+  color: var(--sd-silver);
 }
 .mml-panel.mml-panel .mml-stakes {
-  color: #f4f8ff;
+  color: var(--sd-white);
 }
 .mml-panel.mml-panel .mml-style {
   border: 3px solid transparent;
@@ -824,7 +828,7 @@
   border-radius: 0;
   background: #07111c;
   box-shadow: none;
-  color: #86daff;
+  color: var(--sd-ice);
   text-shadow: none;
 }
 .mml-panel.mml-panel .mml-figure {
@@ -836,32 +840,32 @@
   box-shadow: none;
 }
 .mml-panel.mml-panel .mml-figure-value {
-  color: #f4f8ff;
+  color: var(--sd-white);
   text-shadow: none;
 }
 .mml-panel.mml-panel .mml-figure-label {
-  color: #86daff;
+  color: var(--sd-ice);
   font-size: 0.72rem;
   letter-spacing: 0.03em;
   text-transform: none;
 }
 .mml-panel.mml-panel
   :is(.mml-me-note, .mml-hint, .mml-list-note, .mml-table-stat-label, .mml-seat-n) {
-  color: #bdd0e2;
+  color: var(--sd-silver);
 }
 .mml-panel.mml-panel :is(.mml-me-move, .mml-table-name, .mml-seat-name, .mml-list-name) {
-  color: #f4f8ff;
+  color: var(--sd-white);
 }
 .mml-panel.mml-panel :is(.mml-table-stat-value, .mml-seat-stack, .mml-table-count) {
-  color: #f4f8ff;
+  color: var(--sd-white);
   font-variant-numeric: tabular-nums;
 }
 .mml-panel.mml-panel .mml-table-state {
-  color: #86daff;
+  color: var(--sd-ice);
   text-transform: none;
 }
 .mml-panel.mml-panel .mml-table--closing .mml-table-state {
-  color: #ff8a93;
+  color: var(--sd-red);
 }
 .mml-panel.mml-panel :is(.mml-seat, .mml-list-row) {
   border: 0;
@@ -874,7 +878,7 @@
   background: rgb(25 129 236 / 18%);
 }
 .mml-panel.mml-panel .mml-list-pos {
-  color: #86daff;
+  color: var(--sd-ice);
   font-variant-numeric: tabular-nums;
 }
 .mml-panel.mml-panel .mml-list-you {
@@ -898,5 +902,5 @@
   border-radius: 0;
 }
 .mml-panel.mml-panel .mml-seat--open .mml-seat-name {
-  color: #bdd0e2;
+  color: var(--sd-silver);
 }

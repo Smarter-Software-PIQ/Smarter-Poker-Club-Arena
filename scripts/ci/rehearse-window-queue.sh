@@ -48,6 +48,27 @@ for f in "${ORDINARY[@]}"; do
 done
 
 is_changed() { grep -Fxq -- "$1" <(sed 's#^supabase/migrations/##' "$CHANGED"); }
+
+# When production row-scale cardinality metadata was captured, seed planner
+# statistics into the throwaway database and refuse install-time Seq Scans on
+# high-cardinality hot tables before installing the queue.
+if [ -n "${TABLE_STATS:-}" ] && [ -s "$TABLE_STATS" ]; then
+  if node "$ROOT/scripts/ci/window-queue-rehearsal.mjs" seed-stats "$TABLE_STATS" \
+      | "${PSQL[@]}" -X -q -v ON_ERROR_STOP=1 > "$EVIDENCE/seed-stats.log" 2>&1; then
+    say "- row-scale planner stats seeded from \`$(basename "$TABLE_STATS")\`"
+  else
+    say "- warning: could not seed row-scale stats ($(grep -m1 -E 'ERROR' "$EVIDENCE/seed-stats.log" | cut -c1-200))"
+  fi
+  if REHEARSAL_PSQL="$REHEARSAL_PSQL" EVIDENCE="$EVIDENCE" \
+      node "$ROOT/scripts/ci/window-queue-rehearsal.mjs" check-plans "$MIG_DIR" "$TABLE_STATS" "$CHANGED" \
+      > "$EVIDENCE/hot-table-plans.log" 2>&1; then
+    say "- hot-table query-plan guard: $(tail -1 "$EVIDENCE/hot-table-plans.log")"
+  else
+    FAIL=1
+    say "- **REFUSED** hot-table query-plan guard: $(head -5 "$EVIDENCE/hot-table-plans.log" | tr '\n' ' ' | cut -c1-400)"
+  fi
+fi
+
 for f in "${WINDOW[@]}"; do
   if node "$ROOT/scripts/ci/window-queue-rehearsal.mjs" sql "$MIG_DIR" "$f" \
       | "${PSQL[@]}" -X -q -v ON_ERROR_STOP=1 > "$EVIDENCE/$f.log" 2>&1; then

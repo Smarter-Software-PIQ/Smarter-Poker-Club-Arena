@@ -1,962 +1,456 @@
 /**
- * ═══════════════════════════════════════════════════════════════════════════════
- *  PROMO VAULT - #SMARTERCASINOREALISM
- * ═══════════════════════════════════════════════════════════════════════════════
+ * PROMO VAULT in #SmarterDesign (Dan 2026-11-27).
  *
- * The club's stock of promo items: a grid of tiles the operator buys with
- * diamonds and grants to a member, plus the record of every purchase, grant and
- * revoke underneath.
+ * The club's stock of promo items: the operator buys them with diamonds and
+ * grants them to a member, and every purchase, grant and revoke is recorded.
+ * The page wears the arena workspace (ArenaWorkspace.css, ArenaOps.css): the
+ * chrome mast, chrome meters for the diamonds and stock, a chrome switch for
+ * the two sections, thin chrome cases, and chrome ledger rows for every item
+ * and record. The dialogs are chrome cases inside their own arena workspace
+ * backdrop. This sheet only lays out the inside of a row and a dialog.
  *
- * The page-root token block below is now an ALIAS LAYER over the --realism-*
- * tokens on :root in src/styles/club-engine.css, which main.tsx already loads.
- * The names stay because every rule in this file and the markup's --tile-color
- * read them; the values come from one definition instead of a ninth private
- * palette. A tile, a record and the dialog are panel gradients in a gunmetal
- * frame with a lit top edge and a cavity under them; controls press on
- * :active. No :hover rules here and none may be added
- * (tests/no-hover-effects.law.test.ts).
- *
- * NO GREEN AND NO PURPLE. Dan had both removed from this area on 2026-08-23,
- * and that survives the realism pass: --realism-green appears nowhere in this
- * file. Features are arena cyan; the three VIP tiers are bronze, club blue and
- * gold, carried per tile as --tile-color so the grid needs no per-tier classes.
- * Bronze (#C88A4A) has no token and is set in the page component; sapphire is
- * --realism-blue and gold is --realism-gold.
- *
- * MOBILE-FIRST, 375px FIRST. Both grids are two tiles wide at 375px and three
- * from 480px up. A tile is square-ish and its face is the tap target, with the
- * plus control living in a separate foot row so the two actions -- grant and buy
- * -- can never be hit by the same thumb press.
+ * Inks are the smarter.poker schema only: chrome blues, gold for figures and
+ * red for a shortfall. Each item's own ink arrives as --tile-color (features
+ * cyan, VIP tiers silver, blue and gold). No :hover rules here and none may be
+ * added (tests/no-hover-effects.law.test.ts); controls answer :active and
+ * :focus-visible.
  */
-
-.promo-vault-page,
-.pv-overlay {
-  --ca-cyan: var(--realism-cyan);
-  --ca-blue: var(--realism-blue);
-  --ca-royal: #1877f2;
-  --ca-gold: var(--realism-gold);
-
-  --ca-bg-0: var(--realism-obsidian);
-  --ca-bg-1: var(--realism-carbon);
-  --ca-surface: rgba(255, 255, 255, 0.05);
-  --ca-surface-hi: rgba(255, 255, 255, 0.08);
-  --ca-border: var(--realism-gunmetal);
-  --ca-border-hi: var(--realism-gunmetal-lit);
-  --ca-text: var(--realism-chrome-hot);
-  --ca-text-dim: var(--realism-chrome);
-  --ca-text-faint: var(--realism-muted);
-
-  /* The milled face every control on this page is cut from. */
-  --ca-face: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-}
 
 .promo-vault-page {
   min-height: 100vh;
   min-height: 100dvh; /* the visible viewport on a phone */
   width: 100%;
   max-width: 100vw;
-  /* clip, not hidden — see src/styles/design-system.css on body. `hidden` on
+  /* clip, not hidden: see src/styles/design-system.css on body. `hidden` on
      one axis computes the other to `auto`, which makes this a scroll container,
      and WebKit then resolves the fixed ClubBottomNav against IT instead of the
      viewport. The bar leaves the bottom of the screen and rides up the page. */
   overflow-x: hidden;
   overflow-x: clip;
-  background: linear-gradient(180deg, var(--ca-bg-0) 0%, var(--ca-bg-1) 50%, var(--ca-bg-0) 100%);
+  padding-bottom: var(--bottom-nav-clearance, 74px);
+}
+/* The arena workspace pads its root; the clearance still wins at the foot. */
+.promo-vault-page.arena-workspace.arena-workspace {
   padding-bottom: var(--bottom-nav-clearance, 74px);
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   HEADER
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.pv-header {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.9rem 1rem 0.6rem;
+/* The way back sits above the mast, one short key. */
+.arena-workspace .pv-back-row {
+  max-width: 140px;
 }
 
-.pv-back {
-  flex: 0 0 auto;
-  width: 44px;
-  height: 44px;
-  touch-action: manipulation;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--ca-face);
-  border: 1px solid var(--ca-border);
-  border-radius: 10px;
-  box-shadow:
-    var(--realism-bevel),
-    0 1px 2px rgba(0, 0, 0, 0.55);
-  color: var(--ca-text-dim);
-  font-size: 1.5rem;
-  line-height: 1;
-  cursor: pointer;
-  transition: all 0.2s ease;
+/* The help key reads as one short key beside the switch, never full width. */
+.arena-workspace .pv-help-row {
+  max-width: 200px;
+  margin-left: auto;
 }
-
-.pv-back:focus-visible {
-  border-color: var(--ca-cyan);
-  color: var(--ca-cyan);
-  outline: none;
-}
-
-/* The press. On a phone there is no hover, so this is the confirmation. */
-.pv-back:active,
-.pv-help-button:active,
-.pv-stepper button:active:not(:disabled),
-.pv-tile__plus:active,
-.pv-chosen__change:active {
-  transform: translateY(1px);
-  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.7);
-}
-
-.pv-title {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  font-family: 'Rajdhani', system-ui, sans-serif;
-  font-size: 1.35rem;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  color: var(--ca-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: center;
-}
-
-.pv-header-right {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.pv-balance {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.4rem 0.7rem;
-  border-radius: 999px;
-  border: 1px solid rgba(0, 212, 255, 0.4);
-  background: rgba(0, 212, 255, 0.1);
-  box-shadow: var(--realism-bevel);
-  font-family: 'Rajdhani', monospace;
-  font-weight: 700;
-  font-size: 0.9rem;
-  color: var(--ca-cyan);
-  white-space: nowrap;
-}
-
-.pv-balance__glyph {
-  font-size: 0.75rem;
-}
-
-.pv-balance__value {
-  font-variant-numeric: tabular-nums;
-}
-
-.pv-help-button {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: 1px solid var(--ca-border);
-  background: var(--ca-face);
-  box-shadow:
-    var(--realism-bevel),
-    0 1px 2px rgba(0, 0, 0, 0.55);
-  color: var(--ca-text-dim);
-  font-weight: 700;
-  font-size: 0.95rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.pv-help-button:focus-visible {
-  border-color: var(--ca-cyan);
-  color: var(--ca-cyan);
-  outline: none;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   TABS
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.pv-tabs {
-  display: flex;
-  gap: 0.5rem;
-  padding: 0 1rem 0.75rem;
-}
-
-.pv-tabs button {
-  flex: 1;
-  min-height: 44px;
-  touch-action: manipulation;
-  padding: 0.55rem 1rem;
-  background: var(--ca-face);
-  border: 1px solid var(--ca-border);
-  border-radius: 20px;
-  box-shadow:
-    var(--realism-bevel),
-    0 1px 2px rgba(0, 0, 0, 0.55);
-  color: var(--ca-text-faint);
-  font-size: 0.88rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.25s var(--ease-spring, cubic-bezier(0.175, 0.885, 0.32, 1.275));
-}
-
-.pv-tabs button.active {
-  background: linear-gradient(135deg, var(--ca-cyan) 0%, #0099cc 100%);
-  border-color: var(--ca-cyan);
-  color: #04121a;
-  font-weight: 700;
-  box-shadow:
-    0 0 12px rgba(0, 212, 255, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.15);
-}
-
-.pv-tabs button:active {
-  transform: translateY(1px);
-  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.7);
-}
-
-.pv-tabs button:focus-visible {
-  outline: 2px solid var(--ca-cyan);
-  outline-offset: 2px;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   ITEMS
-   ───────────────────────────────────────────────────────────────────────────── */
 
 .pv-body {
-  padding: 0 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.pv-hint {
-  margin: 0 0 0.9rem;
-  font-size: 0.78rem;
-  color: var(--ca-text-faint);
-  letter-spacing: 0.3px;
-}
-
-.pv-readonly {
-  margin: 0 0 1rem;
-  padding: 0.6rem 0.8rem;
-  border-radius: 10px;
-  border: 1px solid rgba(65, 105, 225, 0.4);
-  background: rgba(65, 105, 225, 0.12);
-  box-shadow: var(--realism-bevel);
-  color: #a9c0ff;
-  font-size: 0.78rem;
-}
-
-.pv-section {
-  margin-bottom: 1.5rem;
-}
-
-.pv-section__heading {
-  margin: 0 0 0.65rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--ca-text-dim);
-}
-
-/* 375px first: two tiles across. Three from 480px up. */
-.pv-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.6rem;
-}
-
-@media (min-width: 480px) {
-  .pv-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
+/* ── An item: one chrome ledger row ─────────────────────────────────────── */
 
 .pv-tile {
+  box-sizing: border-box;
   display: flex;
-  flex-direction: column;
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  border: 1px solid var(--ca-border);
-  border-radius: var(--realism-radius);
-  box-shadow: var(--realism-bevel), var(--realism-cavity), var(--realism-lift);
-  overflow: hidden;
-  backdrop-filter: blur(16px) saturate(1.2);
-  -webkit-backdrop-filter: blur(16px) saturate(1.2);
-  transition: all 0.2s var(--ease-spring, cubic-bezier(0.175, 0.885, 0.32, 1.275));
-}
-
-/* Holding stock is the difference between a tile you can act on and one you
-   cannot, so it is the one thing the border colour is spent on. */
-.pv-tile--held {
-  border-color: color-mix(in srgb, var(--tile-color) 55%, transparent);
-  box-shadow:
-    var(--realism-bevel),
-    var(--realism-cavity),
-    0 0 12px color-mix(in srgb, var(--tile-color) 25%, transparent);
-}
-
-.pv-tile:focus-within {
-  border-color: var(--tile-color);
-}
-
-.pv-tile__face {
-  position: relative;
-  display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 0.25rem;
+  gap: 6px;
   width: 100%;
-  padding: 0.9rem 0.5rem 0.7rem;
+  min-height: 56px;
+  padding: 4px 6px;
+}
+.pv-tile__face {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 2px;
+  color: #f1f5fc;
   background: none;
   border: 0;
-  font: inherit;
-  color: inherit;
-  text-align: center;
+  text-align: left;
   cursor: pointer;
 }
-
+.pv-tile__face:focus-visible {
+  outline: 2px solid #45adff;
+  outline-offset: 2px;
+}
 .pv-tile__face:active {
-  transform: translateY(1px);
+  filter: brightness(1.2);
 }
-
 .pv-tile__icon {
-  font-size: 1.8rem;
+  flex: 0 0 auto;
+  width: 30px;
+  color: var(--tile-color, #74dfff);
+  font-size: 24px;
   line-height: 1;
-  color: var(--tile-color);
-  text-shadow: 0 0 12px color-mix(in srgb, var(--tile-color) 45%, transparent);
+  text-align: center;
 }
-
-.pv-tile__badge {
-  position: absolute;
-  top: 0.4rem;
-  right: 0.4rem;
-  min-width: 22px;
-  padding: 0.1rem 0.35rem;
-  border-radius: 999px;
-  background: var(--tile-color);
-  color: #04121a;
-  font-family: 'Rajdhani', monospace;
-  font-weight: 700;
-  font-size: 0.7rem;
-  line-height: 1.4;
+.pv-tile__copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
-
 .pv-tile__label {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--ca-text);
-  line-height: 1.2;
+  color: #f1f5fc;
+  font:
+    700 14px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+  overflow-wrap: anywhere;
 }
-
 .pv-tile__meta {
-  font-size: 0.65rem;
-  color: var(--ca-text-faint);
-  font-family: 'Rajdhani', monospace;
-  letter-spacing: 0.3px;
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
 }
-
+/* What the vault holds: a gold number, never a badge box. */
+.pv-tile__badge {
+  flex: 0 0 auto;
+  color: #ffd700;
+  font:
+    800 16px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
 .pv-tile__foot {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.4rem;
-  padding: 0.4rem 0.5rem;
-  border-top: 1px solid var(--ca-border);
-  background: rgba(0, 0, 0, 0.2);
-  box-shadow: var(--realism-bevel);
-}
-
-.pv-tile__cost {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  font-family: 'Rajdhani', monospace;
-  font-weight: 700;
-  font-size: 0.76rem;
-  color: var(--ca-cyan);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.pv-tile__cost-glyph {
-  font-size: 0.62rem;
-}
-
-.pv-tile__plus {
   flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  border: 1px solid rgba(0, 212, 255, 0.45);
-  background: rgba(0, 212, 255, 0.14);
-  box-shadow: var(--realism-bevel);
-  color: var(--ca-cyan);
-  font-size: 1rem;
-  font-weight: 700;
-  line-height: 1;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  align-items: center;
+  gap: 6px;
+}
+.pv-tile__cost {
+  color: #9fbacc;
+  font:
+    700 13px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pv-tile__cost-glyph {
+  margin-right: 3px;
+  color: #74dfff;
+}
+.arena-workspace .pv-tile__buy {
+  margin: 0;
+}
+.arena-workspace .pv-tile__buy > button {
+  width: 44px;
+  font-size: 18px;
 }
 
-.pv-tile__plus:focus-visible {
-  background: rgba(0, 212, 255, 0.28);
-  outline: none;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   RECORDS
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.pv-records {
-  padding: 0 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
+/* ── A record: one chrome ledger row ────────────────────────────────────── */
 
 .pv-record {
-  padding: 0.7rem 0.8rem;
-  border: 1px solid var(--ca-border);
-  border-left-width: 3px;
-  border-radius: var(--realism-radius);
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  box-shadow: var(--realism-bevel), var(--realism-cavity), var(--realism-lift);
-}
-
-/* Bought in, sent out, taken back: cyan, club blue, gold. Never a red/green
-   pair -- one of those colours is banned here and the other would read as an
-   error rather than as a direction. */
-.pv-record--purchase {
-  border-left-color: var(--ca-cyan);
-}
-.pv-record--grant {
-  border-left-color: var(--ca-blue);
-}
-.pv-record--revoke {
-  border-left-color: var(--ca-gold);
-}
-
-.pv-record__head {
+  box-sizing: border-box;
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 7px 10px;
 }
-
-.pv-record__action {
-  font-size: 0.66rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  color: var(--ca-text-dim);
-}
-
-.pv-record__date {
-  font-size: 0.66rem;
-  color: var(--ca-text-faint);
-  white-space: nowrap;
-}
-
-.pv-record__main {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-top: 0.2rem;
-}
-
-.pv-record__item {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--ca-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pv-record__qty {
-  font-family: 'Rajdhani', monospace;
-  font-weight: 700;
-  font-size: 0.85rem;
-  color: var(--ca-text-dim);
-  white-space: nowrap;
-}
-
+.pv-record__head,
+.pv-record__main,
 .pv-record__foot {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 0.5rem;
-  margin-top: 0.25rem;
-  font-size: 0.72rem;
+  gap: 8px;
 }
-
+.pv-record__action {
+  color: #74dfff;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.pv-record--revoke .pv-record__action {
+  color: #ff5a6a;
+}
+.pv-record__date,
 .pv-record__to {
-  color: var(--ca-text-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
 }
-
+.pv-record__item {
+  min-width: 0;
+  color: #f1f5fc;
+  font:
+    700 14px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+  overflow-wrap: anywhere;
+}
+.pv-record__qty,
 .pv-record__cost {
-  font-family: 'Rajdhani', monospace;
-  font-weight: 700;
-  color: var(--ca-cyan);
+  color: #ffd700;
+  font:
+    800 14px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-
 .pv-record__note {
-  margin: 0.35rem 0 0;
-  font-size: 0.7rem;
-  color: var(--ca-text-faint);
-  font-style: italic;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   EMPTY
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.pv-empty {
-  text-align: center;
-  padding: 2.5rem 1.5rem;
-}
-
-.pv-empty__mark {
-  display: block;
-  font-size: 2.5rem;
-  margin-bottom: 0.75rem;
-  opacity: 0.4;
-  color: var(--ca-cyan);
-}
-
-.pv-empty__heading {
-  font-size: 1.05rem;
-  font-weight: 600;
-  margin: 0 0 0.5rem;
-  color: var(--ca-text);
-}
-
-.pv-empty__body {
-  color: var(--ca-text-dim);
-  font-size: 0.85rem;
   margin: 0;
+  color: #b6c8d6;
+  font:
+    italic 11px/1.4 Arial,
+    sans-serif;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   DIALOGS
-   ───────────────────────────────────────────────────────────────────────────── */
+/* ── Dialogs: a chrome case on its own arena workspace backdrop ─────────── */
 
-.pv-overlay {
+.arena-workspace.pv-overlay.pv-overlay {
   position: fixed;
   inset: 0;
   z-index: 1200;
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  background: rgba(4, 8, 14, 0.78);
+  max-width: none;
+  margin: 0;
+  padding: 1rem;
+  background: rgb(2 6 12 / 80%);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
-  padding: 1rem;
 }
-
 @media (min-width: 480px) {
-  .pv-overlay {
+  .arena-workspace.pv-overlay.pv-overlay {
     align-items: center;
   }
 }
 
-.pv-dialog {
+.arena-workspace .pv-dialog {
   width: 100%;
   max-width: 420px;
   max-height: 82vh;
+  margin: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 1.1rem;
-  border: 1px solid var(--ca-border-hi, #3a4a5a);
-  border-radius: var(--realism-radius);
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  box-shadow:
-    var(--realism-bevel),
-    var(--realism-cavity),
-    0 18px 48px rgba(0, 0, 0, 0.6);
-  color: var(--realism-chrome-hot);
+  padding: 16px;
 }
-
 .pv-dialog__title {
-  margin: 0 0 0.25rem;
-  font-family: 'Rajdhani', system-ui, sans-serif;
-  font-size: 1.15rem;
-  font-weight: 700;
-  letter-spacing: 0.4px;
+  margin: 0;
+  padding: 0 3px 5px;
+  border-bottom: 1px solid #253e57;
+  color: #f1f5fc;
+  font:
+    800 20px/1.05 'Arial Narrow',
+    Arial,
+    sans-serif;
 }
-
-.pv-dialog__sub {
-  margin: 0 0 0.9rem;
-  font-size: 0.75rem;
-  color: var(--realism-chrome);
-  font-family: 'Rajdhani', monospace;
-}
-
+.pv-dialog__sub,
 .pv-dialog__body {
-  margin: 0 0 1rem;
-  font-size: 0.85rem;
-  color: var(--realism-chrome);
-  line-height: 1.5;
+  margin: 0;
+  color: #9fbacc;
+  font:
+    12px/1.4 Arial,
+    sans-serif;
 }
-
 .pv-dialog__totals {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.4rem 0;
-  font-size: 0.82rem;
-  color: var(--realism-chrome);
+  color: #9fbacc;
+  font:
+    700 12px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
-
 .pv-dialog__totals--quiet {
-  font-size: 0.74rem;
-  color: var(--realism-muted);
+  opacity: 0.8;
 }
-
 .pv-total {
-  font-family: 'Rajdhani', monospace;
-  font-weight: 700;
-  font-size: 1rem;
-  color: var(--realism-cyan);
+  color: #ffd700;
+  font:
+    800 20px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
 }
-
-/* Short of diamonds is gold, not red: this is a limit, not a failure. */
 .pv-total--short {
-  color: var(--realism-gold);
+  color: #ff5a6a;
 }
-
 .pv-dialog__warn {
-  margin: 0.5rem 0 0;
-  font-size: 0.75rem;
-  color: var(--realism-gold);
+  margin: 0;
+  color: #ff5a6a;
+  font:
+    700 12px/1.4 Arial,
+    sans-serif;
+}
+.arena-workspace .pv-dialog__actions {
+  margin: 4px 0 0;
+}
+/* The confirming key lights blue through the switch's own lit state (it
+   carries `active`); Cancel stays a quiet chrome key. */
+.arena-workspace .pv-dialog__actions > .pv-btn--primary:disabled {
+  opacity: 0.55;
+}
+.arena-workspace .pv-dialog__actions > .pv-btn--ghost {
+  color: #dce5ef;
 }
 
-.pv-dialog__actions {
-  display: flex;
-  gap: 0.6rem;
-  margin-top: 1rem;
+/* A quantity: two chrome keys around a dark well. */
+.arena-workspace .pv-stepper {
+  align-items: stretch;
 }
-
-.pv-btn {
-  flex: 1;
-  min-height: 44px;
-  touch-action: manipulation;
-  padding: 0.7rem 1rem;
-  border-radius: 10px;
-  font-size: 0.88rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s ease;
+.arena-workspace .pv-stepper > button {
+  flex: 0 0 52px;
+  font-size: 18px;
 }
-
-.pv-btn--ghost {
-  background: var(--ca-face);
-  border: 1px solid var(--realism-gunmetal);
-  box-shadow:
-    var(--realism-bevel),
-    0 1px 2px rgba(0, 0, 0, 0.55);
-  color: var(--realism-chrome);
-}
-
-.pv-btn--primary {
-  background: linear-gradient(135deg, var(--realism-cyan) 0%, #0099cc 100%);
-  border: 1px solid var(--realism-cyan);
-  color: #04121a;
-  box-shadow:
-    var(--realism-bevel),
-    0 0 14px rgba(0, 212, 255, 0.4);
-}
-
-.pv-btn--primary:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-.pv-btn:active:not(:disabled) {
-  transform: translateY(1px);
-  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.7);
-}
-
-.pv-btn:focus-visible {
-  outline: 2px solid var(--realism-cyan);
-  outline-offset: 2px;
-}
-
-/* ── Stepper ──────────────────────────────────────────────────────────────── */
-
-.pv-stepper {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 0.5rem 0 0.75rem;
-}
-
-.pv-stepper button {
-  width: 44px;
-  height: 44px; /* a real thumb target at 375px */
-  border-radius: 10px;
-  border: 1px solid var(--realism-gunmetal);
-  background: var(--ca-face);
-  box-shadow:
-    var(--realism-bevel),
-    0 1px 2px rgba(0, 0, 0, 0.55);
-  color: var(--realism-chrome-hot);
-  font-size: 1.2rem;
-  font-weight: 700;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.pv-stepper button:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-.pv-stepper button:focus-visible {
-  outline: 2px solid var(--realism-cyan);
-  outline-offset: 2px;
-}
-
-/* A field is a cavity, not a panel: the light falls INTO it. */
 .pv-stepper input {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
-  height: 44px;
+  min-height: 44px;
+  color: #ffd700;
+  background: #030b14;
+  border: 1px solid #253e57;
+  font:
+    800 18px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
   text-align: center;
-  border-radius: 10px;
-  border: 1px solid var(--realism-gunmetal);
-  background: linear-gradient(180deg, var(--realism-panel) 0%, var(--realism-panel-raised) 100%);
-  box-shadow: inset 0 1px 8px rgba(0, 0, 0, 0.5);
-  color: var(--realism-chrome-hot);
-  font-family: 'Rajdhani', monospace;
-  font-weight: 700;
-  font-size: 16px; /* under 16px makes iOS zoom the page on focus */
 }
-
-.pv-stepper input:focus {
-  outline: none;
-  border-color: var(--realism-cyan);
-}
-
-/* ── Recipient picker ─────────────────────────────────────────────────────── */
-
-.pv-search {
-  width: 100%;
-  padding: 0.65rem 0.85rem;
-  margin-bottom: 0.6rem;
-  border-radius: 10px;
-  border: 1px solid var(--realism-gunmetal);
-  background: linear-gradient(180deg, var(--realism-panel) 0%, var(--realism-panel-raised) 100%);
-  box-shadow: inset 0 1px 8px rgba(0, 0, 0, 0.5);
-  color: var(--realism-chrome-hot);
-  font-size: 16px;
-}
-
-.pv-search:focus {
-  outline: none;
-  border-color: var(--realism-cyan);
+.pv-stepper input:focus-visible {
+  outline: 2px solid #45adff;
+  outline-offset: 1px;
 }
 
 .pv-search::placeholder {
-  color: var(--realism-muted);
+  color: #6f8aa0;
 }
 
+/* The roster picker: chrome ledger rows in a scrolling well. */
 .pv-picker {
-  max-height: 42vh;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 4px;
+  max-height: 46vh;
+  overflow-y: auto;
 }
-
 .pv-picker__row {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 8px;
   width: 100%;
-  padding: 0.6rem;
+  min-height: 48px;
+  padding: 6px 8px;
+  color: #f1f5fc;
   text-align: left;
-  font: inherit;
-  border-radius: var(--realism-radius);
-  border: 1px solid var(--realism-gunmetal);
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  box-shadow: var(--realism-bevel), var(--realism-cavity);
-  color: var(--realism-chrome-hot);
   cursor: pointer;
 }
-
 .pv-picker__row:focus-visible {
-  border-color: var(--realism-cyan);
-  outline: none;
+  outline: 2px solid #45adff;
+  outline-offset: 2px;
 }
-
 .pv-picker__row:active {
-  transform: translateY(1px);
-  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.7);
+  filter: brightness(1.2);
 }
-
 .pv-picker__names {
-  flex: 1;
-  min-width: 0;
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
+  min-width: 0;
 }
-
-.pv-picker__alias {
-  font-size: 0.86rem;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.pv-picker__alias,
+.pv-chosen__alias {
+  color: #f1f5fc;
+  font:
+    700 14px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+  overflow-wrap: anywhere;
 }
-
 .pv-picker__username {
-  font-size: 0.7rem;
-  color: var(--realism-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+}
+.pv-picker__number,
+.pv-chosen__number {
+  color: #74dfff;
+  font:
+    700 12px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-
-.pv-picker__number {
-  flex: 0 0 auto;
-  font-family: 'Rajdhani', monospace;
-  font-size: 0.72rem;
-  color: var(--realism-chrome);
-  white-space: nowrap;
-}
-
 .pv-picker__empty {
-  padding: 1.2rem 0.5rem;
+  margin: 0;
+  padding: 12px;
+  color: #9fbacc;
+  font:
+    12px/1.4 Arial,
+    sans-serif;
   text-align: center;
-  color: var(--realism-muted);
-  font-size: 0.82rem;
 }
-
 .pv-chosen {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.6rem;
-  margin-bottom: 0.4rem;
-  border-radius: var(--realism-radius);
-  border: 1px solid rgba(0, 212, 255, 0.4);
-  background: rgba(0, 212, 255, 0.1);
-  box-shadow: var(--realism-bevel), var(--realism-cavity);
+  gap: 8px;
+  padding: 6px 8px;
 }
-
 .pv-chosen__alias {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
-  font-size: 0.88rem;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
-
-.pv-chosen__number {
-  font-family: 'Rajdhani', monospace;
-  font-size: 0.72rem;
-  color: var(--realism-chrome);
-  white-space: nowrap;
-}
-
 .pv-chosen__change {
-  flex: 0 0 auto;
-  padding: 0.25rem 0.55rem;
-  border-radius: 8px;
-  border: 1px solid var(--realism-gunmetal);
-  background: var(--ca-face);
-  box-shadow:
-    var(--realism-bevel),
-    0 1px 2px rgba(0, 0, 0, 0.55);
-  color: var(--realism-chrome);
-  font-size: 0.7rem;
-  font-weight: 600;
+  min-height: 36px;
+  padding: 0 10px;
+  color: #74dfff;
+  background: none;
+  border: 0;
+  font:
+    700 12px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   cursor: pointer;
 }
-
 .pv-chosen__change:focus-visible {
-  outline: 2px solid var(--realism-cyan);
+  outline: 2px solid #45adff;
   outline-offset: 2px;
 }
-
-/* ── Help ─────────────────────────────────────────────────────────────────── */
+.pv-chosen__change:active {
+  filter: brightness(1.3);
+}
 
 .pv-help__heading {
-  margin: 0.9rem 0 0.25rem;
-  font-size: 0.74rem;
-  font-weight: 700;
+  margin: 4px 0 0;
+  color: #74dfff;
+  font:
+    700 12px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  letter-spacing: 0.8px;
-  color: var(--realism-cyan);
 }
-
 .pv-help__body {
   margin: 0;
-  font-size: 0.82rem;
-  line-height: 1.55;
-  color: var(--realism-chrome);
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   NARROW SCREENS
-   ───────────────────────────────────────────────────────────────────────────── */
-
-@media (max-width: 380px) {
-  .pv-header {
-    padding: 0.75rem 0.75rem 0.5rem;
-  }
-  .pv-title {
-    font-size: 1.15rem;
-  }
-  .pv-balance {
-    padding: 0.35rem 0.55rem;
-    font-size: 0.8rem;
-  }
-  .pv-tabs,
-  .pv-body,
-  .pv-records {
-    padding-left: 0.75rem;
-    padding-right: 0.75rem;
-  }
-  .pv-grid {
-    gap: 0.5rem;
-  }
-  .pv-tile__icon {
-    font-size: 1.6rem;
-  }
-  .pv-tile__label {
-    font-size: 0.74rem;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pv-tile,
-  .pv-tabs button,
-  .pv-back,
-  .pv-help-button,
-  .pv-tile__plus,
-  .pv-btn {
-    transition: none;
-  }
+  color: #b6c8d6;
+  font:
+    12px/1.45 Arial,
+    sans-serif;
 }
