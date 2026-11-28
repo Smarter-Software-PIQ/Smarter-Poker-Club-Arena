@@ -777,12 +777,14 @@ test.describe('Production Kings Club Players', () => {
       await expectContainedControls(
         page,
         '.members-roster-footer',
-        '.members-roster-footer .members-columns, .members-roster-footer .members-export, .members-roster-footer .members-select-loaded'
+        '.members-roster-footer .members-columns, .members-roster-footer .roster-records__actions button'
       );
       // Permission-specific controls are checked whenever the actual viewer
       // can see them; the required search and sort checks always execute.
       for (const control of await page
-        .locator('.members-export, .members-select-loaded, .members-columns, .member-row__open')
+        .locator(
+          '.members-export, .roster-records__actions button, .members-columns, .member-row__open'
+        )
         .all()) {
         const box = await control.boundingBox();
         expect(box).not.toBeNull();

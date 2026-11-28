@@ -432,6 +432,9 @@ it('withdraws performance after the viewer record reports a permission change', 
     variants: [],
   });
   const viewerTopic = 'member-record:22222222-2222-4222-8222-222222222222:viewer-1';
+  // The viewer channel subscribes once the viewer's own record resolves, which can
+  // land after the first statistics paint on a loaded runner.
+  await waitFor(() => expect(state.broadcasts.get(viewerTopic)).toBeDefined());
   act(() => state.broadcasts.get(viewerTopic)!.onPayload({}));
   await screen.findByText('Statistics Restricted');
   expect(screen.getByRole('combobox', { name: 'Game' }).querySelectorAll('option')).toHaveLength(1);
