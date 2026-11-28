@@ -1388,7 +1388,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       // November 26: that gate gets a 6 GB heap (NODE_OPTIONS) so it stops running out of memory.
       // November 28: add check-server-test-determinism and check-cutover-ci-budgets parallel guards (Wave A-1).
       // 2026-11-28: the invariant guards add scripts/ci/check-table-skin-ink.mjs.
-      typecheck_compile: '74bbf1fca84008ee9e1272e1f962dc3c52712b319742fcfdbe57f9fda3e71ece',
+      typecheck_compile: '92ac560ee96949b67175d70eed3fcaabd2f914a5c303dd4f195d60c2cc55ce52',
       unit_shards: '2f4cffd8880df0e5826ecc79361500b4dae7da7d23698d7a211772f351863649',
       unit: '7b3caf98ff41bbe5f1e52ff0cb65323b1ec587ed45a768e81de2051bb1906de5',
       // Retain both original top-up receipt and funded satellite qualifications.
