@@ -341,10 +341,15 @@ class DraftRevertBadCommitTest(unittest.TestCase):
                     }
                 ]
             }
+            # Assemble synthetic secret fixtures dynamically so tracked source never
+            # holds literal token-shaped strings (tests/no-literal-supabase-secrets.law.test.ts).
+            fake_gh_pat = "github_pat_" + "11ABCDEFGH0123456789_xyz9876543210"
+            fake_sb_pat = "sbp_" + "abcdef0123456789abcdef0123456789"
+            fake_sb_sec = "sb_" + "secret_test_aBcDeFgHiJkLmNoP_12345"
             leaked_log = "\n".join([
-                "ERR github_pat_11ABCDEFGH0123456789_xyz9876543210",
-                "ERR sbp_abcdef0123456789abcdef0123456789",
-                "ERR sb_secret_aBcDeFgHiJkLmNoP_12345",
+                f"ERR {fake_gh_pat}",
+                f"ERR {fake_sb_pat}",
+                f"ERR {fake_sb_sec}",
             ])
             code, plan = MOD.build_draft_revert_plan(
                 repo_root=repo_dir,
@@ -354,9 +359,12 @@ class DraftRevertBadCommitTest(unittest.TestCase):
                 failure_log_text=leaked_log,
             )
             self.assertEqual(code, 0)
-            self.assertNotIn("github_pat_11ABCDEFGH0123456789_xyz9876543210", plan["prBody"])
-            self.assertNotIn("sbp_abcdef0123456789abcdef0123456789", plan["prBody"])
-            self.assertNotIn("sb_secret_aBcDeFgHiJkLmNoP_12345", plan["prBody"])
+            self.assertNotIn(fake_gh_pat, plan["prBody"])
+            self.assertNotIn(fake_sb_pat, plan["prBody"])
+            self.assertNotIn(fake_sb_sec, plan["prBody"])
+            self.assertIn("[REDACTED_GH_TOKEN]", plan["prBody"])
+            self.assertIn("[REDACTED_SUPABASE_TOKEN]", plan["prBody"])
+            self.assertIn("[REDACTED_SUPABASE_SECRET]", plan["prBody"])
             gh_cmd = next(c for c in plan["commands"] if c.startswith("gh pr create"))
             import shlex
             tokens = shlex.split(gh_cmd)
