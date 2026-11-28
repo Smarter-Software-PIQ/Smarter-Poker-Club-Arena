@@ -47,6 +47,7 @@ import { useInterfaceThemeHydration } from './hooks/useInterfaceThemeHydration';
 import { useShellUpdateGate } from './hooks/useShellUpdateGate';
 import { startShellTelemetry } from './services/ShellTelemetryService';
 
+import { ConsoleSkinProvider } from './components/console/consoleSkin';
 // Layouts
 import AppLayout from './components/layouts/AppLayout';
 import LegacyClubToolRedirect from './components/navigation/LegacyClubToolRedirect';
@@ -2612,10 +2613,18 @@ export default function App() {
     return <ClubFooterProbe />;
   }
 
+  /* #SMARTERDESIGN EVERYWHERE (Dan 2026-11-27): "THE SAME #SMARTERDESIGN
+     UPGRADE TO EVERY SINGLE PAGE, SUBPAGE, BUTTON AND EVERYTHING ELSE". One
+     provider at the root dresses every SpadeConsole in the app - lobby, club
+     home, profile, achievements, cashier, tournaments, settings, and the
+     root-mounted modals (welcome, terms, push prompt) - in the arena
+     workspace language. The table layer already provided it
+     (MultiTableSurface). The skin is its own few-line module
+     (consoleSkin.ts), recorded in scripts/ci/entry-chunk.d. */
   return (
-    <>
+    <ConsoleSkinProvider value="smarterdesign">
       <ClubBrandRedirect />
       <FullApp />
-    </>
+    </ConsoleSkinProvider>
   );
 }

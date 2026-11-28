@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { ConsoleSkinProvider, SpadeConsole } from '../../src/components/console/SpadeConsole';
+import { SpadeConsole } from '../../src/components/console/SpadeConsole';
+import { ConsoleSkinProvider } from '../../src/components/console/consoleSkin';
 
 /**
  * #SmarterDesign on the table (Dan 2026-11-27): "NEEDS THE SAME #SMARTERDESIGN
@@ -18,7 +19,7 @@ describe('table consoles wear #SmarterDesign', () => {
     const layer = read('src/components/table/PersistentTableLayer.tsx');
     // The provider stays out of the entry chunk: the layer lazy-loads the surface.
     expect(layer).toMatch(/import\('\.\.\/\.\.\/pages\/MultiTableSurface'\)/);
-    expect(layer).not.toMatch(/consoleSkin/);
+    expect(layer).not.toMatch(/ConsoleSkinProvider/);
     const surface = read('src/pages/MultiTableSurface.tsx');
     expect(surface).toMatch(/<ConsoleSkinProvider value="smarterdesign">\s*<MultiTablePage \/>/);
   });
