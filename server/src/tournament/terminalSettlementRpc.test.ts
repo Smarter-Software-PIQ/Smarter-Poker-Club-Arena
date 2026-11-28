@@ -585,6 +585,9 @@ describe('deterministic settlement refusals retain serialized outcome ownership'
       code: 'P0404',
       message: `tournament ${TOURNAMENT_ID} has no complete durable elimination sequence (2/2 of 3)`,
     },
+    // 2026-11-17: a settlement cancelled at its 45-second statement ceiling is
+    // not sent again in the same admission; the resolver decides it.
+    { code: '57014', message: 'canceling statement due to statement timeout' },
   ])(
     'resolves a known database refusal after one write without backoff: $message',
     async (error) => {
@@ -606,7 +609,6 @@ describe('deterministic settlement refusals retain serialized outcome ownership'
     ['40001', refusal.message],
     ['40P01', 'deadlock detected'],
     ['55P03', 'canceling statement due to lock timeout'],
-    ['57014', 'canceling statement due to statement timeout'],
     ['503', 'service unavailable'],
     [undefined, refusal.message],
     ['55000', 'tournament_fee_sources_require_reconciliation'],
