@@ -1,0 +1,3 @@
+# 2026-11-28: a missed cutover cycle is recorded in the alert store
+
+`fn_ca_note_cycle_did_not_seal` (20261126031810) told the owner about every three-hourly cycle that did not seal and recorded nothing in `operational_alert_events`, so seven missed cycles reached no lane. `20261128151139` records each cycle (`engine-cutover-watch`, `cycle-not-sealed:<cycle>`, warning, fleet-addressed) before the Messenger line, refuses to send without the store id, and records the cycles already noted. Law: `tests/a-missed-cycle-is-recorded-in-the-alert-store.law.test.ts`. Evidence: `docs/production-alerts/evidence/cycle-not-sealed-owner-note-unrouted/`.
