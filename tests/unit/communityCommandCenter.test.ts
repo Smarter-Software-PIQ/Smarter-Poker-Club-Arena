@@ -149,7 +149,11 @@ describe('#SmarterCasinoRealism community surfaces', () => {
     expect(heroComponent).not.toContain('mediaUrl(');
     expect(existsSync('src/components/community/CommunitySurfaceHeader.module.css')).toBe(false);
     expect(searchCss).toContain('border-radius: 3px');
-    expect(friendsCss).toContain('#26333d');
+    /* 2026-11-28: Connections wears the arena workspace (#SmarterDesign,
+       Dan 2026-11-27): the chrome mast and case, never a second hero. */
+    expect(FRIENDS).toContain('className="friends-page arena-workspace"');
+    expect(FRIENDS).toContain('<ArenaWorkspaceHeader');
+    expect(friendsCss).toContain('.friends-page.arena-workspace');
     expect([searchCss, friendsCss, modalCss].join('\n')).not.toContain('backdrop-filter');
   });
 });
