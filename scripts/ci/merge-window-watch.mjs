@@ -24,7 +24,7 @@ import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { declaredCutoverCadence } from './release-freeze-admission.mjs';
-import { MERGE_WINDOW_CONTEXT, chicagoTime, mergeWindowOpen } from './migration-merge-window.mjs';
+import { ACTIVE_PR_MS, INACTIVE_HELD, MERGE_WINDOW_CONTEXT, chicagoTime, mergeWindowOpen } from './migration-merge-window.mjs';
 
 export const FLEET_TASK_ID = '01a09b86-5ba8-7290-8657-1041f13dd3ca';
 export const SOURCE = 'club-arena.migration-merge-window';
@@ -38,6 +38,35 @@ export const OPENER_JOB = 'OpenClaw cron ca-migration-merge-window-open (opencla
 const MINUTE = 60_000;
 const OPEN_TEXT = /^Install window open/;
 const MIGRATION_STATUS = /^(Install window open|Migrations merge|Release controls merge|Outage override)/;
+const isInactiveText = (s) => (s?.description || '') === INACTIVE_HELD;
+
+/**
+ * AN INACTIVE PULL REQUEST IS NOT A WITNESS (2026-11-27, release custody). The
+ * keeper opens a held pull request only while it was updated within
+ * ACTIVE_PR_DAYS, so one that was inactive at the window stays failure through
+ * it and says nothing about whether the window was held. A candidate is a
+ * witness when it is ready and was active through the whole window: last
+ * updated before the open and less than ACTIVE_PR_DAYS before the close (that
+ * updatedAt was its value during the window). One updated at or after the open
+ * (or with no updatedAt) is judged from its statuses: it is dropped if it was
+ * held as inactive just before the open or during the window, unless the
+ * window opened it.
+ */
+export function activeThroughWindow(window, candidate) {
+  if (candidate.isDraft) return false;
+  const t = Date.parse(candidate.updatedAt ?? '');
+  if (Number.isFinite(t) && t < window.open) return window.close - t < ACTIVE_PR_MS;
+  const statuses = Array.isArray(candidate.statuses) ? candidate.statuses : [];
+  const inside = statuses.filter((s) => {
+    const at = Date.parse(s.created_at);
+    return at >= window.open && at < window.close;
+  });
+  if (inside.some((s) => s.state === 'success' && OPEN_TEXT.test(s.description || ''))) return true;
+  const before = statuses
+    .filter((s) => Date.parse(s.created_at) < window.open)
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+  return !isInactiveText(before) && !inside.some(isInactiveText);
+}
 
 /** The most recent window that closed at least SETTLE_MINUTES before nowMs, within LOOKBACK_HOURS: { open, close } or null. */
 export function lastClosedWindow(nowMs, cadence) {
@@ -70,7 +99,8 @@ export function windowVerdict(window, candidates) {
   // window says nothing about whether the window was held. Its usual text
   // (DRAFT_HELD) is not a MIGRATION_STATUS and is never sampled; this also
   // drops a draft still carrying an older "Migrations merge" text.
-  const list = (Array.isArray(candidates) ? candidates : []).filter((c) => !c.isDraft);
+  // Only a pull request the keeper was due to open is a witness (activeThroughWindow).
+  const list = (Array.isArray(candidates) ? candidates : []).filter((c) => activeThroughWindow(window, c));
   if (list.length === 0) return 'not-needed';
   const eligible = list.filter((c) => c.statuses.some((s) => Date.parse(s.created_at) < window.open));
   if (eligible.length === 0) return 'could-not-tell';
@@ -118,25 +148,37 @@ function gh(args) {
 
 const CANDIDATE_QUERY = `query($owner:String!,$name:String!){
   repository(owner:$owner,name:$name){
-    pullRequests(states:OPEN,first:60,baseRefName:"main",orderBy:{field:UPDATED_AT,direction:ASC}){
-      nodes{ number isDraft commits(last:1){nodes{commit{oid status{context(name:"${MERGE_WINDOW_CONTEXT}"){description}}}}} }
+    pullRequests(states:OPEN,first:100,baseRefName:"main",orderBy:{field:UPDATED_AT,direction:DESC}){
+      nodes{ number isDraft updatedAt commits(last:1){nodes{commit{oid status{context(name:"${MERGE_WINDOW_CONTEXT}"){description}}}}} }
     }
   }
 }`;
 
-/** Up to CANDIDATES database-change pull requests (least recently updated first) with this context's status history. */
-export function readCandidates(repo) {
+/**
+ * Up to CANDIDATES database-change pull requests the keeper was due to open at
+ * the window, with this context's status history. Most recently updated first
+ * (2026-11-27): the least recently updated are the inactive backlog the keeper
+ * never opens. Those last updated before the open (and active through it) come
+ * first, since their head is known to predate it.
+ */
+export function readCandidates(repo, window) {
   const [owner, name] = repo.split('/');
   const nodes = JSON.parse(gh(['api', 'graphql', '-f', `query=${CANDIDATE_QUERY}`, '-F', `owner=${owner}`, '-F', `name=${name}`]))
     .data.repository.pullRequests.nodes;
-  const picks = nodes
-    .map((n) => ({ number: n.number, isDraft: Boolean(n.isDraft), commit: n.commits.nodes[0]?.commit }))
-    .filter((n) => !n.isDraft && n.commit && MIGRATION_STATUS.test(n.commit.status?.context?.description || ''))
-    .slice(0, CANDIDATES);
+  const ready = nodes
+    .map((n) => ({ number: n.number, isDraft: Boolean(n.isDraft), updatedAt: n.updatedAt, commit: n.commits.nodes[0]?.commit }))
+    .filter((n) => !n.isDraft && n.commit && MIGRATION_STATUS.test(n.commit.status?.context?.description || ''));
+  const settledBefore = (n) => Date.parse(n.updatedAt ?? '') < window.open;
+  const picks = [
+    ...ready.filter((n) => settledBefore(n) && activeThroughWindow(window, n)),
+    ...ready.filter((n) => !settledBefore(n)),
+  ].slice(0, CANDIDATES);
   return picks.map((p) => {
     const rows = JSON.parse(gh(['api', '--paginate', '--slurp', `repos/${repo}/commits/${p.commit.oid}/statuses?per_page=100`])).flat();
     return {
       number: p.number,
+      isDraft: false,
+      updatedAt: p.updatedAt,
       statuses: rows
         .filter((s) => s.context === MERGE_WINDOW_CONTEXT)
         .map((s) => ({ state: s.state, description: s.description, created_at: s.created_at })),
@@ -147,7 +189,7 @@ export function readCandidates(repo) {
 function currentVerdict(repo) {
   const window = lastClosedWindow(Date.now(), declaredCutoverCadence());
   if (!window) return { window: null, verdict: 'none' };
-  return { window, verdict: windowVerdict(window, readCandidates(repo)) };
+  return { window, verdict: windowVerdict(window, readCandidates(repo, window)) };
 }
 
 async function record(repo) {

@@ -41,7 +41,12 @@ import {
   type DisputeResolution,
 } from '../services/DisputeService';
 import './DisputeManagementPage.css';
-import { SpadeConsole } from '../components/console/SpadeConsole';
+/* #SmarterDesign (Dan 2026-11-27): the painted console is the old style for a
+   page section; the docket prints in the thin chrome case under the arena
+   integrity mast. */
+import { ClubPageSection as SpadeConsole } from '../components/club/ClubPageSection';
+import '../components/console/SpadeConsole.css';
+import '../components/lobby/ArenaWorkspace.css';
 import { titleCase } from '../utils/titleCase';
 import { resolveClubUUID } from '../utils/clubIdResolver';
 import { compactChips } from '../utils/format';
@@ -400,8 +405,9 @@ export default function DisputeManagementPage() {
           },
         ]}
       />
-      <div className="dispute-management-page">
+      <div className="dispute-management-page arena-workspace">
         <SpadeConsole
+          arena
           className="dmp__console"
           family="spade"
           eyebrow="Live Case Docket"
@@ -412,7 +418,11 @@ export default function DisputeManagementPage() {
           foot="foot"
         >
           {/* Filter Tabs */}
-          <div className="dmp__tabs" role="tablist" aria-label="Filter Disputes By Status">
+          <div
+            className="dmp__tabs arena-switch arena-ops-keys"
+            role="tablist"
+            aria-label="Filter Disputes By Status"
+          >
             {FILTER_TABS.map((tab) => (
               <button
                 key={tab}
@@ -422,7 +432,7 @@ export default function DisputeManagementPage() {
                 aria-selected={activeTab === tab}
                 aria-controls="dispute-case-panel"
                 tabIndex={activeTab === tab ? 0 : -1}
-                className={`dmp-word dmp__tab ${activeTab === tab ? 'sc-ink--white' : 'sc-ink--muted'}`}
+                className="dmp-word dmp__tab"
                 onClick={() => setActiveTab(tab)}
                 onKeyDown={(event) => handleTabKeyDown(event, tab)}
               >
@@ -466,13 +476,15 @@ export default function DisputeManagementPage() {
                 <p className="sc-copy">
                   The Live Case Feed Could Not Be Loaded. No Dispute Records Were Changed.
                 </p>
-                <button
-                  type="button"
-                  className="dmp-word sc-ink--white"
-                  onClick={() => void loadDisputes()}
-                >
-                  Retry Case Feed
-                </button>
+                <span className="arena-switch arena-ops-keys arena-ops-primary dmp__keys">
+                  <button
+                    type="button"
+                    className="dmp-word sc-ink--white"
+                    onClick={() => void loadDisputes()}
+                  >
+                    Retry Case Feed
+                  </button>
+                </span>
               </div>
             ) : filtered.length === 0 ? (
               <div className="dmp__state">
@@ -486,7 +498,7 @@ export default function DisputeManagementPage() {
             ) : (
               <ul className="dmp__list">
                 {filtered.map((dispute) => (
-                  <li key={dispute.id} className="dmp__case">
+                  <li key={dispute.id} className="dmp__case arena-ledger-row">
                     <button
                       type="button"
                       className="dmp__case-head"
@@ -558,14 +570,16 @@ export default function DisputeManagementPage() {
                           {clubId ? (
                             <div className="dmp__form">
                               {dispute.status === 'open' && (
-                                <button
-                                  type="button"
-                                  className="dmp-word sc-ink--white"
-                                  onClick={() => handleStartReview(dispute.id)}
-                                  disabled={reviewing === dispute.id}
-                                >
-                                  {reviewing === dispute.id ? 'Reviewing...' : 'Start Review'}
-                                </button>
+                                <span className="arena-switch arena-ops-keys arena-ops-primary dmp__keys">
+                                  <button
+                                    type="button"
+                                    className="dmp-word sc-ink--white"
+                                    onClick={() => handleStartReview(dispute.id)}
+                                    disabled={reviewing === dispute.id}
+                                  >
+                                    {reviewing === dispute.id ? 'Reviewing...' : 'Start Review'}
+                                  </button>
+                                </span>
                               )}
                               <textarea
                                 className="dmp__field dmp__field--area"
@@ -600,7 +614,7 @@ export default function DisputeManagementPage() {
                                   />
                                 )}
                               </div>
-                              <div className="dmp__form-actions">
+                              <div className="dmp__form-actions arena-switch arena-ops-keys">
                                 <button
                                   type="button"
                                   className="dmp-word sc-ink--green"
@@ -620,14 +634,16 @@ export default function DisputeManagementPage() {
                               </div>
                             </div>
                           ) : (
-                            <button
-                              type="button"
-                              className="dmp-word sc-ink--red"
-                              onClick={() => handleWithdraw(dispute.id)}
-                              disabled={withdrawing === dispute.id}
-                            >
-                              {withdrawing === dispute.id ? 'Withdrawing...' : 'Withdraw Dispute'}
-                            </button>
+                            <span className="arena-switch arena-ops-keys dmp__keys">
+                              <button
+                                type="button"
+                                className="dmp-word sc-ink--red"
+                                onClick={() => handleWithdraw(dispute.id)}
+                                disabled={withdrawing === dispute.id}
+                              >
+                                {withdrawing === dispute.id ? 'Withdrawing...' : 'Withdraw Dispute'}
+                              </button>
+                            </span>
                           )}
                         </div>
                       )}

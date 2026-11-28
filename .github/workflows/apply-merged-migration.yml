@@ -40,6 +40,10 @@
 # posts one deduplicated alert on the owning pull request and one on the
 # custody log. It is reporting only: no environment, no database credential, no
 # retry, no dispatch. tests/the-apply-run-reports-its-own-refusal.law.test.ts.
+# A job that reaches its timeout-minutes concludes cancelled, not failure, so
+# the job also runs on cancelled; the script reports a cancelled apply job only
+# when its log shows the applier was reached (TIMED OUT / UNKNOWN, the outcome
+# unread), and skips one cancelled before anything was sent (2026-11-27).
 name: Apply Merged Migration
 run-name: Apply Merged Migration ${{ inputs.migration || github.event.client_payload.migration }}${{ github.event.client_payload.intent_nonce && format(' {0}', github.event.client_payload.intent_nonce) || '' }}
 
@@ -368,7 +372,7 @@ jobs:
   report-refusal:
     name: Report a refused install
     needs: apply
-    if: ${{ always() && needs.apply.result == 'failure' && github.ref_name == github.event.repository.default_branch && !(inputs.dry_run || toJSON(github.event.client_payload.dry_run) == 'true') }}
+    if: ${{ always() && (needs.apply.result == 'failure' || needs.apply.result == 'cancelled') && github.ref_name == github.event.repository.default_branch && !(inputs.dry_run || toJSON(github.event.client_payload.dry_run) == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

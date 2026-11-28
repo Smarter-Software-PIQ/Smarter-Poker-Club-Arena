@@ -44,6 +44,15 @@ O27b (2026-11-26), what was not true in O27 and the arithmetic that is:
     window exactly when the run took 25 to 124 minutes, which every real
     certification does.
 
+The estate App starts the next cycle (2026-11-27). Stage now sends that
+dispatch as the estate GitHub App (job start-backup-as-estate-app), and a run
+the App starts raises workflow_run like a person's, so the completion of a
+real certification lands inside the election window above and elects. When no
+App token can be had the dispatch goes out with the job token as before, and
+then, as O27b says, its completion does NOT start the next election. A run
+that ends before the window opens (it planned nothing, or handed the Backup
+host back) elects nothing under either identity.
+
 This script only decides. It never dispatches anything itself.
 
   plan    --cycle YYYY-MM-DD[THH] [--now EPOCH]

@@ -96,28 +96,51 @@ function formatDecisionPath(segments: readonly (string | number)[]): string {
   return out;
 }
 
+const CANONICAL_HASH_CHUNK_CHARS = 16 * 1024;
+
+interface CanonicalHashWriter {
+  readonly hash: ReturnType<typeof createHash>;
+  chunk: string;
+}
+
+function appendCanonicalChunk(writer: CanonicalHashWriter, text: string): void {
+  writer.chunk += text;
+  if (writer.chunk.length >= CANONICAL_HASH_CHUNK_CHARS) {
+    writer.hash.update(writer.chunk);
+    writer.chunk = '';
+  }
+}
+
+function flushCanonicalChunk(writer: CanonicalHashWriter): void {
+  if (writer.chunk.length > 0) {
+    writer.hash.update(writer.chunk);
+    writer.chunk = '';
+  }
+}
+
 /**
- * Stream canonical JSON directly into a SHA-256 hash without allocating
- * intermediate sorted-key objects, arrays, path strings, or a full serialized
- * JSON string (incident 1e532243). Byte-identical to
+ * Stream canonical JSON into a SHA-256 hash using 16 KiB string chunks so we
+ * neither allocate intermediate sorted-key object trees nor pay thousands of
+ * per-token JS->C++ OpenSSL hash.update crossings per horse decision
+ * (incident 1e532243). Byte-identical to
  * `JSON.stringify(canonicalDecisionValue(value))` for every valid input.
  */
 function streamCanonicalDecisionJson(
-  hash: ReturnType<typeof createHash>,
+  writer: CanonicalHashWriter,
   value: unknown,
   path: (string | number)[]
 ): void {
   if (value === null) {
-    hash.update('null');
+    appendCanonicalChunk(writer, 'null');
     return;
   }
   const type = typeof value;
   if (type === 'string') {
-    hash.update(JSON.stringify(value));
+    appendCanonicalChunk(writer, JSON.stringify(value));
     return;
   }
   if (type === 'boolean') {
-    hash.update(value ? 'true' : 'false');
+    appendCanonicalChunk(writer, value ? 'true' : 'false');
     return;
   }
   if (type === 'number') {
@@ -125,24 +148,24 @@ function streamCanonicalDecisionJson(
     if (!Number.isFinite(num)) {
       throw new Error(`decision key contains non-finite number at ${formatDecisionPath(path)}`);
     }
-    hash.update(Object.is(num, -0) ? '0' : String(num));
+    appendCanonicalChunk(writer, Object.is(num, -0) ? '0' : String(num));
     return;
   }
   if (Array.isArray(value)) {
-    hash.update('[');
+    appendCanonicalChunk(writer, '[');
     for (let i = 0; i < value.length; i++) {
-      if (i > 0) hash.update(',');
+      if (i > 0) appendCanonicalChunk(writer, ',');
       path.push(i);
-      streamCanonicalDecisionJson(hash, value[i], path);
+      streamCanonicalDecisionJson(writer, value[i], path);
       path.pop();
     }
-    hash.update(']');
+    appendCanonicalChunk(writer, ']');
     return;
   }
   if (type === 'object') {
     const record = value as Record<string, unknown>;
     const keys = Object.keys(record).sort();
-    hash.update('{');
+    appendCanonicalChunk(writer, '{');
     let wrote = false;
     for (let i = 0; i < keys.length; i++) {
       const key = keys[i];
@@ -150,15 +173,15 @@ function streamCanonicalDecisionJson(
       // Structured clone cannot carry functions or symbols. Undefined object
       // fields are behaviorally identical to omission when options are spread.
       if (item === undefined) continue;
-      if (wrote) hash.update(',');
+      if (wrote) appendCanonicalChunk(writer, ',');
       wrote = true;
-      hash.update(JSON.stringify(key));
-      hash.update(':');
+      appendCanonicalChunk(writer, JSON.stringify(key));
+      appendCanonicalChunk(writer, ':');
       path.push(key);
-      streamCanonicalDecisionJson(hash, item, path);
+      streamCanonicalDecisionJson(writer, item, path);
       path.pop();
     }
-    hash.update('}');
+    appendCanonicalChunk(writer, '}');
     return;
   }
   throw new Error(`decision key contains unsupported value at ${formatDecisionPath(path)}`);
@@ -191,7 +214,9 @@ export function buildHorseDecisionKey(input: HorseDecisionKeyInput): string {
     // OPPONENT HUD: bound only when attached (absent leaves every key byte-identical)
     ...(input.opponentHud !== undefined ? { opponentHud: input.opponentHud } : {}),
   };
-  streamCanonicalDecisionJson(hash, material, []);
+  const writer: CanonicalHashWriter = { hash, chunk: '' };
+  streamCanonicalDecisionJson(writer, material, []);
+  flushCanonicalChunk(writer);
   return `phase5-v1:${hash.digest('hex')}`;
 }
 

@@ -74,6 +74,33 @@ const MIGRATION_PATH = /^supabase\/migrations\/[^/]+\.sql$/;
 const OVERRIDE_LINE = /^\s*Outage override:\s*(.+?)\s*$/im;
 const MINUTE = 60_000;
 export const DRAFT_HELD = 'Draft: mark it ready, then it merges 10-27 min after a cycle or 4:15-4:27 AM';
+/**
+ * A WINDOW OPENS ONLY ACTIVE PULL REQUESTS (2026-11-27, release custody). Each
+ * window wrote about 154 statuses at its open and 154 at its close, against
+ * GitHub's 80 content-creating requests a minute and 500 an hour, and the close
+ * took about 1 min 50 s of a 3-minute in-flight margin. 195 of the 212 held
+ * pull requests had not been updated in 7 days: nobody was going to merge them
+ * in that window, and every one was flipped green and back. A held pull request
+ * is now opened only while its updatedAt is within ACTIVE_PR_DAYS of the
+ * verdict's own clock. An inactive one is held with INACTIVE_HELD, one constant
+ * text that names no time, so it is written once and never at a boundary (the
+ * unchanged-status skip). A push, edit, label, reopen or ready_for_review is a
+ * pull_request_target event that re-runs the verdict for that pull request,
+ * and the keeper re-reads updatedAt every pass, so a touched pull request is
+ * opened in the same window. An updatedAt that cannot be read keeps the window
+ * rules (it can only cost writes, never open a closed window).
+ * merge-window-watch.mjs samples only pull requests active through the window.
+ */
+export const ACTIVE_PR_DAYS = 7;
+export const ACTIVE_PR_MS = ACTIVE_PR_DAYS * 24 * 60 * MINUTE;
+export const INACTIVE_HELD = `Inactive ${ACTIVE_PR_DAYS}+ days: push or edit the PR, then it merges 10-27 min after a cycle or 4:15-4:27 AM`;
+
+/** True when updatedAt is within ACTIVE_PR_DAYS of nowMs, or cannot be read. */
+export function pullRequestActive(updatedAt, nowMs) {
+  const t = Date.parse(updatedAt ?? '');
+  if (!Number.isFinite(t)) return true;
+  return nowMs - t < ACTIVE_PR_MS;
+}
 
 const chicago = new Intl.DateTimeFormat('en-US', {
   timeZone: 'America/Chicago',
@@ -170,7 +197,7 @@ export function ordinaryMigrations(files) {
 }
 
 /** The status for one pull request at nowMs: { state: 'success'|'failure', description } (description <= 140 chars). */
-export function mergeWindowVerdict({ nowMs, cadence, baseRef, files, labels, body, isDraft = false, lists = controlLists() }) {
+export function mergeWindowVerdict({ nowMs, cadence, baseRef, files, labels, body, isDraft = false, updatedAt = null, lists = controlLists() }) {
   if (!Number.isFinite(nowMs)) throw new Error('nowMs must be a finite epoch millisecond');
   const cut = (s) => (s.length <= 140 ? s : `${s.slice(0, 137)}...`);
   if (baseRef !== 'main') return { state: 'success', description: 'Not a pull request into main' };
@@ -186,11 +213,15 @@ export function mergeWindowVerdict({ nowMs, cadence, baseRef, files, labels, bod
   // is a pull request event (ready_for_review) and the keeper re-reads isDraft
   // every minute.
   if (isDraft) return { state: 'failure', description: DRAFT_HELD };
+  const why = outageOverride(labels, body);
+  // An inactive pull request is never opened by a window; the outage override still applies.
+  if (!pullRequestActive(updatedAt, nowMs)) {
+    return why ? { state: 'success', description: cut(`Outage override: ${why}`) } : { state: 'failure', description: INACTIVE_HELD };
+  }
   if (mergeWindowOpen(nowMs, cadence)) {
     const closes = mergeWindowCloses(nowMs, cadence);
     return { state: 'success', description: cut(`Install window open: merge before ${chicagoTime(closes)}`) };
   }
-  const why = outageOverride(labels, body);
   if (why) return { state: 'success', description: cut(`Outage override: ${why}`) };
   const next = nextMergeWindow(nowMs, cadence);
   // A control-only pull request says so; with a migration the migration text
@@ -434,6 +465,7 @@ export function publish(prepared, { repo, now = () => Date.now(), cadence = decl
         labels: pr.labels.nodes.map((l) => l.name),
         body: pr.body,
         isDraft: Boolean(pr.isDraft),
+        updatedAt: pr.updatedAt ?? null,
       });
     } catch (e) {
       verdict = { state: 'failure', description: `Merge window could not be computed: ${String(e?.message ?? e).slice(0, 90)}` };
