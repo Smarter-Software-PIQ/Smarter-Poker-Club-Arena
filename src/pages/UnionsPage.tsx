@@ -1,22 +1,29 @@
 /**
- * ♠ CLUB ARENA — Unions Page
- * Club networks for increased liquidity
+ * CLUB ARENA - Unions Page
+ * Club networks for increased liquidity.
+ *
+ * #SmarterDesign (batch U1, 2026-11-28): the arena workspace. The chrome mast
+ * heads the page, Create Union is the lit key under it, every union is a
+ * chrome case with its figures on readout tiles and Open Union a chrome key,
+ * and the empty, error and loading screens are the arena state screens. Every
+ * printed figure, word and control is pinned by
+ * tests/components/unionsPageIsPinned.test.tsx.
  */
 
 import './UnionsPage.css';
 import { EmptyState, ErrorState, LoadingState } from '../components/common/EmptyState';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 
-import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import CreateUnionModal from '../components/union/CreateUnionModal';
 import PageBar from '../components/help/PageBar';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
 import { unionService, type Union } from '../services/UnionService';
 import { getUnionLevel } from '../utils/clubLevels';
 import { masterBus } from '../core/MasterBus';
 import { useToast } from '../components/common/Toast';
 import { reportError } from '../utils/errorReporter';
-import { mediaUrl } from '../utils/mediaBase';
 import { useCanCreateUnion } from '../hooks/useCanCreateUnion';
 import { COUNT_UNKNOWN, countText, type CountFigure } from '../lib/countFigure';
 
@@ -84,7 +91,7 @@ function UnionCard({
     <article className="union-card-shell" style={unionCardAnimationStyle(idx)}>
       <Link
         to={`/unions/${union.slug || union.id}`}
-        className="union-card"
+        className="union-card arena-case arena-ops-case"
         aria-label={`Open ${union.name} Union`}
       >
         <div className="union-header">
@@ -95,17 +102,17 @@ function UnionCard({
               union.name.charAt(0).toUpperCase()
             )}
           </span>
-          <h2>{union.name}</h2>
+          <h2 className="arena-section-title">{union.name}</h2>
         </div>
         <p className="union-description">
           {union.description || 'A Connected Club Network With Shared Games And Events.'}
         </p>
         <div className="union-stats" aria-label={`${union.name} Network Statistics`}>
-          <div className="union-stat">
+          <div className="union-stat arena-meter">
             <span className="stat-value">{union.clubCount.toLocaleString()}</span>
             <span className="stat-label">Clubs</span>
           </div>
-          <div className="union-stat">
+          <div className="union-stat arena-meter">
             <span className="stat-value union-level" style={{ color: uLevel.color }}>
               Lv.{uLevel.level}
             </span>
@@ -113,11 +120,11 @@ function UnionCard({
               {uLevel.tierLabel}
             </span>
           </div>
-          <div className="union-stat">
+          <div className="union-stat arena-meter">
             <span className="stat-value">{memberDisplay.toLocaleString()}</span>
             <span className="stat-label">Members</span>
           </div>
-          <div className="union-stat">
+          <div className="union-stat arena-meter">
             <span className="stat-value online">{countText(online)}</span>
             <span className="stat-label">Online</span>
           </div>
@@ -136,8 +143,10 @@ function UnionCard({
           <span>{uLevel.progressPercent}% Complete</span>
           <span>Next: Lv.{Math.min(uLevel.level + 1, 50)}</span>
         </div>
-        <span className="union-card-action">
-          Open Union <span aria-hidden="true">›</span>
+        <span className="union-card-key">
+          <span className="union-card-action">
+            Open Union <span aria-hidden="true">›</span>
+          </span>
         </span>
       </Link>
     </article>
@@ -228,37 +237,36 @@ export default function UnionsPage() {
   }, [loadUnions]);
 
   return (
-    <div
-      className="unions-page"
-      style={
-        {
-          '--union-network-art': `url("${mediaUrl('assets/club-buttons/wallets/desktop/wallet-union-bank-v1.webp')}")`,
-        } as CSSProperties
-      }
-    >
-      <PageBar
+    <div className="unions-page arena-workspace">
+      <ArenaWorkspaceHeader
+        area="operations"
         title="Union Command"
+        context="Union Network"
         summary="Coordinate Clubs, Shared Games And Network-Level Events."
-      >
-        {canCreateUnion && (
-          <button type="button" className="union-create-button" onClick={() => setIsCreating(true)}>
-            Create Union
-          </button>
-        )}
-      </PageBar>
+      />
+      {canCreateUnion && (
+        <PageBar titleAs={false} showHelp={false} title="Union Command">
+          <div className="arena-switch arena-ops-primary">
+            <button type="button" onClick={() => setIsCreating(true)}>
+              Create Union
+            </button>
+          </div>
+        </PageBar>
+      )}
 
       <div className="unions-grid">
         {loading ? (
-          <div className="unions-state">
-            <LoadingState message="Opening Union Networks" />
+          <div className="unions-state arena-case arena-ops-case">
+            <LoadingState arena message="Opening Union Networks" />
           </div>
         ) : loadError ? (
-          <div className="unions-state">
-            <ErrorState message={loadError} onRetry={loadUnions} />
+          <div className="unions-state arena-case arena-ops-case">
+            <ErrorState arena message={loadError} onRetry={loadUnions} />
           </div>
         ) : unions.length === 0 ? (
-          <div className="unions-state">
+          <div className="unions-state arena-case arena-ops-case">
             <EmptyState
+              arena
               icon="UNION"
               eyebrow="No Networks Yet"
               title="Build The First Union"
@@ -283,19 +291,17 @@ export default function UnionsPage() {
       </div>
 
       {canCreateUnion && (
-        <section className="create-union-cta">
-          <h2>Create Your Own Union</h2>
-          <p>
+        <section className="create-union-cta arena-case arena-ops-case">
+          <h2 className="arena-section-title">Create Your Own Union</h2>
+          <p className="arena-ops-copy">
             Bring Together Multiple Clubs Under One Network For Shared Player Pools And Coordinated
             Events.
           </p>
-          <button
-            type="button"
-            className="union-secondary-button"
-            onClick={() => setIsCreating(true)}
-          >
-            Start A Union
-          </button>
+          <div className="arena-switch arena-ops-keys">
+            <button type="button" onClick={() => setIsCreating(true)}>
+              Start A Union
+            </button>
+          </div>
         </section>
       )}
 

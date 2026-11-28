@@ -1,0 +1,43 @@
+/* #SMARTERDESIGN STATE SCREENS (batch U1, 2026-11-28). The arena variant of
+   EmptyState, ErrorState and LoadingState (the `arena` prop) prints the same
+   words, roles and keys as the beacon panel on the arena kit's chrome state
+   screen (ArenaOps.css, .arena-ops-state). Every rule is scoped under
+   .arena-workspace, so a page that does not opt in keeps the beacon panel. */
+.arena-workspace .arena-empty-state {
+  width: 100%;
+  box-sizing: border-box;
+}
+.arena-workspace .arena-empty-state__badge {
+  display: grid;
+  place-items: center;
+  min-width: 52px;
+  min-height: 30px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  color: #74dfff;
+  background: var(--arena-tile);
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  font:
+    800 11px/1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.08em;
+}
+.arena-workspace .arena-empty-state__eyebrow {
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
+}
+.arena-workspace .arena-empty-state > .arena-ops-state__title {
+  margin: 0;
+}
+.arena-workspace .arena-empty-state--error > .arena-ops-state__title {
+  color: #ff5b6e;
+}
+.arena-workspace .arena-empty-state--error > .arena-empty-state__badge {
+  color: #ff5b6e;
+}
