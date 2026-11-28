@@ -101,22 +101,24 @@ export function parseDockerignore(text) {
 }
 
 export function positiveGlobToRegex(pat) {
+  const norm = String(pat).replace(/^\/+/, '').replace(/\/+$/, '');
+  if (!norm) return /(?!)/;
   let out = '^';
-  for (let i = 0; i < pat.length; i++) {
-    if (pat.slice(i, i + 3) === '**/') {
+  for (let i = 0; i < norm.length; i++) {
+    if (norm.slice(i, i + 3) === '**/') {
       out += '(?:.+/)?';
       i += 2;
-    } else if (pat.slice(i, i + 2) === '**') {
+    } else if (norm.slice(i, i + 2) === '**') {
       out += '.*';
       i += 1;
-    } else if (pat[i] === '*') {
+    } else if (norm[i] === '*') {
       out += '[^/]*';
-    } else if (pat[i] === '?') {
+    } else if (norm[i] === '?') {
       out += '[^/]';
-    } else if ('.+^${}()|[]\\'.includes(pat[i])) {
-      out += '\\' + pat[i];
+    } else if ('.+^${}()|[]\\'.includes(norm[i])) {
+      out += '\\' + norm[i];
     } else {
-      out += pat[i];
+      out += norm[i];
     }
   }
   return new RegExp(out + '(?:/.*)?$');
@@ -137,6 +139,46 @@ function walkFiles(baseDir, currentDir = baseDir, out = []) {
   return out;
 }
 
+function stripForOfArrayLoops(code) {
+  const headerRe = /for\s*\([^)]*\bof\s*\[[\s\S]*?\]\s*(?:as\s+const)?\s*\)\s*\{/g;
+  let result = '';
+  let lastIdx = 0;
+  let match;
+  while ((match = headerRe.exec(code)) !== null) {
+    const start = match.index;
+    const openBrace = start + match[0].length - 1;
+    let depth = 1;
+    let i = openBrace + 1;
+    while (i < code.length && depth > 0) {
+      const ch = code[i];
+      if (ch === "'" || ch === '"' || ch === '`') {
+        const quote = ch;
+        i++;
+        while (i < code.length) {
+          if (code[i] === '\\' && i + 1 < code.length) {
+            i += 2;
+            continue;
+          }
+          if (code[i] === quote) {
+            i++;
+            break;
+          }
+          i++;
+        }
+        continue;
+      }
+      if (ch === '{') depth++;
+      else if (ch === '}') depth--;
+      i++;
+    }
+    result += code.slice(lastIdx, start);
+    lastIdx = i;
+    headerRe.lastIndex = i;
+  }
+  result += code.slice(lastIdx);
+  return result;
+}
+
 export function countReplayPasses(source) {
   const code = source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
   // Count explicit `it(` invocations inside a HoldemPersonaReplayVsMain*.test.ts
@@ -153,10 +195,7 @@ export function countReplayPasses(source) {
       const tupleCount = (loop.match(/\[\s*['"`]/g) ?? []).length;
       passes += Math.max(1, tupleCount);
     }
-    const strippedLoops = withoutRecord.replace(
-      /for\s*\([^)]*\bof\s*\[[\s\S]*?\]\s*(?:as\s+const)?\s*\)\s*\{[\s\S]*?\}/g,
-      ''
-    );
+    const strippedLoops = stripForOfArrayLoops(withoutRecord);
     passes += (strippedLoops.match(/\bit\s*\(/g) ?? []).length;
   } else {
     passes = (withoutRecord.match(/\bit\s*\(/g) ?? []).length;

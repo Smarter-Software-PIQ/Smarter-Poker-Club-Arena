@@ -79,35 +79,67 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --df-path)
-      DF_PATH="${2:-}"
+      if [[ $# -lt 2 ]]; then
+        emit_error_json 3 "${MODE:-unknown}" "${HOST_ALIAS:-local}" "--df-path requires a value"
+        exit 3
+      fi
+      DF_PATH="$2"
       shift 2
       ;;
     --daemon-json)
-      DAEMON_JSON="${2:-}"
+      if [[ $# -lt 2 ]]; then
+        emit_error_json 3 "${MODE:-unknown}" "${HOST_ALIAS:-local}" "--daemon-json requires a value"
+        exit 3
+      fi
+      DAEMON_JSON="$2"
       shift 2
       ;;
     --min-free-gib)
-      MIN_FREE_GIB="${2:-}"
+      if [[ $# -lt 2 ]]; then
+        emit_error_json 3 "${MODE:-unknown}" "${HOST_ALIAS:-local}" "--min-free-gib requires a value"
+        exit 3
+      fi
+      MIN_FREE_GIB="$2"
       shift 2
       ;;
     --max-inode-pct)
-      MAX_INODE_PCT="${2:-}"
+      if [[ $# -lt 2 ]]; then
+        emit_error_json 3 "${MODE:-unknown}" "${HOST_ALIAS:-local}" "--max-inode-pct requires a value"
+        exit 3
+      fi
+      MAX_INODE_PCT="$2"
       shift 2
       ;;
     --warn-inode-pct)
-      WARN_INODE_PCT="${2:-}"
+      if [[ $# -lt 2 ]]; then
+        emit_error_json 3 "${MODE:-unknown}" "${HOST_ALIAS:-local}" "--warn-inode-pct requires a value"
+        exit 3
+      fi
+      WARN_INODE_PCT="$2"
       shift 2
       ;;
     --max-clock-skew-ms)
-      MAX_CLOCK_SKEW_MS="${2:-}"
+      if [[ $# -lt 2 ]]; then
+        emit_error_json 3 "${MODE:-unknown}" "${HOST_ALIAS:-local}" "--max-clock-skew-ms requires a value"
+        exit 3
+      fi
+      MAX_CLOCK_SKEW_MS="$2"
       shift 2
       ;;
     --max-swap-used-pct)
-      MAX_SWAP_USED_PCT="${2:-}"
+      if [[ $# -lt 2 ]]; then
+        emit_error_json 3 "${MODE:-unknown}" "${HOST_ALIAS:-local}" "--max-swap-used-pct requires a value"
+        exit 3
+      fi
+      MAX_SWAP_USED_PCT="$2"
       shift 2
       ;;
     --docker-log-rotation)
-      DOCKER_LOG_ROTATION_MODE="${2:-}"
+      if [[ $# -lt 2 ]]; then
+        emit_error_json 3 "${MODE:-unknown}" "${HOST_ALIAS:-local}" "--docker-log-rotation requires a value"
+        exit 3
+      fi
+      DOCKER_LOG_ROTATION_MODE="$2"
       shift 2
       ;;
     --require-image)
@@ -283,16 +315,45 @@ def check_clock_skew(max_skew_ms):
         ts = run_ro(["timedatectl", "timesync-status"])
         skew_ms = None
         if not isinstance(ts, tuple) and ts.returncode == 0:
-            m = re.search(r"Offset:\s*([+-]?\d+(?:\.\d+)?)\s*(us|ms|s)\b", ts.stdout)
-            if m:
-                val = abs(float(m.group(1)))
-                unit = m.group(2)
-                if unit == "us":
-                    skew_ms = round(val / 1000.0, 3)
-                elif unit == "ms":
-                    skew_ms = round(val, 3)
+            offset_line = re.search(r"(?m)^\s*Offset:\s*(.+?)\s*$", ts.stdout)
+            if offset_line:
+                raw_offset = offset_line.group(1).strip()
+                s = raw_offset
+                if s.startswith(("+", "-")):
+                    s = s[1:].strip()
+                if not s:
+                    parsed_ms = None
+                elif re.fullmatch(r"0+(?:\.0+)?", s):
+                    parsed_ms = 0.0
                 else:
-                    skew_ms = round(val * 1000.0, 3)
+                    unit_ms = {"h": 3600000.0, "min": 60000.0, "s": 1000.0, "ms": 1.0, "us": 0.001}
+                    token_re = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*(h|min|ms|us|s)\b")
+                    pos = 0
+                    total_ms = 0.0
+                    seen = False
+                    valid = True
+                    for tok in token_re.finditer(s):
+                        if s[pos:tok.start()].strip():
+                            valid = False
+                            break
+                        total_ms += float(tok.group(1)) * unit_ms[tok.group(2)]
+                        pos = tok.end()
+                        seen = True
+                    if not valid or not seen or s[pos:].strip():
+                        parsed_ms = None
+                    else:
+                        parsed_ms = round(abs(total_ms), 3)
+                if parsed_ms is None:
+                    return {
+                        "ok": False,
+                        "unreadable": True,
+                        "source": "timedatectl",
+                        "synchronized": True,
+                        "skewMs": None,
+                        "maxClockSkewMs": max_skew_ms,
+                        "error": f"could not parse timedatectl Offset: {raw_offset}",
+                    }
+                skew_ms = parsed_ms
         if skew_ms is None:
             return {
                 "ok": True,
@@ -492,7 +553,8 @@ def main():
     max_inode_pct = float(sys.argv[6])
     max_clock_skew_ms = float(sys.argv[7])
     max_swap_used_pct = float(sys.argv[8])
-    warn_inode_pct = float(sys.argv[9]) if sys.argv[9] != "" else None
+    warn_raw = sys.argv[9]
+    warn_inode_pct = float(warn_raw) if warn_raw not in ("", "none") else None
     docker_log_mode = sys.argv[10]
     images = sys.argv[11:]
 
@@ -544,9 +606,11 @@ def main():
 main()
 PYEOF
 
+WARN_INODE_ARG="${WARN_INODE_PCT:-none}"
+
 if [[ "$MODE" == "local" ]]; then
   set +e
-  OUT=$(python3 -B - "local" "local" "$DF_PATH" "$DAEMON_JSON" "$MIN_FREE_GIB" "$MAX_INODE_PCT" "$MAX_CLOCK_SKEW_MS" "$MAX_SWAP_USED_PCT" "$WARN_INODE_PCT" "$DOCKER_LOG_ROTATION_MODE" ${REQUIRE_IMAGES[@]+"${REQUIRE_IMAGES[@]}"} <<< "$PROBE_PY")
+  OUT=$(python3 -B - "local" "local" "$DF_PATH" "$DAEMON_JSON" "$MIN_FREE_GIB" "$MAX_INODE_PCT" "$MAX_CLOCK_SKEW_MS" "$MAX_SWAP_USED_PCT" "$WARN_INODE_ARG" "$DOCKER_LOG_ROTATION_MODE" ${REQUIRE_IMAGES[@]+"${REQUIRE_IMAGES[@]}"} <<< "$PROBE_PY")
   RC=$?
   set -e
   printf '%s\n' "$OUT"
@@ -554,16 +618,20 @@ if [[ "$MODE" == "local" ]]; then
 fi
 
 # Remote mode: single fail-closed SSH call via sanctioned Mac alias (NEVER retry).
+# Quote every remote argument with printf '%q ' and pass sentinel "none" when
+# WARN_INODE_PCT is empty so OpenSSH remote shell joining never drops empty args
+# or splits/injects paths with spaces.
 REMOTE_RC=0
 REMOTE_OUT=""
+REMOTE_ARGS=$(printf '%q ' "remote" "$HOST_ALIAS" "$DF_PATH" "$DAEMON_JSON" "$MIN_FREE_GIB" "$MAX_INODE_PCT" "$MAX_CLOCK_SKEW_MS" "$MAX_SWAP_USED_PCT" "$WARN_INODE_ARG" "$DOCKER_LOG_ROTATION_MODE" ${REQUIRE_IMAGES[@]+"${REQUIRE_IMAGES[@]}"})
 set +e
 case "$HOST_ALIAS" in
   ca-engine)
-    REMOTE_OUT=$(ssh ca-engine python3 -B - "remote" "ca-engine" "$DF_PATH" "$DAEMON_JSON" "$MIN_FREE_GIB" "$MAX_INODE_PCT" "$MAX_CLOCK_SKEW_MS" "$MAX_SWAP_USED_PCT" "$WARN_INODE_PCT" "$DOCKER_LOG_ROTATION_MODE" ${REQUIRE_IMAGES[@]+"${REQUIRE_IMAGES[@]}"} <<< "$PROBE_PY")
+    REMOTE_OUT=$(ssh ca-engine "python3 -B - ${REMOTE_ARGS}" <<< "$PROBE_PY")
     REMOTE_RC=$?
     ;;
   ca-backup)
-    REMOTE_OUT=$(ssh ca-backup python3 -B - "remote" "ca-backup" "$DF_PATH" "$DAEMON_JSON" "$MIN_FREE_GIB" "$MAX_INODE_PCT" "$MAX_CLOCK_SKEW_MS" "$MAX_SWAP_USED_PCT" "$WARN_INODE_PCT" "$DOCKER_LOG_ROTATION_MODE" ${REQUIRE_IMAGES[@]+"${REQUIRE_IMAGES[@]}"} <<< "$PROBE_PY")
+    REMOTE_OUT=$(ssh ca-backup "python3 -B - ${REMOTE_ARGS}" <<< "$PROBE_PY")
     REMOTE_RC=$?
     ;;
   *)

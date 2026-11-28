@@ -9,14 +9,14 @@
  * happen once, so they get the room. Layered vignette, a sweep of light
  * across the title, and a rule that draws itself under the text.
  *
- * INK (2026-09-13, #ClubArenaConsole): this is felt cinematics, not a card,
- * so it is not framed on the console - but every colour on it is a
- * smarter.poker schema colour. The accent per beat is set in the component
- * (brass, gold, lit blue, house green, accent red); the blacks here are the
- * console's own bevel black #050607, the type is silver #e4e7ec and white
- * #f4f7fb, and the final-table rules are brass #d6ad52 at reduced alpha over
- * black, the same technique the console's engraved rules use. No slate, no
- * amber, no cream-on-amber. Reduced motion collapses the motion below and
+ * INK (2026-09-13, re-inked #SmarterDesign 2026-11-28): this is felt
+ * cinematics, not a card, so it is not framed on the console - but every
+ * colour on it is a #SmarterDesign table colour. The accent per beat is set in
+ * the component (ice, strongest ice, lit blue, and green or red only for a real
+ * win or knockout); the blacks here are the console's own bevel black #050607,
+ * the type is silver #e4e7ec and white #f4f7fb, and the final-table rules are
+ * ice at reduced alpha over black, the same technique the console's engraved
+ * rules use. No brass, no gold, no amber. Reduced motion collapses the motion below and
  * never the meaning: the subtitle and the rule land fully drawn.
  */
 
@@ -102,13 +102,13 @@
 
 .tournamentAnnouncement.finalTableAnnouncement {
   background:
-    linear-gradient(90deg, transparent, rgb(214 173 82 / 12%), transparent),
+    linear-gradient(90deg, transparent, rgb(134 218 255 / 12%), transparent),
     radial-gradient(ellipse at center, rgb(5 6 7 / 90%), rgb(5 6 7 / 46%) 54%, transparent 76%);
   backdrop-filter: blur(7px) saturate(105%);
 }
 .finalTableAnnouncement .announcementContent {
   padding: 1.1rem 1.4rem 1.25rem;
-  border-block: 1px solid rgb(214 173 82 / 42%);
+  border-block: 1px solid rgb(134 218 255 / 42%);
   background: linear-gradient(90deg, transparent, rgb(5 6 7 / 72%), transparent);
 }
 .finalTableAnnouncement .announcementIcon {
@@ -116,9 +116,9 @@
   place-items: center;
   width: 3.2rem;
   height: 3.2rem;
-  border: 1px solid rgb(214 173 82 / 64%);
+  border: 1px solid rgb(134 218 255 / 64%);
   border-radius: 50%;
-  color: #ffd700;
+  color: var(--sd-ice);
   background: #050607;
   font:
     800 0.9rem/1 'Roboto Condensed',
@@ -277,17 +277,11 @@
    #SMARTERDESIGN (Dan 2026-11-27): the announcements in the arena workspace
    language. The cinematic beat sits on one thin chrome case over ink navy,
    the level-change banner on a chrome row instead of a capsule; titles are
-   live Rajdhani, subtitles silver. The warm brass and gold accents become
-   ice blue (yellow is not an approved colour); green and red beats keep
-   their meaning. Every entrance, sweep, float and rule animation above still
+   live Rajdhani, subtitles silver. The accents are ice blue at their source
+   in the component (yellow is not an approved colour); green and red beats
+   keep their meaning. Every entrance, sweep, float and rule animation above still
    plays - nothing here sets `animation`.
    ═══════════════════════════════════════════════════════════════════════════ */
-.tournamentAnnouncement.tournamentAnnouncement[style*='#d6ad52'],
-.tournamentAnnouncement.tournamentAnnouncement[style*='#ffd700'],
-.tournamentAnnouncement.tournamentAnnouncement[style*='#d6AD52'],
-.tournamentAnnouncement.tournamentAnnouncement[style*='#FFD700'] {
-  --accent-color: var(--sd-ice) !important;
-}
 .tournamentAnnouncement.tournamentAnnouncement:not(.compact) .announcementContent {
   isolation: isolate;
   box-sizing: border-box;

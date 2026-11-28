@@ -155,6 +155,11 @@ PLAIN_REASONS = (
 )
 
 
+def _classify_reason(text: str) -> str | None:
+    lower = text.lower()
+    return next((plain for needle, plain in PLAIN_REASONS if needle in lower), None)
+
+
 def note(cycle: str, selected: bool, selection: dict) -> str:
     start = cycle_start(cycle)
     when, nxt = cycle_label(start), cycle_label(start + 3 * 3600)
@@ -166,13 +171,26 @@ def note(cycle: str, selected: bool, selection: dict) -> str:
     else:
         if reason == 'current' and not deferred:
             return ''
-        candidate_reasons = [
-            str(entry.get('reason') or '')
-            for entry in (*deferred, *refused)
-            if isinstance(entry, dict)
-        ]
-        text = ' '.join(candidate_reasons + [reason]).lower()
-        why = next((plain for needle, plain in PLAIN_REASONS if needle in text), 'no new build was ready')
+        why = None
+        # Deferred candidates all passed Backup certification and hold the most
+        # specific post-certification cause (schema drift beats rollback rehearsal).
+        deferred_text = ' '.join(
+            str(entry.get('reason') or '') for entry in deferred if isinstance(entry, dict)
+        )
+        if deferred_text:
+            why = _classify_reason(deferred_text)
+        # Refused candidates are newest-first; classify from the newest candidate
+        # first so an older orphaned pending cannot hijack a newer failure.
+        if why is None:
+            for entry in refused:
+                if not isinstance(entry, dict):
+                    continue
+                matched = _classify_reason(str(entry.get('reason') or ''))
+                if matched is not None:
+                    why = matched
+                    break
+        if why is None:
+            why = _classify_reason(reason) or 'no new build was ready'
     return (f'Engine cutover at {when} did not happen: {why}. The current engine keeps running, '
             f'and the next build is being tested for the {nxt} cutover.')
 

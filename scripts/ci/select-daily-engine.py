@@ -53,14 +53,32 @@ def cutoff(day):
                                 ZoneInfo('America/Chicago')).timestamp())
 
 
-def refusal_of(status, limit):
+def refusal_of(status, limit, repo=None):
     """Why a commit's newest Backup status cannot be a candidate, before any
     certificate is read; None when it is a SUCCESS written by the cutoff or
-    when the commit carries no Backup status at all (counted, not listed)."""
+    when the commit carries no Backup status at all (counted, not listed).
+
+    FM5 (2026-11-28): O1/O35 mid-soak yield deliberately writes NO failure or
+    error commit status, leaving the run's initial `pending` status on the
+    commit. When the newest status is `pending` and cites a GitHub Actions run
+    in `repo`, check that run's live status (fail-open to `pending` when
+    unreadable): a completed run is reported as `stale-pending` rather than
+    actively soaking."""
     if not status:
         return None
     state = str(status.get('state') or 'UNKNOWN').lower()
     if state != 'success':
+        if state == 'pending' and repo:
+            url = status.get('targetUrl') or status.get('target_url') or ''
+            match = re.fullmatch(r'https://github\.com/' + re.escape(repo) + r'/actions/runs/(\d+)', url)
+            if match:
+                run_id = match[1]
+                try:
+                    run = api(f'repos/{repo}/actions/runs/{run_id}')
+                except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+                    run = None
+                if isinstance(run, dict) and run.get('status') == 'completed':
+                    return f'Backup certificate is stale-pending (run {run_id} completed without verdict)'
         said = ' '.join(str(status.get('description') or '').split())[:200]
         return f'Backup certificate is {state}' + (f': {said}' if said else '')
     if epoch(status['createdAt']) > limit:
@@ -74,9 +92,10 @@ def backup(repo, sha, limit, status, refused=None):
     `refused` (THE SELECTOR NAMES WHAT IT REFUSED, 2026-11-26)."""
     note = refused.append if isinstance(refused, list) else (lambda _reason: None)
     if not status or status['state'] != 'SUCCESS' or epoch(status['createdAt']) > limit:
-        reason = refusal_of(status, limit)
-        if reason:
-            note(reason)
+        if isinstance(refused, list):
+            reason = refusal_of(status, limit, repo=repo)
+            if reason:
+                note(reason)
         return None
     match = re.fullmatch(r'https://github\.com/' + re.escape(repo) + r'/actions/runs/(\d+)',
                          status['targetUrl'] or '')
@@ -111,7 +130,7 @@ def backup(repo, sha, limit, status, refused=None):
     control = compat['controlSha']
     workflow = '.github/workflows/backup-engine.yml'
     if control != producer and (
-            run.get('event') != 'push' or control != sha or not re.fullmatch('[0-9a-f]{40}', sha)
+            run.get('event') not in ('push', 'schedule') or control != sha or not re.fullmatch('[0-9a-f]{40}', sha)
             or git('merge-base', producer, control) != producer
             or git('diff', '--name-only', producer, control, '--', workflow)):
         raise ValueError('Backup retarget conflicts with protected producer provenance')

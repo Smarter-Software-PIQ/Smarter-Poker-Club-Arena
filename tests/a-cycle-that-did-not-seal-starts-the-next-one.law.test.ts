@@ -314,7 +314,7 @@ describe('the Stage job', () => {
     expect(steps[wrote].run).toContain(
       'node scripts/ci/dispatch-intent.mjs write --operation backup-after-keep-serving --dir "$RUNNER_TEMP/dispatch-intents"'
     );
-    expect(steps[wrote].run).toContain('--input "after_cycle=$RELEASE_DATE" --input refresh=true');
+    expect(steps[wrote].run).toContain('--input "after_cycle=$RELEASE_DATE" --input refresh=false');
     expect(steps[published].with).toMatchObject({
       name: 'dispatch-intents-${{ github.run_attempt }}',
       path: '${{ runner.temp }}/dispatch-intents',
@@ -323,7 +323,7 @@ describe('the Stage job', () => {
     // The sender checks the body it is about to send against what was
     // decided and against this exact run attempt, and admits no other field.
     expect(sendSteps[sent].run).toContain(
-      '.ref == "main" and .inputs.after_cycle == $cycle and .inputs.refresh == "true" and .inputs.intent_nonce == $nonce'
+      '.ref == "main" and .inputs.after_cycle == $cycle and .inputs.refresh == "false" and .inputs.intent_nonce == $nonce'
     );
     expect(sendSteps[sent].run).toContain(
       'and .inputs.intent_run_id == $run and .inputs.intent_run_attempt == $attempt and ((.inputs | keys | length) == 5) and ((keys | length) == 2)'
@@ -757,6 +757,17 @@ describe('the owner note says it plainly, once per cycle', () => {
         refusedCandidates: [{ sha: '1'.repeat(40), reason: 'Backup certificate is error' }],
       })
     ).toContain('did not happen: the test runner hit an error before finishing the safety test.');
+    // FM6: an older orphaned pending candidate must NEVER hijack a newer candidate's failure reason.
+    const newestFailedOlderPending = noteFor('2026-11-28T13', 'false', {
+      reason: NO_EVIDENCE,
+      deferredCandidates: [],
+      refusedCandidates: [
+        { sha: '9'.repeat(40), reason: 'Backup certificate is failure' },
+        { sha: '8'.repeat(40), reason: 'Backup certificate is pending' },
+      ],
+    });
+    expect(newestFailedOlderPending).toContain('failed its safety test');
+    expect(newestFailedOlderPending).not.toContain('still finishing its test');
   });
 
   it('says nothing when the cycle had nothing new to ship', () => {

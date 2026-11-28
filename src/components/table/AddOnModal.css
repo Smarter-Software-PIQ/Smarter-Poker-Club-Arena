@@ -101,7 +101,7 @@
   color: #4dc660;
 }
 .addon-console__row--balance strong {
-  color: #ffd700;
+  color: var(--sd-ice);
 }
 .addon-console .is-poor strong,
 .addon-console .is-expiring {

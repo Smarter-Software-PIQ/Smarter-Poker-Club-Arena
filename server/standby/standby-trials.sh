@@ -545,12 +545,64 @@ start_player_witness() {
   done
 }
 
+_cleanup_certified_player_swap() {
+  local sampler_pid="${_SWAP_CLEANUP_SAMPLER_PID:-}"
+  local w_name="${_SWAP_CLEANUP_WITNESS_NAME:-}"
+  local w_pid="${witness_pid:-${_SWAP_CLEANUP_WITNESS_PID:-}}"
+  local w_dir="${_SWAP_CLEANUP_WITNESS_DIR:-}"
+  _SWAP_CLEANUP_SAMPLER_PID=''
+  _SWAP_CLEANUP_WITNESS_NAME=''
+  _SWAP_CLEANUP_WITNESS_PID=''
+  _SWAP_CLEANUP_WITNESS_DIR=''
+  if [ -n "$sampler_pid" ]; then
+    kill "$sampler_pid" 2>/dev/null || true
+    wait "$sampler_pid" 2>/dev/null || true
+  fi
+  if [ -n "$w_name" ]; then
+    docker stop "$w_name" >/dev/null 2>&1 || true
+    docker rm -f "$w_name" >/dev/null 2>&1 || true
+  fi
+  if [ -n "$w_pid" ]; then
+    kill "$w_pid" 2>/dev/null || true
+    wait "$w_pid" 2>/dev/null || true
+  fi
+  if [ -n "$w_dir" ]; then
+    rm -rf -- "$w_dir"
+  fi
+}
+
+_run_saved_swap_trap() {
+  local spec="$1"
+  [ -n "$spec" ] || return 0
+  eval "set -- $spec"
+  [ -n "${3:-}" ] && eval "$3"
+}
+
 certified_player_swap() {
   local witness_dir witness_name witness_pid='' conn_sampler_pid='' result=1
   local baseline_conn='' post_conn='' conn_rc=0
+  local prev_trap_exit prev_trap_int prev_trap_term
   SWAP_PEAK_DB_CONNECTIONS=null
-  witness_dir=$(mktemp -d "$STATE_DIR/player-proof.XXXXXXXX") || return 1
+  prev_trap_exit=$(trap -p EXIT)
+  prev_trap_int=$(trap -p INT)
+  prev_trap_term=$(trap -p TERM)
+  _SWAP_PREV_TRAP_EXIT="$prev_trap_exit"
+  _SWAP_CLEANUP_SAMPLER_PID=''
+  _SWAP_CLEANUP_WITNESS_NAME=''
+  _SWAP_CLEANUP_WITNESS_PID=''
+  _SWAP_CLEANUP_WITNESS_DIR=''
+  trap '_cleanup_certified_player_swap; _run_saved_swap_trap "${_SWAP_PREV_TRAP_EXIT:-}"' EXIT
+  trap '_cleanup_certified_player_swap; eval "${_SWAP_PREV_TRAP_EXIT:-trap - EXIT}"; trap - INT; exit 130' INT
+  trap '_cleanup_certified_player_swap; eval "${_SWAP_PREV_TRAP_EXIT:-trap - EXIT}"; trap - TERM; exit 143' TERM
+  witness_dir=$(mktemp -d "$STATE_DIR/player-proof.XXXXXXXX") || {
+    eval "${prev_trap_exit:-trap - EXIT}"
+    eval "${prev_trap_int:-trap - INT}"
+    eval "${prev_trap_term:-trap - TERM}"
+    return 1
+  }
   witness_name="standby-${witness_dir##*/}"
+  _SWAP_CLEANUP_WITNESS_DIR="$witness_dir"
+  _SWAP_CLEANUP_WITNESS_NAME="$witness_name"
   baseline_conn=$(sample_db_connections 2>/dev/null || true)
   : > "$witness_dir/db-conns.jsonl"
   (
@@ -565,24 +617,34 @@ certified_player_swap() {
     done
   ) </dev/null >/dev/null 2>&1 &
   conn_sampler_pid=$!
+  _SWAP_CLEANUP_SAMPLER_PID="$conn_sampler_pid"
   if trial_swap "$1" "$2" && wait "$witness_pid"; then
     cat "$witness_dir/verdict" >&2
     result=0
   fi
   if [ -n "$conn_sampler_pid" ]; then
+    _SWAP_CLEANUP_SAMPLER_PID=''
     kill "$conn_sampler_pid" 2>/dev/null || true
     wait "$conn_sampler_pid" 2>/dev/null || true
   fi
   if [ -n "$witness_pid" ]; then
+    _SWAP_CLEANUP_WITNESS_NAME=''
+    _SWAP_CLEANUP_WITNESS_PID=''
     docker rm -f "$witness_name" >/dev/null 2>&1 || true
     wait "$witness_pid" 2>/dev/null || true
+  else
+    _SWAP_CLEANUP_WITNESS_NAME=''
   fi
   post_conn=$(sample_db_connections 2>/dev/null || true)
   SWAP_PEAK_DB_CONNECTIONS=$(evaluate_swap_db_connections "$baseline_conn" "$witness_dir/db-conns.jsonl" "$post_conn") || conn_rc=$?
   if [ "$conn_rc" -eq 1 ]; then
     result=1
   fi
+  _SWAP_CLEANUP_WITNESS_DIR=''
   rm -rf -- "$witness_dir"
+  eval "${prev_trap_exit:-trap - EXIT}"
+  eval "${prev_trap_int:-trap - INT}"
+  eval "${prev_trap_term:-trap - TERM}"
   return "$result"
 }
 

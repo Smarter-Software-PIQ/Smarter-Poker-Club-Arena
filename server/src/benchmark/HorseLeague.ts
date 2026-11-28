@@ -5122,6 +5122,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaFlopPressureCapIsPriced: true },
     b: {},
   })),
+  // 2026-11-28 PLO-OWNER lead-10 (default OFF, PLO4/PLO5 cash): the heads-up single-raised flop call-or-fold check
+  // reads the people-priced equity instead of min(sampler, priced) (HorseOmahaFlopFacingBetPeopleEquity).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_flop_facing_bet_equity_is_people_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaFlopPressureCapIsPriced: true,
+      omahaPeoplePriorCountsHiddenBets: true,
+      omahaFlopFacingBetEquityIsPeoplePriced: true,
+    },
+    b: { omahaFlopPressureCapIsPriced: true, omahaPeoplePriorCountsHiddenBets: true },
+  })),
   // 2026-11-26 PLO-OWNER lead-7 (default OFF, PLO4/PLO5 cash): the bettor's non-value share anchored to the balanced
   // share for the price, moved only by his own shown bets (HorseOmahaEquilibriumAnchor).
   ...(['plo4', 'plo5'] as const).map((variant) => ({
@@ -5214,6 +5228,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       omahaFacingBetEv: true,
       omahaFacingBetPriorIsPeopleMeasured: true,
       omahaRiverBetPriorIsPotTypeSplit: true,
+    },
+    b: { omahaFacingBetEv: true, omahaFacingBetPriorIsPeopleMeasured: true },
+  })),
+  // 2026-11-27 lead-9 lane RFQ (default OFF, PLO4/PLO5 cash): the heads-up river bettor's own river first-bet frequency
+  // as the prior of his shown record, on top of the people-measured facing-bet prior.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_river_bet_prior_reads_his_frequency`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaFacingBetEv: true,
+      omahaFacingBetPriorIsPeopleMeasured: true,
+      omahaRiverBetPriorReadsHisFrequency: true,
     },
     b: { omahaFacingBetEv: true, omahaFacingBetPriorIsPeopleMeasured: true },
   })),
@@ -5533,6 +5561,15 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     variant: 'nlh',
     pairs: 6000,
     a: { holdemRiverFacingBetPriorIsPeopleMeasured: true },
+    b: {},
+  },
+  // 2026-11-28 lead-10 (default OFF): a fold facing a heads-up NLH cash turn stab after a checked flop priced with the
+  // river played to a plan; a switches it on, b is today's brain. Graded by the lane's own mirror, probes and replay.
+  {
+    name: 'nlh_holdem_turn_facing_bet_after_checked_flop_is_people_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced: true },
     b: {},
   },
   // 2026-11-27 lead-9 (default OFF): the NLH cash heads-up turn bluff priced on people's turn fold; a switches it

@@ -1360,6 +1360,140 @@ describe('standby connection-pool spike and host clock-skew telemetry', () => {
     expect(summary.breaches.join(',')).toContain('db_connection_leak_after_swap');
   });
 
+  it('certified_player_swap cleans up sampler process, witness container, and witness_dir on SIGTERM', () => {
+    const shaA = 'a'.repeat(40);
+    const shaB = 'b'.repeat(40);
+    const result = standbyShell(`source '${root('server/standby/standby-trials.sh')}'
+      SWAP_DB_CONN_SAMPLE_SECONDS=60
+      sample_db_connections() { echo '{"total":10,"active":1}'; }
+      docker() {
+        printf 'docker:%s\\n' "$*" >> "$STATE_DIR/docker-ops"
+        return 0
+      }
+      trial_swap() {
+        printf '%s\\n' "$conn_sampler_pid" > "$STATE_DIR/sampler-pid"
+        printf '%s\\n' "$witness_dir" > "$STATE_DIR/witness-dir"
+        printf '%s\\n' "$witness_name" > "$STATE_DIR/witness-name"
+        sleep 10 </dev/null >/dev/null 2>&1 &
+        local s=$!
+        wait "$s"
+      }
+      (
+        certified_player_swap '${shaA}' '${shaB}'
+      ) &
+      swap_pid=$!
+      for _ in $(seq 1 50); do
+        [ -s "$STATE_DIR/sampler-pid" ] && break
+        sleep 0.05
+      done
+      kill -TERM "$swap_pid" 2>/dev/null || true
+      wait "$swap_pid" 2>/dev/null || true
+      sleep 0.2
+      sampler_pid=$(cat "$STATE_DIR/sampler-pid")
+      witness_dir=$(cat "$STATE_DIR/witness-dir")
+      witness_name=$(cat "$STATE_DIR/witness-name")
+      sampler_alive=0
+      if kill -0 "$sampler_pid" 2>/dev/null; then
+        sampler_alive=1
+        kill -9 "$sampler_pid" 2>/dev/null || true
+      fi
+      dir_exists=0
+      [ -d "$witness_dir" ] && dir_exists=1
+      printf 'sampler_alive=%s dir_exists=%s witness_name=%s\\n' "$sampler_alive" "$dir_exists" "$witness_name"
+      cat "$STATE_DIR/docker-ops" 2>/dev/null || true
+    `);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('sampler_alive=0 dir_exists=0');
+    expect(result.stdout).toMatch(/docker:(stop|rm -f) standby-player-proof\./);
+  });
+
+  it('check_host_clock_skew warns on unsynchronized timesyncd, multi-unit >=60s offsets, and unparseable Offset lines', () => {
+    const cases: Array<{
+      name: string;
+      timesync: string;
+      showSync?: string;
+      expectedStatus: string;
+      expectedSync: boolean | null;
+      expectedOffsetMs?: number | null;
+    }> = [
+      {
+        name: 'unsynchronized via NTPSynchronized=no even with tiny offset',
+        timesync: 'Server: 169.254.169.123\nOffset: +1.5ms\n',
+        showSync: 'no',
+        expectedStatus: 'warn',
+        expectedSync: false,
+        expectedOffsetMs: 1.5,
+      },
+      {
+        name: 'unsynchronized via Leap: 3',
+        timesync: 'Leap: 3 (not synchronized)\nOffset: +1.0ms\n',
+        showSync: 'yes',
+        expectedStatus: 'warn',
+        expectedSync: false,
+        expectedOffsetMs: 1,
+      },
+      {
+        name: 'unsynchronized via Packet count: 0 with no Offset',
+        timesync: 'Server: n/a\nPacket count: 0\n',
+        showSync: '',
+        expectedStatus: 'warn',
+        expectedSync: false,
+        expectedOffsetMs: null,
+      },
+      {
+        name: 'multi-unit >=60s skew 1min 2.345s',
+        timesync: 'Server: 169.254.169.123\nOffset: 1min 2.345s\n',
+        showSync: 'yes',
+        expectedStatus: 'warn',
+        expectedSync: true,
+        expectedOffsetMs: 62345,
+      },
+      {
+        name: 'multi-unit negative skew -1h 2min 3s',
+        timesync: 'Server: 169.254.169.123\nOffset: -1h 2min 3s\n',
+        showSync: 'yes',
+        expectedStatus: 'warn',
+        expectedSync: true,
+        expectedOffsetMs: -3723000,
+      },
+      {
+        name: 'present but unparseable Offset line warns fail-closed',
+        timesync: 'Server: 169.254.169.123\nOffset: 2days 3s\n',
+        showSync: 'yes',
+        expectedStatus: 'warn',
+        expectedSync: true,
+        expectedOffsetMs: null,
+      },
+    ];
+    for (const c of cases) {
+      const showBody =
+        c.showSync !== undefined && c.showSync !== ''
+          ? `printf '%s\\n' '${c.showSync}'; return 0`
+          : 'return 1';
+      const result = standbyShell(`
+        command() { if [ "$1" = -v ] && [ "$2" = chronyc ]; then return 1; fi; builtin command "$@"; }
+        timedatectl() {
+          if [ "$1" = timesync-status ]; then
+            cat <<'TS_EOF'
+${c.timesync}TS_EOF
+            return 0
+          fi
+          if [ "$1" = show ]; then
+            ${showBody}
+          fi
+          return 1
+        }
+        check_host_clock_skew
+      `);
+      expect(result.status, `${c.name}: ${result.stderr}`).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed.status, c.name).toBe(c.expectedStatus);
+      expect(parsed.synchronized, c.name).toBe(c.expectedSync);
+      expect(parsed.offsetMs, c.name).toBe(c.expectedOffsetMs);
+      expect(result.stderr, c.name).toContain('WARNING host clock skew');
+    }
+  });
+
   it.each(['chronyc-ok', 'chronyc-warn', 'timedatectl-ok', 'unavailable'])(
     'check_host_clock_skew handles %s non-fatally',
     (mode) => {
@@ -1512,5 +1646,90 @@ describe('CoW snapshot/restore helper binds schema evidence and falls back fail-
     );
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout.trim()).toBe('rc=1 marker=untouched');
+  });
+
+  it('cmd_restore_snapshot restores old PGDATA and restarts DB before fallback_full_restore when snapshot PGDATA fails to boot', () => {
+    const result = standbyShell(
+      `
+      assert_isolated() { return 0; }
+      verify_schema_evidence() { return 0; }
+      log() { printf '%s\\n' "$*" >> "$STATE_DIR/log"; }
+      mkdir -p "$STATE_DIR/pgdata" "$STATE_DIR/seed"
+      printf 'good-live-pgdata' > "$STATE_DIR/pgdata/PG_VERSION"
+      printf '{"copied":[]}' > "$STATE_DIR/seed/manifest.json"
+      PGDATA_HOST_DIR="$STATE_DIR/pgdata"
+      echo 0 > "$STATE_DIR/start-count"
+      docker() {
+        case "$1" in
+          ps) echo '' ;;
+          inspect) echo false ;;
+          stop) echo "docker:stop" >> "$STATE_DIR/ops" ;;
+          start)
+            local c; c=$(($(cat "$STATE_DIR/start-count") + 1)); echo "$c" > "$STATE_DIR/start-count"
+            echo "docker:start:$c:$(cat "$STATE_DIR/pgdata/PG_VERSION" 2>/dev/null || echo missing)" >> "$STATE_DIR/ops"
+            # 1st start is after cmd_snapshot_copy; 2nd start is booting the corrupted snapshot PGDATA -> fail!
+            if [ "$c" -eq 2 ]; then return 1; fi
+            ;;
+          restart) echo "docker:restart" >> "$STATE_DIR/ops" ;;
+        esac
+        return 0
+      }
+      psql_db() { echo 1; return 0; }
+      cmd_restore() {
+        printf 'fallback:cmd_restore:pgdata=%s\\n' "$(cat "$STATE_DIR/pgdata/PG_VERSION" 2>/dev/null || echo missing)" >> "$STATE_DIR/ops"
+        return 0
+      }
+      cmd_seed() { echo "fallback:cmd_seed" >> "$STATE_DIR/ops"; return 0; }
+      cmd_snapshot_copy "$STATE_DIR/snap" >/dev/null
+      # Corrupt snapshot PGDATA so booting it fails, while live PGDATA has known-good marker
+      printf 'corrupted-snap-pgdata' > "$STATE_DIR/snap/pgdata/PG_VERSION"
+      printf 'good-live-pgdata' > "$STATE_DIR/pgdata/PG_VERSION"
+      cmd_restore_snapshot "$STATE_DIR/schema.dump" "$STATE_DIR/seed" "$STATE_DIR/snap"
+      cat "$STATE_DIR/ops"
+      echo "FINAL_PGDATA=$(cat "$STATE_DIR/pgdata/PG_VERSION")"
+    `,
+      snapshotValidCopy
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('docker:start:2:corrupted-snap-pgdata');
+    expect(result.stdout).toContain('docker:start:3:good-live-pgdata');
+    expect(result.stdout).toContain('fallback:cmd_restore:pgdata=good-live-pgdata');
+    expect(result.stdout).toContain('FINAL_PGDATA=good-live-pgdata');
+  });
+
+  it('cmd_snapshot_copy preserves prior valid snapshot when replacing it fails mid-swap', () => {
+    const result = standbyShell(
+      `
+      assert_isolated() { return 0; }
+      verify_schema_evidence() { return 0; }
+      log() { :; }
+      mkdir -p "$STATE_DIR/pgdata" "$STATE_DIR/seed"
+      printf 'pg-v1' > "$STATE_DIR/pgdata/PG_VERSION"
+      PGDATA_HOST_DIR="$STATE_DIR/pgdata"
+      docker() {
+        case "$1" in
+          ps) echo '' ;;
+          inspect) echo false ;;
+        esac
+        return 0
+      }
+      psql_db() { echo 1; return 0; }
+      cmd_snapshot_copy "$STATE_DIR/snap" >/dev/null
+      printf 'pg-v2' > "$STATE_DIR/pgdata/PG_VERSION"
+      # Fail the second mv (staging -> snap_dir) after snap_dir was moved to .prev.$$
+      mv() {
+        if [[ "$1" == *.staging.* && "$2" == "$STATE_DIR/snap" ]]; then
+          return 1
+        fi
+        command mv "$@"
+      }
+      rc=0
+      cmd_snapshot_copy "$STATE_DIR/snap" >/dev/null || rc=$?
+      printf 'rc=%s preserved=%s\\n' "$rc" "$(cat "$STATE_DIR/snap/pgdata/PG_VERSION" 2>/dev/null || echo GONE)"
+    `,
+      snapshotValidCopy
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim()).toBe('rc=1 preserved=pg-v1');
   });
 });

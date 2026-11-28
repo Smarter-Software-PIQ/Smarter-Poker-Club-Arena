@@ -33,6 +33,14 @@
  * his turn bet, he checked the river and then folded to a bet: bottom). Still no unshown card: a hidden bet enters by
  * its public outcome only.
  *
+ * A MUCKED TURN STAB (lane nlt, 2026-11-28, read by holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced): when the winning
+ * hand was shown, the showdown says more than "lower middle": his hand LOST to the shown winner on the final board. It
+ * is counted over the turn regions of every holding that loses to the shown winning hand, each such holding alike
+ * (fractional counts); the mucked cards are never read. With no shown winner it stays lower middle.
+ *
+ * HIS RIVER AFTER A CALLED STAB (lane nlt): after his turn stab on a checked flop was called heads-up, whether his first
+ * river action, with nothing wagered before it, was a bet (a barrel) or a check. Public actions only.
+ *
  * Memory only, rebuilt at every boot from the same public hand rows the style read rebuilds from
  * (HorseExploitHydrator), so it needs no table and no migration. Learning changes no decision while the option is
  * off: nothing else reads the store. Pure counts; draws nothing from fastRandom.
@@ -66,11 +74,14 @@ export function holdemBetReadRegionOf(p: number): number {
   return from.length - 1;
 }
 
-/** Counts flattened: the river's [line][size][region], then the turn stab's [size][region]. */
+/** Counts flattened: the river's [line][size][region], then the turn stab's [size][region], then his river after a
+ *  called stab [spots, barrels]. */
 type Row = number[];
 const RIVER_SLOTS =
   HOLDEM_BET_READ_LINES.length * HOLDEM_BET_READ_SIZES.length * HOLDEM_BET_READ_REGIONS;
-const SLOTS = RIVER_SLOTS + HOLDEM_BET_READ_SIZES.length * HOLDEM_BET_READ_REGIONS;
+const TURN_SLOTS = HOLDEM_BET_READ_SIZES.length * HOLDEM_BET_READ_REGIONS;
+const BARREL_SLOT = RIVER_SLOTS + TURN_SLOTS;
+const SLOTS = BARREL_SLOT + 2;
 const turnSlot = (size: number, region: number): number =>
   RIVER_SLOTS + size * HOLDEM_BET_READ_REGIONS + region;
 const slot = (line: number, size: number, region: number): number =>
@@ -171,11 +182,27 @@ export interface HoldemBetReadTurnIncrement {
   region: number;
   /** how the bet entered: his shown cards, a showdown muck, or a give-up (checked the river, folded to a bet) */
   source: 'shown' | 'mucked' | 'gaveUp';
+  /** a muck with the winner shown: the bet spread over the turn regions of the holdings that lose to the shown
+   *  winning hand (shares summing to 1); `region` is then the lower middle and is not used */
+  spread?: number[];
+}
+/** His first river action after his turn stab on a checked flop was called heads-up (nothing wagered before it). */
+export interface HoldemBetReadBarrelIncrement {
+  userId: string;
+  barrel: boolean;
 }
 const WAGERS: ReadonlySet<string> = new Set(['bet', 'raise', 'all_in']);
 interface Walk {
   river: { uid: string; ratio: number; line: HoldemBetReadLine } | null;
-  turn: { uid: string; ratio: number; raised: boolean; riverActs: string[] } | null;
+  turn: {
+    uid: string;
+    ratio: number;
+    raised: boolean;
+    called: boolean;
+    riverActs: string[];
+    /** somebody else wagered on the river before his first river action */
+    riverOpened: boolean;
+  } | null;
 }
 /** One pass over the public action log: the river's and the turn's first bet, each kept only with two players live. */
 function walk(hand: OmahaBetReadHand): Walk {
@@ -215,15 +242,24 @@ function walk(hand: OmahaBetReadHand): Walk {
           if (out.turn && uid !== out.turn.uid) out.turn.raised = true;
           turnLast = uid;
         }
+        if (a.action === 'call' && out.turn && uid !== out.turn.uid) out.turn.called = true;
         if ((wager || a.action === 'call') && !turnChips) {
           turnChips = true;
           // the turn's first chips: a bet with two players live, after a flop that was dealt and nobody bet
           if (first && flopSeen && !flopWager && live() === 2 && potBefore > 0 && amount > 0)
-            out.turn = { uid, ratio: amount / potBefore, raised: false, riverActs: [] };
+            out.turn = {
+              uid,
+              ratio: amount / potBefore,
+              raised: false,
+              called: false,
+              riverActs: [],
+              riverOpened: false,
+            };
         }
       }
       if (a.stage === 'river') {
         if (out.turn && uid === out.turn.uid) out.turn.riverActs.push(a.action);
+        else if (out.turn && wager && out.turn.riverActs.length === 0) out.turn.riverOpened = true;
         if ((wager || a.action === 'call') && !riverChips) {
           riverChips = true;
           // the river's first chips: only a bet made with exactly two players live is kept
@@ -284,8 +320,16 @@ export function holdemBetReadTurnIncrementOf(
   if (!bet) return null;
   const size = holdemBetReadSizeIndex(bet.ratio);
   const reveal = revealOf(hand, bet.uid);
-  if (reveal === 'mucked')
-    return { userId: bet.uid, size, region: HOLDEM_BET_READ_MUCKED_REGION, source: 'mucked' };
+  if (reveal === 'mucked') {
+    const spread = holdemBetReadMuckSpreadOf(hand, bet.uid);
+    return {
+      userId: bet.uid,
+      size,
+      region: HOLDEM_BET_READ_MUCKED_REGION,
+      source: 'mucked',
+      ...(spread ? { spread } : {}),
+    };
+  }
   if (reveal !== null) {
     const board = boardOf(hand, 4);
     const p = board ? holdemBetReadBeatsShare(reveal, board) : null;
@@ -295,6 +339,90 @@ export function holdemBetReadTurnIncrementOf(
   // a give-up: nobody raised his turn bet, he checked the river and then folded
   if (!bet.raised && bet.riverActs[0] === 'check' && bet.riverActs[1] === 'fold')
     return { userId: bet.uid, size, region: HOLDEM_BET_READ_REGIONS - 1, source: 'gaveUp' };
+  return null;
+}
+
+/**
+ * A muck at the showdown with the winner shown: the turn regions of the holdings that lose to the shown winning hand
+ * on the final board (each such holding alike; a tie is not a loss), as shares. Null with no single shown winner or
+ * no losing holding. Only shown cards and the board are read.
+ */
+export function holdemBetReadMuckSpreadOf(
+  hand: OmahaBetReadHand,
+  loserUid: string
+): number[] | null {
+  const low = loserUid.toLowerCase();
+  const shownOthers: Card[][] = [];
+  for (const [k, v] of hand.shown) {
+    if (k.toLowerCase() === low) continue;
+    const sd = hand.showdown?.find((s) => s?.user_id?.toLowerCase() === k.toLowerCase());
+    if (sd && sd.mucked === true) continue;
+    const c = v.map(omahaBetReadCard);
+    if (c.length === 2 && c.every((x): x is Card => x !== null)) shownOthers.push(c as Card[]);
+  }
+  if (shownOthers.length !== 1) return null;
+  const board = boardOf(hand, 5);
+  if (!board) return null;
+  const w = shownOthers[0] as Card[];
+  const dead = new Uint8Array(64);
+  const ids = new Uint8Array(5);
+  for (let i = 0; i < 5; i++) {
+    const id = holdemCardId(board[i] as Card);
+    if (id < 0 || dead[id]) return null;
+    dead[id] = 1;
+    ids[i] = id;
+  }
+  const w0 = holdemCardId(w[0] as Card);
+  const w1 = holdemCardId(w[1] as Card);
+  if (w0 < 0 || w1 < 0 || w0 === w1 || dead[w0] || dead[w1]) return null;
+  const bits5 = packHoldemBoardBits(ids, 5);
+  const bits4 = packHoldemBoardBits(ids, 4);
+  const win = scoreHoldemPlus2Ids(bits5, w0, w1, false);
+  // every holding on the four-card board (the turn as it stood), its standing there, and whether it loses on the river
+  const turnScores: number[] = [];
+  const loses: boolean[] = [];
+  const turnDead = new Uint8Array(64);
+  for (let i = 0; i < 4; i++) turnDead[ids[i] as number] = 1;
+  for (let a = 0; a < 52; a++) {
+    if (turnDead[a]) continue;
+    for (let b = a + 1; b < 52; b++) {
+      if (turnDead[b]) continue;
+      turnScores.push(scoreHoldemPlus2Ids(bits4, a, b, false));
+      const possible = !dead[a] && !dead[b] && a !== w0 && a !== w1 && b !== w0 && b !== w1;
+      loses.push(possible && scoreHoldemPlus2Ids(bits5, a, b, false) < win);
+    }
+  }
+  const n = turnScores.length;
+  const order = turnScores
+    .map((_, i) => i)
+    .sort((x, y) => (turnScores[x] as number) - (turnScores[y] as number));
+  const out = new Array<number>(HOLDEM_BET_READ_REGIONS).fill(0);
+  let tot = 0;
+  for (let i = 0; i < n; ) {
+    let j = i;
+    const v = turnScores[order[i] as number] as number;
+    while (j + 1 < n && turnScores[order[j + 1] as number] === v) j++;
+    const region = holdemBetReadRegionOf((i + j) / 2 / Math.max(1, n - 1));
+    for (let k = i; k <= j; k++)
+      if (loses[order[k] as number]) {
+        out[region] = (out[region] as number) + 1;
+        tot++;
+      }
+    i = j + 1;
+  }
+  if (!(tot > 0)) return null;
+  return out.map((x) => x / tot);
+}
+
+/** His river after his called turn stab on a checked flop: a barrel or a check (nothing wagered before it), or null. */
+export function holdemBetReadBarrelIncrementOf(
+  hand: OmahaBetReadHand
+): HoldemBetReadBarrelIncrement | null {
+  const bet = walk(hand).turn;
+  if (!bet || bet.raised || !bet.called || bet.riverOpened) return null;
+  const first = bet.riverActs[0];
+  if (first === 'bet' || first === 'all_in') return { userId: bet.uid, barrel: true };
+  if (first === 'check') return { userId: bet.uid, barrel: false };
   return null;
 }
 
@@ -331,6 +459,28 @@ export function holdemBetReadNoteTurn(userId: string, size: number, region: numb
   r[i] = (r[i] as number) + 1;
 }
 
+/** Add a turn stab of `userId` spread over regions (`spread` sums to 1). */
+export function holdemBetReadNoteTurnSpread(
+  userId: string,
+  size: number,
+  spread: readonly number[]
+): void {
+  if (!(size >= 0 && size < HOLDEM_BET_READ_SIZES.length)) return;
+  if (spread.length !== HOLDEM_BET_READ_REGIONS) return;
+  const r = rowOf(userId.toLowerCase());
+  for (let g = 0; g < HOLDEM_BET_READ_REGIONS; g++) {
+    const v = spread[g] as number;
+    if (Number.isFinite(v) && v > 0) r[turnSlot(size, g)] = (r[turnSlot(size, g)] as number) + v;
+  }
+}
+
+/** Add his river after a called turn stab: a barrel or a check. */
+export function holdemBetReadNoteBarrel(userId: string, barrel: boolean): void {
+  const r = rowOf(userId.toLowerCase());
+  r[BARREL_SLOT] = (r[BARREL_SLOT] as number) + 1;
+  if (barrel) r[BARREL_SLOT + 1] = (r[BARREL_SLOT + 1] as number) + 1;
+}
+
 /** Learn one completed hand (idempotent per handKey). Only NLH cash, one board, no bomb pot. Never throws. */
 export function holdemBetReadLearn(hand: OmahaBetReadHand): boolean {
   try {
@@ -342,7 +492,12 @@ export function holdemBetReadLearn(hand: OmahaBetReadHand): boolean {
     const inc = holdemBetReadIncrementOf(hand);
     if (inc) holdemBetReadNote(inc.userId, inc.line, inc.size, inc.region);
     const turn = holdemBetReadTurnIncrementOf(hand);
-    if (turn) holdemBetReadNoteTurn(turn.userId, turn.size, turn.region);
+    if (turn) {
+      if (turn.spread) holdemBetReadNoteTurnSpread(turn.userId, turn.size, turn.spread);
+      else holdemBetReadNoteTurn(turn.userId, turn.size, turn.region);
+    }
+    const barrel = holdemBetReadBarrelIncrementOf(hand);
+    if (barrel) holdemBetReadNoteBarrel(barrel.userId, barrel.barrel);
     return true;
   } catch {
     return false;
@@ -384,4 +539,14 @@ export function holdemBetReadTurnOf(
   const cell = new Array<number>(HOLDEM_BET_READ_REGIONS).fill(0);
   for (let g = 0; g < HOLDEM_BET_READ_REGIONS; g++) cell[g] = r[turnSlot(s, g)] as number;
   return cell;
+}
+
+/** His river after his called turn stabs on a checked flop: spots and barrels; null when he has no row. */
+export function holdemBetReadBarrelOf(
+  userId: string | null | undefined
+): { spots: number; barrels: number } | null {
+  if (!userId) return null;
+  const r = rows.get(userId.toLowerCase());
+  if (!r) return null;
+  return { spots: r[BARREL_SLOT] as number, barrels: r[BARREL_SLOT + 1] as number };
 }

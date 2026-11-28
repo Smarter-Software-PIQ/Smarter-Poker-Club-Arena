@@ -1774,7 +1774,7 @@ ${Object.entries(states)
         expect(ids.indexOf('late_retarget')).toBeLessThan(ids.indexOf('late_inherit'));
         expect(ids.indexOf('late_inherit')).toBeLessThan(ids.indexOf('due'));
         expect(lateRetarget.if).toBe(
-          "github.event_name == 'push' && steps.turn.outputs.acquired == '1' && needs.plan.outputs.freeze_baseline != '1' && needs.plan.outputs.priority != 'booking'"
+          "(github.event_name == 'push' || github.event_name == 'schedule') && steps.turn.outputs.acquired == '1' && needs.plan.outputs.freeze_baseline != '1' && needs.plan.outputs.priority != 'booking'"
         );
         expect(lateInherit.if).toBe(
           "github.event_name == 'push' && steps.turn.outputs.acquired == '1' && needs.plan.outputs.freeze_baseline != '1' && needs.plan.outputs.inherit_eligible == 'true'"
@@ -2046,7 +2046,10 @@ gh() {
         expect(r.calls).not.toContain('actions/workflows/backup-engine.yml/runs');
       });
 
-      it.each(['workflow_dispatch', 'schedule', 'repository_dispatch'])(
+      // FM3 (2026-11-28): non-freeze schedule runs now participate in pre-lease
+      // supersession; manual workflow_dispatch (without after_cycle), non-post-seal
+      // repository_dispatch, and freeze_baseline schedule runs never supersede.
+      it.each(['workflow_dispatch', 'repository_dispatch'])(
         '%s runs are NEVER superseded while waiting',
         (event) => {
           const r = runTurn({ event, newerShas: ['e'.repeat(40)] });
@@ -2989,7 +2992,7 @@ gh() {
         }
       });
 
-      it('NEVER yields booking, freeze_baseline, workflow_dispatch, schedule, or repository_dispatch runs, and keeps soaking on unreadable checks (CLAUDE.md 10.86)', () => {
+      it('NEVER yields booking, freeze_baseline, manual workflow_dispatch, freeze schedule, or non-post-seal repository_dispatch runs, and keeps soaking on unreadable checks (CLAUDE.md 10.86)', () => {
         const f = fixture();
         const origin = withOrigin(f);
         try {
@@ -3003,7 +3006,7 @@ gh() {
             { planPriority: 'booking' },
             { freezeBaseline: '1' },
             { event: 'workflow_dispatch' },
-            { event: 'schedule' },
+            { event: 'schedule', freezeBaseline: '1' },
             { event: 'repository_dispatch' },
           ]) {
             const r = runCertifyStep(f, { sha: soakingSha, soakSeconds: 1, ...cfg });
@@ -3083,14 +3086,15 @@ gh() {
         }
       });
 
-      it('O37: engine-release-prequalification.yml schedules RetainedHistoricalCheckpointQualification on shard 2 (balancing shard 1) and keeps npm run build on all shards', () => {
+      it('O37: engine-release-prequalification.yml schedules RetainedHistoricalCheckpointQualification on shard 7 (fastest shard) and keeps npm run build on all shards', () => {
         const prequalWf = parse(read('.github/workflows/engine-release-prequalification.yml'));
         const steps = prequalWf.jobs.qualify.steps as any[];
         const compileStep = steps.find((s) => s.name === 'Compile and test the exact server tree');
         expect(compileStep).toBeTruthy();
         expect(compileStep.run).toContain('npm run build');
-        expect(compileStep.run).toContain('if [ "$RELEASE_TEST_SHARD" = 2 ]; then');
+        expect(compileStep.run).toContain('if [ "$RELEASE_TEST_SHARD" = 7 ]; then');
         expect(compileStep.run).not.toContain('if [ "$RELEASE_TEST_SHARD" = 1 ]; then');
+        expect(compileStep.run).not.toContain('if [ "$RELEASE_TEST_SHARD" = 2 ]; then');
         expect(compileStep.run).toContain(
           'src/engine/RetainedHistoricalCheckpointQualification.test.ts'
         );

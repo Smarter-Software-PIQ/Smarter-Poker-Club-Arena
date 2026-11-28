@@ -90,6 +90,42 @@ describe('server test determinism guard', () => {
       'server/src/engine/TemplateDate.test.ts'
     );
     expect(templateInterp.dateNowLines).toEqual([1]);
+
+    // Template literal containing // (URL) must NOT blank ${Date.now()}.
+    const templateUrl = analyzeTestSource(
+      'const url = `https://example.com/${Date.now()}`;',
+      'server/src/engine/TemplateUrl.test.ts'
+    );
+    expect(templateUrl.dateNowLines).toEqual([1]);
+
+    // Template literal containing apostrophes must NOT blank ${Math.random()}.
+    const templateQuotes = analyzeTestSource(
+      "const msg = `it's ${Math.random()} and it's ok`;",
+      'server/src/engine/TemplateQuotes.test.ts'
+    );
+    expect(templateQuotes.mathRandomLines).toEqual([1]);
+
+    // Nested template literal with // and braces inside ${...}.
+    const nestedTemplate = analyzeTestSource(
+      'const s = `outer ${`https://x.test/${({ t: Date.now() }).t}`}`;',
+      'server/src/engine/NestedTemplate.test.ts'
+    );
+    expect(nestedTemplate.dateNowLines).toEqual([1]);
+
+    // Static prose inside template literal (no interpolation) must NOT false-positive.
+    const templateProse = analyzeTestSource(
+      'const err = `Date.now() failed and Math.random() failed`;',
+      'server/src/engine/TemplateProse.test.ts'
+    );
+    expect(templateProse.dateNowLines).toEqual([]);
+    expect(templateProse.mathRandomLines).toEqual([]);
+
+    // Regex literal containing // or ' must NOT swallow subsequent calls.
+    const afterRegex = analyzeTestSource(
+      "const re = /https:\\/\\/example\\.com\\/'/;\nconst t = Date.now();",
+      'server/src/engine/AfterRegex.test.ts'
+    );
+    expect(afterRegex.dateNowLines).toEqual([2]);
   });
 
   it('honors an explicit documented @determinism-exempt annotation', () => {

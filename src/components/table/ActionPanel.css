@@ -820,9 +820,9 @@
   font-size: 0.7rem;
   font-weight: 600;
   line-height: 1.35;
-  color: var(--accent-gold, #ffd700);
+  color: var(--sd-ice);
   background: rgb(5 6 7 / 94%);
-  border: 1px solid rgb(255 215 0 / 45%);
+  border: 1px solid rgb(134 218 255 / 45%);
   pointer-events: none;
 }
 
@@ -849,7 +849,7 @@
 .action-panel .action-btn__label {
   font-size: clamp(0.875rem, calc(0.66rem + 0.58vw), 1.125rem);
   font-weight: 800;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: var(--action-control-letter-spacing, 1.2px);
   color: white;
   line-height: 1.1;
@@ -1561,7 +1561,7 @@
   color: rgba(255, 255, 255, 0.95);
   font-size: 0.8125rem;
   font-weight: 800;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.4px;
   cursor: pointer;
   transition: all 0.15s var(--ease-spring);
@@ -1629,7 +1629,7 @@
   color: white;
   font-size: 1.0625rem;
   font-weight: 800;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.5px;
   cursor: pointer;
   box-shadow:

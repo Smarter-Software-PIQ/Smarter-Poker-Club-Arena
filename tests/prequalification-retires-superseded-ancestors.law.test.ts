@@ -74,7 +74,7 @@ function makeGitFixture() {
 }
 
 describe('8-shard lockstep expansion across prequalification, PR CI, and reader', () => {
-  it('expands engine-release-prequalification.yml qualify to 8 shards and keeps shard 2 historical qualification', () => {
+  it('expands engine-release-prequalification.yml qualify to 8 shards and schedules historical qualification on shard 7', () => {
     const wf = parse(read('.github/workflows/engine-release-prequalification.yml'));
     const qualify = wf.jobs.qualify;
     expect(qualify.name).toBe('Qualify exact engine (${{ matrix.shard }}/8)');
@@ -86,7 +86,8 @@ describe('8-shard lockstep expansion across prequalification, PR CI, and reader'
     );
     expect(step).toBeTruthy();
     expect(step.run).toContain('[[ "$RELEASE_TEST_SHARD" =~ ^[1-8]$ ]]');
-    expect(step.run).toContain('if [ "$RELEASE_TEST_SHARD" = 2 ]; then');
+    expect(step.run).toContain('if [ "$RELEASE_TEST_SHARD" = 7 ]; then');
+    expect(step.run).not.toContain('if [ "$RELEASE_TEST_SHARD" = 2 ]; then');
     expect(step.run).toContain('npm run build');
     expect(step.run).toContain(
       'npm test -- --exclude src/engine/RetainedHistoricalCheckpointQualification.test.ts --shard="$RELEASE_TEST_SHARD/8"'
@@ -121,13 +122,19 @@ describe('8-shard lockstep expansion across prequalification, PR CI, and reader'
     expect(gate.if).toContain("needs.prestage.result == 'success'");
     expect(gate.if).not.toMatch(/always\(\)|failure\(\)/);
     expect(gate.permissions).toEqual({ contents: 'read', actions: 'write' });
+    expect(gate['timeout-minutes']).toBe(10);
     expect(gate.environment).toBeUndefined();
     expect(JSON.stringify(gate)).not.toMatch(/secrets\.(?!GITHUB_TOKEN\b)/);
 
     const checkout = gate.steps.find((s: { uses?: string }) =>
       String(s.uses ?? '').startsWith('actions/checkout@')
     );
+    expect(checkout?.['continue-on-error']).toBe(true);
     expect(checkout?.with?.['fetch-depth']).toBe(0);
+    expect(checkout?.with?.['sparse-checkout-cone-mode']).toBe(false);
+    expect(String(checkout?.with?.['sparse-checkout'] ?? '').trim()).toBe(
+      'scripts/ci/retire-superseded-prequalification.mjs'
+    );
     expect(checkout?.with?.['persist-credentials']).toBe(false);
 
     const retire = gate.steps.find(
@@ -137,16 +144,20 @@ describe('8-shard lockstep expansion across prequalification, PR CI, and reader'
     );
     expect(retire, 'retire-superseded-prequalification.mjs step missing').toBeTruthy();
     expect(retire['continue-on-error']).toBe(true);
+    expect(retire.run).toContain(
+      'if [ -f scripts/ci/retire-superseded-prequalification.mjs ]; then'
+    );
     expect(retire.env?.GH_TOKEN).toBe('${{ github.token }}');
     expect(retire.env?.QUALIFY_RESULT).toBe('${{ needs.qualify.result }}');
     expect(retire.env?.PRESTAGE_RESULT).toBe('${{ needs.prestage.result }}');
   });
 
-  it('keeps scripts/ci/read-engine-prequalification.py aligned with all 8 shards plus prestage and gate job', () => {
+  it('keeps scripts/ci/read-engine-prequalification.py aligned with all 8 shards plus prestage and non-blocking retire conclusions', () => {
     const reader = read('scripts/ci/read-engine-prequalification.py');
     expect(reader).toContain('Qualify exact engine ({n}/8)');
     expect(reader).toContain('range(1, 9)');
     expect(reader).toContain('Retire superseded prequalification runs');
+    expect(reader).toContain('("success", "neutral", "skipped")');
   });
 });
 
