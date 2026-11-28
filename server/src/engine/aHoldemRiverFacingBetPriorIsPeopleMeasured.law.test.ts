@@ -5,30 +5,28 @@
  *
  *  1. THE SHARES: equilibrium is the anchor (a bet of s pots bluffs s / (1 + 2 s)). People's measured river first bets
  *     (bets by PEOPLE only, shown cards only: the table and its fit never count a Horse's bet or an unshown card), by
- *     size, line and pot type, in five regions (the top fifth cut in three), move it, each cell shrunk by 20
- *     pseudo-bets. The bettor's own public record moves it again and dominates as it grows: his lifetime rate of
- *     making the first wager on an unopened heads-up river, shrunk to people's river rate times his pooled rate
- *     ratio (his betCheckedTo counters): a frequent river bettor's bets are less often top, a rare one's more often.
- *  2. THE PRICE: the Horse's exact share of wins against each region; the call is taken only when its value clears
- *     the sampling error of the share it was priced on.
- *  3. REAL RECORDED NODES (the deciding Horse's own cards only): off the brain folds; on it calls on every seed with
+ *     size, line and pot type, in six regions (the top fifth cut in three, the middle in two), move it, each cell
+ *     shrunk by 20 pseudo-bets. The bettor's OWN SHOWN river bets (HorseHoldemBetRead: what his called heads-up river
+ *     first bets turned out to be) move it again and dominate as they grow, against the measured between-bettor
+ *     prior strength. How often he bets is not read.
+ *  2. THE RECORD is public only: a river first bet enters with the cards its bettor SHOWED at the showdown (a mucked
+ *     hand as lower middle, never as air); a bet that won without a showdown, a multiway river, a tournament, a bomb
+ *     pot, a second board and every other game add nothing; a hand is learned once.
+ *  3. THE PRICE: the Horse's exact share of wins against each region; the call is taken only when its value clears
+ *     the error of the share about this bettor.
+ *  4. REAL RECORDED NODES (the deciding Horse's own cards only): off the brain folds; on it calls on every seed with
  *     its receipt where the price says so, and the fold stands with its receipt where it does not; a truthy
- *     non-boolean is off; a tournament copy is never touched; a rare river bettor's record turns the call back into
- *     a fold. His river record reaches the decision through the installed NLH packet (the option is a consumer).
- *     The option never changes a decision that is not a fold.
- *  4. COST: an applicable decision with the option on costs a bounded multiple of the same decision off
+ *     non-boolean is off; a tournament copy is never touched; a bettor whose shown river bets were all value turns
+ *     the call back into a fold. The option never changes a decision that is not a fold.
+ *  5. COST: an applicable decision with the option on costs a bounded multiple of the same decision off
  *     (src/testing/relativeCost.ts; theServerSuiteAssertsNoTightWallClockBound forbids a millisecond limit).
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import tables from './HorseHoldemFacingBetPeoplePriorTables.json' with { type: 'json' };
 import {
-  HOLDEM_FACING_BET_PEOPLE_CHECKED_TO_RATE,
-  HOLDEM_FACING_BET_PEOPLE_RIVER_RATE,
-  HOLDEM_FACING_BET_RIVER_RECORD_PRIOR_OPPS,
-  holdemFacingBetRho,
+  HOLDEM_FACING_BET_OWN_PRIOR_BETS,
   HOLDEM_FACING_BET_PRIOR_BETS,
-  HOLDEM_FACING_BET_RECORD_PRIOR_OPPS,
   holdemFacingBetAnchor,
   holdemFacingBetLineOf,
   holdemFacingBetOwnShares,
@@ -42,6 +40,18 @@ import {
   HOLDEM_FACING_BET_TOP_REGIONS,
 } from './HorseHoldemFacingBetPeoplePrior.js';
 import {
+  HOLDEM_BET_READ_MUCKED_REGION,
+  holdemBetReadBeatsShare,
+  holdemBetReadIncrementOf,
+  holdemBetReadLearn,
+  holdemBetReadNewStore,
+  holdemBetReadNote,
+  holdemBetReadOf,
+  holdemBetReadRegionOf,
+  holdemBetReadRowCount,
+  holdemBetReadUseStore,
+} from './HorseHoldemBetRead.js';
+import {
   replayAt,
   replayProfiles,
   stateAt,
@@ -49,11 +59,6 @@ import {
   type ExtractedHand,
 } from './HorseComplaintReplay.js';
 import { restoreFastRandom, saveFastRandom } from './HorseEval.js';
-import { HorseMind } from './HorseMind.js';
-import { buildHudPacket, clearDecisionHud, installDecisionHud } from './opponentHud/OpponentHud.js';
-import { emptyHudProfile } from './opponentHud/OpponentHudProfile.js';
-import { omahaLifetimeStreetRecordHudProvider } from './opponentHud/OmahaTurn4bHudProviders.js';
-import { HUD_NLH_RIVER_CONSUMERS } from '../services/OpponentHudStore.js';
 import { measureRelativeCost } from '../testing/relativeCost.js';
 import type { Card } from '../types.js';
 
@@ -79,12 +84,13 @@ const CALL = 'holdem_river_people_prior_call';
 const STANDS = 'holdem_river_people_prior_fold_stands';
 const calls = FIX.nodes.filter((n) => n.expect === CALL);
 const stays = FIX.nodes.filter((n) => n.expect === STANDS);
+// folds that stand against a bettor never seen at a showdown and become calls once he has been shown bluffing
+const recordCalls = FIX.nodes.filter((n) => n.expect === 'record_call');
 const stateOf = (n: FixNode) =>
   stateAt(n.hand, n.hand.actions.find((a) => a.ord === n.ord) as ComplaintAction);
 const T = tables as unknown as {
   note: string;
-  checkedTo: { bets: number; opps: number; rate: number; priorStrength: number };
-  riverUnopened: { bets: number; opps: number; rate: number; priorStrength: number };
+  ownShown: { bettors: number; bets: number; priorStrength: number };
   cells: Record<string, number[]>;
 };
 const sum = (x: readonly number[]) => x.reduce((a, b) => a + b, 0);
@@ -102,19 +108,22 @@ describe('what a river first bet is: the table and the shares', () => {
     );
     const keys = Object.keys(T.cells);
     expect(keys.length).toBeGreaterThanOrEqual(20);
-    for (const key of keys) expect(key).toMatch(/^river\|(cash|any)\|/);
+    for (const key of keys) expect(key).toMatch(/^(river|turn)\|(cash|any)\|/);
+    expect(keys.filter((key) => key.startsWith('river|')).length).toBeGreaterThanOrEqual(20);
     const all = T.cells['river|any|all|all|all'] as number[];
-    expect(all).toHaveLength(5);
+    expect(all).toHaveLength(6);
     expect(sum(all)).toBeGreaterThanOrEqual(300);
     // every finer cell is a part of its pooled cell
     for (const [key, v] of Object.entries(T.cells)) {
       const pooled = T.cells[key.replace(/\|[^|]+$/, '|all')] as number[];
-      for (let i = 0; i < 5; i++) expect(v[i]).toBeLessThanOrEqual(pooled[i] as number);
+      for (let i = 0; i < 6; i++) expect(v[i]).toBeLessThanOrEqual(pooled[i] as number);
     }
-    expect(T.checkedTo.rate).toBeCloseTo(T.checkedTo.bets / T.checkedTo.opps, 3);
-    expect(HOLDEM_FACING_BET_PEOPLE_CHECKED_TO_RATE).toBe(T.checkedTo.rate);
-    expect(HOLDEM_FACING_BET_RECORD_PRIOR_OPPS).toBe(T.checkedTo.priorStrength);
-    expect(HOLDEM_FACING_BET_REGION_FROM).toEqual([0.95, 0.9, 0.8, 0.5, 0]);
+    // the weight people's cell keeps against a bettor's own shown river bets is measured, not chosen
+    expect(T.ownShown.bettors).toBeGreaterThanOrEqual(40);
+    expect(HOLDEM_FACING_BET_OWN_PRIOR_BETS).toBe(T.ownShown.priorStrength);
+    expect(HOLDEM_FACING_BET_OWN_PRIOR_BETS).toBeGreaterThan(2);
+    expect(HOLDEM_FACING_BET_OWN_PRIOR_BETS).toBeLessThan(40);
+    expect(HOLDEM_FACING_BET_REGION_FROM).toEqual([0.95, 0.9, 0.8, 0.7, 0.5, 0]);
     expect(HOLDEM_FACING_BET_TOP_REGIONS).toBe(3);
   });
 
@@ -126,15 +135,18 @@ describe('what a river first bet is: the table and the shares', () => {
     expect(src).toMatch(/seat\.horse \|\| d\.origin === 'horse_policy'\) return null/);
     expect(src).toMatch(/H\.shown\.get\(seat\.uid\)/);
     expect(src).not.toMatch(/hole_cards|holeCards/);
+    // how often a player bets is no longer measured: the price reads what his bets were shown to be
+    expect(src).not.toMatch(/checkedTo|riverUnopened/);
   });
 
   it('the anchor is the indifference share and a cell is shrunk to its parent', () => {
     const a1 = holdemFacingBetAnchor(1);
-    expect(a1[4]).toBeCloseTo(1 / 3, 12);
+    expect(a1[5]).toBeCloseTo(1 / 3, 12);
     expect(a1[3]).toBe(0);
+    expect(a1[4]).toBe(0);
     expect(a1[0] + a1[1] + a1[2]).toBeCloseTo(2 / 3, 12);
     expect(a1[2]).toBeCloseTo(2 * a1[0], 12); // by width: the good region is twice as wide as the nut region
-    expect(holdemFacingBetAnchor(0.5)[4]).toBeCloseTo(0.25, 12);
+    expect(holdemFacingBetAnchor(0.5)[5]).toBeCloseTo(0.25, 12);
     expect(holdemFacingBetSizeCell(0.39)).toBe('a<40');
     expect(holdemFacingBetSizeCell(0.4)).toBe('b40-70');
     expect(holdemFacingBetSizeCell(1.1)).toBe('c70-110');
@@ -148,64 +160,71 @@ describe('what a river first bet is: the table and the shares', () => {
           expect(s.n).toBeGreaterThanOrEqual(HOLDEM_FACING_BET_PRIOR_BETS);
         }
     // a size few people have been shown betting stays near the anchor of that size
-    const pooledBig = T.cells['river|any|d>110|all|all'] ?? [0, 0, 0, 0, 0];
+    const pooledBig = T.cells['river|any|d>110|all|all'] ?? [0, 0, 0, 0, 0, 0];
     if (sum(pooledBig) < 20) {
       const big = holdemFacingBetPeopleShares(1.5, null, null);
-      expect(Math.abs((big.share[4] as number) - holdemFacingBetAnchor(1.5)[4])).toBeLessThan(0.2);
+      expect(
+        Math.abs((big.share[5] as number) - (holdemFacingBetAnchor(1.5)[5] as number))
+      ).toBeLessThan(0.2);
     }
     // people's big river bets are nut-heavy inside the top fifth: the cell says so
     const bigBet = holdemFacingBetPeopleShares(0.9, null, null).share;
     expect(bigBet[0]).toBeGreaterThan(bigBet[2] as number);
   });
 
-  it('his own record moves the shares: a frequent river bettor is less often top, a rare one more often', () => {
+  it('his own shown river bets in the cell move the shares and dominate as they grow; how often he bets is not read', () => {
+    const k = HOLDEM_FACING_BET_OWN_PRIOR_BETS;
     const people = holdemFacingBetPeopleShares(0.9, 'x', 'single');
     const top0 = holdemFacingBetTopShare(people.share);
-    expect(holdemFacingBetRho(null, null)).toEqual({ rho: 1, opps: 0 });
-    expect(holdemFacingBetOwnShares(people, 1)).toBe(people);
-    const p = HOLDEM_FACING_BET_PEOPLE_CHECKED_TO_RATE;
-    const pr = HOLDEM_FACING_BET_PEOPLE_RIVER_RATE;
-    // records at exactly people's rates change nothing
-    expect(holdemFacingBetRho({ bets: pr * 1000, opps: 1000 }, null).rho).toBeCloseTo(1, 9);
-    expect(holdemFacingBetRho(null, { bets: p * 1000, opps: 1000 }).rho).toBeCloseTo(1, 9);
-    // his river record dominates as it grows: he bets every unopened river
-    let last = top0;
-    let lastRho = 1;
-    for (const opps of [5, 20, 80, 320]) {
-      const { rho } = holdemFacingBetRho({ bets: opps, opps }, null);
-      expect(rho).toBeGreaterThan(lastRho);
-      const often = holdemFacingBetOwnShares(people, rho);
-      const top = holdemFacingBetTopShare(often.share);
-      expect(top).toBeLessThan(last);
-      expect(sum(often.share)).toBeCloseTo(1, 12);
-      // each part keeps people's proportions inside it
-      expect((often.share[3] as number) / (often.share[4] as number)).toBeCloseTo(
-        (people.share[3] as number) / (people.share[4] as number),
-        9
-      );
-      expect((often.share[0] as number) / (often.share[2] as number)).toBeCloseTo(
-        (people.share[0] as number) / (people.share[2] as number),
-        9
-      );
-      last = top;
-      lastRho = rho;
+    const none = holdemFacingBetOwnShares(0.9, 'x', 'single', null);
+    // no shown bet of his in the cell: people's cell exactly, priced with the margin of a bettor nothing is known about
+    expect(none.share).toEqual(people.share);
+    expect(none.shown).toBe(0);
+    expect(none.n).toBeCloseTo((k * people.n) / (k + people.n), 12);
+    expect(none.n).toBeLessThan(k);
+    expect(holdemFacingBetOwnShares(0.9, 'x', 'single', [0, 0, 0, 0, 0, 0])).toEqual(none);
+    const rec = (region: number, n: number) => {
+      const c = [0, 0, 0, 0, 0, 0];
+      c[region] = n;
+      return c;
+    };
+    // a bettor shown bluffing: the bottom share grows with every shown bet and the top share falls
+    let lastBottom = people.share[5] as number;
+    let lastTop = top0;
+    for (const n of [1, 3, 9, 27, 81]) {
+      const s = holdemFacingBetOwnShares(0.9, 'x', 'single', rec(5, n));
+      expect(sum(s.share)).toBeCloseTo(1, 12);
+      expect(s.share[5]).toBeGreaterThan(lastBottom);
+      expect(holdemFacingBetTopShare(s.share)).toBeLessThan(lastTop);
+      expect(s.shown).toBe(n);
+      expect(s.n).toBeCloseTo(none.n + n, 12);
+      // his bets enter once: n shown bluffs against k pseudo-bets of people's cell, nothing more
+      expect(s.share[5]).toBeCloseTo((n + k * (people.share[5] as number)) / (n + k), 12);
+      lastBottom = s.share[5] as number;
+      lastTop = holdemFacingBetTopShare(s.share);
     }
-    expect(lastRho).toBeGreaterThan(0.9 / pr); // at 320 of 320 his river rate is near 1
-    expect(last).toBeLessThan(top0 * (pr + 0.05));
-    // a value-only river bettor: he bets one unopened river in eight, whatever he does on the flop and turn
-    const rare = holdemFacingBetRho({ bets: 25, opps: 200 }, { bets: p * 600, opps: 600 });
-    expect(rare.rho).toBeLessThan(0.5);
-    const rareShares = holdemFacingBetOwnShares(people, rare.rho);
-    expect(holdemFacingBetTopShare(rareShares.share)).toBeCloseTo(1, 12);
-    expect((rareShares.share[3] as number) + (rareShares.share[4] as number)).toBeCloseTo(0, 12);
-    // with no river record his pooled record is the estimate, and it is the prior his river record starts from
-    const pooledOnly = holdemFacingBetRho(null, { bets: 300, opps: 400 });
-    expect(pooledOnly.rho).toBeGreaterThan(2);
-    const thinRiver = holdemFacingBetRho({ bets: 1, opps: 2 }, { bets: 300, opps: 400 });
-    expect(thinRiver.rho).toBeGreaterThan(1.5);
-    expect(thinRiver.rho).toBeLessThan(pooledOnly.rho + 0.5);
-    expect(HOLDEM_FACING_BET_RIVER_RECORD_PRIOR_OPPS).toBe(T.riverUnopened.priorStrength);
-    expect(pr).toBeCloseTo(T.riverUnopened.bets / T.riverUnopened.opps, 3);
+    expect(lastBottom).toBeGreaterThan(0.9);
+    // three shown bluffs do not make him a bluffer yet: people's cell still weighs more
+    expect(holdemFacingBetOwnShares(0.9, 'x', 'single', rec(5, 3)).share[5]).toBeLessThan(0.5);
+    // a bettor shown with the nuts every time: his bets are top, whatever people's are
+    const value = holdemFacingBetOwnShares(0.9, 'x', 'single', rec(0, 81));
+    expect(holdemFacingBetTopShare(value.share)).toBeGreaterThan(0.89);
+    expect(value.share[5]).toBeLessThan(0.05);
+    // a record exactly at people's proportions changes nothing but the margin
+    const same = holdemFacingBetOwnShares(
+      0.9,
+      'x',
+      'single',
+      people.share.map((x) => 30 * x)
+    );
+    for (let i = 0; i < 6; i++) expect(same.share[i]).toBeCloseTo(people.share[i] as number, 9);
+    expect(same.n).toBeCloseTo(none.n + 30, 9);
+    // the module reads no frequency of his and pools nothing across his sizes or lines
+    const src = readFileSync(
+      new URL('./HorseHoldemFacingBetPeoplePrior.ts', import.meta.url),
+      'utf8'
+    );
+    expect(src).not.toMatch(/betCheckedTo|unopenedWagerRecord|holdemFacingBetRho|tilted\(/);
   });
 
   it('the line and the pot type are read from the public action', () => {
@@ -274,15 +293,16 @@ describe('the price of the call', () => {
     const nuts = holdemFacingBetRegionWins(cards('As Ac'), board)!.wins;
     const pair = holdemFacingBetRegionWins(cards('Kh Qh'), board)!.wins;
     const air = holdemFacingBetRegionWins(cards('7h 6h'), board)!.wins;
-    expect(nuts).toEqual([1, 1, 1, 1, 1]);
+    expect(nuts).toEqual([1, 1, 1, 1, 1, 1]);
+    expect(pair[5]).toBe(1);
     expect(pair[4]).toBe(1);
-    expect(pair[3]).toBeGreaterThan(0.5);
+    expect(pair[3]).toBeGreaterThan(0);
     expect(pair[0]).toBe(0); // second pair beats no nut-region hand
     expect(pair[2]).toBeLessThan(1);
-    expect(air[0] + air[1] + air[2] + air[3]).toBe(0);
-    expect(air[4]).toBeLessThan(0.6);
+    expect(air[0]! + air[1]! + air[2]! + air[3]! + air[4]!).toBe(0);
+    expect(air[5]).toBeLessThan(0.6);
     // stronger hands win at least as much in every region
-    for (let r = 0; r < 5; r++) {
+    for (let r = 0; r < 6; r++) {
       expect(nuts[r]).toBeGreaterThanOrEqual(pair[r] as number);
       expect(pair[r]).toBeGreaterThanOrEqual(air[r] as number);
     }
@@ -291,8 +311,8 @@ describe('the price of the call', () => {
   });
 
   it('the call needs its value to clear the sampling error of the share', () => {
-    const wins = [0, 0, 0, 1, 1] as const;
-    const shares = { share: [0.3, 0.2, 0.1, 0.15, 0.25] as const, n: 40 };
+    const wins = [0, 0, 0, 1, 1, 1] as const;
+    const shares = { share: [0.3, 0.2, 0.1, 0.05, 0.1, 0.25] as const, n: 40 };
     // pot 100 with his bet of 50 in it: the call of 50 wins 100; equity 0.4 > 1/3
     const p = holdemFacingBetPrice(wins, shares, 100, 50, 0)!;
     expect(p.equity).toBeCloseTo(0.4, 12);
@@ -301,7 +321,7 @@ describe('the price of the call', () => {
     expect(p.call).toBe(false); // value 10 does not clear an error of 11.6
     expect(holdemFacingBetPrice(wins, { ...shares, n: 400 }, 100, 50, 0)!.call).toBe(true);
     // a hand that beats the good part of the top fifth is not paid for the nut part
-    const good = holdemFacingBetPrice([0, 0, 1, 1, 1], { ...shares, n: 400 }, 100, 50, 0)!;
+    const good = holdemFacingBetPrice([0, 0, 1, 1, 1, 1], { ...shares, n: 400 }, 100, 50, 0)!;
     expect(good.equity).toBeCloseTo(0.5, 12);
     // rake comes out of the prize
     expect(holdemFacingBetPrice(wins, shares, 100, 50, 0.05)!.value).toBeCloseTo(
@@ -315,7 +335,8 @@ describe('the price of the call', () => {
 
 describe('a river fold is re-priced on people: real recorded nodes', () => {
   it('the fixture holds folds that become calls and folds that stand, with the deciding Horse cards only', () => {
-    expect(calls.length).toBeGreaterThanOrEqual(4);
+    expect(calls.length).toBeGreaterThanOrEqual(1);
+    expect(recordCalls.length).toBeGreaterThanOrEqual(4);
     expect(stays.length).toBeGreaterThanOrEqual(2);
     for (const n of FIX.nodes)
       expect(
@@ -361,78 +382,225 @@ describe('a river fold is re-priced on people: real recorded nodes', () => {
     });
   }
 
-  it("the bettor's own river record decides: a rare river bettor's turns the call back into a fold, a frequent one's keeps it", () => {
+  it("the bettor's own shown river bets decide: all air turns the fold into a call, all value keeps the fold", () => {
     const rng = saveFastRandom();
-    let record: { bets: number; opps: number } | null = null;
-    const asked: string[] = [];
-    HorseMind.setOmahaLifetimeStreetRecordProvider({
-      unopenedWagerRecord: (_u, game, street, players) => {
-        asked.push(`${game}|${street}|${players}`);
-        return record;
-      },
-      stabSizeRecord: () => null,
-      firstWagerFoldRecord: () => null,
-    });
+    const before = holdemBetReadUseStore(holdemBetReadNewStore());
+    const shown = (uid: string, region: number) => {
+      holdemBetReadUseStore(holdemBetReadNewStore());
+      for (const line of ['b', 'c', 'x'] as const)
+        for (let size = 0; size < 4; size++)
+          for (let i = 0; i < 24; i++) holdemBetReadNote(uid, line, size, region);
+    };
     try {
-      for (const n of calls) {
+      for (const n of [...recordCalls, ...calls]) {
         const st = stateOf(n);
+        const me = (n.hand.actions.find((a) => a.ord === n.ord) as ComplaintAction).seat;
+        const opp = (
+          st.gs.players as Array<{ seat: number; user_id: string; is_folded?: boolean }>
+        ).find((p) => p.seat !== me && !p.is_folded)!;
         const opts = { ...PROD, [OPTION]: true, mind: true, observeMind: false };
-        // (with the mind on the brain itself may already call a seed; where it folds, the option is asked)
-        record = { bets: 20, opps: 200 };
-        const rare = replayAt(st, prof, SEEDS, opts);
-        expect(rare.receipts[CALL] ?? 0, 'rare river bettor').toBe(0);
-        expect(rare.receipts.holdem_river_people_prior_own_record_read ?? 0).toBe(
-          rare.receipts[STANDS] ?? 0
+        if (n.expect === 'record_call') {
+          // never seen at a showdown: the fold stands
+          holdemBetReadUseStore(holdemBetReadNewStore());
+          const unknown = replayAt(st, prof, SEEDS, opts);
+          expect(unknown.kinds, 'a bettor never shown').toEqual({ fold: SEEDS.length });
+          expect(unknown.receipts[STANDS]).toBe(SEEDS.length);
+          expect(unknown.receipts.holdem_river_people_prior_own_record_read ?? 0).toBe(0);
+        }
+        shown(opp.user_id, 5);
+        const air = replayAt(st, prof, SEEDS, opts);
+        expect(air.kinds, 'a bettor shown with air').toEqual({ call: SEEDS.length });
+        expect(air.receipts[STANDS] ?? 0, 'a bettor shown with air').toBe(0);
+        // a bet made into more than one player is not a heads-up bet: with a fold on the river before the Horse answers
+        // (a third player folded to the bet) nothing is priced, whatever his record says
+        const multi = stateOf(n);
+        (multi.gs.actionHistory as unknown as Array<Record<string, unknown>>).push({
+          seat: 99,
+          stage: 'river',
+          action: 'fold',
+          amount: 0,
+        });
+        const three = replayAt(multi, prof, SEEDS, opts);
+        expect(three.receipts[CALL] ?? 0, 'a bet into two players').toBe(0);
+        expect(three.receipts[STANDS] ?? 0, 'a bet into two players').toBe(0);
+        if (n.expect === 'record_call') {
+          expect(air.receipts[CALL]).toBe(SEEDS.length);
+          expect(air.receipts.holdem_river_people_prior_own_record_read).toBe(SEEDS.length);
+          // off: his record changes nothing
+          expect(replayAt(st, prof, SEEDS, { ...opts, [OPTION]: false }).kinds).toEqual({
+            fold: SEEDS.length,
+          });
+          // with the mind off his record is not read
+          const blind = replayAt(st, prof, SEEDS, { ...opts, mind: false });
+          expect(blind.receipts.holdem_river_people_prior_own_record_read ?? 0).toBe(0);
+          expect(blind.receipts[CALL] ?? 0).toBe(0);
+        }
+        shown(opp.user_id, 0);
+        const value = replayAt(st, prof, SEEDS, opts);
+        expect(value.receipts[CALL] ?? 0, 'a bettor shown with the nuts').toBe(0);
+        expect(value.receipts.holdem_river_people_prior_own_record_read ?? 0).toBe(
+          value.receipts[STANDS] ?? 0
         );
-        record = { bets: 150, opps: 200 };
-        const often = replayAt(st, prof, SEEDS, opts);
-        expect(often.kinds, 'frequent river bettor').toEqual({ call: SEEDS.length });
-        expect(often.receipts[STANDS] ?? 0, 'frequent river bettor').toBe(0);
       }
-      // the record asked for is the NLH heads-up river record
-      expect(new Set(asked)).toEqual(new Set(['nlh|river|hu']));
     } finally {
-      HorseMind.setOmahaLifetimeStreetRecordProvider(null);
+      holdemBetReadUseStore(before);
       restoreFastRandom(rng);
     }
   });
 });
 
-describe('his lifetime river record reaches the decision through the installed NLH packet', () => {
-  it('the worker provider serves his NLH heads-up river stab and lead cells; no packet or another family is no record', () => {
-    const OPP = '50000000-0000-4000-8000-0000000000e2';
-    const AT = Date.UTC(2099, 0, 1, 0, 0, 30);
-    const packet = (family: 'nlh' | 'plo5') => {
-      const profile = emptyHudProfile(OPP, family);
-      profile.hands = 400;
-      profile.recAt = AT;
-      profile.life['r.stab.hu'] = [60, 30];
-      profile.life['r.lead.hu'] = [40, 6];
-      // a multiway cell and a turn cell are never read for it
-      profile.life['r.stab.mw'] = [90, 9];
-      profile.life['t.stab.hu'] = [80, 8];
-      return buildHudPacket(family, [profile], {}, AT, 'river');
-    };
+describe('the record: what his called river bets were shown to be, public only', () => {
+  const A = 'aaaaaaaa-0000-4000-8000-000000000001';
+  const B = 'bbbbbbbb-0000-4000-8000-000000000002';
+  const C = 'cccccccc-0000-4000-8000-000000000003';
+  const act = (u: string, stage: string, action: string, amount = 0, pot?: number) => ({
+    userId: u,
+    stage,
+    action,
+    amount,
+    ...(pot === undefined ? {} : { publicNode: { pot, toCall: 0 } }),
+  });
+  const BOARD = ['Ahearts', 'Kdiamonds', '9clubs', '8spades', '3diamonds'];
+  const headsUp = (riverBet: number, turn: 'b' | 'c' | 'x' = 'x') => [
+    act(A, 'preflop', 'sb', 1),
+    act(B, 'preflop', 'bb', 2),
+    act(C, 'preflop', 'fold'),
+    act(A, 'preflop', 'call', 1),
+    act(B, 'preflop', 'check'),
+    act(B, 'flop', 'check'),
+    act(A, 'flop', 'check'),
+    ...(turn === 'x'
+      ? [act(B, 'turn', 'check'), act(A, 'turn', 'check')]
+      : turn === 'b'
+        ? [act(B, 'turn', 'check'), act(A, 'turn', 'bet', 2), act(B, 'turn', 'call', 2)]
+        : [act(B, 'turn', 'bet', 2), act(A, 'turn', 'call', 2)]),
+    act(B, 'river', 'check'),
+    act(A, 'river', 'bet', riverBet),
+    act(B, 'river', 'call', riverBet),
+  ];
+  const hand = (over: Record<string, unknown> = {}) => ({
+    handKey: `k-${Math.random()}`,
+    variant: 'nlh',
+    mode: 'cash' as const,
+    actions: headsUp(3),
+    board: BOARD,
+    shown: new Map<string, unknown[]>([
+      [A, ['7hearts', '6hearts']],
+      [B, ['Kclubs', 'Qclubs']],
+    ]),
+    showdown: [
+      { user_id: A, mucked: false },
+      { user_id: B, mucked: false },
+    ],
+    boardCount: 1,
+    ...over,
+  });
+  const fresh = () => holdemBetReadUseStore(holdemBetReadNewStore());
+
+  it('a shown river first bet enters by line, size and the region of the shown hand', () => {
+    const before = fresh();
     try {
-      HorseMind.setOmahaLifetimeStreetRecordProvider(null);
-      installDecisionHud(packet('nlh'));
-      expect(HorseMind.holdemRiverUnopenedWagerRecordOf(OPP)).toBeNull();
-      // the provider the decision worker installs (installOmahaTurn4bHudProviders)
-      HorseMind.setOmahaLifetimeStreetRecordProvider(omahaLifetimeStreetRecordHudProvider);
-      expect(HorseMind.holdemRiverUnopenedWagerRecordOf(OPP)).toEqual({ bets: 36, opps: 100 });
-      expect(HorseMind.holdemRiverUnopenedWagerRecordOf('somebody-else')).toBeNull();
-      installDecisionHud(packet('plo5'));
-      expect(HorseMind.holdemRiverUnopenedWagerRecordOf(OPP)).toBeNull();
-      clearDecisionHud();
-      expect(HorseMind.holdemRiverUnopenedWagerRecordOf(OPP)).toBeNull();
+      // pot 4 before the river, a bet of 3: 0.75 pot, the turn checked through, seven high: bottom
+      const inc = holdemBetReadIncrementOf(hand() as never)!;
+      expect(inc).toMatchObject({ userId: A, line: 'x', size: 2, region: 5, shown: true });
+      expect(holdemBetReadLearn(hand({ handKey: 'h1' }) as never)).toBe(true);
+      expect(holdemBetReadLearn(hand({ handKey: 'h1' }) as never)).toBe(false); // once per hand
+      expect(holdemBetReadOf(A, 'x', 0.75)).toEqual([0, 0, 0, 0, 0, 1]);
+      // his bets are read in the cell they were made in: another size or another line holds nothing of this bet
+      expect(holdemBetReadOf(A, 'x', 0.3)).toEqual([0, 0, 0, 0, 0, 0]);
+      expect(holdemBetReadOf(A, 'b', 0.75)).toEqual([0, 0, 0, 0, 0, 0]);
+      // the caller made no river bet: he has no record, and neither has anybody else
+      expect(holdemBetReadOf(B, 'x', 0.75)).toBeNull();
+      expect(holdemBetReadRowCount()).toBe(1);
+      // his line: he bet the turn himself / the other player did
+      expect(holdemBetReadIncrementOf(hand({ actions: headsUp(4, 'b') }) as never)!.line).toBe('b');
+      expect(holdemBetReadIncrementOf(hand({ actions: headsUp(4, 'c') }) as never)!.line).toBe('c');
+      // the nuts shown: the nut region
+      const nuts = hand({ shown: new Map([[A, ['Aspades', 'Aclubs']]]) });
+      expect(holdemBetReadIncrementOf(nuts as never)!.region).toBe(0);
+      const share = holdemBetReadBeatsShare(
+        [
+          { rank: 'K', suit: 'hearts' },
+          { rank: 'Q', suit: 'hearts' },
+        ] as Card[],
+        cards('Ah Kd 9c 8s 3d')
+      )!;
+      expect(share).toBeGreaterThan(0.5);
+      expect(share).toBeLessThan(0.95);
+      expect(holdemBetReadRegionOf(0.95)).toBe(0);
+      expect(holdemBetReadRegionOf(0.75)).toBe(3);
+      expect(holdemBetReadRegionOf(0.5)).toBe(4);
+      expect(holdemBetReadRegionOf(0.49)).toBe(5);
     } finally {
-      clearDecisionHud();
-      HorseMind.setOmahaLifetimeStreetRecordProvider(null);
+      holdemBetReadUseStore(before);
     }
   });
 
-  it('the option is a consumer of the NLH river packet', () => {
-    expect(HUD_NLH_RIVER_CONSUMERS).toContain(OPTION);
+  it('no unshown card ever enters: a mucked hand is lower middle, an uncalled bet adds nothing', () => {
+    const before = fresh();
+    try {
+      // listed as mucked: his cards are not read even if the row carried them
+      const mucked = hand({
+        showdown: [
+          { user_id: A, mucked: true },
+          { user_id: B, mucked: false },
+        ],
+      });
+      expect(holdemBetReadIncrementOf(mucked as never)).toMatchObject({
+        region: HOLDEM_BET_READ_MUCKED_REGION,
+        shown: false,
+      });
+      expect(HOLDEM_BET_READ_MUCKED_REGION).toBe(4);
+      // not in the showdown list (the bet won without a showdown): nothing, whatever the shown map holds
+      expect(holdemBetReadIncrementOf(hand({ showdown: [] }) as never)).toBeNull();
+      expect(holdemBetReadIncrementOf(hand({ showdown: null }) as never)).toBeNull();
+      // listed as shown but no cards came with the row: nothing
+      expect(holdemBetReadIncrementOf(hand({ shown: new Map() }) as never)).toBeNull();
+      // a three-way river is not a heads-up river bet
+      const threeWay = hand({
+        actions: [
+          act(A, 'preflop', 'call', 2),
+          act(B, 'preflop', 'check'),
+          act(C, 'preflop', 'call', 2),
+          act(B, 'river', 'check'),
+          act(A, 'river', 'bet', 3),
+          act(C, 'river', 'fold'),
+          act(B, 'river', 'call', 3),
+        ],
+      });
+      expect(holdemBetReadIncrementOf(threeWay as never)).toBeNull();
+      // only NLH cash, one board, no bomb pot is learned
+      for (const over of [
+        { variant: 'plo5' },
+        { mode: 'tournament' },
+        { bombPot: true },
+        { boardCount: 2 },
+        { handKey: '' },
+      ])
+        expect(holdemBetReadLearn(hand(over) as never)).toBe(false);
+      expect(holdemBetReadRowCount()).toBe(0);
+      // the module and its callers take cards only from the showdown reveal
+      const src = readFileSync(new URL('./HorseHoldemBetRead.ts', import.meta.url), 'utf8');
+      expect(src).toMatch(/if \(!sd\) return null;/);
+      expect(src).toMatch(/sd\.mucked === true/);
+      expect(src).not.toMatch(/horseHoleCards|holeCardsAll/);
+    } finally {
+      holdemBetReadUseStore(before);
+    }
+  });
+
+  it('the live learner, the boot rebuild and the grading harness feed it; nothing reads how often he bets', () => {
+    const read = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8');
+    expect(read('./horseDecision/workerRuntime.ts')).toMatch(/holdemBetReadLearn\(\{/);
+    expect(read('../services/HorseExploitHydrator.ts')).toMatch(/holdemBetReadLearn\(hand\)/);
+    expect(read('../benchmark/HorseGradeHarness.ts')).toMatch(
+      /holdemBetReadUseStore\(this\.holdemStore\)/
+    );
+    const logic = read('./HorseLogic.ts');
+    const at = logic.indexOf('private static holdemRiverFacingBetOnPeople(');
+    const body = logic.slice(at, logic.indexOf('\n  /**', at));
+    expect(body).toMatch(/holdemBetReadOf\(opp\.user_id, line, ratio\)/);
+    expect(body).not.toMatch(/betCheckedTo|unopenedWagerRecord|getExploitCounters/);
   });
 });
 

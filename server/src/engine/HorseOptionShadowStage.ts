@@ -301,6 +301,9 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
   holdemRiverBluffIsPricedOnPeople: holdemStage(['nlh_cash', 'nlh_lightning'], ['river']),
   // lead-9 2026-11-27: a fold facing the first bet of a heads-up NLH cash river re-priced on people's river bets
   holdemRiverFacingBetPriorIsPeopleMeasured: holdemStage(['nlh_cash', 'nlh_lightning'], ['river']),
+  // lead-9 2026-11-27: a fold facing the first bet of a heads-up NLH cash turn after a checked flop re-priced on
+  // people's turn bets
+  holdemTurnFacingBetPriorIsPeopleMeasured: holdemStage(['nlh_cash', 'nlh_lightning'], ['turn']),
 });
 
 /**

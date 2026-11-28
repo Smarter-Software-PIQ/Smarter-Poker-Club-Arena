@@ -1,54 +1,58 @@
 /**
- * WHAT A HEADS-UP RIVER FIRST BET IS IN NO-LIMIT HOLD'EM CASH: THE BETTOR'S OWN RECORD, THEN PEOPLE'S, THEN EQUILIBRIUM
- * (PLO-OWNER lead-9, lane nlof, 2026-11-27; owner orders of 2026-11-26 "the stats need to be used against human
- * players, not horses" and of 2026-11-27 "all overfolding fixes for PLO4, PLO5 and No Limit"). Read by
- * holdemRiverFacingBetPriorIsPeopleMeasured (default OFF). The Hold'em analogue of omahaFacingBetPriorIsPeopleMeasured.
+ * WHAT A HEADS-UP RIVER FIRST BET IS IN NO-LIMIT HOLD'EM CASH: THE BETTOR'S OWN SHOWN RIVER BETS, THEN PEOPLE'S, THEN
+ * EQUILIBRIUM (PLO-OWNER lead-9, lanes nlof and nlof2, 2026-11-27; owner orders of 2026-11-26 "the stats need to be
+ * used against human players, not horses" and of 2026-11-27 "all overfolding fixes for PLO4, PLO5 and No Limit").
+ * Read by holdemRiverFacingBetPriorIsPeopleMeasured (default OFF). The Hold'em analogue of
+ * omahaFacingBetPriorIsPeopleMeasured.
  *
- * A river first bet is placed in one of five regions by where the bettor's hand stands among every two-card holding
+ * A river first bet is placed in one of six regions by where the bettor's hand stands among every two-card holding
  * the board and the Horse's own cards leave him (the share it beats, ties half): nut (0.95 and above), strong (0.9 to
- * 0.95), good (0.8 to 0.9) (the three together: the top fifth), mid (0.5 to 0.8), bottom (below 0.5). The top fifth is
- * cut in three because people's big river bets are not spread evenly over it (of 25 shown top-fifth bets of 0.7 pot
- * and more in cash, 14 were nut and 3 good: a hand that beats the good part does not beat the bet). The price of the
- * Horse's call is its exact share of wins against each region, weighted by the share of his bets from that region:
+ * 0.95), good (0.8 to 0.9) (the three together: the top fifth), upper middle (0.7 to 0.8), lower middle (0.5 to
+ * 0.7), bottom (below 0.5). The top fifth is cut in three and the middle in two because people's river bets are not
+ * spread evenly over them (of 25 shown top-fifth bets of 0.7 pot and more in cash, 14 were nut and 3 good; of 62
+ * shown middle bets, 30 stood in the upper third of the middle): a hand that beats the lower part of a band does
+ * not beat the bet. The price of the Horse's call is its exact share of wins against each region, weighted by the
+ * share of his bets from that region:
  *
  *  1. EQUILIBRIUM ANCHOR: a bet of s pots bluffs s / (1 + 2 s) of the time (the share that leaves a call
- *     indifferent): bottom = s / (1 + 2 s), the rest spread over the top fifth by width, mid = 0.
+ *     indifferent): bottom = s / (1 + 2 s), the rest spread over the top fifth by width, the middle = 0.
  *  2. PEOPLE'S POPULATION (HorseHoldemFacingBetPeoplePriorTables.json, scripts/ops/holdem-people-facing-bet-prior-fit.mjs):
  *     first bets of a heads-up river by PEOPLE only (a bet by a Horse never enters a cell), by size, the bettor's line
  *     (he made the last wager of the turn / the other player did / the turn was checked through) and the pot type
- *     (limped, single raised, re-raised), counted where the cards were shown; a hand he mucked at the showdown is
- *     counted mid (it lost: it is not value, and it is not counted as air). Each cell is shrunk to its parent by K
- *     pseudo-bets: size x line x pot type -> size x line -> size (cash) -> size (cash and tournaments) -> anchor.
- *  3. HIS OWN RECORD (public actions only): how often he makes the first wager on an unopened heads-up river (his
- *     lifetime record, OPPONENT-HUD's river stab and lead cells), shrunk by the measured between-player prior strength
- *     to people's measured river rate times his pooled rate ratio (how often he bets when no bet is to be faced on
- *     any street, his decayed betCheckedTo counters, shrunk to people's). The cards deal every player the same share of top-fifth hands, so the rate at which he bets
- *     one is people's and the rest of his bets is not top:
- *         rho = his rate / people's rate            top_his = top / rho (nut : strong : good as people's), mid and
- *                                                   bottom share the rest in people's proportion (when rho is below
- *                                                   the top share itself, all top)
- *     With no record rho = 1 and the price is people's; as his record grows it dominates. A player who bets every
- *     checked-to spot is priced as a bluffer within a few hands, before a single showdown; a player who bets rarely
- *     is priced as value.
+ *     (limped, single raised, re-raised), counted where the cards were shown (production shows every called river
+ *     bettor, so the shown sample has no muck bias); a hand he mucked at the showdown is counted lower middle. Each
+ *     cell is shrunk to its parent by K pseudo-bets: size x line x pot type -> size x line -> size (cash) -> size
+ *     (cash and tournaments) -> anchor.
+ *  3. HIS OWN SHOWN RIVER BETS (HorseHoldemBetRead: what his called heads-up river first bets turned out to be, by
+ *     region; public showdown reveals only): his shown bets on THIS line of THIS size, against K_own pseudo-bets of
+ *     people's cell, K_own the MEASURED between-bettor prior strength of people's river bets (the table's ownShown).
+ *     His bets enter once, in the cell they were made in: a bettor's sizes and lines are not pooled (the Horse field
+ *     itself sizes by strength: its shown river bets are 43% top under 0.4 pot and 67% top at 0.7 to 1.1 pot, so his
+ *     small bets say little about his big ones). With no shown bet of his in the cell the shares are people's cell
+ *     exactly; as his shown bets grow they dominate. How OFTEN he bets is not read: a bettor who bets more rivers
+ *     than people may bluff more or bet thinner value, and only his shown bets tell which (the first build read the
+ *     frequency and failed its grade on exactly that).
  *
- * The call is taken only when its value clears the sampling error of the share it was priced on (one standard error
- * of the not-top share on the bets behind the cell and the pseudo-bets), so a thin cell does not buy a call.
+ * The call is taken only when its value clears one standard error of the share it was priced on, and that error is
+ * the error about THIS bettor: his not-top share on his shown bets in the cell plus the prior's pseudo-bets, the
+ * pseudo-bets discounted by the sampling error of people's own cell. A bettor never seen at a showdown is priced on
+ * people with the full between-bettor spread as the margin; the margin narrows as his own bets are shown.
  *
  * The same function for every opponent: nothing is keyed on an account, a name or a person/Horse flag of the player
- * being priced; only the population's data source is people's play. Public actions and the Horse's own cards only.
- * Pure; reads a frozen table; draws nothing from fastRandom.
+ * being priced; only the population's data source is people's play. Public actions, shown cards and the Horse's own
+ * cards only. Pure; reads a frozen table; draws nothing from fastRandom.
  */
 import type { Card } from '../types.js';
 import { holdemCardId, packHoldemBoardBits, scoreHoldemPlus2Ids } from './HorseEval.js';
 import tables from './HorseHoldemFacingBetPeoplePriorTables.json' with { type: 'json' };
 
-/** Shares or wins by region, strongest first: nut, strong, good, mid, bottom. */
-export type HoldemFacingBetRegions = readonly [number, number, number, number, number];
+/** Shares or wins by region, strongest first: nut, strong, good, upper middle, lower middle, bottom. */
+export type HoldemFacingBetRegions = readonly number[];
 const T = tables as unknown as {
   version: string;
-  regions: { from: readonly number[]; top: number; mid: number };
-  checkedTo: { bets: number; opps: number; rate: number; priorStrength: number | null };
-  riverUnopened: { bets: number; opps: number; rate: number; priorStrength: number | null };
+  regions: { from: readonly number[]; top: number; mucked: number };
+  ownShown: { bettors: number; bets: number; priorStrength: number | null };
+  ownShownTurn?: { bettors: number; bets: number; priorStrength: number | null };
   cells: Record<string, HoldemFacingBetRegions>;
 };
 export const HOLDEM_FACING_BET_PEOPLE_PRIOR_VERSION: string = T.version;
@@ -58,25 +62,24 @@ export const HOLDEM_FACING_BET_REGION_FROM: readonly number[] = T.regions.from;
 export const HOLDEM_FACING_BET_TOP_REGIONS: number = T.regions.top;
 /** Pseudo-bets of every shrink step of the population cell. */
 export const HOLDEM_FACING_BET_PRIOR_BETS = 20;
-/** People's measured rate of betting when no bet is to be faced postflop (NLH cash), and its prior strength. */
-export const HOLDEM_FACING_BET_PEOPLE_CHECKED_TO_RATE: number = T.checkedTo.rate;
-export const HOLDEM_FACING_BET_RECORD_PRIOR_OPPS: number = T.checkedTo.priorStrength ?? 20;
-/** People's measured rate of making the first wager on an unopened heads-up river (NLH cash), and its prior strength. */
-export const HOLDEM_FACING_BET_PEOPLE_RIVER_RATE: number = T.riverUnopened.rate;
-export const HOLDEM_FACING_BET_RIVER_RECORD_PRIOR_OPPS: number =
-  T.riverUnopened.priorStrength ?? 20;
+/** The measured between-bettor prior strength of people's river bets: the pseudo-bets people's cell keeps against a
+ *  bettor's own shown river bets (the population shrink's own strength when the table could not measure it). */
+export const HOLDEM_FACING_BET_OWN_PRIOR_BETS: number =
+  T.ownShown.priorStrength ?? HOLDEM_FACING_BET_PRIOR_BETS;
 
 export type HoldemFacingBetLine = 'b' | 'c' | 'x';
 export type HoldemFacingBetPot = 'limped' | 'single' | 'reraised';
 /** Shares of his bets by region (they sum to 1) and the bets behind them. */
 export interface HoldemFacingBetShares {
   share: HoldemFacingBetRegions;
-  /** people's bets in the finest cell read, plus the pseudo-bets: the sample the shares stand on */
+  /** the bets the shares stand on: people's bets in the finest cell read plus the pseudo-bets; with his own record,
+   *  his shown bets of the line plus the prior's (discounted) pseudo-bets */
   n: number;
 }
 
 const fin = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
-const R = 5;
+const R = T.regions.from.length;
+const zeros = (): number[] => new Array<number>(R).fill(0);
 
 export function holdemFacingBetSizeCell(ratio: number): string {
   return ratio < 0.4 ? 'a<40' : ratio < 0.7 ? 'b40-70' : ratio <= 1.1 ? 'c70-110' : 'd>110';
@@ -101,13 +104,10 @@ export function holdemFacingBetAnchor(ratio: number): HoldemFacingBetRegions {
     (f[1] as number) - (f[2] as number),
   ];
   const top = width[0]! + width[1]! + width[2]!;
-  return [
-    ((1 - bluff) * width[0]!) / top,
-    ((1 - bluff) * width[1]!) / top,
-    ((1 - bluff) * width[2]!) / top,
-    0,
-    bluff,
-  ];
+  const out = zeros();
+  for (let i = 0; i < 3; i++) out[i] = ((1 - bluff) * width[i]!) / top;
+  out[R - 1] = bluff;
+  return out;
 }
 
 function shrink(
@@ -115,10 +115,10 @@ function shrink(
   parent: HoldemFacingBetRegions
 ): { p: HoldemFacingBetRegions; n: number } {
   const k = HOLDEM_FACING_BET_PRIOR_BETS;
-  const c = cell ?? [0, 0, 0, 0, 0];
+  const c = cell ?? zeros();
   let n = 0;
   for (let i = 0; i < R; i++) n += c[i] as number;
-  const p = [0, 0, 0, 0, 0] as [number, number, number, number, number];
+  const p = zeros();
   for (let i = 0; i < R; i++) p[i] = ((c[i] as number) + k * (parent[i] as number)) / (n + k);
   return { p, n };
 }
@@ -140,63 +140,41 @@ export function holdemFacingBetPeopleShares(
   return { share: last.p, n: last.n + HOLDEM_FACING_BET_PRIOR_BETS };
 }
 
-/** A public record of his: `bets` first wagers in `opps` spots. */
-export interface HoldemFacingBetRecord {
-  bets: number;
-  opps: number;
-}
-const usable = (r: HoldemFacingBetRecord | null | undefined): r is HoldemFacingBetRecord =>
-  !!r && fin(r.bets) && fin(r.opps) && r.opps > 0 && r.bets >= 0;
-
-/**
- * rho: how often he makes the river's first wager, over people's rate. His own RIVER record (his lifetime first
- * wagers on an unopened heads-up river) is shrunk to people's river rate times his pooled rho; his pooled rho is his
- * rate of betting when no bet is to be faced on any street (his betCheckedTo counters) shrunk to people's, over
- * people's. Evidence order: his river record -> his pooled record -> people. No record at all: 1.
- */
-export function holdemFacingBetRho(
-  river: HoldemFacingBetRecord | null | undefined,
-  pooled: HoldemFacingBetRecord | null | undefined
-): { rho: number; opps: number } {
-  const base = HOLDEM_FACING_BET_PEOPLE_CHECKED_TO_RATE;
-  const baseRiver = HOLDEM_FACING_BET_PEOPLE_RIVER_RATE;
-  let rho = 1;
-  let opps = 0;
-  if (usable(pooled) && base > 0) {
-    const k = HOLDEM_FACING_BET_RECORD_PRIOR_OPPS;
-    rho = (Math.min(pooled.bets, pooled.opps) + k * base) / (pooled.opps + k) / base;
-    opps += pooled.opps;
+const total = (c: readonly number[]): number => {
+  let n = 0;
+  for (let i = 0; i < R; i++)
+    n += Number.isFinite(c[i]) && (c[i] as number) > 0 ? (c[i] as number) : 0;
+  return n;
+};
+/** His counts against `k` pseudo-bets of `prior` (shares). */
+function posterior(c: readonly number[], prior: readonly number[], k: number): number[] {
+  const n = total(c);
+  const p = zeros();
+  for (let i = 0; i < R; i++) {
+    const v = Number.isFinite(c[i]) && (c[i] as number) > 0 ? (c[i] as number) : 0;
+    p[i] = (v + k * (prior[i] as number)) / (n + k);
   }
-  if (usable(river) && baseRiver > 0) {
-    const k = HOLDEM_FACING_BET_RIVER_RECORD_PRIOR_OPPS;
-    // the prior rate of his river record is a rate: people's river rate times his pooled rho, never above 1
-    const prior = baseRiver * rho < 1 ? baseRiver * rho : 1;
-    rho = (Math.min(river.bets, river.opps) + k * prior) / (river.opps + k) / baseRiver;
-    opps += river.opps;
-  }
-  return fin(rho) && rho > 0 ? { rho, opps } : { rho: 1, opps: 0 };
+  return p;
 }
-
 /**
- * His shares at `rho` times people's rate of betting: the top fifth's share is people's over rho (its three regions in
- * people's proportion), the rest keeps people's mid : bottom proportion.
+ * The shares of a heads-up river first bet of `ratio` pots by THIS bettor: his own shown river bets in this cell (this
+ * line, this size; counts by region), then people's: his counts against K_own pseudo-bets of people's cell. No record:
+ * people's cell, with the margin of a bettor about whom nothing is known (K_own pseudo-bets, discounted by the
+ * sampling error of people's cell).
  */
 export function holdemFacingBetOwnShares(
-  people: HoldemFacingBetShares,
-  rho: number
-): HoldemFacingBetShares {
-  const top0 = holdemFacingBetTopShare(people.share);
-  const rest0 = 1 - top0;
-  if (!fin(rho) || !(rho > 0) || rho === 1 || !(rest0 > 0) || !(top0 > 0)) return people;
-  // a probability: when he bets more rarely than people bet their top fifth, every bet of his is top
-  const top = top0 / rho < 1 ? top0 / rho : 1;
-  const share = [0, 0, 0, 0, 0] as [number, number, number, number, number];
-  for (let i = 0; i < R; i++)
-    share[i] =
-      i < HOLDEM_FACING_BET_TOP_REGIONS
-        ? ((people.share[i] as number) * top) / top0
-        : ((people.share[i] as number) * (1 - top)) / rest0;
-  return { share, n: people.n };
+  ratio: number,
+  line: HoldemFacingBetLine,
+  pot: HoldemFacingBetPot | null,
+  record: readonly number[] | null | undefined
+): HoldemFacingBetShares & { shown: number } {
+  const people = holdemFacingBetPeopleShares(ratio, line, pot);
+  const k = HOLDEM_FACING_BET_OWN_PRIOR_BETS;
+  // the prior's pseudo-bets cannot stand for more than people's own cell knows: 1 / (1 / k + 1 / n)
+  const kEff = (k * people.n) / (k + people.n);
+  const n = record ? total(record) : 0;
+  if (!record || !(n > 0)) return { share: people.share, n: kEff, shown: 0 };
+  return { share: posterior(record, people.share, k), n: kEff + n, shown: n };
 }
 
 /**
@@ -235,8 +213,8 @@ export function holdemFacingBetRegionWins(
   const n = scores.length;
   if (n < 2) return null;
   scores.sort((x, y) => x - y);
-  const win = [0, 0, 0, 0, 0];
-  const cnt = [0, 0, 0, 0, 0];
+  const win = zeros();
+  const cnt = zeros();
   const from = HOLDEM_FACING_BET_REGION_FROM;
   for (let i = 0; i < n; ) {
     let j = i;
@@ -254,7 +232,7 @@ export function holdemFacingBetRegionWins(
     win[region] = (win[region] as number) + m * (mine > v ? 1 : mine === v ? 0.5 : 0);
     i = j + 1;
   }
-  const wins = [0, 0, 0, 0, 0] as [number, number, number, number, number];
+  const wins = zeros();
   for (let r = 0; r < R; r++)
     wins[r] = (cnt[r] as number) > 0 ? (win[r] as number) / (cnt[r] as number) : 0;
   return { wins, holdings: n };
@@ -331,4 +309,154 @@ export function holdemFacingBetPotOf(
     if (act === 'raise' || act === 'bet' || (act === 'all_in' && a.isFullRaise === true)) raises++;
   }
   return raises === 0 ? 'limped' : raises === 1 ? 'single' : 'reraised';
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// THE TURN: THE FIRST BET OF A HEADS-UP TURN AFTER A FLOP NOBODY BET (holdemTurnFacingBetPriorIsPeopleMeasured,
+// default OFF; lane nlof2, 2026-11-27). 30 days of NLH cash against people: such a bet folds the Horse 57.8% of the
+// time where a pure bluff breaks even at 36.3% (+2.26 +/- 0.58 bb per bet, 128 bets), and people's shown turn bets on
+// that line are the weakest of any line (not top: 62% shown, 67% with the hidden bets). The same price as the river
+// with two differences: the regions are where his hand stands ON THE TURN, and the Horse's share against each region
+// is its exact equity over every river card. The people cells count the hidden bets (mucked at the showdown, given
+// up on the river), because before the river the shown sample alone over-states value.
+// ---------------------------------------------------------------------------------------------------------------
+
+/** The measured between-bettor prior strength of people's turn bets after a checked flop (the river's when the table
+ *  could not measure it). */
+export const HOLDEM_TURN_FACING_BET_OWN_PRIOR_BETS: number =
+  T.ownShownTurn?.priorStrength ?? HOLDEM_FACING_BET_OWN_PRIOR_BETS;
+
+/** People's shares for the first bet of `ratio` pots of a heads-up turn after a checked flop, in this pot type. */
+export function holdemTurnFacingBetPeopleShares(
+  ratio: number,
+  pot: HoldemFacingBetPot | null
+): HoldemFacingBetShares {
+  const size = holdemFacingBetSizeCell(ratio);
+  const any = shrink(T.cells[`turn|any|${size}|x|all`], holdemFacingBetAnchor(ratio));
+  const cash = shrink(T.cells[`turn|cash|${size}|x|all`], any.p);
+  const last = pot ? shrink(T.cells[`turn|cash|${size}|x|${pot}`], cash.p) : cash;
+  return { share: last.p, n: last.n + HOLDEM_FACING_BET_PRIOR_BETS };
+}
+
+/**
+ * The shares of the first bet of `ratio` pots of a heads-up turn after a checked flop by THIS bettor: his own turn
+ * stabs of this size (HorseHoldemBetRead: shown, mucked at the showdown or given up; counts by region), then
+ * people's: his counts against the measured between-bettor pseudo-bets of people's cell. No record: people's cell,
+ * with the margin of a bettor about whom nothing is known.
+ */
+export function holdemTurnFacingBetOwnShares(
+  ratio: number,
+  pot: HoldemFacingBetPot | null,
+  record: readonly number[] | null | undefined
+): HoldemFacingBetShares & { shown: number } {
+  const people = holdemTurnFacingBetPeopleShares(ratio, pot);
+  const k = HOLDEM_TURN_FACING_BET_OWN_PRIOR_BETS;
+  const kEff = (k * people.n) / (k + people.n);
+  const n = record ? total(record) : 0;
+  if (!record || !(n > 0)) return { share: people.share, n: kEff, shown: 0 };
+  return { share: posterior(record, people.share, k), n: kEff + n, shown: n };
+}
+
+/**
+ * The Horse's exact equity on this turn (every river card, ties half) against his holdings of each region, the
+ * regions cut by each holding's standing ON THE TURN among all the holdings the board and the Horse's cards leave
+ * him. Null when the cards do not make a turn. Draws nothing from fastRandom.
+ */
+export function holdemTurnFacingBetRegionEquities(
+  hero: readonly Card[],
+  board: readonly Card[]
+): { wins: HoldemFacingBetRegions; holdings: number } | null {
+  if (hero.length !== 2 || board.length !== 4) return null;
+  const dead = new Uint8Array(64);
+  const ids = new Uint8Array(5);
+  for (let i = 0; i < 4; i++) {
+    const id = holdemCardId(board[i] as Card);
+    if (id < 0 || dead[id]) return null;
+    dead[id] = 1;
+    ids[i] = id;
+  }
+  const h0 = holdemCardId(hero[0] as Card);
+  const h1 = holdemCardId(hero[1] as Card);
+  if (h0 < 0 || h1 < 0 || h0 === h1 || dead[h0] || dead[h1]) return null;
+  dead[h0] = 1;
+  dead[h1] = 1;
+  // his holdings and where each stands on the turn
+  const bits4 = packHoldemBoardBits(ids, 4);
+  const ha: number[] = [];
+  const hb: number[] = [];
+  const score: number[] = [];
+  for (let a = 0; a < 52; a++) {
+    if (dead[a]) continue;
+    for (let b = a + 1; b < 52; b++) {
+      if (dead[b]) continue;
+      ha.push(a);
+      hb.push(b);
+      score.push(scoreHoldemPlus2Ids(bits4, a, b, false));
+    }
+  }
+  const n = score.length;
+  if (n < 2) return null;
+  const order = score.map((_, i) => i).sort((x, y) => (score[x] as number) - (score[y] as number));
+  const regionOf = new Uint8Array(n);
+  const from = HOLDEM_FACING_BET_REGION_FROM;
+  for (let i = 0; i < n; ) {
+    let j = i;
+    const v = score[order[i] as number] as number;
+    while (j + 1 < n && score[order[j + 1] as number] === v) j++;
+    const p = (i + j) / 2 / (n - 1);
+    let region = R - 1;
+    for (let r = 0; r < R; r++)
+      if (p >= (from[r] as number)) {
+        region = r;
+        break;
+      }
+    for (let k = i; k <= j; k++) regionOf[order[k] as number] = region;
+    i = j + 1;
+  }
+  // every river card: the Horse against each holding the card leaves him
+  const win = zeros();
+  const cnt = zeros();
+  for (let c = 0; c < 52; c++) {
+    if (dead[c]) continue;
+    ids[4] = c;
+    const bits5 = packHoldemBoardBits(ids, 5);
+    const mine = scoreHoldemPlus2Ids(bits5, h0, h1, false);
+    for (let i = 0; i < n; i++) {
+      const a = ha[i] as number;
+      const b = hb[i] as number;
+      if (a === c || b === c) continue;
+      const v = scoreHoldemPlus2Ids(bits5, a, b, false);
+      const g = regionOf[i] as number;
+      cnt[g] = (cnt[g] as number) + 1;
+      if (mine > v) win[g] = (win[g] as number) + 1;
+      else if (mine === v) win[g] = (win[g] as number) + 0.5;
+    }
+  }
+  const wins = zeros();
+  for (let r = 0; r < R; r++)
+    wins[r] = (cnt[r] as number) > 0 ? (win[r] as number) / (cnt[r] as number) : 0;
+  return { wins, holdings: n };
+}
+
+/** `wins` scaled by the share of its equity a call before the river realizes. */
+export function holdemFacingBetRealized(
+  wins: HoldemFacingBetRegions,
+  realization: number
+): HoldemFacingBetRegions {
+  const r = fin(realization) && realization > 0 && realization < 1 ? realization : 1;
+  return wins.map((w) => w * r);
+}
+
+/** Whether nobody wagered on the flop (and the flop was acted on). */
+export function holdemFacingBetFlopWasChecked(
+  history: ReadonlyArray<{ stage?: unknown; action?: unknown }> | undefined
+): boolean {
+  let acted = false;
+  for (const a of Array.isArray(history) ? history : []) {
+    if (String(a.stage) !== 'flop') continue;
+    acted = true;
+    const act = String(a.action);
+    if (act === 'bet' || act === 'raise' || act === 'all_in') return false;
+  }
+  return acted;
 }

@@ -23,7 +23,7 @@ type Players = 'hu' | 'mw';
 export interface OmahaLifetimeHudReads {
   hudFirstWagerRecord(
     opponentId: string,
-    family: Game | 'nlh',
+    family: Game,
     street: Street,
     players: Players
   ): {

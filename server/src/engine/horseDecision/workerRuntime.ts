@@ -3,6 +3,7 @@ import { installDecisionHud } from '../opponentHud/OpponentHud.js';
 import { installOmahaTurn4bHudProviders } from '../opponentHud/OmahaTurn4bHudProviders.js';
 import { warmOmahaMathCore } from '../omahaMathCore/OmahaMathCoreWarmUp.js';
 import { omahaBetReadLearn } from '../HorseOmahaBetRead.js';
+import { holdemBetReadLearn } from '../HorseHoldemBetRead.js';
 import { HorseDeepDiveCapture } from '../HorseDeepDiveReceipt.js';
 import { HORSE_REQUEST_MAX_PLANS } from './requestRetentionBudget.js';
 import { horseHybridDecisionMatches } from '../HorseHybridProfile.js';
@@ -775,6 +776,19 @@ function observeCompletedHandInMind(request: ObserveCompletedHandRequest): void 
     // omahaBetReadIsModeSplit: the hand's public memory domain speed (table / Lightning) files it into that mode's
     // rows too; absent, the pooled rows only
     speed: styleSpeedOf(request) ?? null,
+  });
+  // holdemRiverFacingBetPriorIsPeopleMeasured's learner (HorseHoldemBetRead): NLH cash one-board hands only, what a
+  // heads-up river first bet was shown to be; memory only, idempotent per hand; it never throws and changes no
+  // decision while the option is off.
+  holdemBetReadLearn({
+    handKey: request.handKey,
+    variant: request.riverCallContext?.variant ?? '',
+    mode: styleMemoryModeOf(request) ?? 'tournament',
+    actions: (request.actions ?? []) as never,
+    board: request.betReadBoard ?? null,
+    shown: new Map(Object.entries(request.betReadShown ?? {})),
+    showdown: request.showdown ?? null,
+    boardCount: request.riverCallContext?.boardCount ?? 1,
   });
 }
 

@@ -2953,7 +2953,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'holdemRiverFacingBetPriorIsPeopleMeasured',
-    "PLO-OWNER lead-9 2026-11-27 (lane nlof; owner: 'all overfolding fixes for PLO4, PLO5 and No Limit'; 30 days of NLH cash against people: a person's heads-up river bet of 0.7-1.1 pot folded every Horse 72.5% of the time against a pure-bluff break-even of 46.4%, +11.3 bb per bet). Default off (read === true), Evidence in docs/horse-option-authority.d. No-limit hold'em cash (table and Lightning), one board, heads-up, the river, facing the river's first bet: the brain's fold becomes a call when the call clears its sampling error against what such a bet is: the bettor's own public record of betting when checked to, shrunk to people's measured river first bets by size, line and pot type (shown cards only), shrunk to equilibrium (HorseHoldemFacingBetPeoplePrior). Never folds a call, never raises.",
+    "PLO-OWNER lead-9 2026-11-27 (lane nlof; owner: 'all overfolding fixes for PLO4, PLO5 and No Limit'; 30 days of NLH cash against people: a person's heads-up river bet of 0.7-1.1 pot folded every Horse 72.5% of the time against a pure-bluff break-even of 46.4%, +11.3 bb per bet). Default off (read === true), Evidence in docs/horse-option-authority.d. No-limit hold'em cash (table and Lightning), one board, heads-up, the river, facing the river's first bet: the brain's fold becomes a call when the call clears its sampling error against what such a bet is: what the bettor's own called river bets were shown to be (HorseHoldemBetRead), shrunk to people's measured river first bets by size, line and pot type (shown cards only), shrunk to equilibrium (HorseHoldemFacingBetPeoplePrior); how often he bets is not read. Never folds a call, never raises.",
+    "Hold'em Strategy"
+  ),
+  flag(
+    'holdemTurnFacingBetPriorIsPeopleMeasured',
+    "PLO-OWNER lead-9 2026-11-27 (lane nlof2; owner: 'all overfolding fixes for PLO4, PLO5 and No Limit'; 30 days of NLH cash against people: the first bet of a heads-up turn after a checked-through flop folded the Horse 57.8% of the time against a pure-bluff break-even of 36.3%, +2.26 bb per bet, 128 bets). Default off (read === true), Evidence in docs/horse-option-authority.d. No-limit hold'em cash (table and Lightning), one board, heads-up, the turn, after a flop nobody bet, limped and single-raised pots, facing the turn's first bet: the brain's fold becomes a call when the call clears its sampling error against what such a bet is: the bettor's own turn stabs (HorseHoldemBetRead: shown cards, showdown mucks, give-ups), shrunk to people's measured turn bets on that line by size and pot type (hidden bets counted), shrunk to equilibrium; the Horse's equity exact over every river card, discounted by the engine's realization of a turn call (HorseHoldemFacingBetPeoplePrior). Never folds a call, never raises, never in a re-raised pot.",
     "Hold'em Strategy"
   ),
   flag(
@@ -10562,25 +10567,49 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'holdem_river_people_prior_call',
     'HorseLogic.holdemRiverFacingBetOnPeople (holdemRiverFacingBetPriorIsPeopleMeasured)',
-    "facing the first bet of a heads-up river (NLH cash) the brain's fold became a call: priced on the bettor's own record of betting when checked to and people's measured river first bets of that size, line and pot type, the call clears its sampling error",
+    "facing the first bet of a heads-up river (NLH cash) the brain's fold became a call: priced on what the bettor's own called river bets were shown to be and people's measured river first bets of that size, line and pot type, the call clears its sampling error",
     "Hold'em Strategy"
   ),
   receipt(
     'holdem_river_people_prior_fold_stands',
     'HorseLogic.holdemRiverFacingBetOnPeople (holdemRiverFacingBetPriorIsPeopleMeasured)',
-    "facing the first bet of a heads-up river the brain's fold was re-priced on the bettor's own record and people's measured river first bets and the call did not clear its sampling error: the fold stands",
+    "facing the first bet of a heads-up river the brain's fold was re-priced on the bettor's own shown river bets and people's measured river first bets and the call did not clear its sampling error: the fold stands",
     "Hold'em Strategy"
   ),
   receipt(
     'holdem_river_people_prior_own_record_read',
     'HorseLogic.holdemRiverFacingBetOnPeople (holdemRiverFacingBetPriorIsPeopleMeasured)',
-    "the bettor's own public record of betting when no bet is to be faced moved people's measured shares of a river first bet",
+    "the bettor's own shown river bets (what his called heads-up river first bets turned out to be) moved people's measured shares of a river first bet",
     "Hold'em Strategy"
   ),
   receipt(
     'holdem_river_people_prior_unpriced',
     'HorseLogic.holdemRiverFacingBetOnPeople (holdemRiverFacingBetPriorIsPeopleMeasured)',
     "a fold facing the first bet of a heads-up river could not be priced on people's measured river first bets: the fold stands",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_turn_people_prior_call',
+    'HorseLogic.holdemTurnFacingBetOnPeople (holdemTurnFacingBetPriorIsPeopleMeasured)',
+    "facing the first bet of a heads-up turn after a checked flop (NLH cash) the brain's fold became a call: priced on the bettor's own turn stabs and people's measured turn bets on that line by size and pot type, the Horse's exact equity over the river discounted by the realization of a turn call, the call clears its sampling error",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_turn_people_prior_fold_stands',
+    'HorseLogic.holdemTurnFacingBetOnPeople (holdemTurnFacingBetPriorIsPeopleMeasured)',
+    "facing the first bet of a heads-up turn after a checked flop the brain's fold was re-priced on the bettor's own turn stabs and people's measured turn bets and the call did not clear its sampling error: the fold stands",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_turn_people_prior_own_record_read',
+    'HorseLogic.holdemTurnFacingBetOnPeople (holdemTurnFacingBetPriorIsPeopleMeasured)',
+    "the bettor's own turn stabs (shown cards, showdown mucks and give-ups of his first bets of a heads-up turn after a checked flop) moved people's measured shares of such a bet",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_turn_people_prior_unpriced',
+    'HorseLogic.holdemTurnFacingBetOnPeople (holdemTurnFacingBetPriorIsPeopleMeasured)',
+    "a fold facing the first bet of a heads-up turn after a checked flop could not be priced on people's measured turn bets: the fold stands",
     "Hold'em Strategy"
   ),
   receipt(
