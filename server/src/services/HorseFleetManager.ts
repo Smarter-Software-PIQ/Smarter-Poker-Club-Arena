@@ -100,6 +100,7 @@ import {
   varietyDrainDecision,
   drainCycleOutcome,
   varietyOwedSince,
+  carriedOwedSince,
   drainWhyForBeat,
   drainOwedGames,
   mayAddDrainTable,
@@ -817,6 +818,11 @@ export class HorseFleetManager {
   private varietyDrainTableIds: string[] = [];
   /** First-seen owed time per game (HorseVarietyFirst.varietyOwedSince). */
   private varietyOwedSinceByGame: Record<string, string> = {};
+  /** The newest heartbeat written before this boot, read ONCE by start() and
+   *  taken once by the first seating cycle (HorseVarietyFirst.carriedOwedSince).
+   *  Null before start() and after it is taken: no cycle reads it again. */
+  private owedSinceBeforeBoot: Promise<{ beatAt: unknown; owedSince: unknown } | null> | null =
+    null;
   /** When the drain last added a NEW table (the ramp runs at the rotator's pace). */
   private varietyDrainNewAtMs = 0;
   /* Last time a failed fleet-state publish was reported. The engine can ship
@@ -889,6 +895,39 @@ export class HorseFleetManager {
     }
   }
 
+  /**
+   * ONE READ PER BOOT: the newest heartbeat written before this process
+   * started (2026-11-28). It is the first-owed memory of the process that
+   * stopped for the release. Never throws and never rejects: a failed read is
+   * null, and every waiting game then gets the first-cycle time as before.
+   * `bootIso` keeps this process's own beats out, whenever the read lands.
+   */
+  private async readOwedSinceBeforeBoot(
+    bootIso: string
+  ): Promise<{ beatAt: unknown; owedSince: unknown } | null> {
+    try {
+      const { data, error } = await supabase
+        .from('ca_horse_fleet_heartbeat')
+        .select('beat_at, detail')
+        .lt('beat_at', bootIso)
+        .order('beat_at', { ascending: false })
+        .limit(1);
+      if (error || !Array.isArray(data) || data.length === 0) return null;
+      const row = data[0] as { beat_at?: unknown; detail?: unknown };
+      const detail = row.detail as { variety_owed_since?: unknown } | null | undefined;
+      return { beatAt: row.beat_at, owedSince: detail?.variety_owed_since ?? null };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Takes the boot read: the first caller gets its times, nobody after it. */
+  private async takeOwedSinceBeforeBoot(): Promise<Record<string, string>> {
+    const read = this.owedSinceBeforeBoot;
+    this.owedSinceBeforeBoot = null;
+    return carriedOwedSince({ heartbeat: read ? await read : null, nowMs: Date.now() });
+  }
+
   async start(): Promise<void> {
     // A same-instance restart may only begin after the prior generation has
     // completely joined. GameServer normally creates one generation, but this
@@ -904,6 +943,9 @@ export class HorseFleetManager {
     onCashSeatCommitted((tableId) => this.lineOnSeatCommitted(tableId));
     const generation = ++this.lifecycleGeneration;
     console.log('[HorseFleet] Starting fleet manager...');
+    /* A WAITING GAME KEEPS ITS CLOCK THROUGH A RELEASE (2026-11-28): one read
+       per boot, started here so it is before this process's own first beat. */
+    this.owedSinceBeforeBoot = this.readOwedSinceBeforeBoot(new Date().toISOString());
 
     // Ensure all tables exist (fast — just inserts)
     await this.ensureAllTablesExist();
@@ -3203,10 +3245,18 @@ export class HorseFleetManager {
       beat.varietyOwedGames = varietyOwedGamesThisCycle(variety, {
         withheld: !!cycleWithheld,
       });
+      /* The first seating cycle after boot takes the stopped process's
+         first-owed times (one read, made by start()). A withheld cycle
+         publishes no owed games, so it cannot say which are still owed and
+         leaves them for the next cycle. Heartbeat detail only. */
+      const owedSinceCarried =
+        cycleWithheld || !this.owedSinceBeforeBoot ? {} : await this.takeOwedSinceBeforeBoot();
+      if (!readIsCurrent()) return;
       this.varietyOwedSinceByGame = varietyOwedSince({
         withheld: !!cycleWithheld,
         owedGames: beat.varietyOwedGames,
         previous: this.varietyOwedSinceByGame,
+        carried: owedSinceCarried,
         nowIso: new Date().toISOString(),
       });
       beat.varietyOwedSince = this.varietyOwedSinceByGame;
