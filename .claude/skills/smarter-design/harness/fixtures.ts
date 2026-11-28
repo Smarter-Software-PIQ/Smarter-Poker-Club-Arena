@@ -149,6 +149,37 @@ export const rpcFixtures: Record<string, unknown> = {
   },
   ca_club_tournaments: { live: [], recent: [] },
   ca_club_members: [],
+  /* The Settlement Center's retained ledger (contract ca_club_chip_ledger.v2). */
+  ca_club_chip_ledger: {
+    contract: 'ca_club_chip_ledger.v2',
+    contract_version: 2,
+    club_id: CLUB_UUID,
+    requested_limit: 25,
+    requested_before: null,
+    requested_include_hand_rows: false,
+    hand_rows_included: false,
+    rows: [
+      ['transfer', 'club_treasury', 'player_wallet', 'Lucky Seven', 1250.75, 'Weekly Top Up'],
+      ['rake', 'table_stack', 'club_bank', null, 403.3814552027556, null],
+      ['cash_out', 'player_wallet', 'club_treasury', null, 88.5, 'Cash Out To Agent'],
+      ['rakeback', 'club_bank', 'player_wallet', 'Queen Of Hearts Long Name Player', 12.25, null],
+    ].map(([category, from, to, toLabel, amount, description], i) => ({
+      id: `ledger-${i + 1}`,
+      performed_by: 'a1000000-0000-4000-8000-000000000001',
+      from_type: from,
+      from_entity_id: null,
+      from_label: null,
+      to_type: to,
+      to_entity_id: null,
+      to_label: toLabel,
+      amount,
+      category,
+      description,
+      created_at: new Date(Date.now() - (i + 1) * 3600e3).toISOString(),
+      club_id: CLUB_UUID,
+      union_id: null,
+    })),
+  },
   fn_game_creation_access: { allowed: true, reason: 'ok', union_id: null },
   /* Cashier Statements (route cashier/statements): one receipt and one movement. */
   fn_cashier_statement_page: {
