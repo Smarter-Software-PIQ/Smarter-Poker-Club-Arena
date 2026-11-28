@@ -292,6 +292,7 @@
 
 html {
   font-size: 16px;
+  background: #0a0a1a;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

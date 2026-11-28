@@ -78,6 +78,10 @@
   content: '';
   position: absolute;
   inset: 0;
+  box-sizing: border-box;
+  border-style: solid;
+  border-width: 10px;
+  border-color: transparent;
   border-image: var(--arena-readout) 21 / 10px stretch;
   pointer-events: none;
   z-index: 2;
@@ -396,6 +400,10 @@
   inset: 0;
   pointer-events: none;
   z-index: 1;
+  box-sizing: border-box;
+  border-style: solid;
+  border-width: 19px;
+  border-color: transparent;
   border-image: var(--arena-frame) 41 / 19px stretch;
   background: none;
 }
@@ -469,6 +477,10 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
+  box-sizing: border-box;
+  border-style: solid;
+  border-width: 6px;
+  border-color: transparent;
   border-image: var(--arena-stat) 11 / 6px stretch;
 }
 .arena-workspace .arena-switch > :is([aria-pressed='true'], [aria-selected='true'], .active),

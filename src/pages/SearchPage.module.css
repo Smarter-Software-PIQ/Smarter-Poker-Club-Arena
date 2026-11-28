@@ -167,6 +167,7 @@
   content: '';
   position: absolute;
   inset: 0;
+  box-sizing: border-box;
   pointer-events: none;
   border: 6px solid transparent;
   border-image: var(--arena-stat) 11 / 6px stretch;

@@ -546,6 +546,7 @@
   position: absolute;
   inset: 0;
   z-index: -1;
+  box-sizing: border-box;
   border: 7px solid transparent;
   border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-readout.webp') 21 / 10px
     stretch;

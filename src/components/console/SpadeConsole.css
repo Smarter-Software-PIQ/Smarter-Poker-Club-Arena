@@ -683,12 +683,21 @@ input.sc-check__box:disabled {
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, system-ui, sans-serif;
   background: var(--sd-panel), #030b14;
 }
+/* Explicit separate border-style/border-width/border-color before border-image:
+   CSS Backgrounds & Borders L3 requires a non-none border-style for border-image
+   to paint, and iOS Safari drops border-image on composited ::before layers when
+   border-style is omitted (computed "none", border-width "0px"). Guarded by
+   tests/border-image-declares-solid-border.law.test.ts. */
 .sc.sc--sd.sc--sd::before {
   content: '';
   position: absolute;
   inset: 0;
   z-index: 3;
+  box-sizing: border-box;
   pointer-events: none;
+  border-style: solid;
+  border-width: 19px;
+  border-color: transparent;
   border-image: var(--sd-case) 41 / 19px stretch;
 }
 
