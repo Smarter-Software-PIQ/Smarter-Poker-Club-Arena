@@ -1,0 +1,11 @@
+{
+  "money": {
+    "figures": [],
+    "hooks": []
+  },
+  "text": "Setting The Table",
+  "regions": [
+    "div|status|"
+  ],
+  "controls": []
+}
