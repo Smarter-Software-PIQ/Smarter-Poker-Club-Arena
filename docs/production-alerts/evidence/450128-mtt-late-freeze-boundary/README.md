@@ -19,7 +19,7 @@ Row 450128 (`alertmanager`, `MttStartedLate`, firing 16:05:26Z, 2026-11-28). Thi
 
 ## Fix
 
-`20261128160858`: a bounded freeze is credited when it began by `t.start_time + late` (inside the late bar) and ended after `t.start_time`. Everything else in the function body is unchanged.
+`20261128200707`: a bounded freeze is credited when it began by `t.start_time + late` (inside the late bar) and ended after `t.start_time`. Everything else in the function body is unchanged.
 
 ## Proof
 
@@ -28,7 +28,7 @@ Row 450128 (`alertmanager`, `MttStartedLate`, firing 16:05:26Z, 2026-11-28). Thi
   - B, a 181 s post-thaw stall: still alerts.
   - C, a freeze opened after the late bar: still alerts.
   - D, an unbounded 13 minute freeze: still alerts.
-- `tests/mtt-lateness-credits-a-freeze-stamped-after-the-start-minute.law.test.ts`: fails 2 of 4 on main without the migration, passes 4 of 4 with it. The existing `mtt-launch-lateness-measures-from-bounded-maintenance-thaw` law still passes, and so does the law registry.
+- `tests/mtt-lateness-ignores-an-event-nobody-entered.law.test.ts (renamed; see the re-version note below)`: fails 2 of 4 on main without the migration, passes 4 of 4 with it. The existing `mtt-launch-lateness-measures-from-bounded-maintenance-thaw` law still passes, and so does the law registry.
 
 ## Second cause, same function (row 450194, read live 2026-11-28T19:07Z)
 
@@ -44,3 +44,27 @@ Read-only at 19:09:59Z, window 60 m:
 | amended body | `(0, 0, 0)` |
 
 Native proof, case E: pre-fix `late_waiting` 1, post-fix 0, and 1 again with one registered entrant.
+
+## Re-versioned after #12377 (2026-11-28T20:10Z)
+
+`20261128161915` (#12377, merged 19:11Z, another lane) fixed cause 1 with a 5 s tolerance on the freeze start, which covers every observed stamp (`.001`). Both PRs redefine `fn_tournament_launch_lateness_metrics`. The draft's version `20261128160858` is older than `161915`, so it would have installed after #12377, replaced its body, and left #12377's law test passing against a function that no longer matched it.
+
+What changed:
+
+- The migration is now `20261128200707_mtt_launch_lateness_ignores_an_event_nobody_entered.sql`, versioned after `161915`.
+- It pins `161915`'s installed body as its preimage: md5 `19533b7bf3421c6bbbf2e4b1560564f6`.
+  - I computed it on PG16 from the #12377 file.
+  - The same method reproduces #12377's own pinned live preimage, `31cdd1ce…`, from `075041`.
+  - If `161915` is not installed first, the preimage check refuses (fail closed).
+- The late-bar widening is dropped. #12377's 5 s predicate is kept byte for byte, and the only body change is the entrant test (cause 2).
+- The law is renamed `tests/mtt-lateness-ignores-an-event-nobody-entered.law.test.ts`. It asserts the version order and the preimage.
+
+`native-proof.out` (chain 075041 → 161915 → 200707):
+
+| case | result |
+|---|---|
+| A, live shape | `1,0,301` → `0,0,0` (#12377) → `0,0,0` |
+| B, post-thaw stall | still alerts |
+| C, freeze 121 s after start | still alerts |
+| D, unbounded freeze | still alerts |
+| E, empty event | `late_waiting` 1 → 0, and 1 with one entrant |

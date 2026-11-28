@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Native PG16 proof for 20261128160858 (Production Alerts row 450128).
+# Native PG16 proof for 20261128200707 (re-versioned from 20261128160858 after #12377) (Production Alerts row 450128).
 # Builds the four relations fn_tournament_launch_lateness_metrics reads, seeds
 # the exact 2026-11-28 16:00Z cutover shape (freeze stamped 1 ms after the
 # boundary) shifted to "now", and compares the 20261128075041 and
-# 20261128160858 definitions on identical fixtures. Read-only to everything
+# 20261128200707 definitions on identical fixtures. Read-only to everything
 # outside the throwaway cluster it creates.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
@@ -35,10 +35,15 @@ run() { # $1 = migration file
   "${P[@]}" -At -c "SELECT late_first_hands||','||late_waiting||','||worst_late_seconds FROM public.fn_tournament_launch_lateness_metrics(120,120,15,24)"
 }
 fail=0
-pre=$(run 20261128075041_mtt_launch_lateness_measures_from_bounded_maintenance_thaw.sql)
-post=$(run 20261128160858_mtt_launch_lateness_freeze_starting_at_the_start_minute.sql)
-echo "A live shape   pre-fix: $pre   post-fix: $post"
-[ "$pre" = "1,0,301" ] || { echo "FAIL: pre-fix did not reproduce the 301 s false alarm"; fail=1; }
+orig=$(run 20261128075041_mtt_launch_lateness_measures_from_bounded_maintenance_thaw.sql)
+# The live chain is 075041 -> 161915 (#12377, 5 s jitter) -> 200707 (this file).
+pre=$(run 20261128161915_mtt_launch_lateness_tolerates_maintenance_start_jitter.sql)
+pre_md5=$("${P[@]}" -At -c "SELECT md5(pg_get_functiondef('public.fn_tournament_launch_lateness_metrics(integer,integer,integer,integer)'::regprocedure))")
+post=$(run 20261128200707_mtt_launch_lateness_ignores_an_event_nobody_entered.sql)
+echo "A live shape   075041: $orig   161915 (#12377): $pre   200707: $post   161915 md5: $pre_md5"
+[ "$orig" = "1,0,301" ] || { echo "FAIL: 075041 did not reproduce the 301 s false alarm"; fail=1; }
+[ "$pre_md5" = "19533b7bf3421c6bbbf2e4b1560564f6" ] || { echo "FAIL: 161915 body md5 is not the pinned preimage"; fail=1; }
+[ "$pre" = "0,0,0" ] || { echo "FAIL: 161915 does not credit the 1 ms freeze stamp"; fail=1; }
 [ "$post" = "0,0,0" ] || { echo "FAIL: post-fix still reports the thawed start late"; fail=1; }
 # B: a real post-thaw stall still alerts (first hand 3 min after the thaw).
 "${P[@]}" -c "UPDATE hand_history SET started_at = (SELECT s FROM anchor) + interval '8 min 1 s', created_at = (SELECT s FROM anchor) + interval '8 min 30 s'" >/dev/null
@@ -46,7 +51,7 @@ echo "A live shape   pre-fix: $pre   post-fix: $post"
 stall=$("${P[@]}" -At -c "SELECT late_first_hands||','||late_waiting||','||worst_late_seconds FROM public.fn_tournament_launch_lateness_metrics(120,120,15,24)")
 echo "B post-thaw stall post-fix: $stall"
 [ "${stall%%,*}" = "1" ] || { echo "FAIL: a 181 s post-thaw stall no longer alerts"; fail=1; }
-# C: a freeze that begins after the late bar earns no credit (event already late).
+# C: a freeze that begins 121 s after the start earns no credit (beyond the 5 s jitter).
 "${P[@]}" -c "UPDATE engine_maintenance_break_log SET break_started_at=(SELECT s FROM anchor) + interval '121 s'; UPDATE engine_maintenance_thaws SET freeze_started_at=(SELECT s FROM anchor) + interval '121 s'; UPDATE hand_history SET started_at=(SELECT s FROM anchor) + interval '5 min 1 s'" >/dev/null
 late=$("${P[@]}" -At -c "SELECT late_first_hands||','||late_waiting||','||worst_late_seconds FROM public.fn_tournament_launch_lateness_metrics(120,120,15,24)")
 echo "C freeze after late bar post-fix: $late"
@@ -62,9 +67,9 @@ echo "D unbounded freeze post-fix: $unb"
 # late launch; one registered entrant makes it late again.
 "${P[@]}" -c "INSERT INTO tournaments VALUES ('00000000-0000-0000-0000-00000000000e', date_trunc('second', now()) - interval '7 minutes', 'REGISTERING', 'mtt-v2', 0)" >/dev/null
 lw() { "${P[@]}" -At -c "SELECT late_waiting FROM public.fn_tournament_launch_lateness_metrics(120,120,15,24)"; }
-sed -e '/^DO \$preimage\$/,/^END \$preimage\$;/d' "$ROOT/supabase/migrations/20261128075041_mtt_launch_lateness_measures_from_bounded_maintenance_thaw.sql" | "${P[@]}" >/dev/null
+sed -e '/^DO \$preimage\$/,/^END \$preimage\$;/d' "$ROOT/supabase/migrations/20261128161915_mtt_launch_lateness_tolerates_maintenance_start_jitter.sql" | "${P[@]}" >/dev/null
 e_pre=$(lw)
-sed -e '/^DO \$preimage\$/,/^END \$preimage\$;/d' "$ROOT/supabase/migrations/20261128160858_mtt_launch_lateness_freeze_starting_at_the_start_minute.sql" | "${P[@]}" >/dev/null
+sed -e '/^DO \$preimage\$/,/^END \$preimage\$;/d' "$ROOT/supabase/migrations/20261128200707_mtt_launch_lateness_ignores_an_event_nobody_entered.sql" | "${P[@]}" >/dev/null
 e_post=$(lw)
 "${P[@]}" -c "INSERT INTO tournament_players VALUES ('00000000-0000-0000-0000-00000000000e', 'registered')" >/dev/null
 e_one=$(lw)

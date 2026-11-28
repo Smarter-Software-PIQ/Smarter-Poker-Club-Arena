@@ -1,42 +1,21 @@
--- 20261128160858_mtt_launch_lateness_freeze_starting_at_the_start_minute
+-- 20261128200707_mtt_launch_lateness_ignores_an_event_nobody_entered
 --
--- Reserved by scripts/reserve-migration-version.sh on 2026-11-28 16:08:58 UTC.
+-- Reserved by scripts/new-migration.mjs on 2026-11-28 20:07:07 UTC.
+-- Production Alerts rows 450128 / 450194, incident mtt-started-late-cutover-hour,
+-- engine incident 334c611e-ec44-4006-b557-0ea8a66a1b8c.
 --
--- A MAINTENANCE FREEZE THAT BEGINS AT THE START MINUTE COVERS THE START
--- (2026-11-28, Production Alerts row 450128, incident mtt-started-late-cutover-hour,
--- engine incident 334c611e-ec44-4006-b557-0ea8a66a1b8c).
---
--- WHAT WAS WRONG (read live 2026-11-28T16:06Z).
--- 20261128075041 credited a bounded maintenance thaw only when the freeze
--- began AT OR BEFORE t.start_time (l.break_started_at <= t.start_time,
--- th.freeze_started_at <= t.start_time). The cutover freeze is opened by the
--- engine on the boundary and is stamped a millisecond after it:
---   engine_maintenance_break_log  16:00:00.001 -> 16:05:00.149
---   engine_maintenance_thaws (v3) 16:00:00.001 -> 16:05:00.001 complete
--- while the fixed-board MTT "Mid-Morning Turbo (6-Max NLH)" 5d4aeb41 has
--- start_time 16:00:00.000 and dealt its first hand at 16:05:01.156. The freeze
--- missed the start by 1 ms, so the fix never matched, effective_start_time
--- stayed 16:00:00, and fn_tournament_launch_lateness_metrics(120,120,15,24)
--- returned (1, 0, 301): MttStartedLate fired at 16:05:26Z, the first cutover
--- start after the fix was installed. Every cutover freeze is opened this way
--- (13:00:00.001, 16:00:00.001 in the same log), so the fix could never match
--- an on-the-hour start.
---
--- WHAT THIS CHANGES.
--- A bounded (<= 12 minute) completed freeze is credited when it began no later
--- than the late bar after t.start_time (freeze_start <= t.start_time + late)
--- and ended after t.start_time. A freeze that begins before an event could be
--- called late is what stopped it dealing; measuring from its thaw is the same
--- rule 20261128075041 meant to state, without depending on the millisecond the
--- freeze was stamped. Everything else is byte-for-byte 20261128075041: the
--- 12 minute cap, the 120 s late bar and headroom, the v3 completeness test,
--- and full alerting for a post-thaw stall, a non-break late launch and an
--- unbounded freeze.
---
--- Measured with the new predicate against the live rows above: the event's
--- effective start is 16:05:00.149 and its first hand is 1 s after it, so it
--- is not late. Native proof (PG16, both definitions, same fixtures):
--- docs/production-alerts/evidence/450128-mtt-late-freeze-boundary/.
+-- First drafted as 20261128160858 (PR #12376), which also widened the
+-- maintenance-freeze credit to the late bar because every cutover freeze is
+-- stamped 1 ms after the boundary (16:00:00.001 for a 16:00:00 start). While
+-- it was in review, 20261128161915 (#12377, merged 19:11Z) fixed that cause
+-- by allowing the freeze to begin up to 5 s after t.start_time, which covers
+-- every observed stamp (.001). The older 160858 version would have installed
+-- after 161915 and replaced its body. So this file is re-versioned after
+-- 161915, builds on its installed body (preimage md5
+-- 19533b7bf3421c6bbbf2e4b1560564f6, computed on PG16 from the #12377 file; the
+-- same method reproduces #12377's own pinned preimage
+-- 31cdd1ce751effd17cd335d30f60e840 from 20261128075041), keeps #12377's
+-- 5-second predicate byte for byte, and adds only the change below.
 --
 -- AN EVENT NOBODY ENTERED IS NOT A LATE LAUNCH (same incident, read live
 -- 2026-11-28T19:07Z, row 450194). Every 19:05Z MttStartedLate since 11-24 read
@@ -60,7 +39,7 @@
 -- Function body only: no table lock, no data mutation, exact signature and
 -- grants preserved.
 --
--- @live-proof: (SELECT position('<= t.start_time + b.late' IN pg_get_functiondef('public.fn_tournament_launch_lateness_metrics(integer,integer,integer,integer)'::regprocedure)) > 0 AND position('AND c.has_entrant' IN pg_get_functiondef('public.fn_tournament_launch_lateness_metrics(integer,integer,integer,integer)'::regprocedure)) > 0 AND position('effective_start_time' IN pg_get_functiondef('public.fn_tournament_launch_lateness_metrics(integer,integer,integer,integer)'::regprocedure)) > 0)
+-- @live-proof: (SELECT position('<= t.start_time + interval ''5 seconds''' IN pg_get_functiondef('public.fn_tournament_launch_lateness_metrics(integer,integer,integer,integer)'::regprocedure)) > 0 AND position('AND c.has_entrant' IN pg_get_functiondef('public.fn_tournament_launch_lateness_metrics(integer,integer,integer,integer)'::regprocedure)) > 0 AND position('effective_start_time' IN pg_get_functiondef('public.fn_tournament_launch_lateness_metrics(integer,integer,integer,integer)'::regprocedure)) > 0)
 
 BEGIN;
 SET LOCAL lock_timeout = '1s';
@@ -76,7 +55,7 @@ BEGIN
       USING ERRCODE = '55000';
   END IF;
   v_def := pg_get_functiondef(v_oid);
-  IF md5(v_def) IS DISTINCT FROM '31cdd1ce751effd17cd335d30f60e840' THEN
+  IF md5(v_def) IS DISTINCT FROM '19533b7bf3421c6bbbf2e4b1560564f6' THEN
     RAISE EXCEPTION 'MTT_LATENESS_PREIMAGE_DRIFT got %', md5(v_def)
       USING ERRCODE = '55000';
   END IF;
@@ -114,18 +93,17 @@ AS $function$
      CROSS JOIN b
       LEFT JOIN LATERAL (
         -- A bounded (<= 12 minutes) completed platform maintenance freeze that
-        -- began no later than the late bar after t.start_time and ended after
-        -- it prevents any table from dealing until the thaw. The engine stamps
-        -- a cutover freeze just after the boundary (16:00:00.001 for a 16:00
-        -- start), so "began at or before t.start_time" never matched.
-        -- Measure launch lateness from that thaw boundary; unbounded freezes
-        -- (> 12 m) and post-thaw delays > p_late_seconds still alert.
+        -- covered t.start_time (allowing <= 5 seconds of timer jitter when the
+        -- freeze starts on the exact :00:00 boundary, e.g. :00:00.001) prevents
+        -- any table from dealing until the thaw. Measure launch lateness from
+        -- that thaw boundary; unbounded freezes (> 12 m) and post-thaw delays
+        -- > p_late_seconds still alert.
         SELECT max(w.freeze_end) AS thaw_at
           FROM (
             SELECT l.break_ended_at AS freeze_end
               FROM public.engine_maintenance_break_log l
              WHERE l.break_started_at > b.now_at - b.lookback - interval '1 hour'
-               AND l.break_started_at <= t.start_time + b.late
+               AND l.break_started_at <= t.start_time + interval '5 seconds'
                AND l.break_ended_at > t.start_time
                AND l.break_ended_at <= l.break_started_at + interval '12 minutes'
             UNION ALL
@@ -135,7 +113,7 @@ AS $function$
                AND COALESCE((th.shifted->>'complete')::boolean, false)
                AND th.freeze_started_at IS NOT NULL
                AND th.freeze_started_at > b.now_at - b.lookback - interval '1 hour'
-               AND th.freeze_started_at <= t.start_time + b.late
+               AND th.freeze_started_at <= t.start_time + interval '5 seconds'
                AND th.release_target_at > t.start_time
                AND th.release_target_at <= th.freeze_started_at + interval '12 minutes'
           ) w
@@ -178,7 +156,7 @@ AS $function$
 $function$;
 
 COMMENT ON FUNCTION public.fn_tournament_launch_lateness_metrics(integer, integer, integer, integer) IS
-  'Read-only launch-lateness gauges for TournamentMetrics: MTTs whose first dealt hand (hand_history.started_at) came over p_late_seconds after effective_start_time (GREATEST(start_time, thaw of a bounded <=12m maintenance freeze that began by start_time + p_late_seconds and ended after start_time)), recorded in the last p_window_minutes, and MTTs with at least one registered or playing entrant and no recorded hand p_late_seconds + p_headroom_seconds after effective_start_time (an event nobody entered is left to the empty-event cancel and TournamentNeverStarted). 2026-10-19; bounded maintenance thaw 2026-11-28; freeze beginning within the late bar after start_time 2026-11-28 (row 450128); empty events excluded from late_waiting 2026-11-28 (row 450194).';
+  'Read-only launch-lateness gauges for TournamentMetrics: MTTs whose first dealt hand (hand_history.started_at) came over p_late_seconds after effective_start_time (GREATEST(start_time, thaw of a bounded <=12m maintenance freeze that began by start_time + 5 s and ended after start_time)), recorded in the last p_window_minutes, and MTTs with at least one registered or playing entrant and no recorded hand p_late_seconds + p_headroom_seconds after effective_start_time (an event nobody entered is left to the empty-event cancel and TournamentNeverStarted). 2026-10-19; bounded maintenance thaw 2026-11-28; 5 s freeze start jitter 2026-11-28 (#12377, row 450128); empty events excluded from late_waiting 2026-11-28 (row 450194).';
 
 REVOKE ALL ON FUNCTION public.fn_tournament_launch_lateness_metrics(integer, integer, integer, integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_tournament_launch_lateness_metrics(integer, integer, integer, integer) TO service_role;
