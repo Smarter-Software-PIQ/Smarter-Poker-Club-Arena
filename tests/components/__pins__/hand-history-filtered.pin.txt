@@ -1,0 +1,38 @@
+header figures: [
+  "dt|Won",
+  "dd|0",
+  "dt|Biggest Pot",
+  "dd|Asset Unavailable"
+]
+money: {
+  "figures": [],
+  "hooks": []
+}
+text: Find A Hand Any Game NLH PLO Clear Export For Tracker Cash Games Tournaments All Hands Won Lost Big Pots Showdown All In Noted Diamond Arena ♠♥♦♣ No Loaded Hands Match That Search Load More Hands, Or Try A Different Hand Number, Opponent Or Tag.
+regions: [
+  "label|||",
+  "select||Game|",
+  "input||From This Date|",
+  "input||To This Date|",
+  "div|group|Hand History Game Mode|",
+  "div|group|Filter Loaded Hands|",
+  "div|||false"
+]
+controls: [
+  "input|Hand Number, Opponent, Tag Or Note",
+  "select|Game",
+  "input|From This Date",
+  "input|To This Date",
+  "button|Clear",
+  "button|Export For Tracker (disabled)",
+  "button|Cash Games [pressed=true]",
+  "button|Tournaments [pressed=false]",
+  "button|All Hands [pressed=true]",
+  "button|Won [pressed=false]",
+  "button|Lost [pressed=false]",
+  "button|Big Pots [pressed=false]",
+  "button|Showdown [pressed=false]",
+  "button|All In [pressed=false]",
+  "button|Noted [pressed=false]",
+  "button|Diamond Arena [pressed=false]"
+]
