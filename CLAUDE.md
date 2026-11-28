@@ -44,22 +44,30 @@ Phases 1-3 of 8 are merged (squash `c22a3bb00`) and live; phase 4 is the club
 dashboard, and it starts on a fresh branch off `main`. The plan is
 [`docs/club-operations/OPERATIONS-UPGRADE-PLAN.md`](./docs/club-operations/OPERATIONS-UPGRADE-PLAN.md).
 
-## ↗ REDESIGNING A PAGE, POPUP, CARD OR BUTTON? READ `.claude/skills/club-arena-console/SKILL.md`
+## ↗ REDESIGNING A PAGE, SUB PAGE OR WORKSPACE? READ `.claude/skills/smarter-design/SKILL.md`
 
-Every visual surface in Club Arena is rebuilt on Dan's approved master art -
-you do not style it, you print live text into zones measured on a render he
-signed off. The standard is **#ClubArenaConsole**, and it lives in the repo so
-every agent, on every account and in every tool, works from the same one:
+**Owner ruling, November 27, 2026.** Dan, verbatim, on a page rebuilt from the
+painted console plates: "THAT IS NOT THE #SMARTERDESIGN. WTF?!" and, the same
+day, "DO NOT USE THOSE BULKY FRAMES, THATS THE OLD STYLE... USE THE
+#SMARTERDESIGN STYLE". A routed page, sub page or workspace is rebuilt in
+**#SmarterDesign**: the arena workspace look of Player Management, the Cashier,
+Club Data and every Club Operations page (illustrated mast with the chrome "?",
+thin chrome cases, chrome readout tiles, chrome keys that light blue when
+selected, chrome rows). The standard, its kit, the reference pages, the traps
+and a full-page before/after render harness are in
 
-[`.claude/skills/club-arena-console/SKILL.md`](./.claude/skills/club-arena-console/SKILL.md)
+[`.claude/skills/smarter-design/SKILL.md`](./.claude/skills/smarter-design/SKILL.md)
 
-It carries Dan's rulings verbatim, the console kit and its zone constants, the
-art-surgery techniques for deriving new art from a master, the headless render
-harness that produces the before/after he reviews, twelve traps that have each
-cost hours, and the definition of done. Read it in full before touching a
-surface, and pass it to any subagent you spawn. If you find yourself writing
-`border-radius` or a gradient to make something look like a control, you have
-already gone wrong: the control is painted in the art.
+Read it in full before touching a page and pass it to any subagent you spawn.
+Never put the painted plates (`src/components/console/SpadeConsole`, `sc-*`
+plate classes, painted frame art) on a page; the Club Operations pages are
+pinned by `tests/club-operations-pages-stay-smarterdesign.law.test.ts`.
+Show Dan before/after screenshots and get his approval before pushing a design.
+
+The older **#ClubArenaConsole** painted-chassis standard,
+[`.claude/skills/club-arena-console/SKILL.md`](./.claude/skills/club-arena-console/SKILL.md),
+applies only when Dan names #ClubArenaConsole or a specific painted master for
+a specific surface.
 
 ---
 
