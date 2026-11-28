@@ -126,7 +126,14 @@ describe('stored values print in Title Case', () => {
 describe('the Hand Detail column key is readable inside the skin', () => {
   it('is silver at 4.5:1 or better on the console navy', () => {
     const rule = block(HDV_CSS, '.sc--sd .hdv__colkey {');
-    const ink = rule.match(/color: (#[0-9a-f]{6});/i)?.[1];
+    /* The ink may be the palette token (src/styles/design-tokens.css,
+       2026-11-28); resolve it to the value the browser paints. */
+    const token = rule.match(/color: var\((--sd-[a-z-]+)\);/)?.[1];
+    const ink = token
+      ? fs
+          .readFileSync(path.resolve(process.cwd(), 'src/styles/design-tokens.css'), 'utf8')
+          .match(new RegExp(`${token}:\\s*(#[0-9a-f]{6});`, 'i'))?.[1]
+      : rule.match(/color: (#[0-9a-f]{6});/i)?.[1];
     expect(ink).toBeDefined();
     /* The lightest stop of the console case gradient (SpadeConsole.css). */
     expect(contrast(ink!, '#12273b')).toBeGreaterThanOrEqual(4.5);
