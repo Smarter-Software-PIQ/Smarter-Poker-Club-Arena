@@ -109,6 +109,70 @@ const daily = Array.from({ length: 7 }, (_, i) => ({
   hands: 14000 + i * 731,
   rake: 280.12345 + i * 31.3333,
 }));
+/* Union Data (batch U1): the union rake snapshot over a week. */
+const snapRow = (club: string, name: string, fee: number, hands: number) => ({
+  club_id: club,
+  name,
+  code: null,
+  avatar_url: null,
+  fee,
+  cash_fee: Math.round(fee * 0.7 * 100) / 100,
+  mtt_fee: Math.round(fee * 0.3 * 100) / 100,
+  winnings: -fee,
+  hands,
+  games: Math.round(hands / 60),
+  can_drill: true,
+});
+const rakeSnapshot = {
+  day_basis: 'America/Los_Angeles 00:00',
+  scope: 'union',
+  scope_label: 'midway union',
+  club_id: null,
+  union_id: UNION_UUID,
+  club_count: 3,
+  range: { start: '2026-11-21', end: '2026-11-27', days: 7 },
+  previous_range: { start: '2026-11-14', end: '2026-11-20', days: 7 },
+  summary: {
+    fee: 4572.0,
+    cash_fee: 3200.4,
+    mtt_fee: 1371.6,
+    games: 312,
+    hands: 18842,
+    total_winnings: -4572.0,
+    mtt_winnings: 0,
+    members: 585,
+    active: 214,
+  },
+  previous: { fee: 4012.5, games: 290 },
+  delta: { fee_pct: 13.9, games_pct: 7.6, fee_abs: 559.5, winnings_abs: -559.5 },
+  series: [
+    '2026-11-21',
+    '2026-11-22',
+    '2026-11-23',
+    '2026-11-24',
+    '2026-11-25',
+    '2026-11-26',
+    '2026-11-27',
+  ].map((bucket, i) => ({
+    bucket,
+    fee: [512.4, 701.2, 640.0, 588.3, 690.9, 711.1, 728.1][i],
+    winnings: 0,
+  })),
+  series_bucket: 'day',
+  breakdown: [
+    snapRow(CLUB_UUID, 'Kings Club', 3361.5, 13210),
+    snapRow('club-aces-0002', 'Aces Club', 1210.5, 5632),
+  ],
+  breakdown_kind: 'club',
+  breakdown_count: 2,
+  breakdown_offset: 0,
+  breakdown_total: 4572.0,
+  commission_total: null,
+  breakdown_live: true,
+  applied_search: null,
+  applied_sort: 'rake',
+  generated_at: now,
+};
 export const rpcFixtures: Record<string, unknown> = {
   ca_club_operations_overview: overview,
   ca_club_dashboard_stats: {
@@ -205,6 +269,7 @@ export const rpcFixtures: Record<string, unknown> = {
   },
   /* The Union pages (batch U1): Midway Union and its statement board. */
   fn_is_union_operator: true,
+  ca_can_oversee_union: true,
   fn_union_online_count: 87,
   fn_can_i_create_a_union: true,
   fn_can_i_operate_the_union_network: true,
@@ -214,6 +279,8 @@ export const rpcFixtures: Record<string, unknown> = {
     { club_id: 'club-aces-0002', member_count: 410 },
     { club_id: 'club-river-003', member_count: 1 },
   ],
+  ca_rake_snapshot_v2: rakeSnapshot,
+  ca_rake_snapshot_pacific_v2: rakeSnapshot,
   ca_union_statement_board: {
     union_id: UNION_UUID,
     period_start: '2026-11-16',
