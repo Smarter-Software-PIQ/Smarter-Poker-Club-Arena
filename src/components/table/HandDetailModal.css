@@ -1265,6 +1265,23 @@
 .hdm-console.sc--sd {
   margin-top: var(--sp-tabbar-h, 0px);
 }
+/* The hand-number pill stays on one line (2026-11-28). The painted head above
+   pins `.hdm-console .sc__head .sc__pill` to `width: 26% !important` and
+   `height: 22px !important` to fit the painted slot; the skin's flex head
+   kept both, so at 393px "#3046089" got about 58px and broke after "#30460".
+   In the skin the pill sizes to its number, never wraps, and only ellipsizes
+   when the head genuinely cannot hold it. */
+.hdm-console.sc--sd > .sc__head .sc__pill {
+  flex: 0 1 auto;
+  width: auto !important;
+  height: auto !important;
+  min-width: 0;
+  max-width: 46%;
+  overflow: hidden;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  text-overflow: ellipsis;
+}
 .hdm-console.sc--sd .hdm-empty {
   padding: 18px 4px;
   border-top: 0;

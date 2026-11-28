@@ -143,8 +143,8 @@
   height: 17px;
   padding: 0 4px;
   border-radius: 4px;
-  background: rgba(240, 185, 11, 0.16);
-  color: #f0b90b;
+  background: rgba(116, 223, 255, 0.16);
+  color: var(--sd-ice-strong);
   font-size: 9px;
   font-weight: 800;
   letter-spacing: 0.3px;
@@ -197,8 +197,8 @@
 }
 
 .hdv__act--discard {
-  background: rgba(190, 150, 255, 0.13);
-  color: rgba(206, 178, 255, 0.9);
+  background: rgba(159, 186, 204, 0.14);
+  color: #c9d6e2;
 }
 
 .hdv__act--check {
@@ -213,8 +213,8 @@
 
 .hdv__act--bet,
 .hdv__act--raise {
-  background: rgba(255, 149, 0, 0.16);
-  color: #ff9500;
+  background: rgba(116, 223, 255, 0.18);
+  color: var(--sd-ice-strong);
 }
 
 .hdv__act--all_in {
@@ -236,8 +236,8 @@
 }
 
 .hdv__act--show {
-  background: rgba(240, 185, 11, 0.16);
-  color: #f0b90b;
+  background: rgba(116, 223, 255, 0.16);
+  color: var(--sd-ice-strong);
 }
 
 .hdv__cards {
@@ -337,7 +337,7 @@
 }
 
 .hdv__sd.is-winner {
-  background: rgba(240, 185, 11, 0.05);
+  background: rgba(116, 223, 255, 0.05);
 }
 
 .hdv__sd-who {
@@ -455,16 +455,16 @@
 /* THE BAD BEAT. The hand the jackpot was paid for is the story of the rundown,
    and it was drawn identically to every other row. */
 .hdv__sd.is-badbeat {
-  background: rgba(240, 185, 11, 0.07);
-  box-shadow: inset 3px 0 0 #f0b90b;
+  background: rgba(116, 223, 255, 0.07);
+  box-shadow: inset 3px 0 0 var(--sd-ice-strong);
 }
 
 .hdv__sd-tag {
   margin-left: 6px;
   padding: 1px 5px;
   border-radius: 4px;
-  background: rgba(240, 185, 11, 0.2);
-  color: #f0b90b;
+  background: rgba(116, 223, 255, 0.2);
+  color: var(--sd-ice-strong);
   font-size: 8px;
   font-weight: 800;
   letter-spacing: 0.5px;
@@ -515,8 +515,8 @@
   margin-left: 6px;
   padding: 1px 5px;
   border-radius: 4px;
-  background: rgba(214, 173, 82, 0.16);
-  color: #d6ad52;
+  background: rgba(116, 223, 255, 0.16);
+  color: var(--sd-ice-strong);
   font-size: 8px;
   font-weight: 800;
   letter-spacing: 0.5px;
@@ -525,7 +525,7 @@
 }
 
 .hdv__cards .hdv-private {
-  outline: 1px dashed rgba(214, 173, 82, 0.55);
+  outline: 1px dashed rgba(116, 223, 255, 0.55);
   outline-offset: 1px;
   border-radius: 3px;
 }
@@ -549,7 +549,7 @@
 }
 
 .hdv__fact.is-you .hdv__fact-name {
-  color: #d6ad52;
+  color: var(--sd-ice-strong);
 }
 
 .hdv__fact-name {
@@ -576,8 +576,8 @@
 .hdv__allin {
   padding: 8px 10px 10px;
   border-radius: 8px;
-  background: rgba(214, 173, 82, 0.06);
-  border: 1px solid rgba(214, 173, 82, 0.28);
+  background: rgba(116, 223, 255, 0.06);
+  border: 1px solid rgba(116, 223, 255, 0.28);
 }
 
 .hdv__allin-grid {

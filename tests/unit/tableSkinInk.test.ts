@@ -14,7 +14,13 @@
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { bannedBand as lintBand, scanStylesheet } from '../../scripts/ci/check-table-skin-ink.mjs';
+import {
+  ARENA_TABLE_FILES,
+  ARTWORK_FILES,
+  BASELINE,
+  bannedBand as lintBand,
+  scanStylesheet,
+} from '../../scripts/ci/check-table-skin-ink.mjs';
 import {
   backdropAt,
   bannedBand,
@@ -82,6 +88,29 @@ describe('the stylesheet rules', () => {
       encoding: 'utf8',
     });
     expect(run.status, run.stderr).toBe(0);
+  });
+
+  it('freezes nothing: the baseline was cleared to zero on 2026-11-28', () => {
+    expect(BASELINE).toEqual({});
+  });
+
+  it('exempts the authentic Arena table by the owner order, and no UI stylesheet', () => {
+    for (const felt of [
+      'src/components/table/SeatSlot.css',
+      'src/components/table/PotDisplay.css',
+      'src/components/table/CommunityCards.css',
+    ])
+      expect(ARENA_TABLE_FILES[felt], felt).toMatch(/owner order 2026-11-27/);
+    for (const ui of [
+      'src/components/table/TournamentAnnouncementOverlay.css',
+      'src/components/table/HandDetailModal.css',
+      'src/components/handdetail/HandDetailView.css',
+      'src/components/table/TableChat.css',
+      'src/components/table/ActionPanel.css',
+    ]) {
+      expect(ARTWORK_FILES, ui).not.toHaveProperty([ui]);
+      expect(ARENA_TABLE_FILES, ui).not.toHaveProperty([ui]);
+    }
   });
 });
 

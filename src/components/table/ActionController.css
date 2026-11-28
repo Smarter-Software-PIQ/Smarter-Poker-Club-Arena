@@ -68,7 +68,7 @@
   font-family: 'Roboto Condensed', sans-serif;
   font-weight: 800;
   text-shadow: 0 1px 2px #050607;
-  text-transform: uppercase;
+  text-transform: none;
   transition:
     transform 100ms ease,
     opacity 100ms ease;

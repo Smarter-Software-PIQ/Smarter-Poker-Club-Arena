@@ -226,6 +226,38 @@ for (const vp of VIEWPORTS) {
 }
 
 /**
+ * Hand Detail's hand-number pill is one line on a phone (2026-11-28). At 393px
+ * the painted head's `width: 26% !important` squeezed "#3046089" into about
+ * 58px and it broke after "#30460". The pill now sizes to its number in the
+ * skin; it may ellipsize only when it truly cannot fit, which a seven-digit
+ * hand number on a 393px phone never needs.
+ */
+test('Hand Detail keeps the hand-number pill on one line at 393x852', async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: 393, height: 852 });
+  await mount(page, 'hand-detail');
+  const pill = page.locator('.hdm-console.sc--sd .sc__head .sc__pill').first();
+  await expect(pill).toBeVisible({ timeout: 15_000 });
+  await settle(page);
+  const m = await pill.evaluate((el) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const lines = new Set([...range.getClientRects()].map((r) => Math.round(r.top)));
+    const cs = getComputedStyle(el);
+    return {
+      text: (el.textContent ?? '').trim(),
+      lines: lines.size,
+      whiteSpace: cs.whiteSpace,
+      clipped: el.scrollWidth > el.clientWidth + 1,
+    };
+  });
+  expect(m.text).toBe('#3046089');
+  expect(m.lines, `"${m.text}" broke across ${m.lines} lines`).toBe(1);
+  expect(m.whiteSpace).toBe('nowrap');
+  expect(m.clipped, `"${m.text}" was ellipsized on a 393px phone`).toBe(false);
+});
+
+/**
  * THE GUARD CAN FAIL. The three regressions of the week of 2026-11-24, planted
  * into a live surface the way they arrived: gold from a skin-scoped rule,
  * uppercase from a shared console class, and #4a5462 ink on navy. If the audit
