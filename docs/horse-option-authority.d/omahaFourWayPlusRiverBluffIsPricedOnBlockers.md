@@ -40,6 +40,7 @@ Fixed harness (`server/scripts/horse-grade.ts`), base = the live switch rows of 
 - It changed no deal on any card run (one seed per card; the second seed and the over-folder and balanced cards were stopped as nothing was being measured): with three or more opponents the product of the folds does not clear the price in the harness, and the thin four-way cells sit at the anchor by design. No harm shown, no evidence of acting.
 - Flag-off: 0 differences in 28,000 decisions (head 3d86c8545b3f against main aa0d211cb689). Cost: the same law as the three-way option (ratio 1.03, limit 3).
 - Audited replay: 0 of 869 and 0 of 2,697 audited decisions change (rows below).
+- Real multiway river nodes (lane l9-zerobluff's replay tool, 823 recorded Horse river decisions with nothing to call, the deciding Horse's own cards only): 31 checks become bets (PLO5 22 with a person in the pot, PLO4 9): 23 air, 8 medium, 0 value-class. So it does act on real four-way pots where people's PLO5 cells hold data; the harness never reached such a spot. Its chips are unmeasured.
 
 ## Prior anchor
 

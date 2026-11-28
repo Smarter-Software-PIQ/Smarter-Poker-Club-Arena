@@ -48,7 +48,8 @@ Fixed harness (`server/scripts/horse-grade.ts`), base = the live switch rows of 
 - Flag-off: 0 differences in 28,000 decisions (`scripts/ops/horse-flag-off-check.sh origin/main HEAD --set full`, head 3d86c8545b3f against main aa0d211cb689).
 - Cost: `anOmahaMultiwayRiverBluffIsFast.law.test.ts` ratio 1.03 against the exact bins alone (limit 3); about 1.6 ms a decision where it applies. Not measured on 500 live spots: the shadow stage reads it.
 - Audited replay: 0 of 869 and 0 of 2,697 audited decisions change (rows below): the audited sets hold no evidence for or against.
-- Not measured: chips against real people (none has played PLO cash since the build); the lead's replay of the first build on 823 real multiway river nodes was not repeated on this head.
+- Real multiway river nodes (lane l9-zerobluff's replay tool and its 823 recorded Horse river decisions with nothing to call, the deciding Horse's own cards only; 297 Horse-only + 526 with a person; engine code of head 3d86c8545b3f): 71 checks become bets (PLO4 38, PLO5 33), against 200 for the first build of both fields together. By that lane's hand classes (own cards against random holdings): 47 air, 24 medium, 0 value-class (first build: 98 / 77 / 25). The medium ones are bluffs by this option's own test: the Horse beats under half of what each opponent folds. The counts say how often it acts, not what the bets win.
+- Not measured: chips against real people (none has played PLO cash since the build).
 
 ## Prior anchor
 
