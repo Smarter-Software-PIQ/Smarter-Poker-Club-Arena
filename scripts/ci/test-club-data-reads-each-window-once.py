@@ -373,6 +373,61 @@ try:
     run(psql("live"), window_fix, expect_fail="preimage changed")
     require(True, "private direct-access, original caller authorization and replay refusal retained")
 
+    # 20261116021023: the Chicago-basis screen reads a long window in one
+    # pass. 20261115034142 renamed the screen as installed (the text above) to
+    # ca_club_data_screen_chicago_basis behind a router; that rename and a
+    # stand-in router are made here, the new file replaces the reader through
+    # its own md5 guard, and every probe screen is the same jsonb after it.
+    CHI = "public.ca_club_data_screen_chicago_basis(uuid,date,date,text,text,text,integer)"
+    # Production's fact sources since 20261115145150 (every club reads its own
+    # records, horses included): the view and the window helper read the table
+    # as it is. Installed here from that file's own text.
+    own = (M / "20261115145150_every_club_reads_its_own_records_horses_included.sql").read_text()
+    view_sql = own[own.index("CREATE OR REPLACE VIEW public.ca_stats_club_data_fact_ct"):own.index("CREATE OR REPLACE VIEW public.ca_stats_club_member_daily_stats")]
+    helper_sql = own[own.index("CREATE OR REPLACE FUNCTION public.fn_ca_club_data_fact_window"):own.index("CREATE OR REPLACE FUNCTION public.fn_ca_stats_home_club")]
+    run(psql("live"), view_sql + helper_sql)
+    require(q("live", "SELECT md5(pg_get_viewdef('public.ca_stats_club_data_fact_ct'::regclass)) || '/' || "
+                      "md5(pg_get_functiondef('public.fn_ca_club_data_fact_window(uuid[],date,date)'::regprocedure))")
+            == "f3abab6fbfaa7383b78627b97b6b9b61/12c37b7a1b8ad13ea2dd5db59329ef78",
+            "the fact view and the window helper are production's (20261115145150)")
+    run(psql("live"), "ALTER FUNCTION public.ca_club_data_screen(uuid,date,date,text,text,text,integer) RENAME TO ca_club_data_screen_chicago_basis;\n"
+        "CREATE FUNCTION public.ca_club_data_screen(p_club_id uuid, p_start date DEFAULT NULL, p_end date DEFAULT NULL, "
+        "p_game text DEFAULT 'ALL', p_stakes text DEFAULT 'ALL', p_search text DEFAULT NULL, p_limit integer DEFAULT 200) "
+        "RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $f$ SELECT public.ca_club_data_screen_chicago_basis("
+        "p_club_id, p_start, p_end, p_game, p_stakes, p_search, p_limit) $f$;\n"
+        "GRANT EXECUTE ON FUNCTION public.ca_club_data_screen(uuid,date,date,text,text,text,integer) TO authenticated;")
+    require(q("live", f"SELECT md5(pg_get_functiondef('{CHI}'::regprocedure))") == "c16222f69900e75fb34c23a27bc96789",
+            "the screen as installed, under the name 20261115034142 gives it, is production's chicago-basis reader (the new file's preimage)")
+    long_probe = screen_probe + (
+        f"SELECT set_config('test.uid','{owner}',false);\n"
+        "SELECT ca_club_data_screen(c, CURRENT_DATE - 92, CURRENT_DATE, g, 'ALL', NULL, l) "
+        f"FROM unnest(ARRAY['{kings}'::uuid, 'a4143400-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', "
+        "'fade0000-0000-0000-0000-000000000001']) c, unnest(ARRAY['ALL', 'MTT', 'SNG', 'HOLDEM']) g, unnest(ARRAY[1, 200]) l ORDER BY c, g, l;\n")
+    long_before = normalize_screen_clocks(q("live", long_probe))
+    one_pass = (M / "20261116021023_club_data_chicago_screen_reads_long_windows_in_one_pass.sql").read_text()
+    run(psql("live", user="authenticator"), "SET ROLE authenticated;" + one_pass, expect_fail="maintained installer")
+    run(psql("live"), f"BEGIN; ALTER FUNCTION {CHI} SET work_mem='1MB';" + one_pass[one_pass.index("DO $guard$"):], expect_fail="preimage changed")
+    run(psql("live"), "BEGIN; CREATE OR REPLACE VIEW public.ca_stats_club_data_fact_ct WITH (security_invoker = true) AS "
+        "SELECT r.club_id, r.stat_date, r.kind, r.game_id, r.user_id, r.fee, r.buyins, r.cashouts, r.winnings, r.last_at, r.src "
+        "FROM public.ca_club_data_fact_ct r WHERE r.fee IS NOT NULL;" + one_pass[one_pass.index("DO $guard$"):], expect_fail="CLUB_DATA_FACT_SOURCES_CHANGED")
+    run(psql("live"), one_pass.replace("\nCOMMIT;\n", "\nROLLBACK;\n"))
+    require(q("live", f"SELECT md5(pg_get_functiondef('{CHI}'::regprocedure))") == "c16222f69900e75fb34c23a27bc96789",
+            "a rolled-back installation leaves the installed reader")
+    run(psql("live"), one_pass)
+    run(psql("live"), one_pass, expect_fail="already reads long windows in one pass")
+    long_after = normalize_screen_clocks(q("live", long_probe))
+    require(long_after == long_before,
+            "every probe screen is the same jsonb (KINGS, a horse club, an ordinary club, the union, NULL scope; plain, MTT, SNG, "
+            "Hold'em, small stakes, a search; 2, 14 and 93-day windows; limits 1, 100 and 200)"
+            + "".join(f"\nDIFF {i}:\n{b}\n{a}" for i, (b, a) in enumerate(zip(long_before, long_after)) if a != b)[:6000]
+            + ("" if len(long_after) == len(long_before) else f"\nLENGTHS {len(long_before)} {len(long_after)}"))
+    run(psql("live"), "BEGIN;" + poisoned + f"SELECT set_config('test.uid','{owner}',false); SELECT ca_club_data_screen('{kings}',CURRENT_DATE-27,CURRENT_DATE); ROLLBACK;")
+    require(True, "KINGS no longer reads the window through the full-window helper")
+    require(q("live", "SELECT p.provolatile::text || CASE WHEN p.prosecdef THEN 's' ELSE 'i' END || "
+                      f"(NOT has_function_privilege('authenticated', p.oid, 'execute'))::text FROM pg_proc p WHERE p.oid = '{CHI}'::regprocedure") == "sstrue",
+            "the replaced reader stays STABLE SECURITY DEFINER and is not callable around its router")
+    print("CHICAGO_SCREEN_MD5=" + q("live", f"SELECT md5(pg_get_functiondef('{CHI}'::regprocedure))"), flush=True)
+
 finally:
     if started:
         run([PG / "pg_ctl", "-D", data, "-m", "fast", "-w", "stop"])

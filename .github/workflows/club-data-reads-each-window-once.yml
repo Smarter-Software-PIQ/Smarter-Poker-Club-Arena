@@ -31,6 +31,8 @@ on:
       - supabase/migrations/20261115075440_club_data_history_load_reads_each_row_once.sql
       - supabase/migrations/20261115164547_club_data_union_screen_reads_the_window_twice_not_six_times.sql
       - supabase/migrations/20261115205153_club_data_union_screen_shows_each_club.sql
+      - supabase/migrations/20261116021023_club_data_chicago_screen_reads_long_windows_in_one_pass.sql
+      - supabase/migrations/20261115145150_every_club_reads_its_own_records_horses_included.sql
       - scripts/ci/club-data-accounting-seed.mjs
       - supabase/migrations/20261115015159_union_pnl_boundary_certificates_are_kept.sql
       - tests/fixtures/club-data-accounting/**
