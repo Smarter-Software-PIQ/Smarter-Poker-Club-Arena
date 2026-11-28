@@ -5170,6 +5170,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       omahaPeoplePriorCountsHiddenBets: true,
     },
   })),
+  // 2026-11-27 lead-9 lane RFQ (default OFF, PLO4/PLO5 cash): the heads-up river bettor's own river first-bet frequency
+  // as the prior of his shown record, on top of the people-measured facing-bet prior.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_river_bet_prior_reads_his_frequency`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaFacingBetEv: true,
+      omahaFacingBetPriorIsPeopleMeasured: true,
+      omahaRiverBetPriorReadsHisFrequency: true,
+    },
+    b: { omahaFacingBetEv: true, omahaFacingBetPriorIsPeopleMeasured: true },
+  })),
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_facing_bet_field_is_joint`,
     variant,

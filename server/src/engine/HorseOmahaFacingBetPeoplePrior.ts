@@ -36,6 +36,7 @@
 import { OMAHA_FACING_BET_PEOPLE_PRIOR_DATA } from './HorseOmahaFacingBetPeoplePrior.data.js';
 import { omahaBetSizeBucket } from './HorseOmahaFacingBetEv.js';
 import { omahaEquilibriumAnchor } from './HorseOmahaEquilibriumAnchor.js';
+import { omahaRiverFrequencyPrior } from './HorseOmahaRiverFrequencyPrior.js';
 import {
   omahaPeoplePriorHiddenCell,
   omahaPeoplePriorHiddenFraction,
@@ -68,6 +69,9 @@ export interface OmahaPeoplePriorInput {
   hidden?: OmahaPeoplePriorHiddenKey | null;
   /** omahaHiddenBetsArePricedAsGiveUps (with `hidden`, a turn bet): also return the give-up share (giveUp) */
   giveUps?: boolean;
+  /** omahaRiverBetPriorReadsHisFrequency (river bet only): his public heads-up unopened river first-bet record; the
+   *  non-value share it implies replaces people's as the prior mean of his shown record (absent / null: unchanged) */
+  frequency?: { bets: number; opps: number } | null;
 }
 export interface OmahaPeoplePriorShare {
   /** the non-value share priced */
@@ -179,14 +183,17 @@ function omahaPeoplePriorBlend(cell: Cell, balanced: number): number {
 /** Step 1: his not-value rate in the record's own unit over people's rate in that unit (1 with no record). */
 function omahaPeoplePriorRecordRatio(
   rec: { shown: number; value: number } | null,
-  pNT: number | null
+  pNT: number | null,
+  priorMean?: number
 ): { ratio: number; shown: number } {
   const shown = rec && pNT !== null && Number.isFinite(rec.shown) && rec.shown > 0 ? rec.shown : 0;
-  if (!(shown > 0)) return { ratio: 1, shown: 0 };
+  // omahaRiverBetPriorReadsHisFrequency: the prior mean of his record is his frequency's share, not people's
+  const m = priorMean !== undefined && pNT !== null ? priorMean : pNT;
+  if (!(shown > 0)) return { ratio: m !== null && pNT !== null ? m / pNT : 1, shown: 0 };
   const value = Math.max(0, Math.min(shown, Number.isFinite(rec!.value) ? rec!.value : 0));
   return {
     ratio:
-      (OMAHA_PEOPLE_PRIOR_RECORD_BETS * pNT! + (shown - value)) /
+      (OMAHA_PEOPLE_PRIOR_RECORD_BETS * m! + (shown - value)) /
       (OMAHA_PEOPLE_PRIOR_RECORD_BETS + shown) /
       pNT!,
     shown,
@@ -228,7 +235,11 @@ export function omahaPeoplePriorShare(input: OmahaPeoplePriorInput): OmahaPeople
     input.multiway,
     input.hidden
   );
-  const { ratio, shown } = omahaPeoplePriorRecordRatio(rec, pNT);
+  const freq =
+    input.frequency && input.street === 'river' && !input.isRaise
+      ? omahaRiverFrequencyPrior(input.frequency, pNT)
+      : null;
+  const { ratio, shown } = omahaPeoplePriorRecordRatio(rec, pNT, freq ? freq.nonValue : undefined);
   const share = clamp(prior * ratio);
   let regions: { core: number; middle: number; bottom: number } | null = null;
   if (base) {
