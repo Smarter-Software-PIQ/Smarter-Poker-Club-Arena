@@ -24,6 +24,9 @@ type LinkedConsole = Readonly<{
   relativeUrl: string;
   heading: string;
   root: string;
+  /** #SmarterDesign (Dan 2026-11-27): a routed page section prints in the
+   *  arena workspace's thin chrome case, not the painted console. */
+  chassis?: 'arena';
 }>;
 
 const LINKED_CONSOLES: readonly LinkedConsole[] = [
@@ -32,6 +35,7 @@ const LINKED_CONSOLES: readonly LinkedConsole[] = [
     relativeUrl: `clubs/${encodeURIComponent(CLUB_ID)}/disputes`,
     heading: 'Club Disputes',
     root: '.dispute-management-page',
+    chassis: 'arena',
   },
   {
     label: 'Rate Audit Trail',
@@ -68,6 +72,7 @@ const LINKED_CONSOLES: readonly LinkedConsole[] = [
     relativeUrl: `clubs/${encodeURIComponent(CLUB_ID)}/financials`,
     heading: 'Financials',
     root: '.financials-page',
+    chassis: 'arena',
   },
 ] as const;
 
@@ -166,6 +171,17 @@ async function expectPaintedConsole(root: Locator): Promise<void> {
   expect(background).toContain('/assets/club-buttons/console/');
 }
 
+/** The arena chrome case: its rim is the chrome-case art laid by border-image. */
+async function expectArenaCase(root: Locator): Promise<void> {
+  const page = root.locator('.arena-case:visible').first();
+  await expect(page).toBeVisible();
+  const rim = await page.evaluate(
+    (element) => getComputedStyle(element, '::before').borderImageSource
+  );
+  expect(rim).toContain('chrome-case');
+  await expect(root.locator('.sc__head:visible')).toHaveCount(0);
+}
+
 async function expectNoRawBackendCopy(root: Locator): Promise<void> {
   const copy = await root.evaluate((element) => (element as HTMLElement).innerText);
   expect(copy).not.toMatch(UUID_IN_COPY);
@@ -192,7 +208,7 @@ async function expectKeyboardEntry(root: Locator): Promise<void> {
 async function expectMobileConsoleQuality(
   page: Page,
   rootSelector: string,
-  { axe = true }: { axe?: boolean } = {}
+  { axe = true, chassis }: { axe?: boolean; chassis?: 'arena' } = {}
 ): Promise<void> {
   const root = await visibleRoot(page, rootSelector);
   expect(await page.evaluate(() => window.innerWidth)).toBe(393);
@@ -204,7 +220,8 @@ async function expectMobileConsoleQuality(
   expect(
     await root.evaluate((element) => element.scrollWidth - element.clientWidth)
   ).toBeLessThanOrEqual(1);
-  await expectPaintedConsole(root);
+  if (chassis === 'arena') await expectArenaCase(root);
+  else await expectPaintedConsole(root);
   await expectNoRawBackendCopy(root);
   await expectTouchSafeControls(root);
   await expectKeyboardEntry(root);
@@ -419,7 +436,7 @@ test.describe('Financial Admin production console certificate', () => {
       await test.step(route.label, async () => {
         await openConsole(page, route.relativeUrl, route.heading, route.root, testInfo);
         await expectLinkedConsoleOutcome(page, route);
-        await expectMobileConsoleQuality(page, route.root);
+        await expectMobileConsoleQuality(page, route.root, { chassis: route.chassis });
       });
     }
   });

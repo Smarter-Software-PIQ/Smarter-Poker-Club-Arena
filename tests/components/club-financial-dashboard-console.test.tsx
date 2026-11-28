@@ -168,6 +168,43 @@ vi.mock('../../src/components/console/SpadeConsole', () => ({
     </section>
   ),
 }));
+// #SmarterDesign (2026-11-27): the consoles print through ClubPageSection's arena
+// case; the same stand-in keeps this test about the figures, not the chrome.
+vi.mock('../../src/components/club/ClubPageSection', () => ({
+  ClubPageSection: ({
+    title,
+    pill,
+    plates,
+    children,
+  }: {
+    title: string;
+    pill?: string;
+    plates?: {
+      secondary?: { label: string; onClick?: () => void; disabled?: boolean };
+      primary?: { label: string; onClick?: () => void; disabled?: boolean };
+    };
+    children: React.ReactNode;
+  }) => (
+    <section aria-label={title}>
+      {pill && <span>{pill}</span>}
+      {children}
+      {plates?.secondary && (
+        <button
+          type="button"
+          onClick={plates.secondary.onClick}
+          disabled={plates.secondary.disabled}
+        >
+          {plates.secondary.label}
+        </button>
+      )}
+      {plates?.primary && (
+        <button type="button" onClick={plates.primary.onClick} disabled={plates.primary.disabled}>
+          {plates.primary.label}
+        </button>
+      )}
+    </section>
+  ),
+}));
 vi.mock('recharts', () => ({
   ResponsiveContainer: ({ children }: { children: React.ReactNode }) => children,
   AreaChart: ({ children }: { children: React.ReactNode }) => children,
@@ -181,6 +218,7 @@ vi.mock('recharts', () => ({
 
 import ClubFinancialDashboard from '../../src/components/dashboard/ClubFinancialDashboard';
 import { parseClubFinancialsPayload } from '../../src/utils/clubFinancialsPayload';
+import { moneyFigures } from '../helpers/moneyFigures';
 
 type InitialSnapshot = NonNullable<
   React.ComponentProps<typeof ClubFinancialDashboard>['initialSnapshot']
@@ -369,5 +407,26 @@ describe('Club Financial Dashboard console and truth boundary', () => {
     expect(source).not.toMatch(/[⚙⚠]/u);
     expect(styles).not.toContain(':hover');
     expect(styles).not.toContain('linear-gradient');
+  });
+});
+
+describe('every money figure is pinned before its frame moves (2026-11-27)', () => {
+  it('prints the same figures and hooks, in the same order', async () => {
+    const view = mount();
+    await screen.findByText('1,250');
+    expect(screen.getAllByText('700')).toHaveLength(2);
+    expect(moneyFigures(view.container)).toMatchInlineSnapshot(`
+      {
+        "figures": [
+          "1,250",
+          "700",
+          "700",
+          "0",
+          "0",
+          "4",
+        ],
+        "hooks": [],
+      }
+    `);
   });
 });

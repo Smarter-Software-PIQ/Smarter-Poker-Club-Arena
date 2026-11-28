@@ -10,7 +10,13 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { SpadeConsole } from '../console/SpadeConsole';
+/* #SmarterDesign (Dan 2026-11-27): "NO DO NOT USE THOSE BULKY FRAMES, THATS
+   THE OLD STYLE... USE THE #SMARTERDESIGN STYLE FOR THESE." Printed only on
+   arena workspace pages, so every console is the thin chrome case. Frame only:
+   every figure, format and hook is unchanged (pinned by its test). */
+import { ClubPageSection as SpadeConsole } from '../club/ClubPageSection';
+import '../console/SpadeConsole.css';
+import '../lobby/ArenaWorkspace.css';
 import { supabase } from '../../lib/supabase';
 import { masterBus } from '../../core/MasterBus';
 import { isAuthzError } from '../../utils/clubDashboard';
@@ -242,6 +248,7 @@ export const ClubFinancialDashboard = ({
     return (
       <div className="cfd">
         <SpadeConsole
+          arena
           family="spade"
           crest="spade"
           eyebrow="Club Financials"
@@ -262,6 +269,7 @@ export const ClubFinancialDashboard = ({
     return (
       <div className="cfd">
         <SpadeConsole
+          arena
           family="spade"
           crest="spade"
           eyebrow="Club Financials"
@@ -282,6 +290,7 @@ export const ClubFinancialDashboard = ({
     return (
       <div className="cfd">
         <SpadeConsole
+          arena
           family="spade"
           crest="spade"
           eyebrow="Club Financials"
@@ -306,6 +315,7 @@ export const ClubFinancialDashboard = ({
   return (
     <div className="cfd">
       <SpadeConsole
+        arena
         family="spade"
         crest="spade"
         eyebrow="Club Financials"
@@ -412,6 +422,7 @@ export const ClubFinancialDashboard = ({
 
       {reading.financials.union_id ? (
         <SpadeConsole
+          arena
           family="spade"
           crest="spade"
           eyebrow="Union Treasury"
@@ -443,6 +454,7 @@ export const ClubFinancialDashboard = ({
         </SpadeConsole>
       ) : (
         <SpadeConsole
+          arena
           family="spade"
           crest="spade"
           eyebrow="Server Guarded"
@@ -480,6 +492,7 @@ export const ClubFinancialDashboard = ({
 
       {canManageAgents ? (
         <SpadeConsole
+          arena
           family="spade"
           crest="spade"
           eyebrow="Selected Club"
@@ -501,6 +514,7 @@ export const ClubFinancialDashboard = ({
         </SpadeConsole>
       ) : (
         <SpadeConsole
+          arena
           family="spade"
           crest="spade"
           eyebrow="Selected Club"
@@ -523,6 +537,7 @@ export const ClubFinancialDashboard = ({
       )}
 
       <SpadeConsole
+        arena
         family="spade"
         crest="spade"
         eyebrow="Selected Club"

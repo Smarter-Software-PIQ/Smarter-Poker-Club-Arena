@@ -29,7 +29,14 @@
  * the page they already open, out of rows the games already wrote.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { SpadeConsole, type ConsoleInk } from '../console/SpadeConsole';
+import { type ConsoleInk } from '../console/SpadeConsole';
+/* #SmarterDesign (Dan 2026-11-27): "NO DO NOT USE THOSE BULKY FRAMES, THATS
+   THE OLD STYLE... USE THE #SMARTERDESIGN STYLE FOR THESE." The money and the
+   room print in the arena workspace's thin chrome case, like the rest of both
+   operations pages. Frame only: every figure, format and hook is unchanged. */
+import { ClubPageSection as SpadeConsole } from './ClubPageSection';
+import '../console/SpadeConsole.css';
+import '../lobby/ArenaWorkspace.css';
 import DiamondGamesService, {
   type GamePnl,
   type GamePlayers,
@@ -156,6 +163,7 @@ export default function DiamondGamesMoney({ clubId }: { clubId: string | null })
   return (
     <>
       <SpadeConsole
+        arena
         eyebrow="Diamonds In, Chips Out"
         title="The Money"
         pill={day ? (day.net_chips >= 0 ? 'Up Today' : 'Down Today') : 'No Rounds Yet'}
@@ -227,6 +235,7 @@ export default function DiamondGamesMoney({ clubId }: { clubId: string | null })
       </SpadeConsole>
 
       <SpadeConsole
+        arena
         eyebrow="Before It Stops"
         title="The Room"
         pill={STATE_WORD[state]}
@@ -308,6 +317,7 @@ export default function DiamondGamesMoney({ clubId }: { clubId: string | null })
       </SpadeConsole>
 
       <SpadeConsole
+        arena
         eyebrow="Today"
         title="Who Is Playing"
         pill={`${roster.length}`}

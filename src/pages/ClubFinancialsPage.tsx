@@ -74,7 +74,13 @@ import WalletCashierModal from '../components/wallet/WalletCashierModal';
 import { DEFAULT_CASHIER_WALLET } from '../components/wallet/cashierModes';
 import PlayerWalletModal from '../components/wallet/PlayerWalletModal';
 import StandardContentLayout from '../components/layouts/StandardContentLayout';
-import { SpadeConsole, type ConsoleInk } from '../components/console/SpadeConsole';
+import { type ConsoleInk } from '../components/console/SpadeConsole';
+/* #SmarterDesign (Dan 2026-11-27): the page's own consoles print in the thin
+   chrome case. Frame only: every figure's markup, format and hook is
+   unchanged, and the embedded dashboards keep their own consoles. */
+import { ClubPageSection as SpadeConsole } from '../components/club/ClubPageSection';
+import '../components/console/SpadeConsole.css';
+import '../components/lobby/ArenaWorkspace.css';
 import './ClubFinancialsPage.css';
 import { isUUID } from '../utils/clubIdResolver';
 import { isAuthzError } from '../utils/clubDashboard';
@@ -430,8 +436,9 @@ export default function ClubFinancialsPage() {
 
   if (notFound) {
     return (
-      <StandardContentLayout className="financials-page">
+      <StandardContentLayout className="financials-page arena-workspace">
         <SpadeConsole
+          arena
           className="cf-console"
           family="spade"
           eyebrow="Club Arena"
@@ -455,8 +462,9 @@ export default function ClubFinancialsPage() {
 
   if (denied) {
     return (
-      <StandardContentLayout className="financials-page">
+      <StandardContentLayout className="financials-page arena-workspace">
         <SpadeConsole
+          arena
           className="cf-console"
           family="spade"
           eyebrow="Club Arena"
@@ -482,8 +490,9 @@ export default function ClubFinancialsPage() {
 
   if (loading && !data) {
     return (
-      <StandardContentLayout className="financials-page">
+      <StandardContentLayout className="financials-page arena-workspace">
         <SpadeConsole
+          arena
           className="cf-console"
           family="spade"
           aria-busy
@@ -503,8 +512,9 @@ export default function ClubFinancialsPage() {
 
   if (loadError && !data) {
     return (
-      <StandardContentLayout className="financials-page">
+      <StandardContentLayout className="financials-page arena-workspace">
         <SpadeConsole
+          arena
           className="cf-console"
           family="spade"
           eyebrow="Club Arena"
@@ -569,23 +579,28 @@ export default function ClubFinancialsPage() {
     : [];
 
   return (
-    <StandardContentLayout className="financials-page">
+    <StandardContentLayout className="financials-page arena-workspace">
       {/* Real-Time Wallet Overview */}
       {clubId && user?.id && (
-        <DynamicWallet
-          userId={user.id}
-          clubId={clubId}
-          variant="club"
-          // Dan 2026-08-23: role decides the rows. Club Bank, and the cashier
-          // behind it, are owner / co-owner / admin / super agent only.
-          role={userRole || 'player'}
-          onBuyDiamonds={() => navigate(withClubContext('/vip', clubId))}
-          onOpenPlayerWallet={() => setShowPlayerWallet(true)}
-          onOpenPromoWallet={() => setActiveCashier('promo_wallet')}
-          onOpenAgentWallet={() => setActiveCashier('agent_wallet')}
-          onOpenClubBank={() => setActiveCashier('club_bank')}
-          onOpenBBJ={() => navigate(`/clubs/${clubId}/jackpot`)}
-        />
+        /* #SmarterDesign: the wallet panel sits in the thin chrome case. Its
+           rows are the wallet's own approved art (the same panel the lobby and
+           the wallet page show), so the component and its props are unchanged. */
+        <div className="arena-case cf-wallet">
+          <DynamicWallet
+            userId={user.id}
+            clubId={clubId}
+            variant="club"
+            // Dan 2026-08-23: role decides the rows. Club Bank, and the cashier
+            // behind it, are owner / co-owner / admin / super agent only.
+            role={userRole || 'player'}
+            onBuyDiamonds={() => navigate(withClubContext('/vip', clubId))}
+            onOpenPlayerWallet={() => setShowPlayerWallet(true)}
+            onOpenPromoWallet={() => setActiveCashier('promo_wallet')}
+            onOpenAgentWallet={() => setActiveCashier('agent_wallet')}
+            onOpenClubBank={() => setActiveCashier('club_bank')}
+            onOpenBBJ={() => navigate(`/clubs/${clubId}/jackpot`)}
+          />
+        </div>
       )}
       {clubId && (
         <>
@@ -606,6 +621,7 @@ export default function ClubFinancialsPage() {
 
       {/* ── The window: three lit words and the export ───────────────── */}
       <SpadeConsole
+        arena
         className="cf-console"
         family="spade"
         aria-busy={loading || undefined}
@@ -617,7 +633,7 @@ export default function ClubFinancialsPage() {
       >
         {/* The master paints no tab, so nothing here draws one: the three
             windows are lit words cut into the glass. */}
-        <div className="cf-rail" role="tablist" aria-label="Reporting Window">
+        <div className="cf-rail arena-switch" role="tablist" aria-label="Reporting Window">
           {(['week', 'month', 'all'] as const).map((p) => (
             <button
               key={p}
@@ -656,6 +672,7 @@ export default function ClubFinancialsPage() {
           figures below it. Say which, rather than letting the picture imply
           the numbers. */}
       <SpadeConsole
+        arena
         className="cf-console"
         family="spade"
         eyebrow="Club Arena"
@@ -673,6 +690,7 @@ export default function ClubFinancialsPage() {
       {/* ── Summary: eight figures as rows on the glass ──────────────── */}
       {totals && (
         <SpadeConsole
+          arena
           className="cf-console"
           family="spade"
           eyebrow={rangeNote || 'Club Arena'}
@@ -708,6 +726,7 @@ export default function ClubFinancialsPage() {
       {/* Where the rake came from */}
       {data && data.by_table.length > 0 && (
         <SpadeConsole
+          arena
           className="cf-console"
           family="spade"
           eyebrow="Club Arena"
@@ -734,8 +753,9 @@ export default function ClubFinancialsPage() {
       {/* Club Financial Dashboard (club staff). Money-changing work stays in
           the maintained Club Bank Cashier and Agent Management surfaces. */}
       {clubId && (isClubStaff(userRole) || userRole === 'super_agent') && (
-        /* ClubFinancialDashboard owns its approved painted consoles. This
-           embed supplies layout room only, so no frame sits on its frames. */
+        /* ClubFinancialDashboard prints its own consoles (the arena chrome
+           case). This embed supplies layout room only, so no frame sits on
+           its frames. */
         <section className="cf-embed">
           <ClubFinancialDashboard
             clubId={clubId}
@@ -748,12 +768,13 @@ export default function ClubFinancialsPage() {
       {/* Rake Analytics Reports */}
       {clubId && (
         <section className="cf-embed">
-          <RakeReports clubId={clubId} initialSnapshot={embeddedWeekSnapshot} />
+          <RakeReports arena clubId={clubId} initialSnapshot={embeddedWeekSnapshot} />
         </section>
       )}
 
       {/* ── Recent raked hands ───────────────────────────────────────── */}
       <SpadeConsole
+        arena
         className="cf-console"
         family="spade"
         eyebrow="Club Arena"
@@ -810,6 +831,7 @@ export default function ClubFinancialsPage() {
           movements under the heading "Club Chip Audit Trail". */}
       {resolvedClubId && (
         <SpadeConsole
+          arena
           className="cf-console"
           family="spade"
           eyebrow="Club Arena"
@@ -825,7 +847,12 @@ export default function ClubFinancialsPage() {
           gate as the ledger above (ca_can_view_club_finances). */}
       {resolvedClubId && isUUID(resolvedClubId) && (
         <section className="cf-embed">
-          <ChipStatement scope="club_treasury" clubId={resolvedClubId} title="Treasury Statement" />
+          <ChipStatement
+            scope="club_treasury"
+            clubId={resolvedClubId}
+            title="Treasury Statement"
+            arena
+          />
         </section>
       )}
 

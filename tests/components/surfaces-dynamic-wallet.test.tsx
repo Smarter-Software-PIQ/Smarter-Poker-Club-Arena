@@ -112,6 +112,7 @@ vi.mock('../../src/lib/supabase', () => {
 });
 
 import DynamicWallet from '../../src/components/wallet/DynamicWallet';
+import { moneyFigures } from '../helpers/moneyFigures';
 
 const base = { userId: '11111111-1111-4111-8111-111111111111', roleReady: true };
 const microtasks = () =>
@@ -380,5 +381,36 @@ describe('an unresolvable club id', () => {
     expect(fx.panelCalls).toBeGreaterThan(0);
     expect(badge(view.container)).toBeNull();
     expect(text(view.container, 'club_bank')).toBe('777,000.00');
+  });
+});
+
+describe('every money figure is pinned before its frame moves (2026-11-27)', () => {
+  it('prints the same figures and hooks on the club panel the Financials page shows', async () => {
+    const view = render(<DynamicWallet {...base} role="owner" clubId={CLUB_A} variant="club" />);
+    await flush();
+    expect(text(view.container, 'club_bank')).toBe('777,000.00');
+    expect(moneyFigures(view.container)).toMatchInlineSnapshot(`
+      {
+        "figures": [
+          "9,000.00",
+          "Diamond Wallet 8. Club Bank 777,000.00. Promo Wallet 0.00. Agent Wallet 0.00. Player Wallet 900.00. Rake Treasury Unavailable. BBJ Backup Wallet 0.00.",
+          "8",
+          "777,000.00",
+          "0.00",
+          "0.00",
+          "900.00",
+          "0.00",
+        ],
+        "hooks": [
+          "data-wallet-key=diamonds",
+          "data-wallet-key=club_bank",
+          "data-wallet-key=promo_wallet",
+          "data-wallet-key=agent_wallet",
+          "data-wallet-key=player_wallet",
+          "data-wallet-key=rake_treasury",
+          "data-wallet-key=backup_bbj",
+        ],
+      }
+    `);
   });
 });
