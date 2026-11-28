@@ -137,11 +137,19 @@ describe('controls wear the page ink, not browser defaults', () => {
   });
 
   it("the union schedule card's button has a fill that exists at runtime", () => {
-    const join = rule(read('src/pages/UnionDetailPage.module.css'), '.joinButton');
     // --accent / --accent-dark are defined only in globals.css, which main.tsx
-    // does not import: a background built from them paints nothing.
-    expect(join).not.toMatch(/var\(--accent(-dark)?\)/);
-    expect(join).toMatch(/color:\s*#f4f7fb/);
+    // does not import: a background built from them paints nothing. Since
+    // #SmarterDesign batch U1 (2026-11-28) the schedule keys are chrome keys
+    // in an arena switch, whose fill is the workspace's own gradient.
+    const page = read('src/pages/UnionDetailPage.tsx');
+    expect(page).not.toContain('styles.joinButton');
+    expect(page).toContain('<div className="arena-switch arena-ops-keys">');
+    const sheet = read('src/components/lobby/ArenaWorkspace.css');
+    const at = sheet.indexOf('.arena-workspace .arena-switch > :is(button, a),');
+    expect(at).toBeGreaterThanOrEqual(0);
+    const key = sheet.slice(at, sheet.indexOf('}', at));
+    expect(key).not.toMatch(/var\(--accent(-dark)?\)/);
+    expect(key).toMatch(/background:\s*linear-gradient\(#152639/);
   });
 
   it('the refusals under the tournament form keep their red', () => {

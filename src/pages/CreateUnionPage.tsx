@@ -2,12 +2,19 @@
  * ═══════════════════════════════════════════════════════════════════════════════
  *  CLUB ENGINE — Create Union Page
  * Multi-club network creation wizard
+ *
+ * #SmarterDesign (batch U1, 2026-11-28): the arena workspace. The chrome mast
+ * heads the wizard with its live line under it; the steps are chrome tiles
+ * (the open step lit), each step a chrome case with its fields in dark wells
+ * and its switches on chrome rows, the review on readout tiles, and the
+ * navigation chrome keys with the forward action lit. Every printed word and
+ * control is pinned by tests/components/createUnionPageIsPinned.test.tsx.
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import styles from './CreateUnionPage.module.css';
+import './CreateUnionPage.css';
 import { supabase } from '../lib/supabase';
 import { unionApi } from '../services/UnionApiService';
 import { useAuthUser } from '../hooks/useAuthUser';
@@ -17,7 +24,23 @@ import { sanitizeInput } from '../utils/sanitizeInput';
 import { reportError } from '../utils/errorReporter';
 
 import { safeErrorMessage } from '../utils/safeErrorMessage';
-import CasinoSurfaceHeader from '../components/rewards/RewardsSurfaceHeader';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import PageBar from '../components/help/PageBar';
+import { formatPopupText } from '../utils/popupStyle';
+
+const FORGE_SUMMARY =
+  'Configure A Governed Club Network, Revenue Rules, And Shared Features Through The Existing Server-Authorized Creation Workflow.';
+
+function ForgeMast() {
+  return (
+    <ArenaWorkspaceHeader
+      area="settings"
+      title="Forge A Union"
+      context="Union Network"
+      summary={FORGE_SUMMARY}
+    />
+  );
+}
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -106,16 +129,18 @@ export default function CreateUnionPage() {
   // Show "create club first" message if user doesn't own a club
   if (!checkingClubs && !ownsClub) {
     return (
-      <div className={styles.page}>
-        <div className={styles.container}>
-          <div className={styles.noClubMessage}>
-            <span className={styles.noClubIcon}></span>
-            <h2>Create A Club First</h2>
-            <p>You Need To Own At Least One Club Before You Can Create A Union.</p>
-            <button className={styles.createClubBtn} onClick={() => navigate('/?create=club')}>
-              Create Your First Club
-            </button>
-          </div>
+      <div className="create-union arena-workspace">
+        <ForgeMast />
+        <div className="create-union__body">
+          <section className="arena-case arena-ops-case create-union__case">
+            <h2 className="arena-section-title">Create A Club First</h2>
+            <p className="arena-ops-copy">
+              You Need To Own At Least One Club Before You Can Create A Union.
+            </p>
+            <div className="arena-switch arena-ops-keys arena-ops-primary">
+              <button onClick={() => navigate('/?create=club')}>Create Your First Club</button>
+            </div>
+          </section>
         </div>
       </div>
     );
@@ -187,44 +212,48 @@ export default function CreateUnionPage() {
   };
 
   return (
-    <div className={styles.page}>
-      <div className={styles.container}>
-        <CasinoSurfaceHeader
-          title="Forge A Union"
-          description="Configure A Governed Club Network, Revenue Rules, And Shared Features Through The Existing Server-Authorized Creation Workflow."
-          status="UNION FORGE // SECURE"
-          metrics={[
-            { label: 'Step', value: `${step} / ${totalSteps}`, tone: 'attention' },
-            { label: 'Club Authority', value: ownsClub ? 'Verified' : 'Checking', tone: 'live' },
-          ]}
-        />
-
+    <div className="create-union arena-workspace">
+      <ForgeMast />
+      <PageBar
+        titleAs={false}
+        showHelp={false}
+        title="Forge A Union"
+        status={formatPopupText('SECURE')}
+        statusTone="default"
+        metrics={[
+          { label: 'Step', value: `${step} / ${totalSteps}`, tone: 'attention' },
+          { label: 'Club Authority', value: ownsClub ? 'Verified' : 'Checking', tone: 'live' },
+        ]}
+      />
+      <div className="create-union__body">
         {/* Progress */}
-        <div className={styles.progress}>
+        <div className="create-union__steps">
           {[1, 2, 3].map((s) => (
             <div
               key={s}
-              className={`${styles.progressStep} ${s === step ? styles.active : ''} ${s < step ? styles.completed : ''}`}
+              className={`create-union__step arena-meter${s === step ? ' create-union__step--open' : ''}${
+                s < step ? ' create-union__step--done' : ''
+              }`}
             >
-              <span className={styles.progressDot}>{s < step ? '' : s}</span>
-              <span className={styles.progressLabel}>
+              <span className="create-union__step-dot">{s < step ? '' : s}</span>
+              <span className="create-union__step-label">
                 {s === 1 && 'Basics'}
                 {s === 2 && 'Revenue'}
                 {s === 3 && 'Review'}
               </span>
             </div>
           ))}
-          <div className={styles.progressLine}>
-            <div
-              className={styles.progressFill}
-              style={{ width: `${((step - 1) / (totalSteps - 1)) * 100}%` }}
-            />
-          </div>
+        </div>
+        <div className="create-union__track">
+          <div
+            className="create-union__track-fill"
+            style={{ width: `${((step - 1) / (totalSteps - 1)) * 100}%` }}
+          />
         </div>
 
         {/* Step Content */}
         <div
-          className={styles.stepContainer}
+          className="create-union__stage"
           style={{
             opacity: stepVisible ? 1 : 0,
             transform: stepVisible ? 'translateY(0)' : 'translateY(12px)',
@@ -232,15 +261,15 @@ export default function CreateUnionPage() {
           }}
         >
           {step === 1 && (
-            <div className={styles.stepContent}>
-              <h2> Union Basics</h2>
-              <p className={styles.stepDesc}>Create A Network Of Clubs With Shared Resources.</p>
+            <div className="arena-case arena-ops-case create-union__case">
+              <h2 className="arena-section-title"> Union Basics</h2>
+              <p className="arena-ops-copy">Create A Network Of Clubs With Shared Resources.</p>
 
-              <div className={styles.formGroup}>
+              <div className="create-union__field">
                 <label>Union Name *</label>
                 <input
                   type="text"
-                  className={styles.textInput}
+                  className="arena-ops-well create-union__input"
                   placeholder="Enter Union Name..."
                   value={form.name}
                   onChange={(e) => updateForm({ name: e.target.value })}
@@ -248,10 +277,10 @@ export default function CreateUnionPage() {
                 />
               </div>
 
-              <div className={styles.formGroup}>
+              <div className="create-union__field">
                 <label>Description</label>
                 <textarea
-                  className={styles.textArea}
+                  className="arena-ops-well create-union__input"
                   placeholder="Describe Your Union..."
                   value={form.description}
                   onChange={(e) => updateForm({ description: e.target.value })}
@@ -260,13 +289,13 @@ export default function CreateUnionPage() {
                 />
               </div>
 
-              <label className={styles.checkbox}>
+              <label className="arena-ledger-row create-union__switch">
                 <input
                   type="checkbox"
                   checked={form.isPublic}
                   onChange={(e) => updateForm({ isPublic: e.target.checked })}
                 />
-                <span className={styles.checkmark} aria-hidden="true" />
+                <span className="create-union__mark" aria-hidden="true" />
                 <div>
                   <strong>Public Union</strong>
                   <p>Other Clubs Can Discover And Request To Join</p>
@@ -276,17 +305,17 @@ export default function CreateUnionPage() {
           )}
 
           {step === 2 && (
-            <div className={styles.stepContent}>
-              <h2> Revenue & Features</h2>
-              <p className={styles.stepDesc}>Configure Profit Sharing And Shared Features.</p>
+            <div className="arena-case arena-ops-case create-union__case">
+              <h2 className="arena-section-title"> Revenue & Features</h2>
+              <p className="arena-ops-copy">Configure Profit Sharing And Shared Features.</p>
 
-              <div className={styles.settingsGrid}>
-                <div className={styles.formGroup}>
+              <div className="create-union__grid">
+                <div className="create-union__field">
                   <label>Union Revenue Share</label>
-                  <div className={styles.inputWithUnit}>
+                  <div className="create-union__unit">
                     <input
                       type="number"
-                      className={styles.numberInput}
+                      className="arena-ops-well create-union__input"
                       value={form.revenueSharePercent}
                       onChange={(e) => updateForm({ revenueSharePercent: Number(e.target.value) })}
                       min={0}
@@ -294,13 +323,13 @@ export default function CreateUnionPage() {
                     />
                     <span>%</span>
                   </div>
-                  <span className={styles.hint}>% Of Club Rake To Union</span>
+                  <span className="create-union__hint">% Of Club Rake To Union</span>
                 </div>
 
-                <div className={styles.formGroup}>
+                <div className="create-union__field">
                   <label>Settlement Day</label>
                   <select
-                    className={styles.select}
+                    className="arena-ops-well create-union__input"
                     value={form.settlementDay}
                     onChange={(e) =>
                       updateForm({
@@ -314,12 +343,12 @@ export default function CreateUnionPage() {
                   </select>
                 </div>
 
-                <div className={styles.formGroup}>
+                <div className="create-union__field">
                   <label>Grace Period</label>
-                  <div className={styles.inputWithUnit}>
+                  <div className="create-union__unit">
                     <input
                       type="number"
-                      className={styles.numberInput}
+                      className="arena-ops-well create-union__input"
                       value={form.gracePeriodDays}
                       onChange={(e) => updateForm({ gracePeriodDays: Number(e.target.value) })}
                       min={1}
@@ -330,27 +359,27 @@ export default function CreateUnionPage() {
                 </div>
               </div>
 
-              <div className={styles.togglesContainer}>
-                <label className={styles.toggle}>
+              <div className="create-union__switches">
+                <label className="arena-ledger-row create-union__switch">
                   <input
                     type="checkbox"
                     checked={form.sharedPlayerPool}
                     onChange={(e) => updateForm({ sharedPlayerPool: e.target.checked })}
                   />
-                  <span className={styles.toggleSlider} aria-hidden="true" />
+                  <span className="create-union__mark" aria-hidden="true" />
                   <div>
                     <strong>Shared Player Pool</strong>
                     <p>Players Can Move Between Clubs In The Union</p>
                   </div>
                 </label>
 
-                <label className={styles.toggle}>
+                <label className="arena-ledger-row create-union__switch">
                   <input
                     type="checkbox"
                     checked={form.crossClubTournaments}
                     onChange={(e) => updateForm({ crossClubTournaments: e.target.checked })}
                   />
-                  <span className={styles.toggleSlider} aria-hidden="true" />
+                  <span className="create-union__mark" aria-hidden="true" />
                   <div>
                     <strong>Cross-Club Tournaments</strong>
                     <p>Host Tournaments Across All Member Clubs</p>
@@ -361,13 +390,13 @@ export default function CreateUnionPage() {
           )}
 
           {step === 3 && (
-            <div className={styles.stepContent}>
-              <h2> Review & Create</h2>
-              <p className={styles.stepDesc}>Review Your Union Settings Before Creating.</p>
+            <div className="arena-case arena-ops-case create-union__case">
+              <h2 className="arena-section-title"> Review & Create</h2>
+              <p className="arena-ops-copy">Review Your Union Settings Before Creating.</p>
 
-              <div className={styles.previewCard}>
-                <div className={styles.previewHeader}>
-                  <div className={styles.previewAvatar}>
+              <div className="create-union__preview">
+                <div className="create-union__preview-head">
+                  <div className="create-union__avatar">
                     {form.name.charAt(0).toUpperCase() || '?'}
                   </div>
                   <div>
@@ -376,24 +405,24 @@ export default function CreateUnionPage() {
                   </div>
                 </div>
 
-                {form.description && <p className={styles.previewDesc}>{form.description}</p>}
+                {form.description && <p className="arena-ops-copy">{form.description}</p>}
 
-                <div className={styles.previewStats}>
-                  <div>
+                <div className="create-union__readings">
+                  <div className="arena-meter">
                     <strong>{form.revenueSharePercent}%</strong>
                     <span>Revenue Share</span>
                   </div>
-                  <div>
+                  <div className="arena-meter">
                     <strong>{form.settlementDay}</strong>
                     <span>Settlement</span>
                   </div>
-                  <div>
+                  <div className="arena-meter">
                     <strong>{form.gracePeriodDays} Days</strong>
                     <span>Grace Period</span>
                   </div>
                 </div>
 
-                <div className={styles.previewTags}>
+                <div className="create-union__tags">
                   {form.sharedPlayerPool && <span> Shared Players</span>}
                   {form.crossClubTournaments && <span> Cross-Club MTTs</span>}
                 </div>
@@ -403,22 +432,17 @@ export default function CreateUnionPage() {
         </div>
 
         {/* Error */}
-        {error && <div className={styles.error}>{error}</div>}
+        {error && <div className="create-union__error">{error}</div>}
 
         {/* Navigation */}
-        <div className={styles.navigation}>
-          {step > 1 && (
-            <button className={styles.backBtn} onClick={handleBack}>
-              ← Previous
-            </button>
-          )}
-          <div className={styles.spacer} />
+        <div className="arena-switch arena-ops-keys create-union__nav">
+          {step > 1 && <button onClick={handleBack}>← Previous</button>}
           {step < totalSteps ? (
-            <button className={styles.nextBtn} onClick={handleNext}>
+            <button className="create-union__forward" onClick={handleNext}>
               Next →
             </button>
           ) : (
-            <button className={styles.createBtn} onClick={handleCreate} disabled={creating}>
+            <button className="create-union__forward" onClick={handleCreate} disabled={creating}>
               {creating ? 'Creating...' : ' Create Union'}
             </button>
           )}
