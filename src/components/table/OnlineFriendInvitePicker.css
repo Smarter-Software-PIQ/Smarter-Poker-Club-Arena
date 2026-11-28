@@ -85,7 +85,7 @@
     Inter,
     sans-serif;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .friend-invite-picker__online-pill {
@@ -320,7 +320,7 @@
     Inter,
     sans-serif;
   letter-spacing: 0.05em;
-  text-transform: uppercase;
+  text-transform: none;
   cursor: pointer;
 }
 

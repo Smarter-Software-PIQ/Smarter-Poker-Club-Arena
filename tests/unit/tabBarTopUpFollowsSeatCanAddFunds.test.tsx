@@ -35,8 +35,8 @@ const ids = (state?: Parameters<typeof createDefaultMenuSections>[1]) =>
 
 describe('createDefaultMenuSections', () => {
   it('drops Top Up and Auto Top Up, and nothing else, when funds cannot be added', () => {
-    const before = ids({ autoTopUpBadge: 'ON' });
-    const after = ids({ autoTopUpBadge: 'ON', canAddFunds: false });
+    const before = ids({ autoTopUpBadge: 'On' });
+    const after = ids({ autoTopUpBadge: 'On', canAddFunds: false });
     expect(before).toContain('rebuy');
     expect(before).toContain('auto-top-up');
     expect(after).not.toContain('rebuy');

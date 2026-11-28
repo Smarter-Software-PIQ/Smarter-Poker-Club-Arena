@@ -133,7 +133,7 @@
   font-weight: 800;
   letter-spacing: 0.06em;
   line-height: 1.12;
-  text-transform: uppercase;
+  text-transform: none;
   white-space: normal;
   overflow-wrap: anywhere;
   text-shadow: 0 0.3cqw 0.5cqw #000;
@@ -170,7 +170,7 @@
     Inter,
     sans-serif;
   letter-spacing: 0.12em;
-  text-transform: uppercase;
+  text-transform: none;
   cursor: pointer;
 }
 
@@ -289,7 +289,7 @@
   font-size: 3.1cqw;
   font-weight: 700;
   letter-spacing: 0.1em;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .buy-in-modal__bay-value {

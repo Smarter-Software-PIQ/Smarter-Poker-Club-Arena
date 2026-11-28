@@ -74,7 +74,7 @@
   font-size: 2.9cqw;
   font-weight: 700;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow: 0 0 0.9cqw rgb(49 168 255 / 60%);
 }
 
@@ -120,7 +120,7 @@
     system-ui,
     sans-serif;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow:
     0 0 0.9cqw rgb(49 168 255 / 70%),
     0 0.2cqw 0.3cqw rgb(0 0 0 / 85%);
@@ -194,7 +194,7 @@
     system-ui,
     sans-serif;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  text-transform: none;
   white-space: nowrap;
   cursor: pointer;
   touch-action: manipulation;

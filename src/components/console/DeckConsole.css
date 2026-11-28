@@ -35,7 +35,7 @@
   font-size: 3.1cqw;
   font-weight: 700;
   letter-spacing: 0.1em;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 /* A bay's label strip is 132 of 1000 wide. "Min" and "In Blinds" fit it on

@@ -125,7 +125,7 @@
   background: #202831;
   font-size: calc(0.75rem * var(--menu-scale));
   font-weight: 700;
-  text-transform: uppercase;
+  text-transform: none;
   cursor: pointer;
 }
 
@@ -204,7 +204,7 @@
   gap: 5px;
   font-size: calc(0.65rem * var(--menu-scale));
   font-weight: 600;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.05em;
 }
 
@@ -232,11 +232,11 @@
 }
 
 .table-menu__conn--reconnecting {
-  color: #d29922;
+  color: #9fbacc;
 }
 .table-menu__conn--reconnecting .table-menu__conn-dot {
-  background: #d29922;
-  box-shadow: 0 0 4px #d29922;
+  background: #9fbacc;
+  box-shadow: 0 0 4px #9fbacc;
   animation: connPulse 1.2s ease-in-out infinite;
 }
 
@@ -293,7 +293,7 @@
   padding: 4px 16px 8px;
   font-size: calc(0.625rem * var(--menu-scale));
   font-weight: 700;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.1em;
   color: #6e7681;
 }

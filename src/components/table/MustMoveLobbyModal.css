@@ -96,7 +96,7 @@
   font-size: 1.05rem;
   font-weight: 700;
   letter-spacing: 0.06em;
-  text-transform: uppercase;
+  text-transform: none;
   color: var(--mml-chrome-hot);
   text-shadow:
     var(--mml-engrave),
@@ -151,7 +151,7 @@
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.16em;
-  text-transform: uppercase;
+  text-transform: none;
   color: var(--mml-chrome);
   text-shadow: var(--mml-engrave);
   margin-bottom: 6px;
@@ -249,7 +249,7 @@
   font-size: 0.6rem;
   font-weight: 600;
   letter-spacing: 0.12em;
-  text-transform: uppercase;
+  text-transform: none;
   color: var(--mml-muted);
 }
 
@@ -331,7 +331,7 @@
   font-weight: 700;
   font-size: 0.84rem;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow: var(--mml-engrave);
   min-height: 44px;
   padding: 0 18px;
@@ -470,7 +470,7 @@
   font-size: 0.64rem;
   font-weight: 700;
   letter-spacing: 0.12em;
-  text-transform: uppercase;
+  text-transform: none;
   padding: 2px 7px;
   border-radius: 4px;
   background: var(--mml-obsidian);
@@ -507,7 +507,7 @@
   font-size: 0.62rem;
   font-weight: 700;
   letter-spacing: 0.1em;
-  text-transform: uppercase;
+  text-transform: none;
   color: rgba(255, 255, 255, 0.55);
 }
 
@@ -647,7 +647,7 @@
   font-size: 0.6rem;
   font-weight: 700;
   letter-spacing: 0.1em;
-  text-transform: uppercase;
+  text-transform: none;
   text-shadow: var(--mml-engrave);
   vertical-align: middle;
 }

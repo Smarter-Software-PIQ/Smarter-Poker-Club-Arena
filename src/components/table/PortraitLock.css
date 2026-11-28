@@ -83,7 +83,7 @@
 .portrait-lock__icon {
   width: 88px;
   height: 88px;
-  color: var(--sp-gold, #d4af37);
+  color: #74dfff;
   /* ANIMATION LAW (CLAUDE.md 10.6): this plays every time it is owed, for its
      full duration, and no toggle may disable it. It carries the instruction, so
      it is duration-carrying rather than decorative. */
@@ -128,7 +128,7 @@
   font-size: 0.8125rem;
   font-weight: 700;
   letter-spacing: 0.4px;
-  color: var(--sp-gold, #d4af37);
+  color: #74dfff;
 }
 
 /* Reduced motion collapses the MOTION and never the MEANING (CLAUDE.md 10.6).
