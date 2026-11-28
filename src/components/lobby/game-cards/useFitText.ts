@@ -93,18 +93,22 @@ function* fitText(target: FitTextTarget): Fit {
     }) as { room: number; needed: number };
     if (!room || !needed || needed <= room) return 1;
     let ratio = Math.max(minRatio, room / needed);
-    for (let pass = 0; pass < 4; pass += 1) {
+    /* Return only a ratio that was measured to fit (or the floor). Rendered
+       width moves in steps, not continuously: measured on the live lobby
+       2026-11-27, "Open Registration" stayed 90px wide from --fit 0.70 down
+       to 0.6754 and dropped to 79px at 0.67. A proportional correction of a
+       1px overflow is under 1.2% a pass, so four passes ended on 0.6754 -
+       written, never measured - and the label overran its 89px face. Each
+       pass now steps down at least 2% until the measurement fits. */
+    for (let pass = 0; ; pass += 1) {
       yield {
         kind: 'write',
         run: () => el.style.setProperty('--fit', String(Math.floor(ratio * 10000) / 10000)),
       };
       const actual = (yield { kind: 'read', run: () => el.scrollWidth * scaleX }) as number;
-      if (actual <= room || ratio <= minRatio) break;
-      const corrected = Math.max(minRatio, ratio * (room / actual));
-      if (ratio - corrected < 0.0005) break;
-      ratio = corrected;
+      if (actual <= room || ratio <= minRatio || pass >= 63) return ratio;
+      ratio = Math.max(minRatio, Math.min(ratio * (room / actual), ratio * 0.98));
     }
-    return ratio;
   }
 
   const wrappedLines = () => {
