@@ -10,7 +10,7 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
  * Shows completed tournaments with final standings, prizes, and stats.
  */
 
-import { useState, useEffect, useMemo, useRef, type CSSProperties } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { readTournamentStandings } from '../../services/readTournamentStandings';
@@ -18,7 +18,9 @@ import { runWithRequestDeadline } from '../../utils/requestDeadline';
 import { useVisibleRead } from '../../hooks/useVisibleRead';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import { useToast } from '../../components/common/Toast';
-import './TournamentDetails.css';
+import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
+import '../../components/ops/ArenaOps.css';
+import './TournamentResultsPage.css';
 
 import { useIsMounted } from '../../hooks/useIsMounted';
 import { reportError } from '../../utils/errorReporter';
@@ -43,7 +45,6 @@ import {
   type MysteryBountyLeaderboardRow,
   type MysteryBountyPlayerTotals,
 } from '../../services/MysteryBountyService';
-import CasinoSurfaceHeader from '../../components/rewards/RewardsSurfaceHeader';
 import TournamentPaymentStatus from '../../components/tournament/TournamentPaymentStatus';
 import { isRecordedSatelliteQualifier } from '../../utils/satelliteQualification';
 import { displayTotalPool } from '../../utils/tournamentPrizeFunding';
@@ -133,34 +134,6 @@ interface HandHistoryRecord {
   players: { userId: string; username: string; seat: number; stack: number; cards: string[] }[];
   created_at: string;
 }
-
-/* Row chrome shared by both spin leaderboards. Extracted rather than inlined
-   twice: the two boards carry different row TYPES (a net row has `net`, a
-   volume row does not), so they render as separate maps - casting one to the
-   other is exactly the unsound `as` tsc rejects. Shared styling keeps them
-   looking like one component regardless. */
-const SPIN_BOARD_NAME_STYLE: React.CSSProperties = {
-  flex: 1,
-  color: '#e2e8f0',
-  whiteSpace: 'nowrap',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-};
-
-const spinBoardRowStyle = (i: number): React.CSSProperties => ({
-  display: 'flex',
-  alignItems: 'center',
-  gap: '10px',
-  padding: '8px 12px',
-  borderTop: i === 0 ? 'none' : '1px solid #1e293b',
-  fontSize: '12px',
-});
-
-const spinBoardRankStyle = (i: number): React.CSSProperties => ({
-  width: 20,
-  color: i < 3 ? '#fbbf24' : '#475569',
-  fontWeight: i < 3 ? 700 : 400,
-});
 
 export default function TournamentResultsPage() {
   const navigate = useNavigate();
@@ -761,128 +734,68 @@ export default function TournamentResultsPage() {
   const championWasOutEarned = bountyBeatTheChampion(finishers);
 
   return (
-    <div
-      className="tournament-results-page"
-      data-arena-surface="play"
-      style={{
-        padding: '16px',
-        // inline padding shorthand was wiping the stylesheet's bottom-nav clearance
-        paddingBottom: 'var(--bottom-nav-clearance, 74px)',
-        maxWidth: '100%',
-        overflowX: 'hidden',
-      }}
-    >
-      <CasinoSurfaceHeader
-        title="Tournament Archive"
-        description="Inspect Completed Fields, Standings, Total Payouts, Bounty Awards, Spin Outcomes, And Recorded Hands Without Flattening Format-Specific Results."
-        status="RESULTS LEDGER // LIVE"
-      />
-      {/* Back */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-        <button
-          type="button"
-          aria-label="Back"
-          onClick={() => navigate(-1)}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: '#10b981',
-            fontSize: '20px',
-            cursor: 'pointer',
-            minWidth: 44,
-            minHeight: 44,
-            touchAction: 'manipulation',
-          }}
-        >
+    <div className="tournament-results-page arena-workspace">
+      {/* Back sits above the chrome mast (Dan's rule). */}
+      <div className="tr-nav arena-switch">
+        <button type="button" aria-label="Back" onClick={() => navigate(-1)}>
           ←
         </button>
       </div>
 
-      {/* Filters */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
-        <button
-          onClick={() => setFilter('all')}
-          style={{
-            padding: '6px 14px',
-            borderRadius: '16px',
-            border: 'none',
-            fontSize: '12px',
-            cursor: 'pointer',
-            minHeight: 44,
-            touchAction: 'manipulation',
-            background: filter === 'all' ? '#10b981' : '#1e293b',
-            color: filter === 'all' ? '#000' : '#94a3b8',
-          }}
-        >
-          All
-        </button>
-        <button
-          onClick={() => setFilter('mine')}
-          style={{
-            padding: '6px 14px',
-            borderRadius: '16px',
-            border: 'none',
-            fontSize: '12px',
-            cursor: 'pointer',
-            minHeight: 44,
-            touchAction: 'manipulation',
-            background: filter === 'mine' ? '#10b981' : '#1e293b',
-            color: filter === 'mine' ? '#000' : '#94a3b8',
-          }}
-        >
-          My Results
-        </button>
+      <ArenaWorkspaceHeader
+        area="handreview"
+        title="Tournament Archive"
+        summary="Inspect Completed Fields, Standings, Total Payouts, Bounty Awards, Spin Outcomes, And Recorded Hands Without Flattening Format-Specific Results."
+      />
 
-        <span style={{ width: '1px', background: '#334155', margin: '0 4px' }} />
+      {/* Filters */}
+      <section className="arena-case arena-ops-case tr-filters-case">
+        <div className="arena-switch tr-scope-switch">
+          <button
+            className={filter === 'all' ? 'active' : undefined}
+            onClick={() => setFilter('all')}
+          >
+            All
+          </button>
+          <button
+            className={filter === 'mine' ? 'active' : undefined}
+            onClick={() => setFilter('mine')}
+          >
+            My Results
+          </button>
+        </div>
 
         {/* One list, shared with the deep-link validation above - the two
             cannot drift. */}
-        {VALID_TYPE_FILTERS.map((t) => (
-          <button
-            key={t}
-            onClick={() => setTypeFilter(t)}
-            style={{
-              padding: '6px 10px',
-              borderRadius: '16px',
-              border: 'none',
-              fontSize: '11px',
-              cursor: 'pointer',
-              minHeight: 44,
-              touchAction: 'manipulation',
-              background: typeFilter === t ? '#3b82f6' : '#1e293b',
-              color: typeFilter === t ? '#fff' : '#64748b',
-            }}
-          >
-            {t === 'all'
-              ? 'All Types'
-              : t === 'progressive_bounty'
-                ? 'PKO'
-                : t === 'mystery_bounty'
-                  ? 'Mystery'
-                  : t.charAt(0).toUpperCase() + t.slice(1)}
-          </button>
-        ))}
-      </div>
+        <div className="arena-switch tr-type-switch">
+          {VALID_TYPE_FILTERS.map((t) => (
+            <button
+              key={t}
+              className={typeFilter === t ? 'active' : undefined}
+              onClick={() => setTypeFilter(t)}
+            >
+              {t === 'all'
+                ? 'All Types'
+                : t === 'progressive_bounty'
+                  ? 'PKO'
+                  : t === 'mystery_bounty'
+                    ? 'Mystery'
+                    : t.charAt(0).toUpperCase() + t.slice(1)}
+            </button>
+          ))}
+        </div>
+      </section>
 
       {/* ── BIGGEST HITS (round 11): the wheel's largest completed draws,
           shown only on the Spin view. Horizontal scroll on 375px. ── */}
       {typeFilter === 'spin' && biggestHits.length > 0 && (
-        <div style={{ marginBottom: '16px' }}>
-          <div
-            style={{
-              fontSize: '11px',
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-              color: '#64748b',
-              marginBottom: '8px',
-            }}
-          >
-            Biggest Hits
-          </div>
-          <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
+        <section className="arena-case arena-ops-case tr-hits-case">
+          <h2 className="arena-section-title">Biggest Hits</h2>
+          <div className="tr-hits-rail">
             {biggestHits.map((h) => (
               <div
                 key={h.tournamentId}
+                className="arena-meter tr-hit-card"
                 onClick={() => {
                   const t = tournaments.find((x) => x.id === h.tournamentId);
                   if (t) {
@@ -917,39 +830,17 @@ export default function TournamentResultsPage() {
                     }
                   })();
                 }}
-                style={{
-                  minWidth: '132px',
-                  background: '#0f172a',
-                  border: '1px solid #1e293b',
-                  borderRadius: '8px',
-                  padding: '10px 12px',
-                  cursor: 'pointer',
-                  flexShrink: 0,
-                }}
               >
-                <div style={{ fontSize: '20px', fontWeight: 800, color: '#fbbf24' }}>
-                  {h.multiplier}x
-                </div>
-                <div
-                  style={{
-                    fontSize: '12px',
-                    color: '#e2e8f0',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    maxWidth: '120px',
-                  }}
-                >
-                  {h.winnerName}
-                </div>
-                <div style={{ fontSize: '11px', color: '#64748b' }}>
+                <div className="tr-hit-card__mult">{h.multiplier}x</div>
+                <div className="tr-hit-card__winner">{h.winnerName}</div>
+                <div className="tr-hit-card__prize">
                   {h.prize === null ? 'Prize Not Confirmed' : `Won ${h.prize.toLocaleString()}`} On
                   A {h.buyIn.toLocaleString()} Spin
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
       {/* ── SPIN LEADERBOARDS (round 15): 7-day volume and net, Spin view
@@ -957,604 +848,425 @@ export default function TournamentResultsPage() {
       {typeFilter === 'spin' &&
         spinBoards &&
         (spinBoards.mostSpins.length > 0 || spinBoards.bestNet.length > 0) && (
-          <div style={{ marginBottom: '16px' }}>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                marginBottom: '8px',
-              }}
-            >
-              <span
-                style={{
-                  fontSize: '11px',
-                  letterSpacing: '0.08em',
-                  textTransform: 'uppercase',
-                  color: '#64748b',
-                }}
-              >
-                Spin Leaders
-              </span>
-              <span style={{ fontSize: '10px', color: '#475569' }}>Last 7 Days</span>
-              <span style={{ flex: 1 }} />
+          <section className="arena-case arena-ops-case tr-leaders-case">
+            <h2 className="arena-section-title">
+              Spin Leaders
+              <small>Last 7 Days</small>
+            </h2>
+            <div className="arena-switch tr-spin-tabs">
               {(['net', 'volume'] as const).map((tab) => (
                 <button
                   key={tab}
+                  className={spinBoardTab === tab ? 'active' : undefined}
                   onClick={() => setSpinBoardTab(tab)}
-                  style={{
-                    padding: '4px 10px',
-                    borderRadius: '12px',
-                    border: 'none',
-                    fontSize: '11px',
-                    minHeight: 32,
-                    cursor: 'pointer',
-                    touchAction: 'manipulation',
-                    background: spinBoardTab === tab ? '#3b82f6' : '#1e293b',
-                    color: spinBoardTab === tab ? '#fff' : '#94a3b8',
-                  }}
                 >
                   {tab === 'net' ? 'Best Net' : 'Most Spins'}
                 </button>
               ))}
             </div>
-            <div
-              style={{
-                background: '#0f172a',
-                border: '1px solid #1e293b',
-                borderRadius: '8px',
-                overflow: 'hidden',
-              }}
-            >
+            <div className="tr-leaders-list">
               {spinBoardTab === 'net'
                 ? spinBoards.bestNet.map((row, i) => (
-                    <div key={`net-${row.username}-${i}`} style={spinBoardRowStyle(i)}>
-                      <span style={spinBoardRankStyle(i)}>{i + 1}</span>
-                      <span style={SPIN_BOARD_NAME_STYLE}>{row.username}</span>
-                      <span style={{ color: '#64748b', fontSize: '11px' }}>
+                    <div
+                      key={`net-${row.username}-${i}`}
+                      className="arena-ledger-row tr-leader-row"
+                    >
+                      <span
+                        className={
+                          i < 3
+                            ? 'tr-leader-row__rank tr-leader-row__rank--top'
+                            : 'tr-leader-row__rank'
+                        }
+                      >
+                        {i + 1}
+                      </span>
+                      <span className="tr-leader-row__name">{row.username}</span>
+                      <span className="tr-leader-row__spins">
                         {row.spins.toLocaleString()} Spins
                       </span>
-                      <span style={{ color: '#34d399', fontWeight: 700 }}>
+                      <span className="tr-leader-row__net">
                         +{Math.round(row.net).toLocaleString()}
                       </span>
                     </div>
                   ))
                 : spinBoards.mostSpins.map((row, i) => (
-                    <div key={`vol-${row.username}-${i}`} style={spinBoardRowStyle(i)}>
-                      <span style={spinBoardRankStyle(i)}>{i + 1}</span>
-                      <span style={SPIN_BOARD_NAME_STYLE}>{row.username}</span>
-                      <span style={{ color: '#e2e8f0', fontWeight: 700 }}>
-                        {row.spins.toLocaleString()}
+                    <div
+                      key={`vol-${row.username}-${i}`}
+                      className="arena-ledger-row tr-leader-row"
+                    >
+                      <span
+                        className={
+                          i < 3
+                            ? 'tr-leader-row__rank tr-leader-row__rank--top'
+                            : 'tr-leader-row__rank'
+                        }
+                      >
+                        {i + 1}
                       </span>
+                      <span className="tr-leader-row__name">{row.username}</span>
+                      <span className="tr-leader-row__vol">{row.spins.toLocaleString()}</span>
                     </div>
                   ))}
             </div>
-          </div>
+          </section>
         )}
 
       {isLoading ? (
-        <div style={{ textAlign: 'center', color: '#64748b', padding: '40px' }}>
-          Loading Results...
-        </div>
+        <section className="arena-case arena-ops-case tr-state-case">
+          <div className="tr-state-copy">Loading Results...</div>
+        </section>
       ) : listError ? (
-        <div role="alert">
-          {listError} <button onClick={() => void loadTournaments()}>Retry Results</button>
-        </div>
-      ) : tournaments.length === 0 ? (
-        <div style={{ textAlign: 'center', color: '#64748b', padding: '40px' }}>
-          No Completed Tournaments Found
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {tournaments.map((t) => (
-            <div
-              key={t.id}
-              onClick={() => selectTournament(selectedTournament?.id === t.id ? null : t)}
-              style={{
-                background: selectedTournament?.id === t.id ? '#1e293b' : '#0f172a',
-                border: `1px solid ${selectedTournament?.id === t.id ? '#10b981' : '#1e293b'}`,
-                borderRadius: '8px',
-                padding: '12px',
-                cursor: 'pointer',
-                transition: 'border-color 0.2s',
-              }}
-            >
-              {/* Tournament Header */}
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: '6px',
-                }}
-              >
-                <div>
-                  <span style={{ color: '#fff', fontSize: '14px', fontWeight: 600 }}>{t.name}</span>
-                  <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
-                    <span
-                      style={{
-                        background: '#1e293b',
-                        color: '#10b981',
-                        padding: '2px 8px',
-                        borderRadius: '10px',
-                        fontSize: '10px',
-                      }}
-                    >
-                      {getVariantLabel(t)}
-                    </span>
-                    <span
-                      style={{
-                        background: '#1e293b',
-                        color: '#3b82f6',
-                        padding: '2px 8px',
-                        borderRadius: '10px',
-                        fontSize: '10px',
-                      }}
-                    >
-                      {t.game_type}
-                    </span>
-                    {t.spin_multiplier && (
-                      <span
-                        style={{
-                          background: '#7c3aed',
-                          color: '#fff',
-                          padding: '2px 8px',
-                          borderRadius: '10px',
-                          fontSize: '10px',
-                        }}
-                      >
-                        {t.spin_multiplier}x
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ color: '#10b981', fontSize: '14px', fontWeight: 600 }}>
-                    {/* The TOTAL prize pool: places plus bounties. `prize_pool`
-                        alone is the places pool net of bounty and rake, so a
-                        bounty event used to show only part of what it paid. */}
-                    {formatAmount(displayTotalPool(t.prize_pool, null, t.bounty_pool))} Prize Pool
-                  </div>
-                  <div style={{ color: '#64748b', fontSize: '11px' }}>
-                    {t.current_players} Entries · {formatDuration(t.started_at, t.ended_at)}
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ color: '#475569', fontSize: '11px' }}>
-                Buy-In: {formatAmount(t.buy_in_amount)} + {formatAmount(t.buy_in_fee)} · Entries:{' '}
-                {t.current_players} · Duration: {formatDuration(t.started_at, t.ended_at)} · Ended:{' '}
-                {t.ended_at ? new Date(t.ended_at).toLocaleDateString() : '-'}
-              </div>
-
-              {selectedTournament?.id === t.id && activeTab === 'standings' && (
-                <div onClick={(event) => event.stopPropagation()}>
-                  <TournamentPaymentStatus tournamentId={t.id} />
-                </div>
-              )}
-
-              {/* Expanded Results — Tabs */}
-              {selectedTournament?.id === t.id && (
-                <div
-                  onClick={(event) => event.stopPropagation()}
-                  style={{
-                    marginTop: '12px',
-                    borderTop: '1px solid #1e293b',
-                    paddingTop: '12px',
-                  }}
-                >
-                  {/* Tab Buttons */}
-                  <div style={{ display: 'flex', gap: '4px', marginBottom: '12px' }}>
-                    <button
-                      onClick={() => setActiveTab('standings')}
-                      style={{
-                        padding: '6px 12px',
-                        borderRadius: '6px',
-                        border: 'none',
-                        fontSize: '12px',
-                        cursor: 'pointer',
-                        background: activeTab === 'standings' ? '#10b981' : '#1e293b',
-                        color: activeTab === 'standings' ? '#000' : '#94a3b8',
-                        fontWeight: activeTab === 'standings' ? 600 : 400,
-                      }}
-                    >
-                      Standings
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('hands')}
-                      style={{
-                        padding: '6px 12px',
-                        borderRadius: '6px',
-                        border: 'none',
-                        fontSize: '12px',
-                        cursor: 'pointer',
-                        background: activeTab === 'hands' ? '#10b981' : '#1e293b',
-                        color: activeTab === 'hands' ? '#000' : '#94a3b8',
-                        fontWeight: activeTab === 'hands' ? 600 : 400,
-                      }}
-                    >
-                      Hand History ({handHistory.length})
-                    </button>
-                  </div>
-
-                  {activeTab === 'standings' &&
-                    (resultsRead.tournamentId !== t.id || resultsRead.loading) && (
-                      <p role="status">Loading Standings...</p>
-                    )}
-                  {activeTab === 'standings' &&
-                    resultsRead.tournamentId === t.id &&
-                    resultsRead.error && (
-                      <div role="alert">
-                        {resultsRead.error}{' '}
-                        <button onClick={() => void loadResults()}>Retry Standings</button>
-                      </div>
-                    )}
-                  {activeTab === 'standings' &&
-                    resultsRead.tournamentId === t.id &&
-                    !resultsRead.loading &&
-                    !resultsRead.error &&
-                    results.length === 0 && <p>No Standings Recorded Yet.</p>}
-                  {activeTab === 'standings' &&
-                    mysteryRead.tournamentId === t.id &&
-                    mysteryRead.error && (
-                      <div role="alert">
-                        {mysteryRead.error}{' '}
-                        <button onClick={() => void loadMysteryBounty()}>
-                          Retry Mystery Awards
-                        </button>
-                      </div>
-                    )}
-                  {activeTab === 'hands' &&
-                    (handsRead.tournamentId !== t.id || handsRead.loading) && (
-                      <p role="status">Loading Hands...</p>
-                    )}
-                  {activeTab === 'hands' && handsRead.tournamentId === t.id && handsRead.error && (
-                    <div role="alert">
-                      {handsRead.error}{' '}
-                      <button onClick={() => void loadHandHistory()}>Retry Hands</button>
-                    </div>
-                  )}
-
-                  {/* Standings Tab */}
-                  {activeTab === 'standings' && results.length > 0 && (
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 8,
-                        flexWrap: 'wrap',
-                        marginBottom: '8px',
-                      }}
-                    >
-                      <div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600 }}>
-                        Final Standings
-                      </div>
-                      {/* Sections 42 and 44: the money order is a real view,
-                            not a footnote, because in a bounty event it is
-                            frequently not the same order as the finish. */}
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        {(['finish', 'total'] as ResultSort[]).map((s) => (
-                          <button
-                            key={s}
-                            onClick={() => setResultSort(s)}
-                            style={{
-                              padding: '4px 10px',
-                              borderRadius: 6,
-                              border: 'none',
-                              fontSize: 11,
-                              cursor: 'pointer',
-                              minHeight: 32,
-                              touchAction: 'manipulation',
-                              background: resultSort === s ? '#3b82f6' : '#1e293b',
-                              color: resultSort === s ? '#fff' : '#64748b',
-                            }}
-                          >
-                            {s === 'finish' ? 'By Finish' : 'By Total Payout'}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {/* Section 44: say it out loud when the champion was not the
-                        biggest earner, rather than leaving a reader to notice. */}
-                  {activeTab === 'standings' && championWasOutEarned && topEarner && (
-                    <div
-                      style={{
-                        fontSize: 11,
-                        color: '#6fdcff',
-                        border: '1px solid rgba(111,220,255,0.35)',
-                        background: 'rgba(111,220,255,0.08)',
-                        borderRadius: 6,
-                        padding: '6px 8px',
-                        marginBottom: 8,
-                      }}
-                    >
-                      Biggest Total Payout: {topEarner.username} (
-                      {getOrdinalPosition(topEarner.position)}) With{' '}
-                      {selectedIsSatellite
-                        ? satelliteAwardTotalLabel(
-                            satelliteAwards.kindFor(topEarner.user_id, topEarner.prize),
-                            topEarner.prize,
-                            topEarner.bounty_winnings,
-                            unitAmount
-                          )
-                        : `${unitAmount(totalPayout(topEarner))}${selectedUnitSuffix}`}
-                      , More Than The Champion
-                    </div>
-                  )}
-                  {selectedIsSatellite && satelliteAwardNotice(satelliteAwards, results) && (
-                    <p role="status">{satelliteAwardNotice(satelliteAwards, results)}</p>
-                  )}
-                  {/* Column key. Kept above the rows because every row is a
-                        four-number line and a phone has no room for headers on
-                        each one. */}
-                  {activeTab === 'standings' && results.length > 0 && (
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'minmax(0,1fr) 62px 46px 62px 68px',
-                        gap: 6,
-                        fontSize: 9,
-                        color: '#475569',
-                        textTransform: 'uppercase',
-                        letterSpacing: 0.4,
-                        padding: '0 8px 4px',
-                      }}
-                    >
-                      <span>Finish And Player</span>
-                      <span style={{ textAlign: 'right' }}>
-                        {selectedIsSatellite ? 'Award' : 'Prize'}
-                      </span>
-                      <span style={{ textAlign: 'right' }}>KOs</span>
-                      <span style={{ textAlign: 'right' }}>Bounty</span>
-                      <span style={{ textAlign: 'right' }}>Total</span>
-                    </div>
-                  )}
-                  {activeTab === 'standings' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      {sortedResults.map((r) => {
-                        const isMe = r.user_id === user?.id;
-                        const posColor =
-                          r.position === 1
-                            ? '#6fdcff'
-                            : r.position === 2
-                              ? '#94a3b8'
-                              : r.position === 3
-                                ? '#d97706'
-                                : '#475569';
-                        const total = totalPayout(r);
-                        /* The server's own aggregate first (section 69);
-                               the award-derived totals supply the one thing it
-                               cannot know, the LARGEST single chest. */
-                        const awardTotals = mysteryTotals.get(r.user_id);
-                        const boardRow = mysteryBoardByUser.get(r.user_id);
-                        const mysteryCount = boardRow?.bountiesWon ?? awardTotals?.bountiesWon ?? 0;
-                        const mysteryCents =
-                          boardRow?.earningsCents ?? awardTotals?.earningsCents ?? 0;
-                        const mysteryLargest = awardTotals?.largestCents ?? 0;
-                        const isTopEarner =
-                          !!topEarner && topEarner.user_id === r.user_id && total > 0;
-                        /* Sections 42 and 44 in one grid: the four money
-                               columns are separate and the TOTAL is the widest
-                               and the brightest, so a 14th place with a jackpot
-                               reads as the bigger night that it was. */
-                        const rowStyle: CSSProperties = {
-                          display: 'grid',
-                          gridTemplateColumns: 'minmax(0,1fr) 62px 46px 62px 68px',
-                          gap: 6,
-                          alignItems: 'center',
-                          padding: '6px 8px',
-                          borderRadius: '6px',
-                          background: isMe
-                            ? 'rgba(16, 185, 129, 0.1)'
-                            : isTopEarner
-                              ? 'rgba(111, 220, 255, 0.07)'
-                              : 'transparent',
-                          border: isMe
-                            ? '1px solid rgba(16, 185, 129, 0.3)'
-                            : isTopEarner
-                              ? '1px solid rgba(111, 220, 255, 0.3)'
-                              : '1px solid transparent',
-                        };
-                        return (
-                          <div
-                            key={r.user_id}
-                            className={`${visibleResults.has(r.user_id) ? 'fadeInUp' : 'hidden'}`}
-                            style={
-                              visibleResults.has(r.user_id)
-                                ? rowStyle
-                                : { ...rowStyle, opacity: 0, transform: 'translateY(8px)' }
-                            }
-                          >
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span
-                                  style={{
-                                    color: posColor,
-                                    fontSize: '13px',
-                                    fontWeight: 700,
-                                    minWidth: '28px',
-                                  }}
-                                >
-                                  {isQualifier(r) ? 'Qualified' : getOrdinalPosition(r.position)}
-                                </span>
-                                <span
-                                  style={{
-                                    color: isMe ? '#10b981' : '#cbd5e1',
-                                    fontSize: '13px',
-                                    overflowWrap: 'anywhere',
-                                    minWidth: 0,
-                                  }}
-                                >
-                                  {r.username}
-                                  {isMe && (
-                                    <span
-                                      style={{
-                                        fontSize: '10px',
-                                        color: '#10b981',
-                                        marginLeft: '4px',
-                                      }}
-                                    >
-                                      (You)
-                                    </span>
-                                  )}
-                                </span>
-                              </div>
-                              {/* Section 37: the MYSTERY share of the bounty
-                                      column, broken out where there is one. The
-                                      rest of the bounty column is the flat
-                                      bounty paid before the chests opened. */}
-                              {mysteryCents > 0 && (
-                                <div
-                                  style={{
-                                    fontSize: 10,
-                                    color: '#6fdcff',
-                                    marginTop: 2,
-                                    overflowWrap: 'anywhere',
-                                  }}
-                                >
-                                  {mysteryCount.toLocaleString('en-US')} Mystery (
-                                  {formatCents(mysteryCents, selectedUnitCents)}), Largest{' '}
-                                  {formatCents(mysteryLargest, selectedUnitCents)}
-                                </div>
-                              )}
-                            </div>
-                            <span
-                              style={{
-                                color: r.prize > 0 ? '#10b981' : '#475569',
-                                fontSize: '12px',
-                                fontWeight: r.prize > 0 ? 600 : 400,
-                                textAlign: 'right',
-                              }}
-                            >
-                              {r.prize > 0
-                                ? selectedIsSatellite
-                                  ? satelliteAwardLabel(
-                                      satelliteAwards.kindFor(r.user_id, r.prize),
-                                      unitAmount(r.prize)
-                                    )
-                                  : unitAmount(r.prize)
-                                : '-'}
-                            </span>
-                            <span
-                              style={{
-                                color: r.bounties_collected > 0 ? '#cbd5e1' : '#475569',
-                                fontSize: '12px',
-                                textAlign: 'right',
-                              }}
-                            >
-                              {r.bounties_collected > 0
-                                ? r.bounties_collected.toLocaleString('en-US')
-                                : '-'}
-                            </span>
-                            <span
-                              style={{
-                                color: r.bounty_winnings > 0 ? '#6fdcff' : '#475569',
-                                fontSize: '12px',
-                                fontWeight: r.bounty_winnings > 0 ? 600 : 400,
-                                textAlign: 'right',
-                              }}
-                            >
-                              {r.bounty_winnings > 0 ? unitAmount(r.bounty_winnings) : '-'}
-                            </span>
-                            <span
-                              style={{
-                                color: total > 0 ? '#10b981' : '#475569',
-                                fontSize: '13px',
-                                fontWeight: 800,
-                                textAlign: 'right',
-                              }}
-                            >
-                              {total > 0
-                                ? selectedIsSatellite
-                                  ? satelliteAwardTotalLabel(
-                                      satelliteAwards.kindFor(r.user_id, r.prize),
-                                      r.prize,
-                                      r.bounty_winnings,
-                                      unitAmount
-                                    )
-                                  : unitAmount(total)
-                                : '-'}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Hand History Tab */}
-                  {activeTab === 'hands' &&
-                    handsRead.tournamentId === t.id &&
-                    !handsRead.loading &&
-                    !handsRead.error && (
-                      <div
-                        style={{
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '4px',
-                          maxHeight: '400px',
-                          overflowY: 'auto',
-                        }}
-                      >
-                        {handHistory.length === 0 ? (
-                          <div
-                            style={{
-                              color: '#64748b',
-                              fontSize: '12px',
-                              padding: '8px',
-                              textAlign: 'center',
-                            }}
-                          >
-                            No Hands Recorded
-                          </div>
-                        ) : (
-                          handHistory.map((hand) => (
-                            <div
-                              key={hand.id}
-                              style={{
-                                padding: '8px',
-                                borderRadius: '6px',
-                                background: '#0f172a',
-                                border: '1px solid #1e293b',
-                                fontSize: '11px',
-                              }}
-                            >
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  justifyContent: 'space-between',
-                                  marginBottom: '4px',
-                                }}
-                              >
-                                <span style={{ color: '#10b981', fontWeight: 600 }}>
-                                  Hand #{hand.hand_number}
-                                </span>
-                                <span style={{ color: '#64748b' }}>
-                                  {new Date(hand.created_at).toLocaleTimeString()}
-                                </span>
-                              </div>
-                              <div style={{ color: '#94a3b8', fontSize: '10px' }}>
-                                {hand.game_variant} · {hand.small_blind}/{hand.big_blind} · Pot:{' '}
-                                {formatAmount(hand.pot_size)}
-                              </div>
-                              {hand.winners.length > 0 && (
-                                <div
-                                  style={{ color: '#10b981', fontSize: '10px', marginTop: '4px' }}
-                                >
-                                  Winners: {hand.winners.map((w) => w.amount).join(', ')}
-                                </div>
-                              )}
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    )}
-                </div>
-              )}
+        <section className="arena-case arena-ops-case tr-state-case">
+          <div className="tr-alert" role="alert">
+            <span>{listError}</span>
+            <div className="arena-switch arena-ops-keys arena-ops-primary">
+              <button onClick={() => void loadTournaments()}>Retry Results</button>
             </div>
-          ))}
-        </div>
+          </div>
+        </section>
+      ) : tournaments.length === 0 ? (
+        <section className="arena-case arena-ops-case tr-state-case">
+          <div className="tr-state-copy">No Completed Tournaments Found</div>
+        </section>
+      ) : (
+        <section className="arena-case arena-ops-case tr-list-case">
+          <div className="tr-events-list">
+            {tournaments.map((t) => (
+              <div
+                key={t.id}
+                onClick={() => selectTournament(selectedTournament?.id === t.id ? null : t)}
+                className={
+                  selectedTournament?.id === t.id
+                    ? 'arena-ledger-row tr-event tr-event--open'
+                    : 'arena-ledger-row tr-event'
+                }
+              >
+                {/* Tournament Header */}
+                <div className="tr-event__head">
+                  <div className="tr-event__identity">
+                    <span className="tr-event__name">{t.name}</span>
+                    <div className="tr-event__tags">
+                      <span className="tr-tag tr-tag--variant">{getVariantLabel(t)}</span>
+                      <span className="tr-tag tr-tag--game">{t.game_type}</span>
+                      {t.spin_multiplier && (
+                        <span className="tr-tag tr-tag--mult">{t.spin_multiplier}x</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="tr-event__pool-col">
+                    <div className="tr-event__pool">
+                      {/* The TOTAL prize pool: places plus bounties. `prize_pool`
+                          alone is the places pool net of bounty and rake, so a
+                          bounty event used to show only part of what it paid. */}
+                      {formatAmount(displayTotalPool(t.prize_pool, null, t.bounty_pool))} Prize Pool
+                    </div>
+                    <div className="tr-event__sub">
+                      {t.current_players} Entries · {formatDuration(t.started_at, t.ended_at)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="tr-event__meta">
+                  Buy-In: {formatAmount(t.buy_in_amount)} + {formatAmount(t.buy_in_fee)} · Entries:{' '}
+                  {t.current_players} · Duration: {formatDuration(t.started_at, t.ended_at)} ·
+                  Ended: {t.ended_at ? new Date(t.ended_at).toLocaleDateString() : '-'}
+                </div>
+
+                {selectedTournament?.id === t.id && activeTab === 'standings' && (
+                  <div onClick={(event) => event.stopPropagation()}>
+                    <TournamentPaymentStatus tournamentId={t.id} />
+                  </div>
+                )}
+
+                {/* Expanded Results — Tabs */}
+                {selectedTournament?.id === t.id && (
+                  <div className="tr-event__detail" onClick={(event) => event.stopPropagation()}>
+                    {/* Tab Buttons */}
+                    <div className="arena-switch tr-detail-tabs">
+                      <button
+                        className={activeTab === 'standings' ? 'active' : undefined}
+                        onClick={() => setActiveTab('standings')}
+                      >
+                        Standings
+                      </button>
+                      <button
+                        className={activeTab === 'hands' ? 'active' : undefined}
+                        onClick={() => setActiveTab('hands')}
+                      >
+                        Hand History ({handHistory.length})
+                      </button>
+                    </div>
+
+                    {activeTab === 'standings' &&
+                      (resultsRead.tournamentId !== t.id || resultsRead.loading) && (
+                        <p className="tr-status-line" role="status">
+                          Loading Standings...
+                        </p>
+                      )}
+                    {activeTab === 'standings' &&
+                      resultsRead.tournamentId === t.id &&
+                      resultsRead.error && (
+                        <div className="tr-alert" role="alert">
+                          <span>{resultsRead.error}</span>
+                          <div className="arena-switch arena-ops-keys arena-ops-primary">
+                            <button onClick={() => void loadResults()}>Retry Standings</button>
+                          </div>
+                        </div>
+                      )}
+                    {activeTab === 'standings' &&
+                      resultsRead.tournamentId === t.id &&
+                      !resultsRead.loading &&
+                      !resultsRead.error &&
+                      results.length === 0 && (
+                        <p className="tr-status-line">No Standings Recorded Yet.</p>
+                      )}
+                    {activeTab === 'standings' &&
+                      mysteryRead.tournamentId === t.id &&
+                      mysteryRead.error && (
+                        <div className="tr-alert" role="alert">
+                          <span>{mysteryRead.error}</span>
+                          <div className="arena-switch arena-ops-keys arena-ops-primary">
+                            <button onClick={() => void loadMysteryBounty()}>
+                              Retry Mystery Awards
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    {activeTab === 'hands' &&
+                      (handsRead.tournamentId !== t.id || handsRead.loading) && (
+                        <p className="tr-status-line" role="status">
+                          Loading Hands...
+                        </p>
+                      )}
+                    {activeTab === 'hands' &&
+                      handsRead.tournamentId === t.id &&
+                      handsRead.error && (
+                        <div className="tr-alert" role="alert">
+                          <span>{handsRead.error}</span>
+                          <div className="arena-switch arena-ops-keys arena-ops-primary">
+                            <button onClick={() => void loadHandHistory()}>Retry Hands</button>
+                          </div>
+                        </div>
+                      )}
+
+                    {/* Standings Tab */}
+                    {activeTab === 'standings' && results.length > 0 && (
+                      <div className="tr-standings-head">
+                        <div className="tr-standings-head__label">Final Standings</div>
+                        {/* Sections 42 and 44: the money order is a real view,
+                              not a footnote, because in a bounty event it is
+                              frequently not the same order as the finish. */}
+                        <div className="arena-switch tr-sort-tabs">
+                          {(['finish', 'total'] as ResultSort[]).map((s) => (
+                            <button
+                              key={s}
+                              className={resultSort === s ? 'active' : undefined}
+                              onClick={() => setResultSort(s)}
+                            >
+                              {s === 'finish' ? 'By Finish' : 'By Total Payout'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {/* Section 44: say it out loud when the champion was not the
+                          biggest earner, rather than leaving a reader to notice. */}
+                    {activeTab === 'standings' && championWasOutEarned && topEarner && (
+                      <div className="tr-callout">
+                        Biggest Total Payout: {topEarner.username} (
+                        {getOrdinalPosition(topEarner.position)}) With{' '}
+                        {selectedIsSatellite
+                          ? satelliteAwardTotalLabel(
+                              satelliteAwards.kindFor(topEarner.user_id, topEarner.prize),
+                              topEarner.prize,
+                              topEarner.bounty_winnings,
+                              unitAmount
+                            )
+                          : `${unitAmount(totalPayout(topEarner))}${selectedUnitSuffix}`}
+                        , More Than The Champion
+                      </div>
+                    )}
+                    {selectedIsSatellite && satelliteAwardNotice(satelliteAwards, results) && (
+                      <p className="tr-status-line" role="status">
+                        {satelliteAwardNotice(satelliteAwards, results)}
+                      </p>
+                    )}
+                    {/* Column key. Kept above the rows because every row is a
+                          four-number line and a phone has no room for headers on
+                          each one. */}
+                    {activeTab === 'standings' && results.length > 0 && (
+                      <div className="tr-standings-cols">
+                        <span>Finish And Player</span>
+                        <span className="tr-col-num">
+                          {selectedIsSatellite ? 'Award' : 'Prize'}
+                        </span>
+                        <span className="tr-col-num">KOs</span>
+                        <span className="tr-col-num">Bounty</span>
+                        <span className="tr-col-num">Total</span>
+                      </div>
+                    )}
+                    {activeTab === 'standings' && (
+                      <div className="tr-standings-rows">
+                        {sortedResults.map((r) => {
+                          const isMe = r.user_id === user?.id;
+                          const posClass =
+                            r.position === 1
+                              ? 'tr-standing__pos tr-standing__pos--first'
+                              : r.position === 2
+                                ? 'tr-standing__pos tr-standing__pos--second'
+                                : r.position === 3
+                                  ? 'tr-standing__pos tr-standing__pos--third'
+                                  : 'tr-standing__pos';
+                          const total = totalPayout(r);
+                          /* The server's own aggregate first (section 69);
+                                 the award-derived totals supply the one thing it
+                                 cannot know, the LARGEST single chest. */
+                          const awardTotals = mysteryTotals.get(r.user_id);
+                          const boardRow = mysteryBoardByUser.get(r.user_id);
+                          const mysteryCount =
+                            boardRow?.bountiesWon ?? awardTotals?.bountiesWon ?? 0;
+                          const mysteryCents =
+                            boardRow?.earningsCents ?? awardTotals?.earningsCents ?? 0;
+                          const mysteryLargest = awardTotals?.largestCents ?? 0;
+                          const isTopEarner =
+                            !!topEarner && topEarner.user_id === r.user_id && total > 0;
+                          const rowClass = [
+                            'tr-standing-row',
+                            isMe ? 'tr-standing-row--me' : '',
+                            !isMe && isTopEarner ? 'tr-standing-row--top' : '',
+                            visibleResults.has(r.user_id)
+                              ? 'tr-standing-row--visible'
+                              : 'tr-standing-row--pending',
+                          ]
+                            .filter(Boolean)
+                            .join(' ');
+                          return (
+                            <div key={r.user_id} className={rowClass}>
+                              <div className="tr-standing__player">
+                                <div className="tr-standing__player-line">
+                                  <span className={posClass}>
+                                    {isQualifier(r) ? 'Qualified' : getOrdinalPosition(r.position)}
+                                  </span>
+                                  <span
+                                    className={
+                                      isMe
+                                        ? 'tr-standing__name tr-standing__name--me'
+                                        : 'tr-standing__name'
+                                    }
+                                  >
+                                    {r.username}
+                                    {isMe && <span className="tr-standing__you">(You)</span>}
+                                  </span>
+                                </div>
+                                {/* Section 37: the MYSTERY share of the bounty
+                                        column, broken out where there is one. The
+                                        rest of the bounty column is the flat
+                                        bounty paid before the chests opened. */}
+                                {mysteryCents > 0 && (
+                                  <div className="tr-standing__mystery">
+                                    {mysteryCount.toLocaleString('en-US')} Mystery (
+                                    {formatCents(mysteryCents, selectedUnitCents)}), Largest{' '}
+                                    {formatCents(mysteryLargest, selectedUnitCents)}
+                                  </div>
+                                )}
+                              </div>
+                              <span
+                                className={
+                                  r.prize > 0
+                                    ? 'tr-col-num tr-standing__prize--paid'
+                                    : 'tr-col-num tr-standing__zero'
+                                }
+                              >
+                                {r.prize > 0
+                                  ? selectedIsSatellite
+                                    ? satelliteAwardLabel(
+                                        satelliteAwards.kindFor(r.user_id, r.prize),
+                                        unitAmount(r.prize)
+                                      )
+                                    : unitAmount(r.prize)
+                                  : '-'}
+                              </span>
+                              <span
+                                className={
+                                  r.bounties_collected > 0
+                                    ? 'tr-col-num tr-standing__kos'
+                                    : 'tr-col-num tr-standing__zero'
+                                }
+                              >
+                                {r.bounties_collected > 0
+                                  ? r.bounties_collected.toLocaleString('en-US')
+                                  : '-'}
+                              </span>
+                              <span
+                                className={
+                                  r.bounty_winnings > 0
+                                    ? 'tr-col-num tr-standing__bounty--paid'
+                                    : 'tr-col-num tr-standing__zero'
+                                }
+                              >
+                                {r.bounty_winnings > 0 ? unitAmount(r.bounty_winnings) : '-'}
+                              </span>
+                              <span
+                                className={
+                                  total > 0
+                                    ? 'tr-col-num tr-standing__total--paid'
+                                    : 'tr-col-num tr-standing__zero'
+                                }
+                              >
+                                {total > 0
+                                  ? selectedIsSatellite
+                                    ? satelliteAwardTotalLabel(
+                                        satelliteAwards.kindFor(r.user_id, r.prize),
+                                        r.prize,
+                                        r.bounty_winnings,
+                                        unitAmount
+                                      )
+                                    : unitAmount(total)
+                                  : '-'}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Hand History Tab */}
+                    {activeTab === 'hands' &&
+                      handsRead.tournamentId === t.id &&
+                      !handsRead.loading &&
+                      !handsRead.error && (
+                        <div className="tr-hands-list">
+                          {handHistory.length === 0 ? (
+                            <div className="tr-state-copy">No Hands Recorded</div>
+                          ) : (
+                            handHistory.map((hand) => (
+                              <div key={hand.id} className="arena-ledger-row tr-hand-row">
+                                <div className="tr-hand-row__head">
+                                  <span className="tr-hand-row__num">Hand #{hand.hand_number}</span>
+                                  <span className="tr-hand-row__time">
+                                    {new Date(hand.created_at).toLocaleTimeString()}
+                                  </span>
+                                </div>
+                                <div className="tr-hand-row__meta">
+                                  {hand.game_variant} · {hand.small_blind}/{hand.big_blind} · Pot:{' '}
+                                  {formatAmount(hand.pot_size)}
+                                </div>
+                                {hand.winners.length > 0 && (
+                                  <div className="tr-hand-row__winners">
+                                    Winners: {hand.winners.map((w) => w.amount).join(', ')}
+                                  </div>
+                                )}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
       )}
     </div>
   );

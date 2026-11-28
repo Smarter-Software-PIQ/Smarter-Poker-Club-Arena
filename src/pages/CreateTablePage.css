@@ -1,105 +1,125 @@
-.create-table-page__standalone {
+/* CREATE TABLE PAGE IN #SMARTERDESIGN (Batch G1, 2026-11-28).
+   The standalone route wears the arena workspace root and chrome mast; Back
+   sits above the mast. The nine game variants stay unframed ArenaGameCards. */
+
+.arena-workspace.create-table-page__standalone {
   min-height: 100dvh;
-  padding: 12px 0 120px;
-  background: #020305;
+  padding: 7px 6px calc(var(--bottom-nav-clearance, 96px) + env(safe-area-inset-bottom, 0px));
+  background: #050d17;
+  color: #f1f5fc;
 }
 
-.create-table-page {
+.arena-workspace.create-table-page__standalone > * {
+  box-sizing: border-box;
+  width: min(1000px, 100%);
+  margin-inline: auto;
+}
+
+.arena-workspace.create-table-page__standalone .create-table-page__nav {
+  justify-content: flex-start;
+  margin: 0 auto 6px;
+}
+
+.arena-workspace.create-table-page__standalone .create-table-page__nav > .create-table-page__back {
+  flex: 0 0 auto;
+  min-width: 88px;
+  padding: 0 14px;
+  border: 0;
+  color: #dce5ef;
+  font:
+    700 13px/1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.arena-workspace .create-table-page {
   container-type: inline-size;
   position: relative;
   width: min(100%, 1000px);
   min-width: 0;
   margin-inline: auto;
-  padding-inline: 12px;
+  padding-inline: 0;
 }
 
-/* The deck header: printed on the black, closed by one engraved rule. */
-.create-table-page__deck {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 4px 14px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid #000;
-  box-shadow: 0 1px 0 rgb(255 255 255 / 8%);
-  margin-bottom: clamp(12px, 2.4vw, 22px);
+.arena-workspace .create-table-page__deck {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 12px;
 }
 
-.create-table-page__title {
+.arena-workspace .create-table-page__back-wrap {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.arena-workspace .create-table-page__back-wrap > .create-table-page__back {
+  flex: 0 0 auto;
+  min-width: 80px;
+  padding: 0 12px;
+  border: 0;
+  color: #dce5ef;
+  font:
+    700 13px/1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.arena-workspace .create-table-page__title {
+  flex: 1 1 auto;
   min-width: 0;
   margin: 0;
-  color: #e4e7ec;
-  font:
-    800 clamp(20px, 3.4vw, 30px) / 1.05 'Roboto Condensed',
-    sans-serif;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  text-shadow:
-    0 -1px 0 rgb(255 255 255 / 55%),
-    0 2px 0 #6d747c,
-    0 4px 0 #050607;
+  color: #f1f5fc;
+  text-shadow: none;
+  text-transform: none;
 }
 
-.create-table-page__help {
+.arena-workspace .create-table-page__help {
   align-self: center;
+  flex: 0 0 auto;
 }
 
-.create-table-page__back {
-  appearance: none;
-  align-self: end;
-  justify-self: start;
-  min-width: 52px;
-  min-height: 44px;
-  padding: 0 10px;
-  border: 0;
-  border-bottom: 1px solid #45adff;
-  color: #45adff;
-  background: transparent;
-  font:
-    800 14px/1 'Roboto Condensed',
-    sans-serif;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  cursor: pointer;
-  touch-action: manipulation;
+.arena-workspace .create-table-page__back:active {
+  filter: brightness(0.86);
 }
 
-.create-table-page__back:active {
-  opacity: 0.72;
-}
-
-.create-table-page__list {
+.arena-workspace .create-table-page__list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: clamp(10px, 2cqw, 18px);
+  gap: clamp(10px, 2cqw, 16px);
 }
 
-.create-table-page__game-card {
+.arena-workspace .create-table-page__game-card {
   width: 100%;
 }
 
-.create-table-page__background {
+.arena-workspace .create-table-page__background {
   display: none;
 }
 
-.create-table-page :is(button, a):focus-visible {
-  outline: 3px solid #8fd4ff;
+.arena-workspace .create-table-page :is(button, a):focus-visible,
+.arena-workspace.create-table-page__standalone .create-table-page__back:focus-visible {
+  outline: 2px solid #9ae5ff;
   outline-offset: 2px;
 }
 
 @media (max-width: 720px) {
-  .create-table-page__list {
+  .arena-workspace .create-table-page__list {
     grid-template-columns: 1fr;
   }
 }
 
 @media (forced-colors: active) {
-  .create-table-page__back {
+  .arena-workspace .create-table-page__back {
     border-color: CanvasText;
     color: ButtonText;
   }
 
-  .create-table-page__title {
+  .arena-workspace .create-table-page__title {
     color: CanvasText;
     text-shadow: none;
   }

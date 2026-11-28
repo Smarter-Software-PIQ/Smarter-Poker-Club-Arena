@@ -1,266 +1,289 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   CLUB ADVERTISE PAGE - on the console (#ClubArenaConsole, 2026-09-22)
-
-   PAINT WHAT NEVER CHANGES. PRINT WHAT DOES. The frames, the crests, the
-   rails and the action plates are Dan's approved masters, cut into a chassis
-   by components/console/SpadeConsole.css. This sheet only lays the rate card,
-   the two picture wells, the flight form and the ledger onto the black glass
-   between the rails: every figure a row closed by an engraved rule, labels in
-   the master's lit blue, values in engraved silver, secondary actions as lit
-   words. Nothing here draws a card, a pill, a field face or a button face.
-
-   Every well and groove on this page is cut INTO the glass with the kit's own
-   technique - a black top rule with an 8% inner light, the same cut the
-   master's chrome rules are made of, and the same one `.sc-check__box` uses.
-   Sizes are cqw against the console, so a 320px phone and a 430px one get the
-   same picture. No hover state anywhere, and no colour that is not a token
-   the schema already owns.
+   CLUB ADVERTISE PAGE IN #SMARTERDESIGN (Batch G1, 2026-11-28)
+   All chrome frames, tiles, switches and ledger rows come from
+   ArenaWorkspace.css and ArenaOps.css. Every rule below is scoped under
+   .club-advertise.arena-workspace, with no gradients, no corner radii, no
+   painted shadows and no :hover.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-.club-advertise {
-  --ca-rule: 1px solid #000;
-  --ca-rule-lit: inset 0 1px 0 rgb(255 255 255 / 8%);
-  --ca-well:
-    inset 0 1px 0 rgb(255 255 255 / 8%), inset 0 0 0 1px rgb(0 0 0 / 88%),
-    inset 0 -1px 0 rgb(255 255 255 / 4%);
+.club-advertise.arena-workspace {
   min-height: 100dvh;
   width: 100%;
   max-width: 100vw;
-  padding: 12px 8px var(--bottom-nav-clearance, 74px);
+  padding: 7px 6px calc(var(--bottom-nav-clearance, 96px) + env(safe-area-inset-bottom, 0px));
   box-sizing: border-box;
+  overflow-x: hidden;
   overflow-x: clip;
-  background: #000;
-  color: #e6e9ee;
-  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
+  background: #050d17;
+  color: #f1f5fc;
+  font-family: 'Roboto Condensed', 'Arial Narrow', Arial, sans-serif;
   color-scheme: dark;
 }
 
-/* One console per section, each capped well under the master's own width so
-   the art is never asked for more pixels than it has. The two-class selector
-   is deliberate: it has to outrank the family's own --sc-max. */
-.club-advertise .club-advertise__console {
-  --sc-max: 560px;
-  margin: 0 auto 14px;
-  filter: drop-shadow(0 16px 30px rgb(0 0 0 / 85%));
+.club-advertise.arena-workspace > * {
+  box-sizing: border-box;
+  width: min(760px, 100%);
+  margin-inline: auto;
 }
 
-/* ── Rows on the glass ──────────────────────────────────────────────────── */
-
-.club-advertise__row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 3cqw;
-  min-height: 44px;
-  padding-top: 2cqw;
-  border-top: var(--ca-rule);
-  box-shadow: var(--ca-rule-lit);
+.club-advertise.arena-workspace .club-advertise__nav {
+  justify-content: flex-start;
+  margin: 0 auto 6px;
 }
 
-.club-advertise__row-label {
-  font-size: 2.9cqw;
-  font-weight: 700;
-  letter-spacing: 0.14em;
+.club-advertise.arena-workspace .club-advertise__nav > button {
+  flex: 0 0 auto;
+  min-width: 88px;
+  padding: 0 14px;
+}
+
+.club-advertise.arena-workspace .club-advertise__balance {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  margin: 7px auto 0;
+}
+
+.club-advertise.arena-workspace .club-advertise__balance dt {
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
-.club-advertise__row-value {
-  font-size: 5.2cqw;
-  font-weight: 800;
+.club-advertise.arena-workspace .club-advertise__balance dd {
+  margin: 2px 0 0;
+  color: #74dfff;
+  font:
+    800 20px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Lit words: a control cut into the panel, never a drawn button ──────── */
-
-.club-advertise__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 2cqw 6cqw;
+.club-advertise.arena-workspace .club-advertise__case {
+  margin: 7px auto;
 }
 
-.club-advertise__actions--center {
+.club-advertise.arena-workspace .club-advertise__section-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px 10px;
+  padding: 0 3px 6px;
+  border-bottom: 1px solid #253e57;
+}
+
+.club-advertise.arena-workspace .club-advertise__section-head > .arena-section-title {
+  grid-column: 1;
+  grid-row: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border-bottom: 0;
+}
+
+.club-advertise.arena-workspace .club-advertise__section-sub {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+}
+
+.club-advertise.arena-workspace .club-advertise__section-pill {
+  grid-column: 2;
+  grid-row: 1;
+  font:
+    800 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.club-advertise.arena-workspace .club-advertise__tone--gold {
+  color: #ffd700;
+}
+
+.club-advertise.arena-workspace .club-advertise__tone--blue {
+  color: #74dfff;
+}
+
+.club-advertise.arena-workspace .club-advertise__tone--green {
+  color: #35d95a;
+}
+
+.club-advertise.arena-workspace .club-advertise__tone--muted {
+  color: #9fbacc;
+}
+
+.club-advertise.arena-workspace .club-advertise__tone--red {
+  color: #ff5b6e;
+}
+
+.club-advertise.arena-workspace .club-advertise__copy--center {
+  text-align: center;
+}
+
+.club-advertise.arena-workspace .club-advertise__actions--center {
   justify-content: center;
 }
 
-.club-advertise__word {
-  appearance: none;
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
-  margin: 0;
-  padding: 1.2cqw 0;
-  border: 0;
-  background: transparent;
-  font:
-    800 3.4cqw/1 'Roboto Condensed',
-    Inter,
-    sans-serif;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  cursor: pointer;
-  touch-action: manipulation;
-}
-
-.club-advertise__word:active {
-  filter: brightness(1.3);
-}
-
-.club-advertise__word:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-
-.club-advertise__word:focus-visible {
-  outline: 0.6cqw solid #8fd4ff;
-  outline-offset: 0.4cqw;
-}
-
-/* ── The rate card: one engraved row per surface ────────────────────────── */
-
-.club-advertise__surfaces {
+/* ── Rate card surfaces ────────────────────────────────────────────────── */
+.club-advertise.arena-workspace .club-advertise__surfaces {
   display: grid;
+  gap: 6px;
 }
 
-.club-advertise__surface {
+@media (min-width: 640px) {
+  .club-advertise.arena-workspace .club-advertise__surfaces {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.club-advertise.arena-workspace .club-advertise__surface {
   appearance: none;
   display: grid;
-  gap: 2cqw;
+  gap: 8px;
   width: 100%;
   min-height: 44px;
   margin: 0;
-  padding: 3cqw 0;
-  border: 0;
-  border-top: var(--ca-rule);
-  box-shadow: var(--ca-rule-lit);
-  background: transparent;
-  color: inherit;
+  padding: 10px;
+  color: #f1f5fc;
   font: inherit;
   text-align: left;
   cursor: pointer;
   touch-action: manipulation;
 }
 
-.club-advertise__surface:first-child {
-  padding-top: 1.6cqw;
-  border-top: 0;
-  box-shadow: none;
+.club-advertise.arena-workspace .club-advertise__surface--on {
+  border-image-source: var(--arena-active);
 }
 
-.club-advertise__surface:active {
-  filter: brightness(1.25);
+.club-advertise.arena-workspace .club-advertise__surface:active {
+  filter: brightness(0.86);
 }
 
-.club-advertise__surface:focus-visible {
-  outline: 0.6cqw solid #8fd4ff;
-  outline-offset: -0.4cqw;
+.club-advertise.arena-workspace .club-advertise__surface:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
 }
 
-/* The surface's TRUE shape, cut into the glass. The inline max-width bounds
-   its height to one band without touching the ratio (see shapeStyle). */
-.club-advertise__surface-shape {
+.club-advertise.arena-workspace .club-advertise__surface-shape {
   display: block;
   width: 100%;
+  max-width: 280px;
   margin-inline: auto;
-  background: #05070b;
-  box-shadow: var(--ca-well);
+  background: #040d17;
+  border: 1px solid #476079;
 }
 
-.club-advertise__surface-text {
+.club-advertise.arena-workspace .club-advertise__surface-text {
   display: grid;
-  gap: 0.6cqw;
+  gap: 2px;
   min-width: 0;
 }
 
-.club-advertise__surface-label {
-  font-size: 4.4cqw;
-  font-weight: 800;
-  letter-spacing: 0.03em;
+.club-advertise.arena-workspace .club-advertise__surface-label {
+  color: #f1f5fc;
+  font:
+    800 15px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
   overflow-wrap: anywhere;
 }
 
-.club-advertise__surface-price {
-  font-size: 3.2cqw;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-}
-
-.club-advertise__surface-size {
-  font-size: 2.8cqw;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+.club-advertise.arena-workspace .club-advertise__surface-price {
+  font:
+    700 12px/1.25 'Arial Narrow',
+    Arial,
+    sans-serif;
   font-variant-numeric: tabular-nums;
 }
 
-.club-advertise__surface-state {
-  font-size: 2.7cqw;
-  font-weight: 800;
-  letter-spacing: 0.18em;
+.club-advertise.arena-workspace .club-advertise__surface-size {
+  color: #9fbacc;
+  font:
+    600 11px/1.25 Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.club-advertise.arena-workspace .club-advertise__surface-state {
+  font:
+    800 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.club-advertise__blurb {
-  padding-top: 2.4cqw;
-  border-top: var(--ca-rule);
-  box-shadow: var(--ca-rule-lit);
+.club-advertise.arena-workspace .club-advertise__blurb {
+  padding-top: 6px;
+  border-top: 1px solid #253e57;
 }
 
-/* ── The two pictures ───────────────────────────────────────────────────── */
-
-.club-advertise__picture {
+/* ── Pictures and previews ─────────────────────────────────────────────── */
+.club-advertise.arena-workspace .club-advertise__picture {
   display: grid;
-  gap: 2cqw;
-  padding-top: 2.4cqw;
-  border-top: var(--ca-rule);
-  box-shadow: var(--ca-rule-lit);
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid #253e57;
 }
 
-.club-advertise__picture:first-child {
-  padding-top: 1.6cqw;
+.club-advertise.arena-workspace .club-advertise__picture:first-of-type {
+  padding-top: 2px;
   border-top: 0;
-  box-shadow: none;
 }
 
-.club-advertise__preview {
+.club-advertise.arena-workspace .club-advertise__preview {
   display: grid;
   place-items: center;
   width: 100%;
   overflow: hidden;
-  background: #05070b;
-  box-shadow: var(--ca-well);
+  background: #040d17;
+  border: 1px solid #476079;
 }
 
-.club-advertise__preview img {
+.club-advertise.arena-workspace .club-advertise__preview img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: contain;
 }
 
-.club-advertise__preview-empty {
-  font-size: 2.8cqw;
-  font-weight: 700;
-  letter-spacing: 0.18em;
+.club-advertise.arena-workspace .club-advertise__preview-empty {
+  color: #9fbacc;
+  font:
+    700 11px/1.3 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-/* The poster is 3:4. Full body width would be a screen and a half of well;
-   it is capped and centred, the way the empty-state rotator caps its own. */
-.club-advertise__preview--poster {
-  max-width: 52cqw;
+.club-advertise.arena-workspace .club-advertise__preview--poster {
+  max-width: 220px;
   margin-inline: auto;
 }
 
-.club-advertise__file {
+.club-advertise.arena-workspace .club-advertise__file {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 1cqw 5cqw;
+  gap: 8px 12px;
   min-width: 0;
+  cursor: pointer;
 }
 
-.club-advertise__file input[type='file'] {
+.club-advertise.arena-workspace .club-advertise__file input[type='file'] {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -268,267 +291,300 @@
   pointer-events: none;
 }
 
-.club-advertise__file-name {
-  min-width: 0;
+.club-advertise.arena-workspace .club-advertise__file-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 6px 14px;
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  background: var(--arena-tile);
+  color: #dce5ef;
   font:
-    500 2.9cqw/1.4 Inter,
-    system-ui,
+    700 12px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.club-advertise.arena-workspace
+  .club-advertise__file
+  input[type='file']:focus-visible
+  + .club-advertise__file-key {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+
+.club-advertise.arena-workspace .club-advertise__file-name {
+  min-width: 0;
+  color: #9fbacc;
+  font:
+    500 12px/1.35 Arial,
     sans-serif;
   overflow-wrap: anywhere;
 }
 
-/* ── The flight form: grooves in the glass, the caret lit blue ──────────── */
-
-.club-advertise__field {
+/* ── Form fields (dark search-well dress) ──────────────────────────────── */
+.club-advertise.arena-workspace .club-advertise__field {
   display: grid;
-  gap: 1cqw;
-  padding-top: 2.4cqw;
-  border-top: var(--ca-rule);
-  box-shadow: var(--ca-rule-lit);
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid #253e57;
 }
 
-.club-advertise__field:first-child {
-  padding-top: 1.6cqw;
+.club-advertise.arena-workspace .club-advertise__field:first-of-type {
+  padding-top: 2px;
   border-top: 0;
-  box-shadow: none;
 }
 
-.club-advertise__field-label {
-  font-size: 2.9cqw;
-  font-weight: 700;
-  letter-spacing: 0.14em;
+.club-advertise.arena-workspace .club-advertise__field-label {
+  color: #74dfff;
+  font:
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
-.club-advertise__field-hint {
+.club-advertise.arena-workspace .club-advertise__field-hint {
+  color: #9fbacc;
   font:
-    500 3cqw/1.45 Inter,
-    system-ui,
+    12px/1.4 Arial,
     sans-serif;
 }
 
-.club-advertise__input,
-.club-advertise__select {
+.club-advertise.arena-workspace .club-advertise__input,
+.club-advertise.arena-workspace .club-advertise__select {
+  box-sizing: border-box;
   width: 100%;
   min-width: 0;
   min-height: 44px;
   margin: 0;
-  padding: 1.4cqw 0;
-  border: 0;
-  border-bottom: var(--ca-rule);
-  box-shadow: 0 1px 0 rgb(255 255 255 / 8%);
-  background: transparent;
-  color: #e4e7ec;
-  /* 16px on purpose: anything under it makes iOS zoom the page on focus. */
+  padding: 8px 10px;
+  background: #040d17;
+  border: 1px solid #476079;
+  border-radius: 0;
+  color: #f1f5fc;
+  color-scheme: dark;
   font:
-    800 16px/1.4 'Roboto Condensed',
-    Inter,
-    system-ui,
+    16px/1.3 Arial,
     sans-serif;
   font-variant-numeric: tabular-nums;
-  text-shadow: 0 0.2cqw 0.3cqw rgb(0 0 0 / 80%);
-  caret-color: #5bb8ff;
+  caret-color: #74dfff;
 }
 
-.club-advertise__select {
-  appearance: none;
+.club-advertise.arena-workspace .club-advertise__select {
   cursor: pointer;
 }
 
-.club-advertise__select option {
-  background: #020305;
-  color: #f4f7fb;
+.club-advertise.arena-workspace .club-advertise__select option {
+  background: #040d17;
+  color: #f1f5fc;
 }
 
-.club-advertise__input::placeholder {
-  color: #6b7784;
-  font-weight: 600;
+.club-advertise.arena-workspace .club-advertise__input::placeholder {
+  color: #9fbacc;
 }
 
-.club-advertise__input:focus,
-.club-advertise__select:focus {
-  outline: 0;
-  border-bottom-color: #45adff;
-  box-shadow: 0 1px 0 rgb(69 173 255 / 45%);
+.club-advertise.arena-workspace .club-advertise__input:focus-visible,
+.club-advertise.arena-workspace .club-advertise__select:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 1px;
 }
 
-.club-advertise__input:disabled,
-.club-advertise__select:disabled {
+.club-advertise.arena-workspace .club-advertise__input:disabled,
+.club-advertise.arena-workspace .club-advertise__select:disabled {
   opacity: 0.55;
 }
 
-/* ── What it costs ──────────────────────────────────────────────────────── */
-
-.club-advertise__total {
+/* ── Total cost meter ──────────────────────────────────────────────────── */
+.club-advertise.arena-workspace .club-advertise__total {
   display: grid;
-  gap: 0.6cqw;
-  padding-top: 2.6cqw;
-  border-top: var(--ca-rule);
-  box-shadow: var(--ca-rule-lit);
+  gap: 2px;
+  padding: 8px 10px;
+  text-align: left;
 }
 
-.club-advertise__total-label {
-  font-size: 2.9cqw;
-  font-weight: 700;
-  letter-spacing: 0.14em;
+.club-advertise.arena-workspace .club-advertise__total-label {
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
-.club-advertise__total-value {
-  font-size: 6.4cqw;
-  font-weight: 800;
-  letter-spacing: 0.02em;
+.club-advertise.arena-workspace .club-advertise__total-value {
+  color: #74dfff;
+  font:
+    800 20px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
   font-variant-numeric: tabular-nums;
 }
 
-.club-advertise__total-math {
+.club-advertise.arena-workspace .club-advertise__total-math {
+  color: #9fbacc;
   font:
-    500 3cqw/1.45 Inter,
-    system-ui,
+    12px/1.35 Arial,
     sans-serif;
 }
 
-.club-advertise__field-error {
+.club-advertise.arena-workspace .club-advertise__field-error {
   margin: 0;
   font:
-    600 3cqw/1.45 Inter,
-    system-ui,
+    600 12px/1.4 Arial,
     sans-serif;
 }
 
-/* ── The ledger ─────────────────────────────────────────────────────────── */
-
-.club-advertise__list {
+/* ── Campaign ledger ───────────────────────────────────────────────────── */
+.club-advertise.arena-workspace .club-advertise__list {
   display: grid;
+  gap: 8px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.club-advertise__item {
+.club-advertise.arena-workspace .club-advertise__item {
   display: grid;
-  gap: 2cqw;
-  padding: 3.4cqw 0;
-  border-top: var(--ca-rule);
-  box-shadow: var(--ca-rule-lit);
+  gap: 8px;
+  padding: 10px;
 }
 
-.club-advertise__item:first-child {
-  padding-top: 1.6cqw;
-  border-top: 0;
-  box-shadow: none;
-}
-
-.club-advertise__item-picture {
+.club-advertise.arena-workspace .club-advertise__item-picture {
   width: 100%;
   overflow: hidden;
-  background: #05070b;
-  box-shadow: var(--ca-well);
+  background: #040d17;
+  border: 1px solid #476079;
 }
 
-.club-advertise__item-picture img {
+.club-advertise.arena-workspace .club-advertise__item-picture img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: contain;
 }
 
-.club-advertise__item-body {
+.club-advertise.arena-workspace .club-advertise__item-body {
   display: grid;
-  gap: 1.4cqw;
+  gap: 6px;
   align-content: start;
   min-width: 0;
 }
 
-.club-advertise__item-top {
+.club-advertise.arena-workspace .club-advertise__item-top {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 3cqw;
+  gap: 10px;
 }
 
-.club-advertise__item-title {
+.club-advertise.arena-workspace .club-advertise__item-title {
   min-width: 0;
-  font-size: 4.2cqw;
-  font-weight: 800;
-  line-height: 1.2;
+  color: #f1f5fc;
+  font:
+    800 16px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
   overflow-wrap: anywhere;
 }
 
-.club-advertise__status {
+.club-advertise.arena-workspace .club-advertise__status {
   flex: 0 0 auto;
-  font-size: 2.7cqw;
-  font-weight: 800;
-  letter-spacing: 0.14em;
+  font:
+    800 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
 }
 
-.club-advertise__item-meta {
+.club-advertise.arena-workspace .club-advertise__item-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.6cqw 4cqw;
+  gap: 4px 12px;
 }
 
-.club-advertise__item-fact {
-  font-size: 2.9cqw;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+.club-advertise.arena-workspace .club-advertise__item-fact {
+  color: #9fbacc;
+  font:
+    600 12px/1.3 Arial,
+    sans-serif;
   font-variant-numeric: tabular-nums;
 }
 
-.club-advertise__item-note {
+.club-advertise.arena-workspace .club-advertise__item-note {
   font:
-    500 3cqw/1.5 Inter,
-    system-ui,
+    600 12px/1.4 Arial,
     sans-serif;
 }
 
-.club-advertise__item-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1cqw 5cqw;
+.club-advertise.arena-workspace .club-advertise__item-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
 }
 
-.club-advertise__item-stat {
-  font-size: 3.2cqw;
-  font-weight: 800;
-  letter-spacing: 0.04em;
+.club-advertise.arena-workspace .club-advertise__item-stat {
+  color: #f1f5fc;
+  font:
+    800 12px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
 
-/* ── Day by day, one flight at a time ───────────────────────────────────── */
+.club-advertise.arena-workspace .club-advertise__item-actions {
+  margin-top: 2px;
+}
 
-.club-advertise__days {
+/* ── Day by day table ──────────────────────────────────────────────────── */
+.club-advertise.arena-workspace .club-advertise__days {
   width: 100%;
   border-collapse: collapse;
-  font-size: 2.9cqw;
+  background: #040d17;
+  border: 1px solid #476079;
+  font:
+    12px/1.35 Arial,
+    sans-serif;
   font-variant-numeric: tabular-nums;
 }
 
-.club-advertise__days th,
-.club-advertise__days td {
-  padding: 1.3cqw 1cqw;
+.club-advertise.arena-workspace .club-advertise__days th,
+.club-advertise.arena-workspace .club-advertise__days td {
+  padding: 6px 8px;
   text-align: right;
-  border-top: var(--ca-rule);
-  box-shadow: var(--ca-rule-lit);
+  border-top: 1px solid #253e57;
 }
 
-.club-advertise__days th:first-child,
-.club-advertise__days td:first-child {
+.club-advertise.arena-workspace .club-advertise__days th:first-child,
+.club-advertise.arena-workspace .club-advertise__days td:first-child {
   text-align: left;
 }
 
-.club-advertise__days th {
-  font-size: 2.5cqw;
-  font-weight: 800;
-  letter-spacing: 0.1em;
+.club-advertise.arena-workspace .club-advertise__days th {
+  color: #74dfff;
+  font:
+    800 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #45adff;
 }
 
-.club-advertise__days td {
+.club-advertise.arena-workspace .club-advertise__days td {
+  color: #f1f5fc;
   font-weight: 700;
-  color: #e4e7ec;
+}
+
+@media (max-width: 520px) {
+  .club-advertise.arena-workspace .club-advertise__item-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }

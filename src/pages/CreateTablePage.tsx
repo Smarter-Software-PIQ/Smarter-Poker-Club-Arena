@@ -13,8 +13,10 @@
 
 import { useParams, useNavigate } from 'react-router-dom';
 import ArenaGameCard from '../components/lobby/game-cards/ArenaGameCard';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
 import PageHelp from '../components/help/PageHelp';
 import type { ArenaGameFamily } from '../components/lobby/game-cards/arenaGameCardTypes';
+import '../components/ops/ArenaOps.css';
 import './CreateTablePage.css';
 
 interface GameType {
@@ -150,63 +152,65 @@ export default function CreateTablePage({
     else navigate(`/clubs/${clubId}`);
   };
 
+  const helpSummary = `Select A Variant To Configure. ${GAME_TYPES.length} Games Are Available.`;
+  const helpSteps = [
+    {
+      title: 'Pick A Game',
+      body: 'Each Card Is One Variant. Tap Configure To Set Its Stakes, Seats And Limits. A Locked Card Opens At A Higher Club Level.',
+      target: '.create-table-page__list',
+    },
+    {
+      title: 'Back',
+      body: 'Back Returns You To Where You Started Without Creating Anything.',
+      target: '.create-table-page__back',
+    },
+  ];
+
+  /* Back. Two literals, not a computed string: only Table Management's creator
+     deck passes onBack. Standalone sits above the ArenaWorkspaceHeader mast;
+     embedded sits in the deck bar without duplicating Table Management's mast. */
+  const backButton = onBack ? (
+    <button
+      type="button"
+      className="create-table-page__back"
+      onClick={handleBack}
+      aria-label="Back To Table Management"
+    >
+      Back
+    </button>
+  ) : (
+    <button
+      type="button"
+      className="create-table-page__back"
+      onClick={handleBack}
+      aria-label="Back To The Club"
+    >
+      Back
+    </button>
+  );
+
+  const isEmbedded = Boolean(onSelectGameType);
+
   /* THE LAUNCH DECK (Dan 2026-09-20: "DO NOT ATTACH EVERYTHING TOGETHER WITH
      THE SAME DISPLAY WINDOWS"). The variants are the lobby's own painted game
-     cards, and a frame never sits around painted cards, so no console is drawn
-     here - embedded in Table Management or on its own route. The header prints
-     straight on the black in the master's own inks, over an engraved rule. */
+     cards, and a frame never sits around painted cards, so no chrome case is
+     wrapped around ArenaGameCard - embedded in Table Management or on its own
+     route. */
   const selector = (
     <div className="create-table-page">
       <div className="create-table-page__deck">
-        {/* Back. A printed word, not a font glyph: the console standard
-          forbids a generic glyph standing in for a control ("seat the icon in
-          the painted art or remove it and use a clear text label"), and one
-          action on its own is a lit word on the glass, not a plate (the foot
-          paints two plates or none). The double chevron it replaces had no
-          accessible name, so a screen reader announced it as "button". The
-          name says where Back goes, and starts with the visible word so voice
-          control can target it. Two literals, not a computed string: only
-          Table Management's creator deck passes onBack. */}
-        {onBack ? (
-          <button
-            type="button"
-            className="create-table-page__back"
-            onClick={handleBack}
-            aria-label="Back To Table Management"
-          >
-            Back
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="create-table-page__back"
-            onClick={handleBack}
-            aria-label="Back To The Club"
-          >
-            Back
-          </button>
+        {isEmbedded && (
+          <div className="create-table-page__back-wrap arena-switch">{backButton}</div>
         )}
-        {/* The step's own label stays: it says where in the creator you are.
-            The eyebrow and the instruction line went behind the "?" (Dan
-            2026-10-17: "ALL THESE WORDS ARE DISTRACTING"). */}
-        <h2 className="create-table-page__title">Choose Game Type</h2>
-        <PageHelp
-          className="create-table-page__help"
-          title="Add Table"
-          summary={`Select A Variant To Configure. ${GAME_TYPES.length} Games Are Available.`}
-          steps={[
-            {
-              title: 'Pick A Game',
-              body: 'Each Card Is One Variant. Tap Configure To Set Its Stakes, Seats And Limits. A Locked Card Opens At A Higher Club Level.',
-              target: '.create-table-page__list',
-            },
-            {
-              title: 'Back',
-              body: 'Back Returns You To Where You Started Without Creating Anything.',
-              target: '.create-table-page__back',
-            },
-          ]}
-        />
+        <h2 className="create-table-page__title arena-section-title">Choose Game Type</h2>
+        {isEmbedded && (
+          <PageHelp
+            className="create-table-page__help"
+            title="Add Table"
+            summary={helpSummary}
+            steps={helpSteps}
+          />
+        )}
       </div>
 
       {/* Game Type List */}
@@ -248,7 +252,18 @@ export default function CreateTablePage({
     </div>
   );
 
-  if (onSelectGameType) return selector;
+  if (isEmbedded) return selector;
 
-  return <main className="create-table-page__standalone">{selector}</main>;
+  return (
+    <main className="arena-workspace create-table-page__standalone">
+      <div className="create-table-page__nav arena-switch">{backButton}</div>
+      <ArenaWorkspaceHeader
+        area="dashboard"
+        title="Add Table"
+        summary={helpSummary}
+        steps={helpSteps}
+      />
+      {selector}
+    </main>
+  );
 }
