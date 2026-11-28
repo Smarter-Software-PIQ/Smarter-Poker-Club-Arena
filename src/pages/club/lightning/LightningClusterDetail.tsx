@@ -26,11 +26,8 @@
  * horses read exactly like every other player (Law 10.5).
  */
 import { lazy, Suspense, useCallback, useState, type ReactNode } from 'react';
-import { type ConsoleInk } from '../../../components/console/SpadeConsole';
-/* #SmarterDesign (Dan 2026-11-27): the Cluster detail prints in the thin
-   chrome case; its confirmation dialogs keep their own popup chassis. */
-import { ClubPageSection as SpadeConsole } from '../../../components/club/ClubPageSection';
-import '../../../components/lobby/ArenaWorkspace.css';
+import ArenaWorkspaceHeader from '../../../components/lobby/ArenaWorkspaceHeader';
+import PageBar from '../../../components/help/PageBar';
 import { useToast } from '../../../components/common/Toast';
 import { compactChips } from '../../../utils/format';
 import { titleCase } from '../../../utils/titleCase';
@@ -65,6 +62,7 @@ import {
 } from '../../../lightning/lightningOperatorApi';
 import { CLUSTER_REFRESH_MS, usePolledAnswer } from '../../../lightning/useLightningOperator';
 import { AnswerState, LatencyGrid, MODE_INK, count } from './lightningOperatorParts';
+import { inkClass, type LightningInk } from './lightningInk';
 import { ACTION_LABELS, isOperatorAction } from '../../../lightning/lightningOperatorControls';
 import LightningOperatorControls, {
   DrainProgress,
@@ -86,21 +84,29 @@ export function isInFlight(c: Detail['cluster']): boolean {
   );
 }
 
-const SEVERITY_INK: Record<string, ConsoleInk> = { high: 'red', medium: 'gold', low: 'blue' };
+const SEVERITY_INK: Record<string, LightningInk> = { high: 'red', medium: 'gold', low: 'blue' };
 
-function Row({ label, value, ink = 'silver' }: { label: string; value: string; ink?: ConsoleInk }) {
+function Row({
+  label,
+  value,
+  ink = 'silver',
+}: {
+  label: string;
+  value: string;
+  ink?: LightningInk;
+}) {
   return (
     <div className={styles.row}>
-      <span className={`${styles.rowLabel} sc-ink--blue`}>{label}</span>
-      <span className={`${styles.rowValue} sc-ink--${ink}`}>{value}</span>
+      <span className={`${styles.rowLabel} ${inkClass('blue')}`}>{label}</span>
+      <span className={`${styles.rowValue} ${inkClass(ink)}`}>{value}</span>
     </div>
   );
 }
 
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
-    <section className={styles.section} aria-labelledby={id}>
-      <h3 id={id} className={`${styles.sectionTitle} sc-label sc-ink--silver`}>
+    <section className={`${styles.section} arena-case arena-ops-case`} aria-labelledby={id}>
+      <h3 id={id} className={`${styles.sectionTitle} arena-section-title`}>
         {title}
       </h3>
       {children}
@@ -109,7 +115,7 @@ function Section({ id, title, children }: { id: string; title: string; children:
 }
 
 function Empty({ children }: { children: ReactNode }) {
-  return <p className={`${styles.empty} sc-copy sc-ink--muted`}>{children}</p>;
+  return <p className={`${styles.empty} ${styles.copy} ${inkClass('muted')}`}>{children}</p>;
 }
 
 function signed(n: number | null, digits = 1): string {
@@ -213,25 +219,27 @@ function SignalRecord({
   const ink = SEVERITY_INK[s.severity ?? ''] ?? 'muted';
   const players = [s.playerA, s.playerB].filter(Boolean).map((p) => shortId(p));
   return (
-    <li className={`arena-ledger-row ${styles.record}`} data-signal-id={s.id ?? undefined}>
+    <li className={`${styles.record} arena-ledger-row`} data-signal-id={s.id ?? undefined}>
       <div className={styles.recordHead}>
-        <span className={`${styles.recordName} sc-ink--silver`}>
+        <span className={`${styles.recordName} ${inkClass('silver')}`}>
           {s.pattern ? enumLabel(s.pattern) : 'Signal'}
         </span>
-        <span className={`${styles.mode} sc-ink--${ink}`}>
+        <span className={`${styles.mode} ${inkClass(ink)}`}>
           {s.severity ? enumLabel(s.severity) : 'Unrated'}
         </span>
       </div>
-      <span className={`${styles.recordMeta} sc-ink--muted`}>
+      <span className={`${styles.recordMeta} ${inkClass('muted')}`}>
         {`Score ${s.score ?? '-'}, ${s.status ? enumLabel(s.status) : 'Open'}`}
         {players.length ? `, Players ${players.join(' And ')}` : ''}
         {s.windowEnd ? `, ${stampLabel(s.windowStart)} To ${stampLabel(s.windowEnd)}` : ''}
       </span>
-      {s.notes ? <p className={`sc-copy sc-ink--muted ${styles.state}`}>{s.notes}</p> : null}
+      {s.notes ? (
+        <p className={`${styles.copy} ${inkClass('muted')} ${styles.state}`}>{s.notes}</p>
+      ) : null}
       {open ? (
         <div className={styles.review}>
           <div
-            className={`arena-switch arena-ops-keys ${styles.words}`}
+            className={`${styles.words} arena-switch arena-ops-keys`}
             role="group"
             aria-label="Review Decision"
           >
@@ -239,7 +247,7 @@ function SignalRecord({
               <button
                 key={st}
                 type="button"
-                className={styles.word}
+                className={`${styles.word}`}
                 aria-pressed={status === st}
                 onClick={() => setStatus(st)}
               >
@@ -248,26 +256,22 @@ function SignalRecord({
             ))}
           </div>
           <label className={styles.field}>
-            <span className="sc-label sc-ink--blue">Review Note</span>
+            <span className={`${styles.label} ${inkClass('blue')}`}>Review Note</span>
             <input
-              className={styles.fieldInput}
+              className={`${styles.fieldInput} arena-ops-well`}
               value={note}
               maxLength={2000}
               placeholder="What You Found"
               onChange={(e) => setNote(e.target.value)}
             />
           </label>
-          <div className={`arena-switch arena-ops-keys ${styles.words}`}>
-            <button
-              type="button"
-              className={`${styles.word} sc-ink--muted`}
-              onClick={() => setOpen(false)}
-            >
+          <div className={`${styles.words} arena-switch arena-ops-keys`}>
+            <button type="button" className={`${styles.word}`} onClick={() => setOpen(false)}>
               Cancel
             </button>
             <button
               type="button"
-              className={`${styles.word} club-page-key--primary sc-ink--white`}
+              className={`${styles.word}`}
               onClick={() => void save()}
               disabled={saving || !s.id}
             >
@@ -276,10 +280,10 @@ function SignalRecord({
           </div>
         </div>
       ) : (
-        <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.words}`}>
+        <div className={`${styles.words} arena-switch arena-ops-keys`}>
           <button
             type="button"
-            className={`${styles.word} sc-ink--white`}
+            className={`${styles.word}`}
             onClick={() => setOpen(true)}
             disabled={!s.id}
           >
@@ -312,9 +316,9 @@ function HandReplayCheck({ clusterId }: { clusterId: string }) {
   return (
     <Section id="lightning-hand-replay" title="Hand Replay Check">
       <label className={styles.field}>
-        <span className="sc-label sc-ink--blue">Hand ID</span>
+        <span className={`${styles.label} ${inkClass('blue')}`}>Hand ID</span>
         <input
-          className={styles.fieldInput}
+          className={`${styles.fieldInput} arena-ops-well`}
           value={handId}
           spellCheck={false}
           autoCapitalize="off"
@@ -325,10 +329,10 @@ function HandReplayCheck({ clusterId }: { clusterId: string }) {
           }}
         />
       </label>
-      <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.words}`}>
+      <div className={`${styles.words} arena-switch arena-ops-keys`}>
         <button
           type="button"
-          className={`${styles.word} sc-ink--white`}
+          className={`${styles.word}`}
           onClick={() => void check()}
           disabled={!valid || busy}
         >
@@ -356,27 +360,31 @@ function HandReplayCheck({ clusterId }: { clusterId: string }) {
           {answer.data.players.length > 0 ? (
             <ul className={styles.grid} aria-label="Hand Players">
               <li className={styles.gridRow}>
-                <span className={`${styles.gridHead} sc-ink--muted`}>Seat</span>
-                <span className={`${styles.gridHead} ${styles.gridCell} sc-ink--muted`}>
+                <span className={`${styles.gridHead} ${inkClass('muted')}`}>Seat</span>
+                <span className={`${styles.gridHead} ${styles.gridCell} ${inkClass('muted')}`}>
                   Before
                 </span>
-                <span className={`${styles.gridHead} ${styles.gridCell} sc-ink--muted`}>After</span>
-                <span className={`${styles.gridHead} ${styles.gridCell} sc-ink--muted`}>Net</span>
+                <span className={`${styles.gridHead} ${styles.gridCell} ${inkClass('muted')}`}>
+                  After
+                </span>
+                <span className={`${styles.gridHead} ${styles.gridCell} ${inkClass('muted')}`}>
+                  Net
+                </span>
               </li>
               {answer.data.players.map((p, i) => (
                 <li className={styles.gridRow} key={p.playerId ?? i}>
-                  <span className={`${styles.gridName} sc-ink--blue`}>
+                  <span className={`${styles.gridName} ${inkClass('blue')}`}>
                     {`${p.seat ?? '-'}, ${shortId(p.playerId)}`}
                     {foldLabel(p.foldType) ? `, ${foldLabel(p.foldType)}` : ''}
                   </span>
-                  <span className={`${styles.gridCell} sc-ink--silver`}>
+                  <span className={`${styles.gridCell} ${inkClass('silver')}`}>
                     {p.stackBefore === null ? '-' : compactChips(p.stackBefore)}
                   </span>
-                  <span className={`${styles.gridCell} sc-ink--silver`}>
+                  <span className={`${styles.gridCell} ${inkClass('silver')}`}>
                     {p.stackAfter === null ? '-' : compactChips(p.stackAfter)}
                   </span>
                   <span
-                    className={`${styles.gridCell} sc-ink--${(p.net ?? 0) < 0 ? 'red' : (p.net ?? 0) > 0 ? 'green' : 'silver'}`}
+                    className={`${styles.gridCell} ${inkClass((p.net ?? 0) < 0 ? 'red' : (p.net ?? 0) > 0 ? 'green' : 'silver')}`}
                   >
                     {p.net === null ? '-' : compactChips(p.net)}
                   </span>
@@ -433,9 +441,9 @@ function SessionTrail({
   return (
     <Section id="lightning-session-trail" title="Player Session Trail">
       <label className={styles.field}>
-        <span className="sc-label sc-ink--blue">Pool Session ID</span>
+        <span className={`${styles.label} ${inkClass('blue')}`}>Pool Session ID</span>
         <input
-          className={styles.fieldInput}
+          className={`${styles.fieldInput} arena-ops-well`}
           value={poolSessionId}
           spellCheck={false}
           autoCapitalize="off"
@@ -443,10 +451,10 @@ function SessionTrail({
           onChange={(e) => onPoolSessionId(e.target.value)}
         />
       </label>
-      <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.words}`}>
+      <div className={`${styles.words} arena-switch arena-ops-keys`}>
         <button
           type="button"
-          className={`${styles.word} sc-ink--white`}
+          className={`${styles.word}`}
           onClick={() => void show(wanted)}
           disabled={!valid || busy}
         >
@@ -468,23 +476,25 @@ function SessionTrail({
                 : 'Still In The Pool'
             }
           />
-          <span className={`${styles.recordMeta} sc-ink--muted`}>Session Steps</span>
+          <span className={`${styles.recordMeta} ${inkClass('muted')}`}>Session Steps</span>
           {trail.steps.length === 0 ? (
             <Empty>No Steps Recorded</Empty>
           ) : (
             <ol className={styles.trail} aria-label="Session Steps">
               {trail.steps.map((step, i) => (
                 <li className={styles.trailStep} key={`${step.at}-${i}`}>
-                  <span className={`${styles.gridName} sc-ink--silver`}>
+                  <span className={`${styles.gridName} ${inkClass('silver')}`}>
                     {step.label}
                     {step.detail ? `, ${step.detail}` : ''}
                   </span>
-                  <span className={`${styles.gridCell} sc-ink--muted`}>{stampLabel(step.at)}</span>
+                  <span className={`${styles.gridCell} ${inkClass('muted')}`}>
+                    {stampLabel(step.at)}
+                  </span>
                 </li>
               ))}
             </ol>
           )}
-          <span className={`${styles.recordMeta} sc-ink--muted`}>
+          <span className={`${styles.recordMeta} ${inkClass('muted')}`}>
             Mode Transitions During This Session
           </span>
           {trail.transitions.length === 0 ? (
@@ -493,8 +503,12 @@ function SessionTrail({
             <ol className={styles.trail} aria-label="Overlapping Mode Transitions">
               {trail.transitions.map((t, i) => (
                 <li className={styles.trailStep} key={`${t.kind}-${t.at}-${i}`}>
-                  <span className={`${styles.gridName} sc-ink--silver`}>{transitionLine(t)}</span>
-                  <span className={`${styles.gridCell} sc-ink--muted`}>{stampLabel(t.at)}</span>
+                  <span className={`${styles.gridName} ${inkClass('silver')}`}>
+                    {transitionLine(t)}
+                  </span>
+                  <span className={`${styles.gridCell} ${inkClass('muted')}`}>
+                    {stampLabel(t.at)}
+                  </span>
                 </li>
               ))}
             </ol>
@@ -523,7 +537,7 @@ function LatencySection({ detail }: { detail: Detail }) {
       ) : (
         <>
           <div
-            className={`arena-switch arena-ops-keys ${styles.words}`}
+            className={`${styles.words} arena-switch arena-ops-keys`}
             role="group"
             aria-label="Latency Leg"
           >
@@ -531,7 +545,7 @@ function LatencySection({ detail }: { detail: Detail }) {
               <button
                 key={l}
                 type="button"
-                className={styles.word}
+                className={`${styles.word}`}
                 aria-pressed={l === leg}
                 onClick={() => setPicked(l)}
               >
@@ -544,7 +558,7 @@ function LatencySection({ detail }: { detail: Detail }) {
           </Suspense>
           {latest ? (
             <>
-              <span className={`${styles.recordMeta} sc-ink--muted`}>
+              <span className={`${styles.recordMeta} ${inkClass('muted')}`}>
                 {`Latest Window, ${stampLabel(latest.windowTo)}`}
               </span>
               <LatencyGrid legs={latest.legs} />
@@ -585,40 +599,73 @@ export default function LightningClusterDetail({
   const badge = modeBadge(c?.mode ?? null);
   const now = read.refreshedAt ?? Date.now();
 
+  const title = c?.name ? titleCase(c.name) : 'Lightning Cluster';
+
   return (
-    <SpadeConsole
-      arena
-      className={styles.console}
-      eyebrow="Lightning"
-      title={c?.name ? titleCase(c.name) : 'Lightning Cluster'}
-      titleId="lightning-cluster-title"
-      pill={c ? badge.label : 'Cluster'}
-      pillInk={c ? MODE_INK[badge.tone] : 'muted'}
-      plates={{
-        secondary: { label: 'All Clusters', onClick: onBack },
-        primary: {
-          label: read.loading ? 'Reading' : 'Refresh',
-          ink: 'white',
-          onClick: read.refresh,
-        },
-      }}
-    >
-      <div className={`arena-switch ${styles.words}`} role="group" aria-label="Time Window">
-        {DETAIL_WINDOWS.map((w) => (
-          <button
-            key={w.key}
-            type="button"
-            className={styles.word}
-            aria-pressed={windowKey === w.key}
-            onClick={() => setWindowKey(w.key)}
-          >
-            {w.label}
-          </button>
-        ))}
+    <>
+      {/* #SmarterDesign (Dan 2026-11-27): the Cluster's own chrome mast, its
+          figures as chrome meters, All Clusters and Refresh as chrome keys and
+          every section in a thin chrome case. */}
+      <ArenaWorkspaceHeader
+        area="control"
+        title={title}
+        context="Lightning"
+        id="lightning-cluster-title"
+        summary="One Lightning Cluster In Full: Its Conversion State, Operator Controls, Rollout Readiness, Mode Transitions, Holds, Blind Ledger, Stack Reconcile, Candidate Matcher, Integrity Signals, Alerts And Latency."
+      />
+      <PageBar
+        title={title}
+        titleAs={false}
+        showHelp={false}
+        status={c ? badge.label : 'Cluster'}
+        statusTone={
+          !c
+            ? 'default'
+            : badge.tone === 'frozen'
+              ? 'danger'
+              : badge.tone === 'pending'
+                ? 'attention'
+                : 'live'
+        }
+        metrics={
+          c
+            ? [
+                { label: 'Epoch', value: count(c.epoch) },
+                { label: 'Live Eligible', value: count(c.liveEligible), tone: 'live' },
+                { label: 'On At', value: count(c.onThreshold) },
+                { label: 'Off At', value: count(c.offThreshold) },
+              ]
+            : []
+        }
+      />
+      <div className="arena-switch arena-ops-keys arena-ops-primary">
+        <button type="button" onClick={read.refresh}>
+          {read.loading ? 'Reading' : 'Refresh'}
+        </button>
+        <button type="button" onClick={onBack}>
+          All Clusters
+        </button>
       </div>
 
+      <section className="arena-case arena-ops-case" aria-label="Time Window">
+        <div className="arena-switch" role="group" aria-label="Time Window">
+          {DETAIL_WINDOWS.map((w) => (
+            <button
+              key={w.key}
+              type="button"
+              aria-pressed={windowKey === w.key}
+              onClick={() => setWindowKey(w.key)}
+            >
+              {w.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
       {!detail ? (
-        <AnswerState answer={answer} onRetry={read.refresh} />
+        <section className="arena-case arena-ops-case">
+          <AnswerState answer={answer} onRetry={read.refresh} />
+        </section>
       ) : (
         <>
           <Section id="lightning-status" title="Conversion State">
@@ -672,11 +719,13 @@ export default function LightningClusterDetail({
                 {detail.transitions.map((t, i) => (
                   <li className={styles.trailStep} key={`${t.kind}-${t.at}-${i}`}>
                     <span
-                      className={`${styles.gridName} sc-ink--${t.kind === 'freeze' ? 'red' : t.kind === 'operator' || t.kind === 'drain' ? 'gold' : 'silver'}`}
+                      className={`${styles.gridName} ${inkClass(t.kind === 'freeze' ? 'red' : t.kind === 'operator' || t.kind === 'drain' ? 'gold' : 'silver')}`}
                     >
                       {transitionLine(t)}
                     </span>
-                    <span className={`${styles.gridCell} sc-ink--muted`}>{stampLabel(t.at)}</span>
+                    <span className={`${styles.gridCell} ${inkClass('muted')}`}>
+                      {stampLabel(t.at)}
+                    </span>
                   </li>
                 ))}
               </ol>
@@ -704,27 +753,29 @@ export default function LightningClusterDetail({
             ) : (
               <ul className={styles.grid} aria-label="Open Blind Obligations">
                 <li className={styles.gridRow}>
-                  <span className={`${styles.gridHead} sc-ink--muted`}>Player</span>
-                  <span className={`${styles.gridHead} ${styles.gridCell} sc-ink--muted`}>
+                  <span className={`${styles.gridHead} ${inkClass('muted')}`}>Player</span>
+                  <span className={`${styles.gridHead} ${styles.gridCell} ${inkClass('muted')}`}>
                     Missed BB
                   </span>
-                  <span className={`${styles.gridHead} ${styles.gridCell} sc-ink--muted`}>
+                  <span className={`${styles.gridHead} ${styles.gridCell} ${inkClass('muted')}`}>
                     Missed SB
                   </span>
-                  <span className={`${styles.gridHead} ${styles.gridCell} sc-ink--muted`}>
+                  <span className={`${styles.gridHead} ${styles.gridCell} ${inkClass('muted')}`}>
                     Owed
                   </span>
                 </li>
                 {detail.blindLedger.map((b, i) => (
                   <li className={styles.gridRow} key={b.playerId ?? i}>
-                    <span className={`${styles.gridName} sc-ink--blue`}>{shortId(b.playerId)}</span>
-                    <span className={`${styles.gridCell} sc-ink--silver`}>
+                    <span className={`${styles.gridName} ${inkClass('blue')}`}>
+                      {shortId(b.playerId)}
+                    </span>
+                    <span className={`${styles.gridCell} ${inkClass('silver')}`}>
                       {count(b.missedBbDebt)}
                     </span>
-                    <span className={`${styles.gridCell} sc-ink--silver`}>
+                    <span className={`${styles.gridCell} ${inkClass('silver')}`}>
                       {count(b.missedSbDebt)}
                     </span>
-                    <span className={`${styles.gridCell} sc-ink--silver`}>
+                    <span className={`${styles.gridCell} ${inkClass('silver')}`}>
                       {b.bbOwed === null && b.sbOwed === null
                         ? '-'
                         : compactChips(chipCents((b.bbOwed ?? 0) + (b.sbOwed ?? 0)))}
@@ -741,19 +792,19 @@ export default function LightningClusterDetail({
             ) : (
               <ul className={styles.grid} aria-label="Stack Reconcile">
                 <li className={styles.gridRow}>
-                  <span className={`${styles.gridHead} sc-ink--muted`}>Player</span>
-                  <span className={`${styles.gridHead} ${styles.gridCell} sc-ink--muted`}>
+                  <span className={`${styles.gridHead} ${inkClass('muted')}`}>Player</span>
+                  <span className={`${styles.gridHead} ${styles.gridCell} ${inkClass('muted')}`}>
                     Anchor
                   </span>
-                  <span className={`${styles.gridHead} ${styles.gridCell} sc-ink--muted`}>
+                  <span className={`${styles.gridHead} ${styles.gridCell} ${inkClass('muted')}`}>
                     Exposure
                   </span>
-                  <span className={`${styles.gridHead} ${styles.gridCell} sc-ink--muted`}>
+                  <span className={`${styles.gridHead} ${styles.gridCell} ${inkClass('muted')}`}>
                     Pool
                   </span>
                 </li>
                 {detail.reconcile.map((r, i) => {
-                  const ink: ConsoleInk = r.ok ? 'silver' : 'red';
+                  const ink: LightningInk = r.ok ? 'silver' : 'red';
                   const gap = reconcileGap(r);
                   const note = r.ok
                     ? ''
@@ -766,25 +817,25 @@ export default function LightningClusterDetail({
                       key={r.poolSessionId ?? i}
                       data-reconciled={r.ok ? 'true' : 'false'}
                     >
-                      <span className={`${styles.gridName} sc-ink--${r.ok ? 'blue' : 'red'}`}>
+                      <span className={`${styles.gridName} ${inkClass(r.ok ? 'blue' : 'red')}`}>
                         {`${shortId(r.playerId)}${note}`}
                         {r.poolSessionId ? (
                           <button
                             type="button"
-                            className={`${styles.word} ${styles.cellWord} sc-ink--white`}
+                            className={`${styles.word} ${styles.cellWord}`}
                             onClick={() => setPoolSessionId(r.poolSessionId as string)}
                           >
                             Trail
                           </button>
                         ) : null}
                       </span>
-                      <span className={`${styles.gridCell} sc-ink--${ink}`}>
+                      <span className={`${styles.gridCell} ${inkClass(ink)}`}>
                         {r.anchorStack === null ? '-' : compactChips(r.anchorStack)}
                       </span>
-                      <span className={`${styles.gridCell} sc-ink--${ink}`}>
+                      <span className={`${styles.gridCell} ${inkClass(ink)}`}>
                         {r.exposure === null ? '-' : compactChips(r.exposure)}
                       </span>
-                      <span className={`${styles.gridCell} sc-ink--${ink}`}>
+                      <span className={`${styles.gridCell} ${inkClass(ink)}`}>
                         {r.poolStack === null ? '-' : compactChips(r.poolStack)}
                       </span>
                     </li>
@@ -833,29 +884,35 @@ export default function LightningClusterDetail({
                   {p.components.length > 0 ? (
                     <ul className={styles.grid} aria-label="Candidate Components">
                       <li className={styles.gridRow}>
-                        <span className={`${styles.gridHead} sc-ink--muted`}>Component</span>
-                        <span className={`${styles.gridHead} ${styles.gridCell} sc-ink--muted`}>
+                        <span className={`${styles.gridHead} ${inkClass('muted')}`}>Component</span>
+                        <span
+                          className={`${styles.gridHead} ${styles.gridCell} ${inkClass('muted')}`}
+                        >
                           Live
                         </span>
-                        <span className={`${styles.gridHead} ${styles.gridCell} sc-ink--muted`}>
+                        <span
+                          className={`${styles.gridHead} ${styles.gridCell} ${inkClass('muted')}`}
+                        >
                           Candidate
                         </span>
-                        <span className={`${styles.gridHead} ${styles.gridCell} sc-ink--muted`}>
+                        <span
+                          className={`${styles.gridHead} ${styles.gridCell} ${inkClass('muted')}`}
+                        >
                           Delta
                         </span>
                       </li>
                       {p.components.map((m) => (
                         <li className={styles.gridRow} key={m.key}>
-                          <span className={`${styles.gridName} sc-ink--blue`}>
+                          <span className={`${styles.gridName} ${inkClass('blue')}`}>
                             {shadowMetricLabel(m.key)}
                           </span>
-                          <span className={`${styles.gridCell} sc-ink--silver`}>
+                          <span className={`${styles.gridCell} ${inkClass('silver')}`}>
                             {reading(m.live)}
                           </span>
-                          <span className={`${styles.gridCell} sc-ink--silver`}>
+                          <span className={`${styles.gridCell} ${inkClass('silver')}`}>
                             {reading(m.candidate)}
                           </span>
-                          <span className={`${styles.gridCell} sc-ink--silver`}>
+                          <span className={`${styles.gridCell} ${inkClass('silver')}`}>
                             {signedReading(m.delta)}
                           </span>
                         </li>
@@ -907,6 +964,6 @@ export default function LightningClusterDetail({
           />
         </>
       )}
-    </SpadeConsole>
+    </>
   );
 }

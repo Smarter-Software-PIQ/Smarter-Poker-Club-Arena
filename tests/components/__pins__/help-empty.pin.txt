@@ -1,0 +1,33 @@
+{
+  "headings": [
+    "h1|help-title|Help Center",
+    "h2|faq-title|Frequently Asked Questions"
+  ],
+  "pageHelp": 1,
+  "text": "Send Support Request Email Support Live Platform Check Systems Operational Supabase Responded In 42 Ms Find A Club › Hand History › Rewards Center › Fair Gaming › Frequently Asked Questions Search Help No Matching Help Topics Try A Broader Search Or Send A Support Request. Support@Smarter.Poker Legal Center Privacy Terms",
+  "regions": [
+    "article||||help-title||",
+    "section|||Live Platform Status|||",
+    "section|||Poker Arena System Status||polite|",
+    "nav|||Common Help Destinations|||",
+    "section||||faq-title||",
+    "h2|faq-title|||||",
+    "div||status||||",
+    "footer||||||",
+    "nav|||Support Policies|||"
+  ],
+  "controls": [
+    "button|button|Send Support Request",
+    "input|search|Search Clubs, Rewards, Safety..."
+  ],
+  "links": [
+    "Email Support|mailto:support@smarter.poker",
+    "Find A Club›|/search",
+    "Hand History›|/hand-history",
+    "Rewards Center›|/rewards",
+    "Fair Gaming›|/legal/fair-gaming",
+    "Legal Center|/legal",
+    "Privacy|/legal/privacy",
+    "Terms|/legal/tos"
+  ]
+}

@@ -74,7 +74,7 @@ export const SpectatorBadge: React.FC<SpectatorBadgeProps> = ({ observers, class
               borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
               fontSize: '12px',
               color: '#888',
-              textTransform: 'uppercase',
+              textTransform: 'none',
               letterSpacing: '0.5px',
             }}
           >

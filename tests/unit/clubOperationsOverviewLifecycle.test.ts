@@ -214,7 +214,7 @@ describe('club overview outcome belongs to its mounted reader', () => {
       read.resolve({ data: null, error: failure });
     });
     expect(mocks.report).toHaveBeenCalledWith(failure, 'ClubOperationsOverview.Load_failed');
-    expect(hook.result.current.error).toBe('Live club readings are unavailable right now.');
+    expect(hook.result.current.error).toBe('Live Club Readings Are Unavailable Right Now.');
     expect(hook.result.current.loading).toBe(false);
     hook.unmount();
   });

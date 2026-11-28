@@ -47,6 +47,7 @@
  */
 
 import { isPlatformFrozenError } from './platformFrozen';
+import { wasCancelledByLeavingPage } from '../lib/leavingDocument';
 
 /** `String(value)` that cannot throw — Symbols and hostile `toString`s included. */
 function safeString(value: unknown): string {
@@ -207,6 +208,18 @@ function buildReport(error: unknown, context: string): Error {
  */
 export function reportError(error: unknown, context: string, extra?: Record<string, any>): void {
   try {
+    /**
+     * THE PAGE'S OWN CANCELLED READ IS NOT AN ERROR (2026-11-28). A reload or
+     * navigation away cancels every fetch still in flight and each loader's
+     * catch block receives "Failed to fetch" / "Load failed" / AbortError.
+     * MemberAssignAgent was taught this one loader at a time (#12264); every
+     * other loader on the player record, and everywhere else, still logged it
+     * on reload. Deciding it here covers every caller at once. Only a
+     * code-less transport failure that arrives while this document is leaving
+     * is dropped (src/lib/leavingDocument.ts); a network loss on a page that
+     * is staying, and every error carrying a server code, still report.
+     */
+    if (wasCancelledByLeavingPage(error)) return;
     // Always log to console for dev visibility
     const reported = buildReport(error, context);
     if (extra === undefined) console.error(`[${context}]`, reported);

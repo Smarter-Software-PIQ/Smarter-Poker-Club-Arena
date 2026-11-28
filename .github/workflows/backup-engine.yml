@@ -552,10 +552,51 @@ jobs:
             if [[ "$head" =~ ^[0-9a-f]{40}$ ]] && [ "$head" != "$sha" ]; then
               rel=$(gh api "$repo/compare/$sha...$head" --jq '.status' 2>/dev/null || echo unreadable)
               if [ "$rel" = ahead ]; then
-                echo "RETARGETED: pushed $sha is superseded by $head, the newest server commit on main; certifying $head instead."
-                { echo "### Backup Engine"; echo ""; echo "- RETARGETED \`$sha\` -> \`$head\` (newest server commit on main)."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
-                sha="$head"
-                retarget_control="$head"
+                # O37b: never retarget onto a commit whose Engine release
+                # prequalification already failed (unselectable). Otherwise
+                # control_sha != GITHUB_SHA blocks O29/O37 step-down in `due`
+                # and starves the good pushed commit $sha. `plan` has not
+                # checked out the repo yet, so check via gh api + jq with exact
+                # read-engine-prequalification.py provenance parity. Unreadable,
+                # pending, absent, or passed keeps existing retarget behavior
+                # (CLAUDE.md 10.86).
+                head_pq_raw=$(gh api "$repo/actions/workflows/engine-release-prequalification.yml/runs?branch=main&head_sha=$head&per_page=1" 2>/dev/null) || head_pq_raw=''
+                head_pq=unknown
+                if [ -n "$head_pq_raw" ]; then
+                  head_pq=$(printf '%s' "$head_pq_raw" | jq -r --arg head "$head" --arg repo_name "${GITHUB_REPOSITORY:-}" '
+                    (.workflow_runs // null) as $runs
+                    | if ($runs | type) != "array" then "unknown"
+                      elif ($runs | length) == 0 then "absent"
+                      else ($runs[0] |
+                        if .head_sha == $head
+                           and .head_branch == "main"
+                           and (.event == "push" or .event == "workflow_dispatch")
+                           and .path == ".github/workflows/engine-release-prequalification.yml"
+                           and (((.repository.full_name // $repo_name) | tostring | ascii_downcase) == ($repo_name | ascii_downcase))
+                           and (((.head_repository.full_name // $repo_name) | tostring | ascii_downcase) == ($repo_name | ascii_downcase))
+                        then
+                          if .status == "completed" then
+                            if .conclusion == "success" then "passed"
+                            else "failed|\(.conclusion // "failure")|\(.id // "")"
+                            end
+                          elif (.status == "queued" or .status == "in_progress" or .status == "waiting" or .status == "pending" or .status == "requested") then "pending"
+                          else "unknown"
+                          end
+                        else "unknown"
+                        end)
+                      end
+                  ' 2>/dev/null) || head_pq=unknown
+                fi
+                if [[ "$head_pq" == failed\|* ]]; then
+                  IFS='|' read -r _ head_pq_conclusion head_pq_run_id <<< "$head_pq"
+                  echo "SKIPPED RETARGET: main's newest server commit $head already failed Engine release prequalification (${head_pq_conclusion:-failure}${head_pq_run_id:+, run $head_pq_run_id}); keeping $sha."
+                  { echo "### Backup Engine"; echo ""; echo "- SKIPPED RETARGET \`$sha\` -> \`$head\`: \`$head\` already failed Engine release prequalification (${head_pq_conclusion:-failure}${head_pq_run_id:+, run $head_pq_run_id}); keeping \`$sha\`."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+                else
+                  echo "RETARGETED: pushed $sha is superseded by $head, the newest server commit on main; certifying $head instead."
+                  { echo "### Backup Engine"; echo ""; echo "- RETARGETED \`$sha\` -> \`$head\` (newest server commit on main)."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+                  sha="$head"
+                  retarget_control="$head"
+                fi
               else
                 echo "main's newest server commit $head is not a descendant of $sha ($rel); certifying $sha as pushed"
               fi
@@ -1332,21 +1373,40 @@ jobs:
           [ "$MODE" = force ] && due=true
           [ "$contents_due" = true ] && due=true
           [ "$EVENT" = schedule ] && [ "$copy_day" != "$today" ] && due=true
-          # ALREADY CERTIFIED FOR CURRENT SCHEMA WITH FRESH COPY (2026-11-22, O10).
+          # ALREADY CERTIFIED FOR CURRENT SCHEMA WITH FRESH COPY (2026-11-22, O10;
+          # hardened 2026-11-27, O37b BUG 1A).
           # A late-delivered schedule run (or push run) whose Backup copy is
           # already current today (due=false) on a SHA that already carries
           # backup-engine/certified = success for production's exact comparable
-          # installed migrations must not re-soak or overwrite the standing
-          # success certificate. Hand the host back cleanly and skip certify.
-          # Stale copies (due=true), forced runs, freeze baselines, mismatched
-          # digests, or unreadable statuses proceed normally (CLAUDE.md 10.86).
+          # installed migrations AND whose retained certificate rehearsed its
+          # rollback against the current live serving engine must not re-soak or
+          # overwrite the standing success certificate. Hand the host back
+          # cleanly and skip certify. Stale copies (due=true), forced runs,
+          # freeze baselines, mismatched digests, stale rehearsedServingSha, or
+          # unreadable statuses/health/artifacts proceed normally (CLAUDE.md 10.86).
           if [ "$due" = false ] && [ "$MODE" != force ] && [ "${FREEZE_BASELINE:-}" != 1 ] \
              && { [ "$EVENT" = schedule ] || [ "$EVENT" = push ]; } \
              && [[ "$comparable_digest" =~ ^[0-9a-f]{64}$ ]]; then
             standing_line=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/statuses?per_page=100" \
-              --jq "[.[] | select(.context == \"$STATUS_CONTEXT\")][0] | select(. != null) | \"\(.state)\t\(.description // \"\")\"" 2>/dev/null) || standing_line=''
-            IFS=$'\t' read -r standing_state standing_desc <<< "$standing_line"
-            if [ "$standing_state" = success ] && [[ "$standing_desc" == *"installed migrations $comparable_digest" ]]; then
+              --jq "[.[] | select(.context == \"$STATUS_CONTEXT\")][0] | select(. != null) | \"\(.state)|\(.target_url // \"\")|\(.description // \"\")\"" 2>/dev/null) || standing_line=''
+            IFS='|' read -r standing_state standing_url standing_desc <<< "$standing_line"
+            standing_run="${standing_url##*/actions/runs/}"
+            live_serving=''; rehearsed=''
+            if [ "$standing_state" = success ] && [[ "$standing_desc" == *"installed migrations $comparable_digest" ]] \
+               && [[ "$standing_run" =~ ^[1-9][0-9]*$ ]]; then
+              live_serving=$(curl -fsS --max-time 15 https://engine.smarter.poker/health 2>/dev/null \
+                | jq -er 'select(.running == true) | .releaseSha | select(type == "string" and test("^[0-9a-f]{40}$"))' 2>/dev/null) || live_serving=''
+              if [[ "$live_serving" =~ ^[0-9a-f]{40}$ ]]; then
+                artifact=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$standing_run/artifacts?per_page=100" \
+                  --jq "[.artifacts[] | select((.name | startswith(\"backup-certificate-$SHA-\")) and (.expired | not))][0].id // \"\"" 2>/dev/null) || artifact=''
+                if [[ "$artifact" =~ ^[1-9][0-9]*$ ]]; then
+                  rehearsed=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact/zip" 2>/dev/null \
+                    | python3 -c 'import io,json,sys,zipfile; print(json.loads(zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())).read("certificate.json")).get("rehearsedServingSha") or "")' 2>/dev/null) || rehearsed=''
+                fi
+              fi
+            fi
+            if [ "$standing_state" = success ] && [[ "$standing_desc" == *"installed migrations $comparable_digest" ]] \
+               && [[ "$live_serving" =~ ^[0-9a-f]{40}$ ]] && [ "$rehearsed" = "$live_serving" ]; then
               ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 "root@$STANDBY_HOST" \
                 "python3 - '$RUN_ID' '$RUN_ATTEMPT'" <<'PY' || true
           import fcntl, json, os, sys
@@ -1363,8 +1423,8 @@ jobs:
                   if cur and str(cur.get('runId')) == run_id and str(cur.get('attempt')) == attempt:
                       os.unlink(lease_path)
           PY
-              echo "ALREADY CERTIFIED: $SHA already carries backup-engine/certified = success for current installed migrations ($comparable_digest) and Backup copy is not due; handing host back cleanly without overwriting status or re-soaking."
-              { echo "### Backup Engine"; echo ""; echo "- ALREADY CERTIFIED \`$SHA\`: standing \`backup-engine/certified = success\` already matches current installed migrations \`$comparable_digest\` and Backup copy is not due; host handed back cleanly, no status written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              echo "ALREADY CERTIFIED: $SHA already carries backup-engine/certified = success for current installed migrations ($comparable_digest), rehearsed against live serving $live_serving, and Backup copy is not due; handing host back cleanly without overwriting status or re-soaking."
+              { echo "### Backup Engine"; echo ""; echo "- ALREADY CERTIFIED \`$SHA\`: standing \`backup-engine/certified = success\` already matches current installed migrations \`$comparable_digest\` and live serving \`$live_serving\`, and Backup copy is not due; host handed back cleanly, no status written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
               echo "due=false" >> "$GITHUB_OUTPUT"
               echo "deferred=1" >> "$GITHUB_OUTPUT"
               exit 0
@@ -1516,6 +1576,8 @@ jobs:
     if: always() && needs.plan.outputs.sha != '' && needs.refresh.outputs.deferred != '1' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e') || (github.event_name == 'workflow_dispatch' && inputs.after_cycle != '')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
+    outputs:
+      yielded: ${{ steps.certify.outputs.yielded }}
     timeout-minutes: 75
     env:
       CONTROL_SHA: ${{ needs.refresh.outputs.control_sha || needs.plan.outputs.control_sha }}
@@ -1705,9 +1767,32 @@ jobs:
               "pids=\$(pgrep -f '[s]tandby-engine certify $SHA' || true); for p in \$pids; do pkill -TERM -P \"\$p\" 2>/dev/null || true; kill -TERM \"\$p\" 2>/dev/null || true; done; bash -c '. /usr/local/sbin/standby-engine && stop_for_restore' >/dev/null 2>&1 || true" || true
           }
           o1_noted=''
+          # 3rd-SHA fallback image pinning: resolve the cycle's newest certified
+          # selectable fallback ancestor (excluding $SHA and live serving) so a
+          # late failed certification can never evict it during disk reclaim.
+          # Unreadable/empty falls back cleanly to standby-engine.sh's local
+          # $CERT_DIR auto-resolution (CLAUDE.md 10.86).
+          BACKUP_FALLBACK_SHA=''
+          fb_serving=$(curl -fsS --max-time 10 -H 'Cache-Control: no-cache' https://engine.smarter.poker/health 2>/dev/null \
+            | jq -r '.releaseSha // ""' 2>/dev/null) || fb_serving=''
+          while IFS= read -r anc; do
+            [[ "$anc" =~ ^[0-9a-f]{40}$ ]] || continue
+            [ "$anc" = "$SHA" ] && continue
+            [ "$anc" = "$fb_serving" ] && continue
+            anc_state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$anc/statuses?per_page=100" \
+              --jq "[.[] | select(.context == \"$STATUS_CONTEXT\")][0].state // \"missing\"" 2>/dev/null) || anc_state=unreadable
+            if [ "$anc_state" = success ]; then
+              BACKUP_FALLBACK_SHA="$anc"
+              break
+            fi
+          done < <(git log -20 --first-parent --format=%H "$SHA" -- server 2>/dev/null || true)
+          [[ "$BACKUP_FALLBACK_SHA" =~ ^[0-9a-f]{40}$ ]] || BACKUP_FALLBACK_SHA=''
+          if [ -n "$BACKUP_FALLBACK_SHA" ]; then
+            echo "3rd-SHA fallback pin: keeping certified ancestor $BACKUP_FALLBACK_SHA during Backup disk reclaim."
+          fi
           : > certificate.out
           ssh -i ~/.ssh/standby -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 "root@$STANDBY_HOST" \
-            "git -C /opt/club-arena fetch -q origin && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine && chmod +x /usr/local/sbin/standby-engine && mkdir -p /usr/local/share/club-arena-standby && git -C /opt/club-arena show $CONTROL_SHA:server/standby/schema-evidence.py > /usr/local/share/club-arena-standby/schema-evidence.py && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-trials.sh > /usr/local/share/club-arena-standby/standby-trials.sh && git -C /opt/club-arena show $CONTROL_SHA:server/standby/qualify-tournament-freeze-fixes.py > /usr/local/share/club-arena-standby/qualify-tournament-freeze-fixes.py && git -C /opt/club-arena show $CONTROL_SHA:server/standby/player-reconnect.mjs > /usr/local/share/club-arena-standby/player-reconnect.mjs && standby-engine certify $SHA 900" \
+            "git -C /opt/club-arena fetch -q origin && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine && chmod +x /usr/local/sbin/standby-engine && mkdir -p /usr/local/share/club-arena-standby && git -C /opt/club-arena show $CONTROL_SHA:server/standby/schema-evidence.py > /usr/local/share/club-arena-standby/schema-evidence.py && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-trials.sh > /usr/local/share/club-arena-standby/standby-trials.sh && git -C /opt/club-arena show $CONTROL_SHA:server/standby/qualify-tournament-freeze-fixes.py > /usr/local/share/club-arena-standby/qualify-tournament-freeze-fixes.py && git -C /opt/club-arena show $CONTROL_SHA:server/standby/player-reconnect.mjs > /usr/local/share/club-arena-standby/player-reconnect.mjs && BACKUP_FALLBACK_SHA='${BACKUP_FALLBACK_SHA:-}' standby-engine certify $SHA 900" \
             > certificate.out 2>&1 &
           ssh_pid=$!
           yielded=0
@@ -1968,12 +2053,14 @@ jobs:
           REFRESH: ${{ needs.refresh.result }}
           DEFERRED: ${{ needs.refresh.outputs.deferred }}
           CERTIFY: ${{ needs.certify.result }}
+          YIELDED: ${{ needs.certify.outputs.yielded }}
         run: |
           set -euo pipefail
           say() { echo "$1"; { echo "### Keep-Serving Backup"; echo ""; echo "- $1"; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"; }
           [ "$PLAN" = success ] || { echo "::error::Keep-serving Backup for cycle $CYCLE: plan ended $PLAN; nothing was certified."; exit 1; }
           if [ -z "$PLANNED" ]; then say "Cycle $CYCLE: plan planned nothing; nothing to certify."; exit 0; fi
           if [ "$REFRESH" = success ] && [ "$DEFERRED" = 1 ]; then say "Cycle $CYCLE: refresh handed the Backup host back (deferred); nothing to certify."; exit 0; fi
+          if [ "$REFRESH" = success ] && [ "$CERTIFY" = success ] && [ "${YIELDED:-}" = 1 ]; then say "Cycle $CYCLE: certify yielded mid-soak (candidate became unselectable); host handed back cleanly, nothing certified."; exit 0; fi
           if [ "$REFRESH" = success ] && [ "$CERTIFY" = success ]; then say "Cycle $CYCLE: $PLANNED was refreshed and certified."; exit 0; fi
           echo "::error title=KEEP-SERVING BACKUP CERTIFIED NOTHING::Cycle $CYCLE planned $PLANNED but refresh ended $REFRESH and certify ended $CERTIFY. A skipped job means this dispatch was not admitted (a job-token dispatch must carry the exact intent Stage recorded); the next cycle has no fresh certificate from this run."
           exit 1

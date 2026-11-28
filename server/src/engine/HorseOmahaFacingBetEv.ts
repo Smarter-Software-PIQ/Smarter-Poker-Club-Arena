@@ -206,8 +206,13 @@ export interface OmahaFacingBetEvRead {
   pricedRegions?: { core: number; middle: number; bottom: number } | null;
   /** omahaHiddenBetsArePricedAsGiveUps (default off), turn only: the part of pricedShare that is the give-up class
    *  (people's hidden bets: he checked and folded later, or mucked). The turn verdict prices it as his weakest
-   *  OMAHA_EV_BLUFF_POOL of holdings, with no realization discount (a give-up does not bet the river). */
+   *  OMAHA_EV_BLUFF_POOL of holdings at the verdict's own realization: that factor already averages over every river
+   *  line of the bettor, his check-downs and give-ups included, so the give-up class gets no second realization. */
   pricedGiveUp?: number | null;
+  /** omahaGiveUpPricedTurnCallIsAtIndifference (default off), turn only, with pricedGiveUp: the call is made at
+   *  EV >= 0 instead of EV > the safety margin (2% of the final pot). The price is an exact count on a measured
+   *  range; the hands between zero and the margin are the ones a bluffer's price makes indifferent. */
+  pricedIndifference?: boolean;
 }
 export const OMAHA_EV_UNKNOWN_READ: OmahaFacingBetEvRead = Object.freeze({
   measured: false,
@@ -1584,8 +1589,10 @@ export interface OmahaFacingBetEvVerdict {
   riverBluffCatch?: OmahaRiverBluffCatchVerdict;
   /** omahaTurnCallRealizationByRunout: the runout factor, when it was the one read */
   runoutRealization?: number;
-  /** omahaHiddenBetsArePricedAsGiveUps: the give-up share priced as the weakest pool at full realization */
+  /** omahaHiddenBetsArePricedAsGiveUps: the give-up share priced as the weakest pool (at the verdict's realization) */
   giveUp?: number;
+  /** omahaGiveUpPricedTurnCallIsAtIndifference: the call was decided at EV >= 0 (margin is still reported) */
+  indifference?: true;
   /** pot odds of the call, for the record */
   price: number;
   /** omahaPairedBoardRiverIsPriced: present when call, ev, pWin and pTie were priced on the bettor's
@@ -1813,7 +1820,11 @@ export function omahaFacingBetEvVerdict(
   pWin *= realization;
   pTie *= realization;
   // omahaHiddenBetsArePricedAsGiveUps (default off): heads-up turn bet, the give-up part g of the non-value share q is
-  // priced as his weakest pool at full realization; the rest of q stays the non-value region at the realization above.
+  // priced as his weakest pool instead of the non-value region, at the SAME realization as the rest of the range. The
+  // realization above is the caller's average over every river line of the bettor, his check-downs and give-ups
+  // included (the paired-board and aggressor caps say so: "realizing equity only on river check-downs"); granting the
+  // give-up class realization 1 on top of it counted those rivers twice and over-called most where the factor is
+  // smallest: the bettor who also bet the flop (lead-10 lane EFIX 2026-11-28, l10-efix/BUILD.md).
   let giveUpPriced: number | undefined;
   const g0 = spot.street === 'turn' && !spot.isRaise ? read?.pricedGiveUp : null;
   if (
@@ -1826,8 +1837,8 @@ export function omahaFacingBetEvVerdict(
   ) {
     const g = Math.min(q, g0);
     const bottom = counted.bottomOf();
-    pWin += g * (bottom.win - counted.other.win * realization);
-    pTie += g * (bottom.tie - counted.other.tie * realization);
+    pWin += g * (bottom.win - counted.other.win) * realization;
+    pTie += g * (bottom.tie - counted.other.tie) * realization;
     giveUpPriced = g;
   }
   const rake = Math.max(0, Math.min(0.2, Number.isFinite(ctx.rake) ? ctx.rake! : 0));
@@ -1950,8 +1961,11 @@ export function omahaFacingBetEvVerdict(
       counts: counted.counts,
     };
   }
+  // omahaGiveUpPricedTurnCallIsAtIndifference (default off): only where the give-up share was priced above
+  const atIndifference = giveUpPriced !== undefined && read?.pricedIndifference === true;
   return {
-    call: ev > margin && !plo6FoldStands,
+    call: (atIndifference ? ev >= 0 : ev > margin) && !plo6FoldStands,
+    ...(atIndifference ? { indifference: true as const } : {}),
     ...(plo6FoldStands ? { plo6FoldStands: true } : {}),
     ev,
     margin,

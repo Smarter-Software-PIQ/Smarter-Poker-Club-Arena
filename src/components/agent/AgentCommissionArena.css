@@ -1,0 +1,351 @@
+/* THE COMMISSIONS TAB IN #SMARTERDESIGN (batch 7, 2026-11-28)
+
+   Agent Team's Commissions tab body. The Summary / Records / Sub-Agents keys
+   are an `arena-switch` (the open tab lit by its existing `.active`); the
+   settlement note, the records and the sub-agents each sit in an `arena-case`
+   under an `arena-section-title`; the four figures are `arena-meter` tiles;
+   the commission flow and each sub-agent are chrome `arena-ledger-row`s; View
+   Invoices and every Try Again is one lit chrome key. Those pieces come from
+   ArenaWorkspace.css and ArenaOps.css. This sheet only lays them out, quiets
+   the old rounded-card rules underneath them and sets the words in the
+   workspace inks. Every rule is scoped under .arena-workspace, so the
+   component's old dress (AgentCommissionDashboard.css) is untouched anywhere
+   else. No new gradient, radius or shadow; nothing reacts to a resting
+   pointer. No figure, word, handler or hook changes. */
+
+.arena-workspace .agent-commission {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 0;
+  color: #dce5ef;
+}
+
+.arena-workspace .agent-commission > .agent-commission__tabs {
+  margin: 0 0 2px;
+}
+
+/* The old card rules sit under the arena classes; take their corners,
+   hairlines and lifts away so only the chrome shows. */
+.arena-workspace .agent-commission .summary-card,
+.arena-workspace .agent-commission .subagent-card {
+  border-radius: 0;
+  box-shadow: none;
+  transition: none;
+}
+
+/* ── The settlement note ──────────────────────────────────────────── */
+.arena-workspace .agent-commission .agent-commission__settlement {
+  margin: 7px 0;
+}
+
+.arena-workspace .agent-commission .agent-commission__settlement > p {
+  margin: 0;
+  color: #b6c8d6;
+  font:
+    12px/1.4 Arial,
+    sans-serif;
+}
+
+.arena-workspace .agent-commission .agent-commission__keys {
+  margin: 4px 0 0;
+}
+
+.arena-workspace .agent-commission .agent-commission__keys > .payout-btn {
+  flex: 1 1 100%;
+  margin: 0;
+  cursor: pointer;
+}
+
+@media (min-width: 721px) {
+  .arena-workspace .agent-commission .agent-commission__keys > .payout-btn {
+    flex: 0 1 22rem;
+  }
+}
+
+/* ── The four figures: chrome readout tiles ───────────────────────── */
+.arena-workspace .agent-commission .agent-commission__summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+}
+
+@media (min-width: 721px) {
+  .arena-workspace .agent-commission .agent-commission__summary {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.arena-workspace .agent-commission .agent-commission__summary > .summary-card.arena-meter {
+  grid-column: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 4px;
+  background: var(--arena-tile);
+  text-align: center;
+}
+
+.arena-workspace .agent-commission .summary-card.arena-meter .label {
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.arena-workspace .agent-commission .summary-card.arena-meter .value {
+  overflow-wrap: anywhere;
+  color: #f1f5fc;
+  font:
+    800 18px/1.1 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Total Earned reads live; Unpaid Commission reads pending. */
+.arena-workspace .agent-commission .summary-card.arena-meter.total .value {
+  color: #74dfff;
+}
+
+.arena-workspace .agent-commission .summary-card.arena-meter.pending .value {
+  color: #ffe98a;
+}
+
+/* ── Commission flow: one chrome row of four measured lines ──────── */
+.arena-workspace .agent-commission .agent-commission__flow {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 3px;
+  padding: 10px 12px;
+}
+
+.arena-workspace .agent-commission .agent-commission__flow-title {
+  margin: 0;
+  padding: 0 0 5px;
+  border-bottom: 1px solid #253e57;
+  color: #f1f5fc;
+  font:
+    800 15px/1.1 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.arena-workspace .agent-commission .agent-commission__flow-tier {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.arena-workspace .agent-commission .agent-commission__flow-line,
+.arena-workspace .agent-commission .agent-commission__flow-average {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #9fbacc;
+  font:
+    700 12px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.arena-workspace .agent-commission .agent-commission__flow-value {
+  color: #f1f5fc;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The measure is a field-glass well with a live ink fill. */
+.arena-workspace .agent-commission .agent-commission__flow-track {
+  height: 6px;
+  overflow: hidden;
+  background: #040d17;
+  border: 1px solid #253e57;
+}
+
+.arena-workspace .agent-commission .agent-commission__flow-fill {
+  height: 100%;
+  background: #74dfff;
+  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.arena-workspace
+  .agent-commission
+  .agent-commission__flow-tier:nth-of-type(4)
+  .agent-commission__flow-fill {
+  background: #ffd700;
+}
+
+.arena-workspace .agent-commission .agent-commission__flow-average {
+  padding-top: 6px;
+  border-top: 1px solid #253e57;
+}
+
+/* ── Records: a ledger under the section's hairline ──────────────── */
+.arena-workspace .agent-commission .agent-commission__records {
+  margin: 7px 0;
+  overflow-x: auto;
+}
+
+.arena-workspace .agent-commission .agent-commission__records table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.arena-workspace .agent-commission .agent-commission__records th,
+.arena-workspace .agent-commission .agent-commission__records td {
+  padding: 9px 6px;
+  border-bottom: 1px solid #253e57;
+  text-align: left;
+}
+
+.arena-workspace .agent-commission .agent-commission__records th {
+  color: #9fbacc;
+  font:
+    700 11px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  text-transform: none;
+}
+
+.arena-workspace .agent-commission .agent-commission__records td {
+  color: #dce5ef;
+  font:
+    13px/1.3 Arial,
+    sans-serif;
+}
+
+.arena-workspace .agent-commission .agent-commission__records td.commission {
+  color: #f1f5fc;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The status and source words print lower case; they render capitalised, as
+   they always have. */
+.arena-workspace .agent-commission .agent-commission__status,
+.arena-workspace .agent-commission .agent-commission__source {
+  text-transform: capitalize;
+}
+
+.arena-workspace .agent-commission .agent-commission__status {
+  font-weight: 700;
+}
+
+.arena-workspace .agent-commission .agent-commission__status--paid {
+  color: #c8ffd2;
+}
+
+.arena-workspace .agent-commission .agent-commission__status--unpaid {
+  color: #ffe98a;
+}
+
+/* ── Sub-agents: one chrome row each ─────────────────────────────── */
+.arena-workspace .agent-commission .agent-commission__subagents {
+  margin: 7px 0;
+}
+
+.arena-workspace .agent-commission .subagent-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.arena-workspace .agent-commission .subagent-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 7px 10px;
+}
+
+.arena-workspace .agent-commission .subagent-card .avatar:empty {
+  display: none;
+}
+
+.arena-workspace .agent-commission .subagent-card .avatar {
+  max-width: 30%;
+  overflow: hidden;
+  color: #9fbacc;
+  font:
+    11px/1.2 Arial,
+    sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arena-workspace .agent-commission .subagent-card .info {
+  min-width: 0;
+}
+
+.arena-workspace .agent-commission .subagent-card .name {
+  color: #f1f5fc;
+  font:
+    800 14px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.arena-workspace .agent-commission .subagent-card .stats {
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+}
+
+.arena-workspace .agent-commission .subagent-card .earnings {
+  color: #74dfff;
+  font:
+    800 16px/1.1 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Empty, failed and loading states ────────────────────────────── */
+.arena-workspace .agent-commission .empty-state,
+.arena-workspace .agent-commission.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 18px 8px;
+  color: #9fbacc;
+  font:
+    13px/1.4 Arial,
+    sans-serif;
+  text-align: center;
+}
+
+.arena-workspace .agent-commission .empty-state p,
+.arena-workspace .agent-commission.empty-state p {
+  margin: 0;
+}
+
+.arena-workspace .agent-commission .empty-state[role='alert'] p,
+.arena-workspace .agent-commission.empty-state[role='alert'] p {
+  color: #ff5b6e;
+}
+
+.arena-workspace .agent-commission > p {
+  margin: 0;
+  padding: 18px 8px;
+  color: #9fbacc;
+  font:
+    13px/1.4 Arial,
+    sans-serif;
+  text-align: center;
+}

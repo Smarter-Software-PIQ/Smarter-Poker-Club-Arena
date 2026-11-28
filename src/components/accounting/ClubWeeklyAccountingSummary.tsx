@@ -10,6 +10,9 @@ import {
 import { FinancialExportService } from '../../services/FinancialExportService';
 import { reportError } from '../../utils/errorReporter';
 import styles from './ClubWeeklyAccountingSummary.module.css';
+import '../lobby/ArenaWorkspace.css';
+import '../ops/ArenaOps.css';
+import './WeeklyAccountingArena.css';
 
 interface Observation {
   scope: () => boolean;
@@ -121,7 +124,11 @@ export function ClubWeeklyAccountingSummary({ clubId }: { clubId: string }) {
        workspace's own "Club Weekly Accounting" heading, and a second heading
        with that exact name gave the page two of them (Post-Deploy E2E run
        37569802965, financial-admin-deep.spec.ts Settlement Center). */
-    <section className={styles.summary} aria-label="Club Weekly Summaries" aria-busy={loading}>
+    <section
+      className={`${styles.summary} weekly-accounting__summaries`}
+      aria-label="Club Weekly Summaries"
+      aria-busy={loading}
+    >
       <div className={styles.header}>
         <h3 className={styles.title}>Club Weekly Summaries</h3>
         <p className={styles.copy}>
@@ -130,7 +137,7 @@ export function ClubWeeklyAccountingSummary({ clubId }: { clubId: string }) {
         <p className={styles.meta}>
           Latest Up To {CLUB_WEEKLY_STATEMENT_LIMIT} Issued Weekly Summaries.
         </p>
-        <div className={styles.actions}>
+        <div className={`${styles.actions} arena-switch arena-ops-keys arena-ops-primary`}>
           <button
             type="button"
             className={styles.word}
@@ -188,7 +195,7 @@ export function ClubWeeklyAccountingSummary({ clubId }: { clubId: string }) {
              keyboard user cannot reach the clipped columns (axe
              scrollable-region-focusable, Post-Deploy E2E run 37575691538). */
           <div
-            className={styles.tableScroll}
+            className={`${styles.tableScroll} arena-ledger-row`}
             tabIndex={0}
             role="region"
             aria-label="Weekly Summaries Table"

@@ -937,6 +937,8 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
         }
 
       case 'PINEAPPLE_DISCARD_REQUIRED':
+        // Watchdog liveness: entering the simultaneous discard phase is proof of life.
+        this.markProgress();
         // FIX 120: Crazy Pineapple — broadcast discard requirement to all players
         // Each player must discard 1 of their 3 hole cards within the action timer.
         // ServerTableEngine starts a discard timer; auto-discards (last card) on expiry.

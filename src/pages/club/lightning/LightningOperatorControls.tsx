@@ -22,15 +22,13 @@
  * machine; nothing here moves a player (Law 10.6), reads which players are
  * horses (Law 10.5) or shows a card.
  *
- * #ClubArenaConsole: the section prints on the detail console's glass as
- * rows and lit words; the confirm dialog is its own spade console with the
- * two painted plates (Cancel on steel, the action on blue glass, or red ink
- * when it stops the Cluster), and the only things drawn are the underlines
- * of its text fields.
+ * #SmarterDesign (Dan 2026-11-27): the section is a thin chrome case of rows
+ * and chrome keys; the confirm dialog is a chrome case on its own arena
+ * workspace backdrop, with Cancel and the action as chrome keys (the action
+ * lit blue, or red when it stops the Cluster) and its fields as dark wells.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { SpadeConsole, type ConsoleInk } from '../../../components/console/SpadeConsole';
 import { useToast } from '../../../components/common/Toast';
 import { formatPopupText } from '../../../utils/popupStyle';
 import { titleCase } from '../../../utils/titleCase';
@@ -70,21 +68,30 @@ import {
   type OperatorAction,
 } from '../../../lightning/lightningOperatorControls';
 import { AnswerState, count } from './lightningOperatorParts';
+import { inkClass, type LightningInk } from './lightningInk';
 import styles from '../ClubLightningOperationsPage.module.css';
 
-function Row({ label, value, ink = 'silver' }: { label: string; value: string; ink?: ConsoleInk }) {
+function Row({
+  label,
+  value,
+  ink = 'silver',
+}: {
+  label: string;
+  value: string;
+  ink?: LightningInk;
+}) {
   return (
     <div className={styles.row}>
-      <span className={`${styles.rowLabel} sc-ink--blue`}>{label}</span>
-      <span className={`${styles.rowValue} sc-ink--${ink}`}>{value}</span>
+      <span className={`${styles.rowLabel} ${inkClass('blue')}`}>{label}</span>
+      <span className={`${styles.rowValue} ${inkClass(ink)}`}>{value}</span>
     </div>
   );
 }
 
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
-    <section className={styles.section} aria-labelledby={id}>
-      <h3 id={id} className={`${styles.sectionTitle} sc-label sc-ink--silver`}>
+    <section className={`${styles.section} arena-case arena-ops-case`} aria-labelledby={id}>
+      <h3 id={id} className={`${styles.sectionTitle} arena-section-title`}>
         {title}
       </h3>
       {children}
@@ -107,7 +114,7 @@ function ControlWord({
   return (
     <button
       type="button"
-      className={`${styles.word} ${isDestructive(action) ? 'sc-ink--red' : 'sc-ink--white'}`}
+      className={`${styles.word} ${isDestructive(action) ? inkClass('red') : inkClass('white')}`}
       data-control={action}
       onClick={() => onPick(action)}
       disabled={disabled}
@@ -355,10 +362,28 @@ export function ControlDialog({
   const title =
     action === 'set_flag' && request.flag ? flagLabel(request.flag) : ACTION_LABELS[action];
   const closeUnlessSending = sending ? undefined : onClose;
+  const pill = settled
+    ? phase.kind === 'done'
+      ? 'Done'
+      : phase.kind === 'denied'
+        ? 'Restricted'
+        : 'Not Yet'
+    : phase.kind === 'refused'
+      ? 'Refused'
+      : destructive
+        ? 'Sure?'
+        : 'Confirm';
+  const settledPillInk: LightningInk = settled
+    ? phase.kind === 'done'
+      ? 'green'
+      : 'muted'
+    : phase.kind === 'refused' || destructive
+      ? 'red'
+      : 'blue';
 
   const body = (
     <>
-      <p className={`sc-copy sc-copy--center ${styles.dialogCopy}`}>
+      <p className={`${styles.copy} ${styles.center} ${styles.dialogCopy}`}>
         {formatPopupText(ACTION_EXPLAINERS[action])}
       </p>
       {flagLine ? <Row label="Change" value={flagLine} ink="white" /> : null}
@@ -367,26 +392,30 @@ export function ControlDialog({
       {phase.kind === 'done' ? (
         <DoneView result={phase.result} />
       ) : phase.kind === 'denied' ? (
-        <p className={`sc-copy sc-copy--center ${styles.state}`} role="status">
+        <p className={`${styles.copy} ${styles.center} ${styles.state}`} role="status">
           {action === 'unfreeze'
             ? 'Only A Platform Administrator Can Unfreeze A Cluster.'
             : 'Operator Controls Are Available To Club Owners And Administrators.'}
         </p>
       ) : phase.kind === 'unavailable' ? (
-        <p className={`sc-copy sc-copy--center ${styles.state}`} role="status">
+        <p className={`${styles.copy} ${styles.center} ${styles.state}`} role="status">
           Not Available Yet. Operator Controls Arrive With The Next Database Release.
         </p>
       ) : (
         <>
           {action === 'set_matcher_version' ? (
             <div className={styles.field}>
-              <span className="sc-label sc-ink--blue">Set As</span>
-              <div className={styles.words} role="group" aria-label="Matcher Role">
+              <span className={`${styles.label} ${inkClass('blue')}`}>Set As</span>
+              <div
+                className={`${styles.words} arena-switch arena-ops-keys`}
+                role="group"
+                aria-label="Matcher Role"
+              >
                 {(['live', 'shadow'] as const).map((r) => (
                   <button
                     key={r}
                     type="button"
-                    className={`${styles.word} ${role === r ? 'sc-ink--white' : 'sc-ink--muted'}`}
+                    className={`${styles.word}`}
                     aria-pressed={role === r}
                     onClick={() => setRole(r)}
                     disabled={decisionLocked}
@@ -399,18 +428,22 @@ export function ControlDialog({
           ) : null}
           {VERSIONED.has(action) ? (
             versions.length === 0 ? (
-              <p className={`sc-copy sc-copy--center ${styles.state} sc-ink--muted`}>
+              <p className={`${styles.copy} ${styles.center} ${styles.state} ${inkClass('muted')}`}>
                 No Version Can Take This Change Right Now
               </p>
             ) : (
               <div className={styles.field}>
-                <span className="sc-label sc-ink--blue">Version</span>
-                <div className={styles.words} role="group" aria-label="Matcher Version">
+                <span className={`${styles.label} ${inkClass('blue')}`}>Version</span>
+                <div
+                  className={`${styles.words} arena-switch arena-ops-keys`}
+                  role="group"
+                  aria-label="Matcher Version"
+                >
                   {versions.map((v) => (
                     <button
                       key={v}
                       type="button"
-                      className={`${styles.word} ${version === v ? 'sc-ink--white' : 'sc-ink--muted'}`}
+                      className={`${styles.word}`}
                       aria-pressed={version === v}
                       onClick={() => setVersion(v)}
                       disabled={decisionLocked}
@@ -424,9 +457,9 @@ export function ControlDialog({
           ) : null}
           {action === 'set_shadow_window' ? (
             <label className={styles.field}>
-              <span className="sc-label sc-ink--blue">Window In Milliseconds</span>
+              <span className={`${styles.label} ${inkClass('blue')}`}>Window In Milliseconds</span>
               <input
-                className={styles.fieldInput}
+                className={`${styles.fieldInput} arena-ops-well`}
                 type="text"
                 inputMode="numeric"
                 value={windowMilliseconds}
@@ -434,7 +467,10 @@ export function ControlDialog({
                 disabled={decisionLocked}
                 onChange={(e) => setWindowMilliseconds(e.target.value)}
               />
-              <span id="lightning-window-rule" className={`${styles.fieldHint} sc-ink--muted`}>
+              <span
+                id="lightning-window-rule"
+                className={`${styles.fieldHint} ${inkClass('muted')}`}
+              >
                 {windowMs === null
                   ? 'Whole Milliseconds From 60000 To 3600000'
                   : shadowWindowLabel(windowMs)}
@@ -445,10 +481,10 @@ export function ControlDialog({
             <Row label="Integrity Telemetry" value={request.value ? 'Turn On' : 'Turn Off'} />
           ) : null}
           <label className={styles.field}>
-            <span className="sc-label sc-ink--blue">Reason</span>
+            <span className={`${styles.label} ${inkClass('blue')}`}>Reason</span>
             <input
               ref={firstFieldRef}
-              className={styles.fieldInput}
+              className={`${styles.fieldInput} arena-ops-well`}
               value={reason}
               maxLength={500}
               placeholder="Why, For The Audit Trail"
@@ -458,16 +494,18 @@ export function ControlDialog({
             />
             <span
               id="lightning-control-reason-rule"
-              className={`${styles.fieldHint} sc-ink--muted`}
+              className={`${styles.fieldHint} ${inkClass('muted')}`}
             >
               {`At Least ${MIN_REASON_LENGTH} Characters`}
             </span>
           </label>
           {destructive ? (
             <label className={styles.field}>
-              <span className="sc-label sc-ink--red">{`Type ${phrase} To Confirm`}</span>
+              <span
+                className={`${styles.label} ${inkClass('red')}`}
+              >{`Type ${phrase} To Confirm`}</span>
               <input
-                className={styles.fieldInput}
+                className={`${styles.fieldInput} arena-ops-well`}
                 value={typed}
                 spellCheck={false}
                 autoCapitalize="off"
@@ -479,20 +517,26 @@ export function ControlDialog({
             </label>
           ) : null}
           {phase.kind === 'refused' ? (
-            <p className={`sc-copy sc-copy--center ${styles.state} sc-ink--red`} role="alert">
+            <p
+              className={`${styles.copy} ${styles.center} ${styles.state} ${inkClass('red')}`}
+              role="alert"
+            >
               {refusalWords(phase.code)}
             </p>
           ) : null}
           {phase.kind === 'failed' ? (
-            <p className={`sc-copy sc-copy--center ${styles.state} sc-ink--red`} role="alert">
+            <p
+              className={`${styles.copy} ${styles.center} ${styles.state} ${inkClass('red')}`}
+              role="alert"
+            >
               {`${phase.message}. Sending Again Is Safe: It Cannot Act Twice.`}
             </p>
           ) : null}
         </>
       )}
       {settled ? (
-        <div className={styles.words}>
-          <button type="button" className={`${styles.word} sc-ink--white`} onClick={onClose}>
+        <div className={`${styles.words} arena-switch arena-ops-keys`}>
+          <button type="button" className={`${styles.word}`} onClick={onClose}>
             Close
           </button>
         </div>
@@ -501,10 +545,10 @@ export function ControlDialog({
   );
 
   const dialog = (
-    <div className={styles.dialogBackdrop} onClick={closeUnlessSending}>
+    <div className={`${styles.dialogBackdrop} arena-workspace`} onClick={closeUnlessSending}>
       <div
         ref={dialogRef}
-        className={styles.dialog}
+        className={`${styles.dialog} arena-case arena-ops-case`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="lightning-control-title"
@@ -513,44 +557,28 @@ export function ControlDialog({
         data-control-dialog={action}
         onClick={(e) => e.stopPropagation()}
       >
-        {settled ? (
-          <SpadeConsole
-            as="div"
-            family="spade"
-            eyebrow={clusterName ?? 'Lightning'}
-            title={title}
-            titleId="lightning-control-title"
-            pill={
-              phase.kind === 'done' ? 'Done' : phase.kind === 'denied' ? 'Restricted' : 'Not Yet'
-            }
-            pillInk={phase.kind === 'done' ? 'green' : 'muted'}
-            foot="foot"
-            onClose={onClose}
-          >
-            {body}
-          </SpadeConsole>
-        ) : (
-          <SpadeConsole
-            as="div"
-            family="spade"
-            eyebrow={clusterName ?? 'Lightning'}
-            title={title}
-            titleId="lightning-control-title"
-            pill={phase.kind === 'refused' ? 'Refused' : destructive ? 'Sure?' : 'Confirm'}
-            pillInk={phase.kind === 'refused' || destructive ? 'red' : 'blue'}
-            onClose={closeUnlessSending}
-            plates={{
-              secondary: { label: 'Cancel', onClick: onClose, disabled: sending },
-              primary: {
-                label: sending ? 'Sending' : phase.kind === 'failed' ? 'Send Again' : 'Confirm',
-                ink: destructive ? 'red' : 'white',
-                onClick: () => void submit(),
-                disabled: !ready,
-              },
-            }}
-          >
-            {body}
-          </SpadeConsole>
+        <header className={styles.dialogHead}>
+          <span className="arena-ops-eyebrow">{clusterName ?? 'Lightning'}</span>
+          <h2 id="lightning-control-title" className="arena-section-title">
+            {title}
+          </h2>
+          <span className={`${styles.pill} ${inkClass(settledPillInk)}`}>{pill}</span>
+        </header>
+        {body}
+        {settled ? null : (
+          <div className="arena-switch arena-ops-keys">
+            <button type="button" onClick={onClose} disabled={sending}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={destructive ? styles.dangerKey : 'active'}
+              onClick={() => void submit()}
+              disabled={!ready}
+            >
+              {sending ? 'Sending' : phase.kind === 'failed' ? 'Send Again' : 'Confirm'}
+            </button>
+          </div>
         )}
       </div>
     </div>
@@ -565,19 +593,29 @@ function DoneView({ result }: { result: ControlResult }) {
   return (
     <div>
       {result.already ? (
-        <p className={`sc-copy sc-copy--center ${styles.state} sc-ink--gold`} role="status">
+        <p
+          className={`${styles.copy} ${styles.center} ${styles.state} ${inkClass('gold')}`}
+          role="status"
+        >
           The Cluster Is Already In That State. Nothing Changed.
         </p>
       ) : result.idempotent ? (
-        <p className={`sc-copy sc-copy--center ${styles.state} sc-ink--gold`} role="status">
+        <p
+          className={`${styles.copy} ${styles.center} ${styles.state} ${inkClass('gold')}`}
+          role="status"
+        >
           This Request Was Already Answered. Nothing Changed Twice.
         </p>
       ) : null}
       <ul className={styles.grid} aria-label="Before And After">
         <li className={styles.changeRow}>
-          <span className={`${styles.gridHead} sc-ink--muted`}>State</span>
-          <span className={`${styles.gridHead} ${styles.gridCell} sc-ink--muted`}>Before</span>
-          <span className={`${styles.gridHead} ${styles.gridCell} sc-ink--muted`}>After</span>
+          <span className={`${styles.gridHead} ${inkClass('muted')}`}>State</span>
+          <span className={`${styles.gridHead} ${styles.gridCell} ${inkClass('muted')}`}>
+            Before
+          </span>
+          <span className={`${styles.gridHead} ${styles.gridCell} ${inkClass('muted')}`}>
+            After
+          </span>
         </li>
         {changes.map((ch) => (
           <li
@@ -585,18 +623,18 @@ function DoneView({ result }: { result: ControlResult }) {
             key={ch.label}
             data-changed={ch.changed ? 'true' : 'false'}
           >
-            <span className={`${styles.gridName} sc-ink--blue`}>{ch.label}</span>
-            <span className={`${styles.gridCell} sc-ink--${ch.changed ? 'silver' : 'muted'}`}>
+            <span className={`${styles.gridName} ${inkClass('blue')}`}>{ch.label}</span>
+            <span className={`${styles.gridCell} ${inkClass(ch.changed ? 'silver' : 'muted')}`}>
               {ch.before}
             </span>
-            <span className={`${styles.gridCell} sc-ink--${ch.changed ? 'green' : 'muted'}`}>
+            <span className={`${styles.gridCell} ${inkClass(ch.changed ? 'green' : 'muted')}`}>
               {ch.changed ? `→ ${ch.after}` : ch.after}
             </span>
           </li>
         ))}
       </ul>
       {changed.length === 0 && !result.idempotent ? (
-        <p className={`sc-copy sc-copy--center ${styles.state} sc-ink--muted`}>
+        <p className={`${styles.copy} ${styles.center} ${styles.state} ${inkClass('muted')}`}>
           Recorded. The Change Takes Effect At The Next Boundary.
         </p>
       ) : null}
@@ -631,7 +669,7 @@ export function DrainProgress({ drain }: { drain: LightningDrain }) {
       <Row label="Instances Remaining" value={count(drain.instancesRemaining)} />
       <Row label="Hands Remaining" value={count(drain.handsRemaining)} />
       <Row label="Sessions Remaining" value={count(drain.sessionsRemaining)} />
-      <p className={`sc-copy ${styles.empty} sc-ink--muted`}>
+      <p className={`${styles.copy} ${styles.empty} ${inkClass('muted')}`}>
         Hands Already Dealing Are Never Cut. After The Deadline Only Instances That Never Dealt Are
         Abandoned, And No Chips Move.
       </p>
@@ -641,7 +679,7 @@ export function DrainProgress({ drain }: { drain: LightningDrain }) {
 
 // ─── Rollout readiness ─────────────────────────────────────────────────────
 
-const VERDICT_INK: Record<string, ConsoleInk> = {
+const VERDICT_INK: Record<string, LightningInk> = {
   go: 'green',
   no_go: 'red',
   insufficient_evidence: 'gold',
@@ -689,7 +727,9 @@ export function RolloutReadiness({ clusterId }: { clusterId: string }) {
             ink={VERDICT_INK[r.verdict ?? ''] ?? 'muted'}
           />
           {r.reasons.length === 0 ? (
-            <p className={`sc-copy ${styles.empty} sc-ink--muted`}>Nothing Stands In The Way</p>
+            <p className={`${styles.copy} ${styles.empty} ${inkClass('muted')}`}>
+              Nothing Stands In The Way
+            </p>
           ) : (
             <ul className={styles.reasons} aria-label="Readiness Reasons">
               {r.reasons.map((reason, i) => (
@@ -699,11 +739,11 @@ export function RolloutReadiness({ clusterId }: { clusterId: string }) {
                   data-reason-code={reason.code}
                 >
                   <span
-                    className={`${styles.reasonSeverity} sc-ink--${reason.severity === 'blocking' ? 'red' : 'gold'}`}
+                    className={`${styles.reasonSeverity} ${inkClass(reason.severity === 'blocking' ? 'red' : 'gold')}`}
                   >
                     {reason.severity === 'blocking' ? 'Blocking' : 'Evidence'}
                   </span>
-                  <span className="sc-ink--silver">
+                  <span className={`${inkClass('silver')}`}>
                     {reason.text}
                     {reason.detail ? `: ${reason.detail}` : ''}
                   </span>
@@ -715,12 +755,12 @@ export function RolloutReadiness({ clusterId }: { clusterId: string }) {
             <ul className={styles.grid} aria-label="Readiness Evidence">
               {r.checks.map((ch) => (
                 <li className={styles.trailStep} key={ch.label}>
-                  <span className={`${styles.gridName} sc-ink--blue`}>
+                  <span className={`${styles.gridName} ${inkClass('blue')}`}>
                     {ch.label}
                     {ch.detail ? `, ${ch.detail}` : ''}
                   </span>
                   <span
-                    className={`${styles.gridCell} sc-ink--${ch.ok === null ? 'muted' : ch.ok ? 'green' : 'red'}`}
+                    className={`${styles.gridCell} ${inkClass(ch.ok === null ? 'muted' : ch.ok ? 'green' : 'red')}`}
                   >
                     {ch.ok === null ? '-' : ch.ok ? 'Pass' : 'Fail'}
                   </span>
@@ -730,15 +770,15 @@ export function RolloutReadiness({ clusterId }: { clusterId: string }) {
           ) : null}
           {r.asOf ? (
             <span
-              className={`${styles.recordMeta} sc-ink--muted`}
+              className={`${styles.recordMeta} ${inkClass('muted')}`}
             >{`Checked ${stampLabel(r.asOf)}`}</span>
           ) : null}
         </>
       )}
-      <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.words}`}>
+      <div className={`${styles.words} arena-switch arena-ops-keys`}>
         <button
           type="button"
-          className={`${styles.word} sc-ink--white`}
+          className={`${styles.word}`}
           onClick={() => void check()}
           disabled={busy}
         >
@@ -800,14 +840,17 @@ export default function LightningOperatorControls({
       />
       <Row label="Lightning" value={c.lightningEnabled ? 'On' : 'Off'} />
       {frozen ? (
-        <p className={`sc-copy sc-copy--center ${styles.state} sc-ink--red`} role="status">
+        <p
+          className={`${styles.copy} ${styles.center} ${styles.state} ${inkClass('red')}`}
+          role="status"
+        >
           Frozen. Every Control But Unfreeze Waits Until A Platform Administrator Lifts It.
         </p>
       ) : null}
 
-      <span className={`${styles.recordMeta} ${styles.subhead} sc-ink--muted`}>Cluster</span>
+      <span className={`${styles.recordMeta} ${styles.subhead} ${inkClass('muted')}`}>Cluster</span>
       <div
-        className={`arena-switch arena-ops-keys ${styles.words}`}
+        className={`${styles.words} arena-switch arena-ops-keys`}
         role="group"
         aria-label="Cluster Controls"
       >
@@ -836,7 +879,7 @@ export default function LightningOperatorControls({
 
       <Row label="Worker Mode" value={c.workerMode ? enumLabel(c.workerMode) : 'Unknown'} />
       <div
-        className={`arena-switch arena-ops-keys ${styles.words}`}
+        className={`${styles.words} arena-switch arena-ops-keys`}
         role="group"
         aria-label="Worker Mode"
       >
@@ -844,7 +887,7 @@ export default function LightningOperatorControls({
           <button
             type="button"
             key={mode}
-            className={`${styles.word} sc-ink--white`}
+            className={`${styles.word}`}
             onClick={() => setRequest({ action: 'set_worker_mode', mode })}
             disabled={frozen || c.workerMode === mode || (mode === 'off' && c.mode !== 'must_move')}
           >
@@ -853,7 +896,7 @@ export default function LightningOperatorControls({
         ))}
       </div>
 
-      <span className={`${styles.recordMeta} ${styles.subhead} sc-ink--muted`}>
+      <span className={`${styles.recordMeta} ${styles.subhead} ${inkClass('muted')}`}>
         Calibration And Integrity
       </span>
       <Row label="Calibration Window" value={shadowWindowLabel(c.shadowWindowMs ?? null)} />
@@ -868,19 +911,19 @@ export default function LightningOperatorControls({
         }
       />
       {!setupAvailable ? (
-        <p className={`sc-copy ${styles.empty} sc-ink--muted`}>
+        <p className={`${styles.copy} ${styles.empty} ${inkClass('muted')}`}>
           Setup Changes Require Must Move, Worker Off And A Completed Drain. The Database Checks
           Every Request.
         </p>
       ) : null}
       {c.shadowWindowMs == null || c.flags.integrityTelemetry === null ? (
-        <p className={`sc-copy ${styles.empty} sc-ink--muted`}>
+        <p className={`${styles.copy} ${styles.empty} ${inkClass('muted')}`}>
           An Unreported Setup Value Cannot Be Changed. Refresh The Cluster After Its Database
           Controls Are Installed.
         </p>
       ) : null}
       <div
-        className={`arena-switch arena-ops-keys ${styles.words}`}
+        className={`${styles.words} arena-switch arena-ops-keys`}
         role="group"
         aria-label="Calibration And Integrity Controls"
       >
@@ -891,7 +934,7 @@ export default function LightningOperatorControls({
         />
         <button
           type="button"
-          className={`${styles.word} sc-ink--white`}
+          className={`${styles.word}`}
           onClick={() =>
             setRequest({ action: 'set_integrity_telemetry', value: !c.flags.integrityTelemetry })
           }
@@ -903,9 +946,11 @@ export default function LightningOperatorControls({
         </button>
       </div>
 
-      <span className={`${styles.recordMeta} ${styles.subhead} sc-ink--muted`}>Lightning</span>
+      <span className={`${styles.recordMeta} ${styles.subhead} ${inkClass('muted')}`}>
+        Lightning
+      </span>
       <div
-        className={`arena-switch arena-ops-keys ${styles.words}`}
+        className={`${styles.words} arena-switch arena-ops-keys`}
         role="group"
         aria-label="Lightning Controls"
       >
@@ -916,7 +961,7 @@ export default function LightningOperatorControls({
         )}
       </div>
 
-      <span className={`${styles.recordMeta} ${styles.subhead} sc-ink--muted`}>
+      <span className={`${styles.recordMeta} ${styles.subhead} ${inkClass('muted')}`}>
         Matcher Version
       </span>
       <Row label="Live" value={m?.version ?? 'Unknown'} ink="white" />
@@ -929,7 +974,7 @@ export default function LightningOperatorControls({
       />
       <Row label="Disabled" value={m && m.disabled.length ? m.disabled.join(', ') : 'None'} />
       <div
-        className={`arena-switch arena-ops-keys ${styles.words}`}
+        className={`${styles.words} arena-switch arena-ops-keys`}
         role="group"
         aria-label="Matcher Controls"
       >
@@ -959,25 +1004,29 @@ export default function LightningOperatorControls({
         />
       </div>
 
-      <span className={`${styles.recordMeta} ${styles.subhead} sc-ink--muted`}>Feature Flags</span>
+      <span className={`${styles.recordMeta} ${styles.subhead} ${inkClass('muted')}`}>
+        Feature Flags
+      </span>
       {flags.length === 0 ? (
-        <p className={`sc-copy ${styles.empty} sc-ink--muted`}>No Feature Flags Reported</p>
+        <p className={`${styles.copy} ${styles.empty} ${inkClass('muted')}`}>
+          No Feature Flags Reported
+        </p>
       ) : (
         <ul className={styles.grid} aria-label="Feature Flags">
           {flags.map(({ flag, value }) => (
             <li className={styles.flagRow} key={flag} data-flag={flag}>
-              <span className={`${styles.gridName} sc-ink--blue`}>{flagLabel(flag)}</span>
-              <span className={`${styles.gridCell} sc-ink--${value ? 'green' : 'muted'}`}>
+              <span className={`${styles.gridName} ${inkClass('blue')}`}>{flagLabel(flag)}</span>
+              <span className={`${styles.gridCell} ${inkClass(value ? 'green' : 'muted')}`}>
                 {value === null ? 'Unknown' : value ? 'On' : 'Off'}
               </span>
               {flag === 'lightning_v1' ? (
-                <span className={`${styles.gridCell} sc-ink--muted`}>Above</span>
+                <span className={`${styles.gridCell} ${inkClass('muted')}`}>Above</span>
               ) : !SWITCHABLE_FLAGS.has(flag) ? (
-                <span className={`${styles.gridCell} sc-ink--muted`}>Always On</span>
+                <span className={`${styles.gridCell} ${inkClass('muted')}`}>Always On</span>
               ) : (
                 <button
                   type="button"
-                  className={`${styles.word} ${styles.flagWord} sc-ink--white`}
+                  className={`${styles.word} ${styles.flagWord}`}
                   onClick={() => setRequest({ action: 'set_flag', flag, value: !value })}
                   disabled={frozen || value === null}
                 >

@@ -1,0 +1,144 @@
+/* WEEKLY ACCOUNTING INSIDE THE ARENA WORKSPACE (#SmarterDesign, 2026-11-28)
+
+   The Settlement page is an .arena-workspace; the Settlement Dashboard, the
+   Union Statements board and the admin dashboard that share these components
+   are not, so every rule here is scoped under .arena-workspace and those pages
+   keep their look. Chrome rims, keys and wells come from ArenaWorkspace.css and
+   ArenaOps.css; this sheet only lays the sections out and sets their inks. No
+   figure, word, handler or hook changes. Nothing reacts to a resting pointer. */
+
+/* The heading is the case's section title. */
+.arena-workspace .weekly-accounting > .arena-section-title {
+  padding: 0 3px 5px;
+  color: #f1f5fc;
+  text-shadow: none;
+}
+
+.arena-workspace .weekly-accounting > p,
+.arena-workspace .weekly-accounting__summaries p,
+.arena-workspace .weekly-accounting__periods > p {
+  color: #9fbacc;
+}
+
+/* Week Ending Monday: one chrome row holding the label and a dark well. */
+.arena-workspace .weekly-accounting__week {
+  margin: 7px 0;
+  padding: 6px 10px;
+  color: #9fbacc;
+  letter-spacing: 0;
+  align-items: center;
+}
+
+.arena-workspace .weekly-accounting__week > input.arena-ops-well {
+  width: min(48cqw, 12rem);
+  padding: 0 8px;
+  border: 1px solid #476079;
+  border-radius: 0;
+  background: #040d17;
+  color: #f1f5fc;
+  color-scheme: dark;
+  font:
+    16px/1.2 Arial,
+    sans-serif;
+}
+
+/* The automatic run status sits on a chrome row; its verdict keeps its own ink. */
+.arena-workspace .accounting-run-status {
+  margin: 7px 0;
+  padding: 8px 10px;
+  color: #9fbacc;
+}
+
+/* Every key here is a chrome-stat key; the lit one is the first of its group. */
+.arena-workspace :is(.weekly-accounting, .accounting-run-status) .arena-switch > :is(button, a) {
+  margin: 0;
+  padding: 6px 8px;
+  letter-spacing: 0;
+  text-shadow: none;
+}
+
+.arena-workspace :is(.weekly-accounting, .accounting-run-status) .arena-switch {
+  margin: 8px 0 0;
+}
+
+/* Sub sections sit under a hairline, not a black rule. */
+.arena-workspace .weekly-accounting__summaries,
+.arena-workspace .weekly-accounting__periods,
+.arena-workspace .weekly-accounting > .arena-switch {
+  border-top: 1px solid #253e57;
+  box-shadow: none;
+}
+
+.arena-workspace .weekly-accounting__summaries h3,
+.arena-workspace .weekly-accounting__periods > h3 {
+  color: #f1f5fc;
+  font:
+    800 17px/1.1 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: -0.2px;
+  text-shadow: none;
+}
+
+/* The weekly table: a chrome row rim around dark glass, labels in meta ink,
+   figures in the shell ink, rows split by the section hairline. */
+.arena-workspace .weekly-accounting__summaries .arena-ledger-row {
+  margin-top: 4px;
+  padding: 2px 8px;
+}
+
+.arena-workspace .weekly-accounting__summaries table th {
+  color: #9fbacc;
+  font:
+    700 12px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+}
+
+.arena-workspace .weekly-accounting__summaries table :is(th, td) {
+  border-bottom: 1px solid #253e57;
+  box-shadow: none;
+}
+
+.arena-workspace .weekly-accounting__summaries table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.arena-workspace .weekly-accounting__summaries table td {
+  color: #f1f5fc;
+}
+
+/* Recorded union periods: one chrome row per record. */
+.arena-workspace .weekly-accounting__periods li.arena-ledger-row {
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  box-shadow: none;
+  color: #dce5ef;
+}
+
+/* The cashier link is a chrome key on its own line. */
+.arena-workspace .weekly-accounting > .arena-switch {
+  padding-top: 8px;
+}
+
+/* On a wide screen the status lines keep phone spacing, and a lone key keeps a
+   key's width instead of spanning the case. */
+.arena-workspace .accounting-run-status p {
+  margin: 6px 0 0;
+}
+
+@media (min-width: 721px) {
+  .arena-workspace .accounting-run-status .arena-switch > :is(button, a),
+  .arena-workspace .weekly-accounting__periods .arena-switch > :is(button, a),
+  .arena-workspace .weekly-accounting > .arena-switch > :is(button, a) {
+    flex: 0 1 22rem;
+  }
+
+  .arena-workspace .weekly-accounting__summaries table :is(th, td) {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+}

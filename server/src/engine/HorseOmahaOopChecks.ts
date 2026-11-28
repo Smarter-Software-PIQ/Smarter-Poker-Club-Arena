@@ -1073,6 +1073,8 @@ export interface OmahaBareOverpairContVerdict {
   sizeWeight: number;
   realization: number;
   price: number;
+  /** omahaBareOverpairContinuationIsPeoplePriced: the equity is the one against people's measured flop range */
+  peoplePriced?: true;
 }
 
 /** A read that puts the engine's Omaha sampler on aggressor tier `tier` (1..3). */
@@ -1110,7 +1112,14 @@ export function omahaBareOverpairFlopFacingBetVerdict(
   hero: SeatPlayer,
   gs: HorseGameStateV2,
   read: OmahaBareOverpairContRead | null,
-  ctx: { rake?: number; realization?: number } = {}
+  ctx: {
+    rake?: number;
+    realization?: number;
+    /** omahaBareOverpairContinuationIsPeoplePriced (default off): the Horse's equity against the bettor's
+     *  people-measured flop range (HorseOmahaFlopPressureCapPriced.omahaFlopPressureCapPricedEquity). When given it
+     *  IS the equity priced: no sampler tier, no lean (his record already moved the measured share). */
+    peopleEquity?: number | null;
+  } = {}
 ): OmahaBareOverpairContVerdict | null {
   const saved = saveFastRandom();
   try {
@@ -1126,7 +1135,14 @@ export function omahaBareOverpairFlopFacingBetVerdict(
           (OMAHA_BARE_OVERPAIR_CONT_BIG_BET - OMAHA_BARE_OVERPAIR_CONT_SMALL_BET)
       )
     );
-    const lean = omahaBareOverpairContLean(read);
+    const people =
+      typeof ctx.peopleEquity === 'number' &&
+      Number.isFinite(ctx.peopleEquity) &&
+      ctx.peopleEquity >= 0 &&
+      ctx.peopleEquity <= 1
+        ? ctx.peopleEquity
+        : null;
+    const lean = people !== null ? 0 : omahaBareOverpairContLean(read);
     const cache = new Map<number, number>();
     /** Equity against aggressor tier 1..3, or any hand (0); the same stream for each. */
     const equityVs = (tier: number): number => {
@@ -1150,8 +1166,8 @@ export function omahaBareOverpairFlopFacingBetVerdict(
       return e;
     };
     // A stronger tier is never a weaker range, any hand never a stronger one.
-    const e1 = equityVs(1);
-    const e2 = sizeWeight > 0 || lean < 0 ? Math.min(e1, equityVs(2)) : e1;
+    const e1 = people !== null ? people : equityVs(1);
+    const e2 = people !== null ? e1 : sizeWeight > 0 || lean < 0 ? Math.min(e1, equityVs(2)) : e1;
     const e3 = lean < 0 && sizeWeight > 0 ? Math.min(e2, equityVs(3)) : e2;
     const eqRange = e1 + sizeWeight * (e2 - e1);
     const eqStrong = lean < 0 ? e2 + sizeWeight * (e3 - e2) : eqRange;
@@ -1193,6 +1209,7 @@ export function omahaBareOverpairFlopFacingBetVerdict(
       sizeWeight,
       realization,
       price: spot.price,
+      ...(people !== null ? { peoplePriced: true as const } : {}),
     };
   } catch {
     return null;

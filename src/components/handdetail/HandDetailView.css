@@ -61,7 +61,7 @@
   padding: 0 8px 2px;
   font-size: 9px;
   letter-spacing: 0.6px;
-  text-transform: uppercase;
+  text-transform: none;
   color: rgba(255, 255, 255, 0.32);
 }
 
@@ -569,7 +569,7 @@
 .hdv__fact-note {
   font-size: 9px;
   letter-spacing: 0.1em;
-  text-transform: uppercase;
+  text-transform: none;
   color: rgba(255, 255, 255, 0.4);
 }
 
@@ -599,7 +599,7 @@
 .hdv__allin-label {
   font-size: 9px;
   letter-spacing: 0.1em;
-  text-transform: uppercase;
+  text-transform: none;
   color: rgba(255, 255, 255, 0.5);
 }
 
@@ -630,4 +630,107 @@
   .hdv__allin-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   #SMARTERDESIGN leftovers (2026-11-28). Inside a #SmarterDesign console (the
+   table's Hand History and Hand Detail, ConsoleSkinProvider) the record wears
+   the skin's inks: a position is a chrome-ice tag, and the action tags keep a
+   distinct look per verb from ice, cyan, silver and white only. Dan: "YELLOW
+   IS NOT A APPROVED COLOR". Green and red stay where they mean a real result
+   (the all-in won/lost figures above). Off a console nothing here applies.
+   ═══════════════════════════════════════════════════════════════════════════ */
+/* The column key (Player / Action / Amount / Stack) is silver support ink:
+   #9fbacc on the console's lightest navy (#12273b) is 7.5:1, well above 4.5:1.
+   Off the skin it is a 0.32 white wash, too faint to read on navy. */
+.sc--sd .hdv__colkey {
+  color: var(--sd-silver-dim);
+  font-weight: 600;
+}
+/* The hand's serial number was the 0.4 white wash below: 3.5:1 on the meta
+   strip's navy, under AA for 11px type (rendered ink guard,
+   tests/e2e/css/table-surfaces-wear-smarterdesign.spec.ts). Silver support
+   ink, like the column key. */
+.sc--sd .hdv__meta-sn {
+  color: var(--sd-silver-dim);
+}
+.sc--sd .hdv__pos {
+  border: 1px solid rgba(116, 223, 255, 0.42);
+  background: rgba(116, 223, 255, 0.1);
+  color: #d6f6ff;
+}
+.sc--sd .hdv__pos:empty {
+  border-color: transparent;
+  background: transparent;
+}
+.sc--sd .hdv__name.is-you,
+.sc--sd .hdv__fact.is-you .hdv__fact-name {
+  color: var(--sd-ice-strong);
+}
+/* Passive verbs read silver, money going in reads ice, a raise reads the
+   strong cyan with a cyan rim, and all-in is white on cobalt. */
+.sc--sd .hdv__act {
+  background: rgba(159, 186, 204, 0.12);
+  color: #dce5ef;
+}
+.sc--sd .hdv__act--fold,
+.sc--sd .hdv__act--muck,
+.sc--sd .hdv__act--unknown {
+  background: rgba(159, 186, 204, 0.06);
+  color: rgba(159, 186, 204, 0.72);
+}
+.sc--sd .hdv__act--discard,
+.sc--sd .hdv__act--sb,
+.sc--sd .hdv__act--bb,
+.sc--sd .hdv__act--ante,
+.sc--sd .hdv__act--straddle,
+.sc--sd .hdv__act--return {
+  background: rgba(159, 186, 204, 0.14);
+  color: #c9d6e2;
+}
+.sc--sd .hdv__act--check {
+  background: rgba(159, 186, 204, 0.16);
+  color: var(--sd-ink);
+}
+.sc--sd .hdv__act--call {
+  background: rgba(116, 223, 255, 0.12);
+  color: #a9ebff;
+}
+.sc--sd .hdv__act--bet,
+.sc--sd .hdv__act--raise {
+  background: rgba(116, 223, 255, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(116, 223, 255, 0.55);
+  color: var(--sd-ice-strong);
+}
+.sc--sd .hdv__act--all_in {
+  background: linear-gradient(
+    var(--sd-cobalt-top),
+    var(--sd-cobalt-mid) 55%,
+    var(--sd-cobalt-deep)
+  );
+  color: #fff;
+}
+.sc--sd .hdv__act--show {
+  background: rgba(116, 223, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(116, 223, 255, 0.35);
+  color: #d6f6ff;
+}
+.sc--sd .hdv__sd.is-winner {
+  background: rgba(116, 223, 255, 0.06);
+}
+.sc--sd .hdv__sd.is-badbeat {
+  background: rgba(116, 223, 255, 0.08);
+  box-shadow: inset 3px 0 0 var(--sd-ice-strong);
+}
+.sc--sd .hdv__sd-tag,
+.sc--sd .hdv__private-tag {
+  background: rgba(116, 223, 255, 0.16);
+  color: var(--sd-ice-strong);
+}
+.sc--sd .hdv__cards .hdv-private {
+  outline-color: rgba(116, 223, 255, 0.55);
+}
+.sc--sd .hdv__allin {
+  background: rgba(116, 223, 255, 0.05);
+  border-color: rgba(116, 223, 255, 0.28);
 }

@@ -281,3 +281,40 @@
     text-align: left;
   }
 }
+
+/* ── #SmarterDesign (Dan 2026-11-27) ──────────────────────────────────────
+   On an arena workspace page every console is the thin chrome case
+   (ClubPageSection `arena`) and the reporting window a chrome switch lit by
+   aria-selected. The case is the container the cqw type above reads, so each
+   figure keeps the proportions it had; only the painted glow is dropped. */
+.arena-workspace .rr > .arena-case {
+  container-type: inline-size;
+  width: min(100%, 1000px);
+  margin: 0 auto;
+}
+.arena-workspace .rr {
+  gap: 0;
+  padding: 0;
+}
+.arena-workspace .rr .arena-case [class*='sc-ink--'] {
+  text-shadow: none;
+}
+.arena-workspace .rr .arena-section-title small {
+  color: #74dfff;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.arena-workspace .rr .rr__rail.arena-switch {
+  justify-content: stretch;
+  gap: 4px;
+  padding: 0;
+}
+.arena-workspace .rr .arena-switch > .rr__rail-word {
+  padding: 6px 8px;
+  font:
+    700 12px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+}

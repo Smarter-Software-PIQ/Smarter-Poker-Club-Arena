@@ -13,6 +13,37 @@
  * Theme: Apply [data-theme="blue|red|purple|black|gold"] on root element
  */
 
+/* ═══════════════════════════════════════════════════════════════════════════════
+   #SMARTERDESIGN TABLE PALETTE (2026-11-28)
+
+   The table's #SmarterDesign skin (Dan 2026-11-27) in one place. The skin's
+   surfaces portal to document.body (the drawer, every console, chat, the
+   purchase popups), so the one root they all share is :root, and this file is
+   in the entry stylesheet (index.html) and re-asserted by
+   table-design-tokens.css for the table chunk. World Hub mirrors the same
+   names and values; the table of names is docs/SMARTERDESIGN-TABLE-PALETTE.md.
+
+   Ink rules these encode: white titles, silver support ink, ice blue and cyan
+   emphasis, cobalt for the selected or primary key, green and red only for a
+   real win, loss, success or error. Never yellow, gold, amber, orange,
+   purple, violet, lavender, pink or magenta: scripts/ci/check-table-skin-ink.mjs
+   reads the stylesheets and tests/e2e/css/table-surfaces-wear-smarterdesign
+   .spec.ts reads what the browser paints.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+:root {
+  --sd-ice: #86daff; /* eyebrows, labels, emphasis */
+  --sd-ice-strong: #74dfff; /* "you", the strongest cyan accent */
+  --sd-silver: #bdd0e2; /* subtitles, support copy */
+  --sd-silver-dim: #9fbacc; /* column keys, quiet meta */
+  --sd-white: #f4f8ff; /* titles and figures */
+  --sd-ink: #f1f5fc; /* body ink and chrome key lettering */
+  --sd-cobalt-top: #087cfa; /* primary / selected key, top stop */
+  --sd-cobalt-mid: #0044ac; /* primary / selected key, middle stop (55%) */
+  --sd-cobalt-deep: #002b68; /* primary / selected key, bottom stop */
+  --sd-green: #4dc660; /* a real win or success */
+  --sd-red: #ff8a93; /* a real loss or error */
+}
+
 :root {
   /* ═════════════════════════════════════════════════════════════════════════
      SMARTER.POKER TEXT ACCENTS — "WE DON'T USE YELLOW" (Dan 2026-09-07, item 8)

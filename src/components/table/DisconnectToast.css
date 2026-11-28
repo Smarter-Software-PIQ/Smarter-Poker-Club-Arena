@@ -64,7 +64,7 @@
 
 .disconnect-toast--missing {
   background: rgba(14, 18, 28, 0.92);
-  border: 1px solid rgba(249, 115, 22, 0.55);
+  border: 1px solid rgba(159, 186, 204, 0.55);
 }
 
 .disconnect-toast--disconnected {

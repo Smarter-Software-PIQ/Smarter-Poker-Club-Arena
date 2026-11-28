@@ -9,6 +9,7 @@ interface Table {
   seated: number;
   dealable: number;
   paused: boolean;
+  liveDecisionClock?: boolean;
   msSinceProgress: number;
 }
 
@@ -32,6 +33,7 @@ export function tournamentStallExposure(
     if (held === undefined && (table.paused || table.dealable < 2)) continue;
     const group = groups.get(format)!;
     group.active++;
+    if (held === undefined && table.liveDecisionClock) continue;
     const age = held ?? table.msSinceProgress;
     if (age < HELD_STALL_MS) continue;
     group.stalled++;

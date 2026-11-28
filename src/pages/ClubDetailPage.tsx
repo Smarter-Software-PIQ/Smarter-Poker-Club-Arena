@@ -26,7 +26,7 @@ import { masterBus } from '../core/MasterBus';
 import { presenceService } from '../services/PresenceService';
 import ClubActivityFeed from '../components/club/ClubActivityFeed';
 import { MembershipService } from '../services/MembershipService';
-import { AgentService, type Agent } from '../services/AgentService';
+import { AgentService, formatAgentRate, type Agent } from '../services/AgentService';
 import { useToast } from '../components/common/Toast';
 import { ClubsService } from '../services/ClubsService';
 import ConfirmModal from '../components/common/ConfirmModal';
@@ -1784,7 +1784,9 @@ export default function ClubDetailPage() {
                       </div>
                       <div className={styles.agentStat}>
                         <span className={styles.statLabel}>Commission</span>
-                        <span className={styles.statValue}>{agent.commissionRate}%</span>
+                        <span className={styles.statValue}>
+                          {formatAgentRate(agent.commissionRate)}
+                        </span>
                       </div>
                       <div className={styles.agentStat}>
                         <span className={styles.statLabel}>Lifetime</span>

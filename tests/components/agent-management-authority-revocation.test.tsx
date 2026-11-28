@@ -62,39 +62,6 @@ vi.mock('../../src/lib/supabase', () => ({
 vi.mock('../../src/components/layouts/StandardContentLayout', () => ({
   default: ({ children }: { children: React.ReactNode }) => <main>{children}</main>,
 }));
-vi.mock('../../src/components/console/SpadeConsole', () => ({
-  SpadeConsole: ({
-    title,
-    children,
-    plates,
-  }: {
-    title: string;
-    children: React.ReactNode;
-    plates?: {
-      primary?: { label: string; onClick: () => void; disabled?: boolean };
-      secondary?: { label: string; onClick: () => void; disabled?: boolean };
-    };
-  }) => (
-    <section aria-label={title}>
-      {children}
-      {plates?.secondary && (
-        <button disabled={plates.secondary.disabled} onClick={plates.secondary.onClick}>
-          {plates.secondary.label}
-        </button>
-      )}
-      {plates?.primary && (
-        <button disabled={plates.primary.disabled} onClick={plates.primary.onClick}>
-          {plates.primary.label}
-        </button>
-      )}
-    </section>
-  ),
-}));
-vi.mock('../../src/components/common/PageSkeleton', () => ({ default: () => <p>Loading</p> }));
-vi.mock('../../src/components/common/EmptyState', () => ({
-  EmptyState: () => <p>Empty</p>,
-  ErrorState: ({ message }: { message: string }) => <p role="alert">{message}</p>,
-}));
 vi.mock('../../src/components/common/ConfirmModal', () => ({
   default: ({ isOpen, onConfirm }: { isOpen: boolean; onConfirm: () => void }) =>
     isOpen ? <button onClick={onConfirm}>Confirm Agent Action</button> : null,

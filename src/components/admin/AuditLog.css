@@ -42,7 +42,10 @@
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
-  color: var(--text-muted);
+  /* --text-muted (#6b7280) on the card read 3.66:1, under WCAG AA's 4.5:1 for
+     this 16px label (axe color-contrast on Club Settings, 2026-11-28).
+     --text-secondary is 7.5:1 on the same card. */
+  color: var(--text-secondary);
   font-size: var(--fs-xs);
   cursor: pointer;
 }
@@ -123,7 +126,8 @@
 }
 
 .empty-state p {
-  color: var(--text-muted);
+  /* --text-muted read 3.66:1 on the card (axe color-contrast, 2026-11-28). */
+  color: var(--text-secondary);
 }
 
 .log-entry {

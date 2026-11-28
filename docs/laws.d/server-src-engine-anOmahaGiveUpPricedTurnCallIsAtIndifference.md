@@ -1,0 +1,3 @@
+# server/src/engine/anOmahaGiveUpPricedTurnCallIsAtIndifference.law.test.ts
+
+omahaGiveUpPricedTurnCallIsAtIndifference (default OFF) makes the call on a PLO4/PLO5 cash heads-up turn bet that omahaHiddenBetsArePricedAsGiveUps priced at EV >= 0 instead of EV > 2% of the final pot. On real turn decisions of Horses facing a person's first turn wager the law holds: it acts only on heads-up turn first bets the give-up price priced and never in a re-raised pot; it only ever turns a fold into a call, and only a call whose expected value lies between zero and the margin; without the give-up price it decides nothing; the verdict's expected value, margin and win share are unchanged; the code reads no identity.

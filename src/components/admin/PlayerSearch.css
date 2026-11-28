@@ -95,7 +95,8 @@
 }
 
 .empty-state p {
-  color: var(--text-muted);
+  /* --text-muted read 3.66:1 on the card (axe color-contrast, 2026-11-28). */
+  color: var(--text-secondary);
 }
 
 .player-row {

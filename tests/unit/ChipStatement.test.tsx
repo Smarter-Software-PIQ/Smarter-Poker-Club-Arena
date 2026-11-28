@@ -48,6 +48,7 @@ import ChipStatement, {
   statementLegCopy,
   type StatementLeg,
 } from '../../src/components/wallet/ChipStatement';
+import { moneyFigures } from '../helpers/moneyFigures';
 
 const leg = (over: Record<string, unknown>) => ({
   id: 'l1',
@@ -693,5 +694,45 @@ describe('ChipStatement', () => {
       expect(screen.getByText('From A Prize Pool')).toBeTruthy();
       expect(tournamentNames).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe('every money figure is pinned before its frame moves (2026-11-27)', () => {
+  it('prints the same figures and hooks, in the same order', async () => {
+    rpc.mockResolvedValueOnce({ data: statement(), error: null });
+    const view = render(<ChipStatement scope="player" />);
+    expect(await screen.findByText('+12.50')).toBeTruthy();
+    expect(moneyFigures(view.container)).toMatchInlineSnapshot(`
+      {
+        "figures": [
+          "256,869.48",
+          "100",
+          "256,769.48",
+          "255,662.53",
+          "2,329.95",
+          "1,123",
+          "89",
+          "256,869.48",
+          "+12.50",
+          "-50",
+        ],
+        "hooks": [
+          "data-scope=player",
+        ],
+      }
+    `);
+  });
+
+  it('prints exactly the same figures and hooks in the arena chrome case', async () => {
+    rpc.mockResolvedValueOnce({ data: statement(), error: null });
+    const painted = render(<ChipStatement scope="player" />);
+    expect(await screen.findByText('+12.50')).toBeTruthy();
+    const expected = moneyFigures(painted.container);
+    painted.unmount();
+    rpc.mockResolvedValueOnce({ data: statement(), error: null });
+    const arena = render(<ChipStatement scope="player" arena />);
+    expect(await screen.findByText('+12.50')).toBeTruthy();
+    expect(arena.container.querySelector('.arena-case')).not.toBeNull();
+    expect(moneyFigures(arena.container)).toEqual(expected);
   });
 });

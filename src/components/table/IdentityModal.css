@@ -112,7 +112,7 @@
     sans-serif;
   letter-spacing: 0.16em;
   text-align: right;
-  text-transform: uppercase;
+  text-transform: none;
   white-space: nowrap;
   cursor: pointer;
   touch-action: manipulation;

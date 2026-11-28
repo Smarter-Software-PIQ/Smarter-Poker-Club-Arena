@@ -253,7 +253,7 @@ function receiverFixture(){
  const steps=['Checkout the requested immutable commit','Prove the request is current protected-main engine code','Require the Backup Engine certificate for this exact SHA','Require daily preparation or the protected November 7 owner window','Require previously completed daytime qualification'].map(name=>({name,status:'completed',conclusion:'success'}));
  const jobs=[{id:901,name:RELEASE_PREFLIGHT,status:'completed',conclusion:'success',started_at:'2026-11-09T09:31:00Z',completed_at:'2026-11-09T09:32:00Z',steps},{id:902,name:'Prove The Exact Engine Has Every Production Door',status:'completed',conclusion:'success',steps:[]}];
  const qual={id:800,run_attempt:1,path:'.github/workflows/engine-release-prequalification.yml',event:'push',head_sha:sha,head_branch:'main',status:'completed',conclusion:'success',created_at:'2026-11-08T20:00:00Z',repository:{id:1132369872},head_repository:{id:1132369872}};
- const qjobs=PREQUALIFICATION_JOBS.map((name,i)=>({id:810+i,run_id:800,run_attempt:1,head_sha:sha,name,status:'completed',conclusion:'success',completed_at:'2026-11-08T20:40:00Z',steps:i===4?[{name:`Prepared image ${image} rollback ${rollback} tree ${tree}`,status:'completed',conclusion:'success'}]:[]}));
+ const qjobs=PREQUALIFICATION_JOBS.map((name,i)=>({id:810+i,run_id:800,run_attempt:1,head_sha:sha,name,status:'completed',conclusion:'success',completed_at:'2026-11-08T20:40:00Z',steps:name==='Stage immutable candidate and rollback images'?[{name:`Prepared image ${image} rollback ${rollback} tree ${tree}`,status:'completed',conclusion:'success'}]:[]}));
  const evidence={receiverContainsCandidate:true,bindingLog:bindingLog(sha),tree,prequalification:{runs:[qual],jobs:qjobs},imageId:image};
  return {run,jobs,qual,qjobs,evidence};
 }
@@ -273,7 +273,7 @@ test('missing or failed prequalification refuses',()=>{
  assert.throws(()=>stageAdmission(f.run,f.jobs,sha,with_([{...f.qual,created_at:'2026-11-09T10:00:00Z'}])),/Exact candidate prequalification required/);
  for(const change of [{conclusion:'failure'},{status:'in_progress',conclusion:null},{event:'pull_request'},{head_sha:receiver},{head_branch:'feature'},{path:'.github/workflows/ci.yml'},{repository:{id:1}}])assert.throws(()=>stageAdmission(f.run,f.jobs,sha,with_([{...f.qual,...change}])));
  assert.throws(()=>stageAdmission(f.run,f.jobs,sha,with_([{...f.qual,created_at:'2026-11-09T09:31:30Z'}])),/changed while the receiver read it/);
- for(let i=0;i<5;i++)assert.throws(()=>stageAdmission(f.run,f.jobs,sha,with_([f.qual],f.qjobs.map((j,k)=>k===i?{...j,conclusion:'failure'}:j))));
+ for(let i=0;i<PREQUALIFICATION_JOBS.length;i++)assert.throws(()=>stageAdmission(f.run,f.jobs,sha,with_([f.qual],f.qjobs.map((j,k)=>k===i?{...j,conclusion:'failure'}:j))));
  assert.throws(()=>stageAdmission(f.run,f.jobs,sha,with_([f.qual],f.qjobs.slice(1))));
  assert.throws(()=>stageAdmission(f.run,f.jobs,sha,with_([f.qual],f.qjobs.map(j=>({...j,completed_at:'2026-11-09T09:40:00Z'})))),/completed before the receiver/);
  assert.throws(()=>stageAdmission(f.run,f.jobs,sha,with_([f.qual],f.qjobs.map(j=>({...j,head_sha:receiver})))));
@@ -282,7 +282,7 @@ test('missing or failed prequalification refuses',()=>{
  assert.throws(()=>stageAdmission(f.run,f.jobs.filter(j=>j.id!==902),sha,f.evidence));
 });
 test('immutable image mismatch refuses',()=>{
- const f=receiverFixture(),marker=name=>({...f.evidence,prequalification:{runs:[f.qual],jobs:f.qjobs.map((j,i)=>i===4?{...j,steps:[{name,status:'completed',conclusion:'success'}]}:j)}});
+ const f=receiverFixture(),marker=name=>({...f.evidence,prequalification:{runs:[f.qual],jobs:f.qjobs.map(j=>j.name==='Stage immutable candidate and rollback images'?{...j,steps:[{name,status:'completed',conclusion:'success'}]}:j)}});
  assert.throws(()=>stageAdmission(f.run,f.jobs,sha,{...f.evidence,imageId:'sha256:'+'1'.repeat(64)}),/differs from the prequalified image/);
  assert.throws(()=>stageAdmission(f.run,f.jobs,sha,marker(`Prepared image ${image} rollback ${rollback} tree ${'0'.repeat(40)}`)),/server tree/);
  assert.throws(()=>stageAdmission(f.run,f.jobs,sha,marker(`Prepared image club-arena-engine:${sha} rollback ${rollback} tree ${tree}`)));

@@ -13,6 +13,7 @@ import { masterBus } from '../../core/MasterBus';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import { useToast } from '../common/Toast';
 import './AgentCommissionDashboard.css';
+import './AgentCommissionArena.css';
 import { reportError } from '../../utils/errorReporter';
 import { CommissionService } from '../../services/CommissionService';
 import { leaveForHub } from '../../lib/openExternal';
@@ -387,9 +388,11 @@ export function AgentCommissionDashboard({ clubId }: { clubId?: string } = {}) {
     return (
       <div className="agent-commission empty-state" role="alert">
         <p>Your Commission Data Could Not Be Loaded.</p>
-        <button className="payout-btn" onClick={() => refresh()}>
-          Try Again
-        </button>
+        <div className="arena-switch arena-ops-keys arena-ops-primary agent-commission__keys">
+          <button className="payout-btn" onClick={() => refresh()}>
+            Try Again
+          </button>
+        </div>
       </div>
     );
   }
@@ -397,7 +400,7 @@ export function AgentCommissionDashboard({ clubId }: { clubId?: string } = {}) {
   return (
     <div className="agent-commission">
       {/* Tabs */}
-      <div className="agent-commission__tabs">
+      <div className="agent-commission__tabs arena-switch">
         <button
           className={activeTab === 'summary' ? 'active' : ''}
           onClick={() => setActiveTab('summary')}
@@ -419,21 +422,26 @@ export function AgentCommissionDashboard({ clubId }: { clubId?: string } = {}) {
       </div>
 
       {activeTab === 'summary' && (
-        <section className="summary-card" aria-label="Automatic Weekly Settlement">
-          <h3>Automatic Weekly Settlement</h3>
+        <section
+          className="summary-card agent-commission__settlement arena-case arena-ops-case"
+          aria-label="Automatic Weekly Settlement"
+        >
+          <h3 className="arena-section-title">Automatic Weekly Settlement</h3>
           <p>Scheduled Every Monday At 4:00 AM Central Time.</p>
           <p>Unpaid Commission Remains Outstanding Until A Verified Transfer Is Recorded.</p>
           {resolvedClubId && (
-            <button
-              className="payout-btn"
-              onClick={() =>
-                leaveForHub(
-                  `/hub/messenger?clubId=${encodeURIComponent(resolvedClubId)}&folder=invoices`
-                )
-              }
-            >
-              View Invoices
-            </button>
+            <div className="arena-switch arena-ops-keys arena-ops-primary agent-commission__keys">
+              <button
+                className="payout-btn"
+                onClick={() =>
+                  leaveForHub(
+                    `/hub/messenger?clubId=${encodeURIComponent(resolvedClubId)}&folder=invoices`
+                  )
+                }
+              >
+                View Invoices
+              </button>
+            </div>
           )}
         </section>
       )}
@@ -451,7 +459,11 @@ export function AgentCommissionDashboard({ clubId }: { clubId?: string } = {}) {
               value: pendingCommission,
             },
           ].map((card, idx) => (
-            <div key={idx} className={`summary-card ${card.className}`} style={summaryStyle(idx)}>
+            <div
+              key={idx}
+              className={`summary-card arena-meter ${card.className}`}
+              style={summaryStyle(idx)}
+            >
               <span className="label">{card.label}</span>
               <span className="value">
                 {card.value === null ? 'Unavailable' : card.value.toLocaleString()}
@@ -461,81 +473,41 @@ export function AgentCommissionDashboard({ clubId }: { clubId?: string } = {}) {
 
           {/* Commission Waterfall Visualization */}
           {summary.totalEarned > 0 && (
-            <div
-              style={{
-                gridColumn: '1 / -1',
-                padding: '16px',
-                background: 'rgba(255,255,255,0.03)',
-                borderRadius: '12px',
-                border: '1px solid rgba(255,255,255,0.08)',
-              }}
-            >
-              <h4
-                style={{
-                  margin: '0 0 12px',
-                  fontSize: '0.8rem',
-                  color: 'rgba(255,255,255,0.6)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
-                }}
-              >
-                Commission Flow
-              </h4>
+            <div className="agent-commission__flow arena-ledger-row">
+              <h4 className="agent-commission__flow-title">Commission Flow</h4>
               {[
-                { label: 'Total Earned', value: summary.totalEarned, color: '#10b981', pct: 100 },
+                { label: 'Total Earned', value: summary.totalEarned, pct: 100 },
                 {
                   label: 'This Month',
                   value: summary.thisMonth,
-                  color: '#3b82f6',
                   pct:
                     summary.totalEarned > 0 ? (summary.thisMonth / summary.totalEarned) * 100 : 0,
                 },
                 {
                   label: 'This Week',
                   value: summary.thisWeek,
-                  color: '#8b5cf6',
                   pct: summary.totalEarned > 0 ? (summary.thisWeek / summary.totalEarned) * 100 : 0,
                 },
                 {
                   label: 'Pending',
                   value: pendingCommission,
-                  color: '#f59e0b',
                   pct:
                     summary.totalEarned > 0 && pendingCommission !== null
                       ? (pendingCommission / summary.totalEarned) * 100
                       : 0,
                 },
-              ].map((tier, i) => (
-                <div key={tier.label} style={{ marginBottom: i < 3 ? '8px' : 0 }}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      fontSize: '0.75rem',
-                      marginBottom: '4px',
-                    }}
-                  >
-                    <span style={{ color: 'rgba(255,255,255,0.5)' }}>{tier.label}</span>
-                    <span style={{ color: tier.color, fontWeight: 600 }}>
+              ].map((tier) => (
+                <div key={tier.label} className="agent-commission__flow-tier">
+                  <div className="agent-commission__flow-line">
+                    <span>{tier.label}</span>
+                    <span className="agent-commission__flow-value">
                       {tier.value === null ? 'Unavailable' : tier.value.toLocaleString()}
                     </span>
                   </div>
-                  <div
-                    style={{
-                      height: '6px',
-                      background: 'rgba(255,255,255,0.05)',
-                      borderRadius: '3px',
-                      overflow: 'hidden',
-                    }}
-                  >
+                  <div className="agent-commission__flow-track">
                     <div
-                      style={{
-                        height: '100%',
-                        width: `${Math.max(tier.pct, 2)}%`,
-                        background: tier.color,
-                        borderRadius: '3px',
-                        transition: 'width 0.8s cubic-bezier(0.4, 0, 0.2, 1)',
-                      }}
+                      className="agent-commission__flow-fill"
+                      style={{ width: `${Math.max(tier.pct, 2)}%` }}
                     />
                   </div>
                 </div>
@@ -543,20 +515,9 @@ export function AgentCommissionDashboard({ clubId }: { clubId?: string } = {}) {
 
               {/* Month-over-month indicator */}
               {summary.thisMonth > 0 && summary.thisWeek > 0 && (
-                <div
-                  style={{
-                    marginTop: '12px',
-                    padding: '8px 12px',
-                    background: 'rgba(255,255,255,0.03)',
-                    borderRadius: '8px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    fontSize: '0.75rem',
-                  }}
-                >
-                  <span style={{ color: 'rgba(255,255,255,0.5)' }}>Weekly Avg</span>
-                  <span style={{ color: '#10b981', fontWeight: 600 }}>
+                <div className="agent-commission__flow-average">
+                  <span>Weekly Avg</span>
+                  <span className="agent-commission__flow-value">
                     {(summary.thisMonth / 4).toLocaleString(undefined, {
                       maximumFractionDigits: 0,
                     })}{' '}
@@ -578,21 +539,25 @@ export function AgentCommissionDashboard({ clubId }: { clubId?: string } = {}) {
       {activeTab === 'summary' && !summary && (
         <div className="empty-state">
           <p>Your Commission Summary Could Not Be Loaded.</p>
-          <button className="payout-btn" onClick={() => refresh()}>
-            Try Again
-          </button>
+          <div className="arena-switch arena-ops-keys arena-ops-primary agent-commission__keys">
+            <button className="payout-btn" onClick={() => refresh()}>
+              Try Again
+            </button>
+          </div>
         </div>
       )}
 
       {/* Records Tab */}
       {activeTab === 'records' && (
-        <div className="agent-commission__records">
+        <div className="agent-commission__records arena-case arena-ops-case">
           {recordsUnavailable ? (
             <div className="empty-state" role="alert">
               <p>Your Commission Records Could Not Be Loaded.</p>
-              <button className="payout-btn" onClick={() => refresh()}>
-                Try Again
-              </button>
+              <div className="arena-switch arena-ops-keys arena-ops-primary agent-commission__keys">
+                <button className="payout-btn" onClick={() => refresh()}>
+                  Try Again
+                </button>
+              </div>
             </div>
           ) : records.length === 0 ? (
             <div className="empty-state">No Commission Records Yet</div>
@@ -617,15 +582,14 @@ export function AgentCommissionDashboard({ clubId }: { clubId?: string } = {}) {
                   <tr key={record.id} style={recordsStyle(idx)}>
                     <td>
                       <span
-                        style={{
-                          textTransform: 'capitalize',
-                          color: record.playerName === 'paid' ? '#10b981' : '#f59e0b',
-                        }}
+                        className={`agent-commission__status agent-commission__status--${
+                          record.playerName === 'paid' ? 'paid' : 'unpaid'
+                        }`}
                       >
                         {record.playerName}
                       </span>
                     </td>
-                    <td style={{ textTransform: 'capitalize' }}>
+                    <td className="agent-commission__source">
                       {(record.tableName || 'rake').replace(/_/g, ' ')}
                     </td>
                     <td className="commission">{record.amount.toLocaleString()}</td>
@@ -640,13 +604,15 @@ export function AgentCommissionDashboard({ clubId }: { clubId?: string } = {}) {
 
       {/* Sub-Agents Tab */}
       {activeTab === 'subagents' && (
-        <div className="agent-commission__subagents">
+        <div className="agent-commission__subagents arena-case arena-ops-case">
           {subAgentsError && (
             <div className="empty-state" role="alert">
               <p>{subAgentsError}</p>
-              <button className="payout-btn" onClick={() => refresh()}>
-                Try Again
-              </button>
+              <div className="arena-switch arena-ops-keys arena-ops-primary agent-commission__keys">
+                <button className="payout-btn" onClick={() => refresh()}>
+                  Try Again
+                </button>
+              </div>
             </div>
           )}
           {!resolvedClubId ? (
@@ -656,7 +622,11 @@ export function AgentCommissionDashboard({ clubId }: { clubId?: string } = {}) {
           ) : (
             <div className="subagent-grid">
               {subAgents.map((agent, idx) => (
-                <div key={agent.id} className="subagent-card" style={subagentsStyle(idx)}>
+                <div
+                  key={agent.id}
+                  className="subagent-card arena-ledger-row"
+                  style={subagentsStyle(idx)}
+                >
                   <span className="avatar">{agent.avatarUrl}</span>
                   <div className="info">
                     <span className="name">{agent.username}</span>

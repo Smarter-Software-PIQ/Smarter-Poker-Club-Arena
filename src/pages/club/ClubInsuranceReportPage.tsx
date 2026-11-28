@@ -4,10 +4,10 @@
  * The club staff's view of the all-in insurance product: the decision FUNNEL
  * (offers -> accepted / declined / timeouts / cashouts) next to the MONEY
  * (bank in / out / net), per day. The dashboard's revenue card shows the
- * headline net; this page answers the question that number raises — are
+ * headline net; this page answers the question that number raises - are
  * players actually buying at the offered rates, and what is each day worth?
  *
- * Data: ca_club_insurance_report RPC — SECURITY DEFINER, gated server-side on
+ * Data: ca_club_insurance_report RPC - SECURITY DEFINER, gated server-side on
  * ca_can_view_club_finances (owner / admin / super_agent / platform admin),
  * ERRCODE 42501 like its siblings. The client gate is cosmetic.
  *
@@ -17,11 +17,11 @@
  * reconcile_ledger_nightly), so this page can present them side by side
  * without re-deriving anything.
  *
- * #ClubArenaConsole: one console. The window as lit words, the funnel and
- * the money as rows on the black glass, the per-day records as rows between
- * engraved rules (never HTML-table chrome), Back and Export CSV on the two
- * painted plates. Every read, guard and pinned literal of the generic page
- * is kept.
+ * #SmarterDesign (Dan 2026-11-27): the painted console is gone. The page
+ * wears the arena workspace: the finance mast with the club's name, the
+ * headline figures as chrome meters, the window as a chrome switch that lights
+ * the selected window, the funnel and the money as chrome readouts and every
+ * day as a chrome ledger row. Every read, guard and pinned literal is kept.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -31,11 +31,10 @@ import { isAuthzError } from '../../utils/clubDashboard';
 import { reportError } from '../../utils/errorReporter';
 import { downloadCsv, csvEscape } from '../../utils/downloadCsv';
 import styles from './ClubInsuranceReportPage.module.css';
-/* #SmarterDesign (Dan 2026-11-27): the painted console is the old style for a
-   page section; the report prints in the thin chrome case with chrome keys. */
-import { ClubPageSection as SpadeConsole } from '../../components/club/ClubPageSection';
-import '../../components/console/SpadeConsole.css';
-import '../../components/lobby/ArenaWorkspace.css';
+import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
+import PageBar from '../../components/help/PageBar';
+import { useArenaClubName } from '../../components/ops/useArenaClubName';
+import { ArenaReadings, ArenaState, type ArenaTone } from '../../components/ops/ArenaOps';
 import { compactChips } from '../../utils/format';
 import { useIsMounted } from '../../hooks/useIsMounted';
 import { useAuthUser } from '../../hooks/useAuthUser';
@@ -329,8 +328,12 @@ interface ReportRequestState {
    past a thousand). The CSV below still carries the exact figures. */
 const chips = (n: number) => compactChips(Number(n ?? 0));
 
+const SUMMARY =
+  'Read The Insurance Decision Funnel Next To The Money It Moved, Per Day, For The Selected Window.';
+
 export default function ClubInsuranceReportPage() {
   const { clubId } = useParams<{ clubId: string }>();
+  const mastName = useArenaClubName();
   const navigate = useNavigate();
   const { user } = useAuthUser();
   const toast = useToast();
@@ -489,28 +492,32 @@ export default function ClubInsuranceReportPage() {
     }
   }, [report, clubId, isMounted, scopeKey, toast]);
 
+  const header = (
+    <ArenaWorkspaceHeader
+      area="finance"
+      id="insurance-report-title"
+      title="Insurance Report"
+      context={mastName}
+      summary={SUMMARY}
+    />
+  );
+
   if (notFound) {
     return (
       <div className={`${styles.page} arena-workspace`}>
-        <SpadeConsole
-          arena
-          family="spade"
-          className={styles.console}
-          eyebrow="Insurance"
-          title="Club Not Found"
-          titleId="insurance-report-title"
-          pill="Missing"
-          pillInk="muted"
-        >
-          <p className={`sc-copy sc-copy--center ${styles.state}`}>
-            No Club Answers To That Address.
-          </p>
-          <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.actions}`}>
-            <button type="button" className={styles.word} onClick={() => navigate('/clubs')}>
-              Back To Clubs
-            </button>
-          </div>
-        </SpadeConsole>
+        {header}
+        <section className="arena-case arena-ops-case">
+          <ArenaState
+            tone="empty"
+            title="Club Not Found"
+            message="No Club Answers To That Address."
+            actions={
+              <button type="button" onClick={() => navigate('/clubs')}>
+                Back To Clubs
+              </button>
+            }
+          />
+        </section>
       </div>
     );
   }
@@ -518,29 +525,19 @@ export default function ClubInsuranceReportPage() {
   if (denied) {
     return (
       <div className={`${styles.page} arena-workspace`}>
-        <SpadeConsole
-          arena
-          family="spade"
-          className={styles.console}
-          eyebrow="Insurance"
-          title="Insurance Report"
-          titleId="insurance-report-title"
-          pill="Staff"
-          pillInk="red"
-        >
-          <p className={`sc-copy sc-copy--center ${styles.state}`}>
-            This Report Is Only Available To Club Staff.
-          </p>
-          <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.actions}`}>
-            <button
-              type="button"
-              className={styles.word}
-              onClick={() => navigate(`/clubs/${clubId}`)}
-            >
-              Back To Club
-            </button>
-          </div>
-        </SpadeConsole>
+        {header}
+        <section className="arena-case arena-ops-case">
+          <ArenaState
+            tone="error"
+            title="Insurance Report"
+            message="This Report Is Only Available To Club Staff."
+            actions={
+              <button type="button" onClick={() => navigate(`/clubs/${clubId}`)}>
+                Back To Club
+              </button>
+            }
+          />
+        </section>
       </div>
     );
   }
@@ -555,191 +552,205 @@ export default function ClubInsuranceReportPage() {
   // the day rows below could never sum to the headline above them.
   const acceptRate = t?.take_rate_pct ?? null;
 
-  const netInk = (n: number) => (n >= 0 ? 'sc-ink--green' : 'sc-ink--red');
+  const netTone = (n: number): ArenaTone => (n >= 0 ? 'live' : 'danger');
+  const netClass = (n: number) => (n >= 0 ? styles.up : styles.down);
 
   return (
     <div className={`${styles.page} arena-workspace`}>
-      <SpadeConsole
-        arena
-        family="riveted"
-        className={styles.console}
-        eyebrow="Insurance"
+      <div className="arena-switch arena-ops-keys">
+        <button type="button" onClick={() => navigate(`/clubs/${clubId}`)}>
+          Back
+        </button>
+      </div>
+      {header}
+      <PageBar
         title="Insurance Report"
-        titleId="insurance-report-title"
-        pill={`${days} Days`}
-        pillInk="blue"
-        plates={{
-          secondary: { label: 'Back', onClick: () => navigate(`/clubs/${clubId}`) },
-          primary: { label: 'Export CSV', ink: 'white', onClick: exportCsv, disabled: !report },
-        }}
-      >
-        <div className={`arena-switch ${styles.windows}`} role="group" aria-label="Report Window">
+        titleAs={false}
+        showHelp={false}
+        status={`${days} Days`}
+        statusTone={loading ? 'attention' : 'live'}
+        metrics={
+          report
+            ? [
+                { label: 'Offers Shown', value: (t?.offers ?? 0).toLocaleString() },
+                { label: 'Take Rate', value: acceptRate === null ? '-' : `${acceptRate}%` },
+                { label: 'Bank In', value: chips(m?.bank_in ?? 0) },
+                {
+                  label: 'Net',
+                  value: chips(m?.bank_net ?? 0),
+                  tone: (m?.bank_net ?? 0) >= 0 ? 'live' : 'attention',
+                },
+              ]
+            : []
+        }
+      />
+
+      <section className="arena-case arena-ops-case" aria-label="Insurance Report">
+        <h2 className="arena-section-title">
+          Report Window<small>{days} Days</small>
+        </h2>
+        <div className="arena-switch" role="group" aria-label="Report Window">
           {WINDOWS.map((w) => (
-            <button
-              key={w}
-              type="button"
-              className={styles.word}
-              aria-pressed={days === w}
-              onClick={() => setDays(w)}
-            >
+            <button key={w} type="button" aria-pressed={days === w} onClick={() => setDays(w)}>
               {w} Days
             </button>
           ))}
         </div>
+        <div className="arena-switch arena-ops-keys arena-ops-primary">
+          <button type="button" onClick={exportCsv} disabled={!report}>
+            Export CSV
+          </button>
+        </div>
+      </section>
 
-        {loading && !report ? (
-          <p className={`sc-copy sc-copy--center ${styles.state}`} aria-busy="true">
-            Loading Report...
-          </p>
-        ) : error ? (
-          <div className={styles.errorState} role="alert">
-            <p className={`sc-copy sc-copy--center ${styles.state} sc-ink--red`}>{error}</p>
-            <div className="arena-switch arena-ops-keys arena-ops-primary">
-              <button type="button" className={styles.word} onClick={() => void load()}>
+      {loading && !report ? (
+        <section className="arena-case arena-ops-case">
+          <ArenaState tone="loading" title="Loading Report..." />
+        </section>
+      ) : error ? (
+        <section className="arena-case arena-ops-case">
+          <ArenaState
+            tone="error"
+            title="Report Unavailable"
+            message={error}
+            actions={
+              <button type="button" onClick={() => void load()}>
                 Retry
               </button>
-            </div>
-          </div>
-        ) : !report ? (
-          <p className={`sc-copy sc-copy--center ${styles.state}`}>No Report Data</p>
-        ) : (
-          <>
-            <section className={styles.section} aria-label="Decision Funnel">
-              <div className={`arena-meter ${styles.row}`}>
-                <span className={`${styles.rowLabel} sc-ink--blue`}>Offers Shown</span>
-                <span className={`${styles.rowValue} sc-ink--silver`}>
-                  {(t?.offers ?? 0).toLocaleString()}
-                </span>
-              </div>
-              <div className={`arena-meter ${styles.row}`}>
-                <span className={`${styles.rowLabel} sc-ink--blue`}>Insured / Cashed Out</span>
-                <span className={`${styles.rowValue} sc-ink--silver`}>
-                  {t?.accepted ?? 0} / {t?.cashouts ?? 0}
-                </span>
-              </div>
-              <div className={`arena-meter ${styles.row}`}>
-                <span className={`${styles.rowLabel} sc-ink--blue`}>Declined / Timed Out</span>
-                <span className={`${styles.rowValue} sc-ink--silver`}>
-                  {t?.declined ?? 0} / {t?.timeouts ?? 0}
-                </span>
-              </div>
-              <div className={`arena-meter ${styles.row}`}>
-                <span className={`${styles.rowLabel} sc-ink--blue`}>Take Rate</span>
-                <span className={`${styles.rowValue} sc-ink--silver`}>
-                  {acceptRate === null ? '-' : `${acceptRate}%`}
-                </span>
-              </div>
-              <div className={`arena-meter ${styles.row}`}>
-                <span className={`${styles.rowLabel} sc-ink--blue`}>Avg Offer Equity</span>
-                <span className={`${styles.rowValue} sc-ink--silver`}>
-                  {t?.avg_offer_equity == null ? '-' : `${t.avg_offer_equity}%`}
-                </span>
-              </div>
-              <div className={`arena-meter ${styles.row}`}>
-                <span className={`${styles.rowLabel} sc-ink--blue`}>Avg Insurable Pot</span>
-                <span className={`${styles.rowValue} sc-ink--silver`}>
-                  {t?.avg_offer_pot == null ? '-' : chips(t.avg_offer_pot)}
-                </span>
-              </div>
-            </section>
+            }
+          />
+        </section>
+      ) : !report ? (
+        <section className="arena-case arena-ops-case">
+          <ArenaState tone="empty" title="No Report Data" />
+        </section>
+      ) : (
+        <>
+          <section className="arena-case arena-ops-case" aria-label="Decision Funnel">
+            <h2 className="arena-section-title">Decision Funnel</h2>
+            <ArenaReadings
+              label="Decision Funnel Readings"
+              readings={[
+                { id: 'offers', label: 'Offers Shown', value: (t?.offers ?? 0).toLocaleString() },
+                {
+                  id: 'insured',
+                  label: 'Insured / Cashed Out',
+                  value: `${t?.accepted ?? 0} / ${t?.cashouts ?? 0}`,
+                },
+                {
+                  id: 'declined',
+                  label: 'Declined / Timed Out',
+                  value: `${t?.declined ?? 0} / ${t?.timeouts ?? 0}`,
+                },
+                {
+                  id: 'take-rate',
+                  label: 'Take Rate',
+                  value: acceptRate === null ? '-' : `${acceptRate}%`,
+                  tone: 'live',
+                },
+                {
+                  id: 'equity',
+                  label: 'Avg Offer Equity',
+                  value: t?.avg_offer_equity == null ? '-' : `${t.avg_offer_equity}%`,
+                },
+                {
+                  id: 'pot',
+                  label: 'Avg Insurable Pot',
+                  value: t?.avg_offer_pot == null ? '-' : chips(t.avg_offer_pot),
+                },
+              ]}
+            />
+          </section>
 
-            <section className={styles.section} aria-label="Money">
-              <div className={`arena-meter ${styles.row}`}>
-                <span className={`${styles.rowLabel} sc-ink--blue`}>
-                  Settled Contracts ({m?.insurance_contracts ?? 0} Ins / {m?.cashout_contracts ?? 0}{' '}
-                  Cash)
-                </span>
-                <span className={`${styles.rowValue} sc-ink--silver`}>{m?.contracts ?? 0}</span>
-              </div>
-              <div className={`arena-meter ${styles.row}`}>
-                <span className={`${styles.rowLabel} sc-ink--blue`}>
-                  Bank In (Fees + Redirects)
-                </span>
-                <span className={`${styles.rowValue} sc-ink--silver`}>
-                  {chips(m?.bank_in ?? 0)}
-                </span>
-              </div>
-              <div className={`arena-meter ${styles.row}`}>
-                <span className={`${styles.rowLabel} sc-ink--blue`}>Bank Out (Payouts)</span>
-                <span className={`${styles.rowValue} sc-ink--silver`}>
-                  {chips(m?.bank_out ?? 0)}
-                </span>
-              </div>
-              <div className={`arena-meter ${styles.row}`}>
-                <span className={`${styles.rowLabel} sc-ink--blue`}>
-                  Net {report.bank === 'union' ? '(To Union Bank)' : '(Club Bank)'}
-                </span>
-                <span className={`${styles.rowValue} ${netInk(m?.bank_net ?? 0)}`}>
-                  {chips(m?.bank_net ?? 0)}
-                </span>
-              </div>
-            </section>
+          <section className="arena-case arena-ops-case" aria-label="Money">
+            <h2 className="arena-section-title">Money</h2>
+            <ArenaReadings
+              label="Money Readings"
+              readings={[
+                {
+                  id: 'contracts',
+                  label: 'Settled Contracts',
+                  value: m?.contracts ?? 0,
+                  sub: `${m?.insurance_contracts ?? 0} Ins / ${m?.cashout_contracts ?? 0} Cash`,
+                },
+                {
+                  id: 'bank-in',
+                  label: 'Bank In (Fees + Redirects)',
+                  value: chips(m?.bank_in ?? 0),
+                },
+                { id: 'bank-out', label: 'Bank Out (Payouts)', value: chips(m?.bank_out ?? 0) },
+                {
+                  id: 'net',
+                  label: `Net ${report.bank === 'union' ? '(To Union Bank)' : '(Club Bank)'}`,
+                  value: chips(m?.bank_net ?? 0),
+                  tone: netTone(m?.bank_net ?? 0),
+                },
+              ]}
+            />
+          </section>
 
-            <section className={styles.section} aria-labelledby="insurance-per-day">
-              <h2 id="insurance-per-day" className={`arena-section-title ${styles.sectionTitle}`}>
-                Per Day
-                {report.window_start ? ` - ${report.window_start} To ${report.window_end}` : ''}
-              </h2>
-              {report.days.length === 0 ? (
-                <p className={`sc-copy sc-copy--center ${styles.state}`}>
-                  No Insurance Activity In This Window
-                </p>
-              ) : (
-                <ul className={styles.records}>
-                  {report.days.map((d) => (
-                    <li key={d.day} className={`arena-ledger-row ${styles.record}`}>
-                      <div className={styles.recordHead}>
-                        <span className={`${styles.recordName} sc-ink--silver`}>{d.day}</span>
-                        <span className={`${styles.recordNet} ${netInk(d.bank_net)}`}>
-                          {chips(d.bank_net)} Net
-                        </span>
+          <section className="arena-case arena-ops-case" aria-labelledby="insurance-per-day">
+            <h2 id="insurance-per-day" className="arena-section-title">
+              Per Day
+              {report.window_start ? (
+                <small>
+                  {report.window_start} To {report.window_end}
+                </small>
+              ) : null}
+            </h2>
+            {report.days.length === 0 ? (
+              <ArenaState tone="empty" title="No Insurance Activity In This Window" />
+            ) : (
+              <ul className={styles.records}>
+                {report.days.map((d) => (
+                  <li key={d.day} className={`arena-ledger-row ${styles.record}`}>
+                    <div className={styles.recordHead}>
+                      <span className={styles.recordName}>{d.day}</span>
+                      <span className={`${styles.recordNet} ${netClass(d.bank_net)}`}>
+                        {chips(d.bank_net)} Net
+                      </span>
+                    </div>
+                    <dl className={styles.figures}>
+                      <div className={styles.figure}>
+                        <dt className={styles.figureLabel}>Offers</dt>
+                        <dd className={styles.figureValue}>{d.offers}</dd>
                       </div>
-                      <dl className={styles.figures}>
-                        <div className={styles.figure}>
-                          <dt className={`${styles.figureLabel} sc-ink--muted`}>Offers</dt>
-                          <dd className={`${styles.figureValue} sc-ink--silver`}>{d.offers}</dd>
-                        </div>
-                        <div className={styles.figure}>
-                          <dt className={`${styles.figureLabel} sc-ink--muted`}>Ins</dt>
-                          <dd className={`${styles.figureValue} sc-ink--silver`}>{d.accepted}</dd>
-                        </div>
-                        <div className={styles.figure}>
-                          <dt className={`${styles.figureLabel} sc-ink--muted`}>Cash</dt>
-                          <dd className={`${styles.figureValue} sc-ink--silver`}>{d.cashouts}</dd>
-                        </div>
-                        <div className={styles.figure}>
-                          <dt className={`${styles.figureLabel} sc-ink--muted`}>Decl</dt>
-                          <dd className={`${styles.figureValue} sc-ink--silver`}>{d.declined}</dd>
-                        </div>
-                        <div className={styles.figure}>
-                          <dt className={`${styles.figureLabel} sc-ink--muted`}>T/O</dt>
-                          <dd className={`${styles.figureValue} sc-ink--silver`}>{d.timeouts}</dd>
-                        </div>
-                        <div className={styles.figure}>
-                          <dt className={`${styles.figureLabel} sc-ink--muted`}>Contracts</dt>
-                          <dd className={`${styles.figureValue} sc-ink--silver`}>{d.contracts}</dd>
-                        </div>
-                        <div className={styles.figure}>
-                          <dt className={`${styles.figureLabel} sc-ink--muted`}>In</dt>
-                          <dd className={`${styles.figureValue} sc-ink--silver`}>
-                            {chips(d.bank_in)}
-                          </dd>
-                        </div>
-                        <div className={styles.figure}>
-                          <dt className={`${styles.figureLabel} sc-ink--muted`}>Out</dt>
-                          <dd className={`${styles.figureValue} sc-ink--silver`}>
-                            {chips(d.bank_out)}
-                          </dd>
-                        </div>
-                      </dl>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </>
-        )}
-      </SpadeConsole>
+                      <div className={styles.figure}>
+                        <dt className={styles.figureLabel}>Ins</dt>
+                        <dd className={styles.figureValue}>{d.accepted}</dd>
+                      </div>
+                      <div className={styles.figure}>
+                        <dt className={styles.figureLabel}>Cash</dt>
+                        <dd className={styles.figureValue}>{d.cashouts}</dd>
+                      </div>
+                      <div className={styles.figure}>
+                        <dt className={styles.figureLabel}>Decl</dt>
+                        <dd className={styles.figureValue}>{d.declined}</dd>
+                      </div>
+                      <div className={styles.figure}>
+                        <dt className={styles.figureLabel}>T/O</dt>
+                        <dd className={styles.figureValue}>{d.timeouts}</dd>
+                      </div>
+                      <div className={styles.figure}>
+                        <dt className={styles.figureLabel}>Contracts</dt>
+                        <dd className={styles.figureValue}>{d.contracts}</dd>
+                      </div>
+                      <div className={styles.figure}>
+                        <dt className={styles.figureLabel}>In</dt>
+                        <dd className={styles.figureValue}>{chips(d.bank_in)}</dd>
+                      </div>
+                      <div className={styles.figure}>
+                        <dt className={styles.figureLabel}>Out</dt>
+                        <dd className={styles.figureValue}>{chips(d.bank_out)}</dd>
+                      </div>
+                    </dl>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </>
+      )}
     </div>
   );
 }

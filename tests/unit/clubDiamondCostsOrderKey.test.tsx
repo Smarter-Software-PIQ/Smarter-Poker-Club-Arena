@@ -42,24 +42,6 @@ vi.mock('../../src/utils/clubIdResolver', () => ({
   isUUID: () => true,
   resolveClubUUIDStrict: async (id: string) => id,
 }));
-vi.mock('../../src/components/console/SpadeConsole', () => ({
-  SpadeConsole: ({ children, plates, title, id, tabIndex }: any) => (
-    <section id={id} tabIndex={tabIndex} aria-label={title}>
-      {children}
-      {plates?.secondary ? (
-        <button disabled={plates.secondary.disabled} onClick={plates.secondary.onClick}>
-          {plates.secondary.label}
-        </button>
-      ) : null}
-      {plates?.primary ? (
-        <button disabled={plates.primary.disabled} onClick={plates.primary.onClick}>
-          {plates.primary.label}
-        </button>
-      ) : null}
-    </section>
-  ),
-}));
-
 import ClubDiamondCostsPage from '../../src/pages/club/ClubDiamondCostsPage';
 
 const now = Date.now();

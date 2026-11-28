@@ -1,6 +1,6 @@
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 /**
- * CLUB FINANCIALS — what the club earned, and what it paid out
+ * CLUB FINANCIALS - what the club earned, and what it paid out
  * ============================================================================
  * PHASE 6 OF THE CLUB OPERATIONS UPGRADE (2026-09-04).
  *
@@ -33,14 +33,15 @@ import { usePlayerPreference } from '../hooks/usePlayerPreference';
  *   Union Fee         union_fee_kept on the weekly square-up statements
  *   Net Revenue       net rake + tournament fees - the three outflows
  *
- * ── #ClubArenaConsole (2026-09-09) ────────────────────────────────────────
- * The page was eight rounded summary tiles in a two-up grid, a gradient
- * "revenue" card, a gradient "net" card, three filled period buttons and two
- * lists of bordered rows. It is now printed on Dan's approved spade master:
- * one console per section - Financials, Revenue Trend, Summary, Top Tables,
- * Recent Rake - with every figure a row on the black glass, label in the
- * master's lit blue on the left and value in engraved silver on the right,
- * separated by the engraved rule the master cuts between its own rows.
+ * ── #SmarterDesign (2026-11-27) ────────────────────────────────────────────
+ * Dan: "INSIDE THE PLAYER MANAGEMENT PAGE AT THE TOP ... YOU SEE THE 'CLUB
+ * OPERATIONS'. THAT NEEDS TO BE ENHANCED WITH THE #SMARTERDESIGN, AS WELL AS
+ * EVERY SINGLE ONE OF THESE PAGES". The painted spade consoles are gone. The
+ * page wears the arena workspace: the finance mast with the club's name, the
+ * headline figures as chrome meters under it, one thin chrome case per
+ * section, the reporting window as a chrome switch that lights the selected
+ * window, the eight summary figures as chrome readouts and every table and
+ * raked hand as a chrome ledger row.
  *
  * WHAT DID NOT CHANGE, AND MUST NOT: the single `ca_club_financials` call and
  * its window, the strict club resolve, the `isAuthzError` permission gate, the
@@ -55,7 +56,7 @@ import { usePlayerPreference } from '../hooks/usePlayerPreference';
  * remains the exact accounting record and never reuses this display formatter.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { withClubContext } from '../utils/clubScopedPath';
 import { isClubStaff, type ClubRole } from '../types/clubRoles';
@@ -74,7 +75,10 @@ import WalletCashierModal from '../components/wallet/WalletCashierModal';
 import { DEFAULT_CASHIER_WALLET } from '../components/wallet/cashierModes';
 import PlayerWalletModal from '../components/wallet/PlayerWalletModal';
 import StandardContentLayout from '../components/layouts/StandardContentLayout';
-import { SpadeConsole, type ConsoleInk } from '../components/console/SpadeConsole';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import PageBar from '../components/help/PageBar';
+import { useArenaClubName } from '../components/ops/useArenaClubName';
+import { ArenaReadings, ArenaRow, ArenaState, type ArenaReading } from '../components/ops/ArenaOps';
 import './ClubFinancialsPage.css';
 import { isUUID } from '../utils/clubIdResolver';
 import { isAuthzError } from '../utils/clubDashboard';
@@ -83,7 +87,7 @@ import { formatDateShort as formatDate, compactChips } from '../utils/format';
 import { downloadCsv, toCsv } from '../utils/downloadCsv';
 import { reportError } from '../utils/errorReporter';
 import { formatPopupText } from '../utils/popupStyle';
-import { titleCase, enumToTitleCase } from '../utils/titleCase';
+import { enumToTitleCase } from '../utils/titleCase';
 import { parseClubFinancialsPayload, type FinancialsPayload } from '../utils/clubFinancialsPayload';
 
 type Period = 'week' | 'month' | 'all';
@@ -147,6 +151,9 @@ export default function ClubFinancialsPage() {
     notFound: false,
   });
   const [userRole, setUserRole] = useState<ClubRole | null>(null);
+  /* The club's name for the mast, read with the owner check below. */
+  const [clubName, setClubName] = useState<string | null>(null);
+  const mastName = useArenaClubName(clubName);
   const [resolvedClubId, setResolvedClubId] = useState<string | null>(
     isUUID(clubId || '') ? (clubId as string) : null
   );
@@ -199,6 +206,7 @@ export default function ClubFinancialsPage() {
   // ── Reset per-club state when navigating between clubs ──
   useEffect(() => {
     setUserRole(null);
+    setClubName(null);
     setSnapshot(null);
     setVisibleTransactions(new Set());
     setActiveCashier(null);
@@ -229,9 +237,10 @@ export default function ClubFinancialsPage() {
             .eq('club_id', resolved)
             .eq('user_id', user.id)
             .maybeSingle(),
-          supabase.from('clubs').select('owner_id').eq('id', resolved).maybeSingle(),
+          supabase.from('clubs').select('owner_id, name').eq('id', resolved).maybeSingle(),
         ]);
         if (!isCurrentRole()) return;
+        setClubName(club.data?.name ?? null);
         if (club.data?.owner_id === user.id) {
           setUserRole('owner');
         } else if (membership.data?.role) {
@@ -428,103 +437,76 @@ export default function ClubFinancialsPage() {
     if (!ok) toast.error('This Browser Could Not Start The Download');
   }, [data, toast]);
 
+  const FINANCE_SUMMARY =
+    'What The Club Earned And What It Paid Out For The Selected Window, Read From The Club Ledger.';
+
+  /* Every state wears the same chrome: the finance mast with the club's name,
+     then one chrome screen saying what happened (#SmarterDesign, 2026-11-27). */
+  const statePage = (state: ReactNode) => (
+    <StandardContentLayout className="financials-page arena-workspace">
+      <ArenaWorkspaceHeader
+        area="finance"
+        title="Club Financials"
+        context={mastName}
+        summary={FINANCE_SUMMARY}
+      />
+      <section className="arena-case arena-ops-case">{state}</section>
+    </StandardContentLayout>
+  );
+
   if (notFound) {
-    return (
-      <StandardContentLayout className="financials-page">
-        <SpadeConsole
-          className="cf-console"
-          family="spade"
-          eyebrow="Club Arena"
-          title="Club Not Found"
-          pill="Missing"
-          pillInk="muted"
-          foot="foot"
-        >
-          <p className="sc-copy sc-copy--center">That Club Could Not Be Found.</p>
-          <button
-            type="button"
-            className="cf-word sc-ink--blue"
-            onClick={() => navigate('/clubs', { replace: true })}
-          >
+    return statePage(
+      <ArenaState
+        tone="empty"
+        title="Club Not Found"
+        message="That Club Could Not Be Found."
+        actions={
+          <button type="button" onClick={() => navigate('/clubs', { replace: true })}>
             Back To Clubs
           </button>
-        </SpadeConsole>
-      </StandardContentLayout>
+        }
+      />
     );
   }
 
   if (denied) {
-    return (
-      <StandardContentLayout className="financials-page">
-        <SpadeConsole
-          className="cf-console"
-          family="spade"
-          eyebrow="Club Arena"
-          title="Financials Are Restricted"
-          pill="Staff"
-          pillInk="red"
-          foot="foot"
-        >
-          <p className="sc-copy sc-copy--center">
-            Club Financials Are Available To Club Owners, Admins And Super Agents.
-          </p>
-          <button
-            type="button"
-            className="cf-word sc-ink--blue"
-            onClick={() => navigate(`/clubs/${clubId}`)}
-          >
+    return statePage(
+      <ArenaState
+        tone="error"
+        title="Financials Are Restricted"
+        message="Club Financials Are Available To Club Owners, Admins And Super Agents."
+        actions={
+          <button type="button" onClick={() => navigate(`/clubs/${clubId}`)}>
             Back To Club
           </button>
-        </SpadeConsole>
-      </StandardContentLayout>
+        }
+      />
     );
   }
 
   if (loading && !data) {
-    return (
-      <StandardContentLayout className="financials-page">
-        <SpadeConsole
-          className="cf-console"
-          family="spade"
-          aria-busy
-          eyebrow="Club Arena"
-          title="Financials"
-          pill="Loading"
-          pillInk="muted"
-          foot="foot"
-        >
-          <p className="sc-copy sc-copy--center" role="status">
-            Reading The Club Ledger...
-          </p>
-        </SpadeConsole>
-      </StandardContentLayout>
+    return statePage(
+      <ArenaState tone="loading" title="Financials" message="Reading The Club Ledger..." />
     );
   }
 
   if (loadError && !data) {
-    return (
-      <StandardContentLayout className="financials-page">
-        <SpadeConsole
-          className="cf-console"
-          family="spade"
-          eyebrow="Club Arena"
-          title="Financials Unavailable"
-          pill="Retry"
-          pillInk="red"
-          foot="foot"
-        >
-          <p className="sc-copy sc-copy--center sc-ink--red" role="alert">
-            {loadError}
-          </p>
-          <button type="button" className="cf-word sc-ink--blue" onClick={() => void load()}>
+    return statePage(
+      <ArenaState
+        tone="error"
+        title="Financials Unavailable"
+        message={loadError}
+        actions={
+          <button type="button" onClick={() => void load()}>
             Retry Financials
           </button>
-        </SpadeConsole>
-      </StandardContentLayout>
+        }
+      />
     );
   }
 
   const totals = data?.totals;
+  const periodLabel = period === 'week' ? 'Week' : period === 'month' ? 'Month' : 'All Time';
   const rangeNote = data
     ? `${dayLabel(data.range.start)} To ${dayLabel(data.range.end)}${
         period === 'all' && data.range.start > '2020-01-01'
@@ -534,42 +516,83 @@ export default function ClubFinancialsPage() {
     : '';
 
   /* THE SAME EIGHT FIGURES, IN THE SAME ORDER, WITH THE SAME ARITHMETIC.
-     They were a grid of drawn tiles; they are rows on the glass now, and an
-     outflow is a red value rather than a repainted box. */
-  const summaryRows: { label: string; value: string; ink: ConsoleInk; note?: string }[] = totals
+     They are chrome meters now: a kept figure reads blue, an outflow red and
+     the union line gold when the club is not in a union. */
+  const summaryRows: ArenaReading[] = totals
     ? [
-        { label: 'Raked Hands', value: count(totals.raked_hands), ink: 'silver' },
-        { label: 'Hosted Pot Volume', value: chips(totals.pot_volume), ink: 'silver' },
+        { id: 'raked-hands', label: 'Raked Hands', value: count(totals.raked_hands) },
+        { id: 'pot-volume', label: 'Hosted Pot Volume', value: chips(totals.pot_volume) },
         {
+          id: 'net-rake',
           label: 'Net Rake',
           value: chips(totals.net_rake),
-          ink: 'green',
+          tone: 'live',
           /* Gross and drop, because the club keeps one and not the other. */
-          note: `${chips(totals.gross_rake)} Raked, ${chips(totals.bbj_drop)} To The Jackpot`,
+          sub: `${chips(totals.gross_rake)} Raked, ${chips(totals.bbj_drop)} To The Jackpot`,
         },
-        { label: 'Tournament Fees', value: chips(totals.tournament_fees), ink: 'silver' },
-        { label: 'Rakeback', value: `-${chips(totals.rakeback_paid)}`, ink: 'red' },
-        { label: 'Agent Fees', value: `-${chips(totals.agent_commissions)}`, ink: 'red' },
+        { id: 'tournament-fees', label: 'Tournament Fees', value: chips(totals.tournament_fees) },
+        {
+          id: 'rakeback',
+          label: 'Rakeback',
+          value: `-${chips(totals.rakeback_paid)}`,
+          tone: 'danger',
+        },
+        {
+          id: 'agent-fees',
+          label: 'Agent Fees',
+          value: `-${chips(totals.agent_commissions)}`,
+          tone: 'danger',
+        },
         /* The union line is only a line for a club that is in a union. It read
            invoice_type 'union_to_club' - a type the weekly square-up never
            writes - so it contributed a silent zero to Net Revenue for every
            club on the platform. */
         {
+          id: 'union-fee',
           label: data?.union_id ? 'Union Fee' : 'Union Fee (No Union)',
           value: data?.union_id ? `-${chips(totals.union_fee)}` : '-',
-          ink: data?.union_id ? 'red' : 'muted',
+          tone: data?.union_id ? 'danger' : undefined,
         },
         {
+          id: 'net-revenue',
           label: 'Net Revenue',
           value: `${totals.net_revenue >= 0 ? '+' : ''}${chips(totals.net_revenue)}`,
-          ink: totals.net_revenue >= 0 ? 'green' : 'red',
-          note: 'Net Rake Plus Tournament Fees, Less Rakeback, Agent Fees And Union Fees',
+          tone: totals.net_revenue >= 0 ? 'live' : 'danger',
+          sub: 'Net Rake Plus Tournament Fees, Less Rakeback, Agent Fees And Union Fees',
         },
       ]
     : [];
 
   return (
-    <StandardContentLayout className="financials-page">
+    <StandardContentLayout className="financials-page arena-workspace">
+      <ArenaWorkspaceHeader
+        area="finance"
+        title="Club Financials"
+        context={mastName}
+        summary={FINANCE_SUMMARY}
+      />
+      <PageBar
+        title="Club Financials"
+        titleAs={false}
+        showHelp={false}
+        status={loading ? 'Refreshing' : periodLabel}
+        statusTone={loading ? 'attention' : 'live'}
+        metrics={
+          totals
+            ? [
+                {
+                  label: 'Net Revenue',
+                  value: `${totals.net_revenue >= 0 ? '+' : ''}${chips(totals.net_revenue)}`,
+                  tone: totals.net_revenue >= 0 ? 'live' : 'attention',
+                },
+                { label: 'Net Rake', value: chips(totals.net_rake), tone: 'live' },
+                { label: 'Raked Hands', value: count(totals.raked_hands) },
+                { label: 'Tournament Fees', value: chips(totals.tournament_fees) },
+              ]
+            : []
+        }
+      />
+
       {/* Real-Time Wallet Overview */}
       {clubId && user?.id && (
         <DynamicWallet
@@ -604,26 +627,21 @@ export default function ClubFinancialsPage() {
         </>
       )}
 
-      {/* ── The window: three lit words and the export ───────────────── */}
-      <SpadeConsole
-        className="cf-console"
-        family="spade"
+      {/* ── The window: three chrome keys and the export ─────────────── */}
+      <section
+        className="arena-case arena-ops-case"
+        aria-label="Financials"
         aria-busy={loading || undefined}
-        eyebrow="Club Arena"
-        title="Financials"
-        pill={period === 'week' ? 'Week' : period === 'month' ? 'Month' : 'All Time'}
-        pillInk="blue"
-        foot="foot"
       >
-        {/* The master paints no tab, so nothing here draws one: the three
-            windows are lit words cut into the glass. */}
-        <div className="cf-rail" role="tablist" aria-label="Reporting Window">
+        <h2 className="arena-section-title">
+          Financials<small>{periodLabel}</small>
+        </h2>
+        <div className="arena-switch" role="tablist" aria-label="Reporting Window">
           {(['week', 'month', 'all'] as const).map((p) => (
             <button
               key={p}
               type="button"
               role="tab"
-              className={`cf-rail__word ${period === p ? 'sc-ink--silver' : 'sc-ink--muted'}`}
               aria-selected={period === p}
               onClick={() => setPeriod(p)}
             >
@@ -633,67 +651,49 @@ export default function ClubFinancialsPage() {
         </div>
 
         {rangeNote && (
-          <p className="sc-copy sc-copy--center" aria-live="polite">
+          <p className="arena-ops-copy" aria-live="polite">
             {rangeNote}
             {loading ? ' - Refreshing' : ''}
           </p>
         )}
 
-        <button type="button" className="cf-word sc-ink--blue" onClick={exportCsv} disabled={!data}>
-          Export CSV
-        </button>
+        <div className="arena-switch arena-ops-keys">
+          <button type="button" onClick={exportCsv} disabled={!data}>
+            Export CSV
+          </button>
+        </div>
 
         {loadError && data && (
-          <p className="sc-copy sc-copy--center sc-ink--red" role="alert">
+          <p className="arena-ops-copy cf-alert" role="alert">
             {loadError}
           </p>
         )}
-      </SpadeConsole>
+      </section>
 
       {/* Revenue Chart. ca_club_financials caps the daily series at the
           last 92 days of the window while the totals cover all of it, so on a
           club with a longer history the chart is a SHORTER window than the
           figures below it. Say which, rather than letting the picture imply
           the numbers. */}
-      <SpadeConsole
-        className="cf-console"
-        family="spade"
-        eyebrow="Club Arena"
-        title="Revenue Trend"
-        subtitle={
-          data && data.range.series_from > data.range.start
-            ? `Last ${chartDays} Days Of This Window`
-            : undefined
-        }
-        foot="foot"
-      >
+      <section className="arena-case arena-ops-case" aria-label="Revenue Trend">
+        <h2 className="arena-section-title">
+          Revenue Trend
+          {data && data.range.series_from > data.range.start && (
+            <small>{`Last ${chartDays} Days Of This Window`}</small>
+          )}
+        </h2>
         <FinancialChart data={chartData} height={180} showRakeback={true} showCommissions={true} />
-      </SpadeConsole>
+      </section>
 
-      {/* ── Summary: eight figures as rows on the glass ──────────────── */}
+      {/* ── Summary: eight figures as chrome meters ─────────────────── */}
       {totals && (
-        <SpadeConsole
-          className="cf-console"
-          family="spade"
-          eyebrow={rangeNote || 'Club Arena'}
-          title="Summary"
-          pill={totals.net_revenue >= 0 ? 'Up' : 'Down'}
-          pillInk={totals.net_revenue >= 0 ? 'green' : 'red'}
-          foot="foot"
-        >
-          <dl className="cf-facts">
-            {summaryRows.map((row) => (
-              <div key={row.label} className="cf-fact">
-                <dt className="cf-fact__label sc-label sc-ink--blue">{row.label}</dt>
-                <dd className={`cf-fact__value sc-ink--${row.ink}`}>
-                  {row.value}
-                  {row.note && <span className="cf-fact__note sc-ink--muted">{row.note}</span>}
-                </dd>
-              </div>
-            ))}
-          </dl>
+        <section className="arena-case arena-ops-case" aria-label="Summary">
+          <h2 className="arena-section-title">
+            Summary<small>{rangeNote}</small>
+          </h2>
+          <ArenaReadings readings={summaryRows} label="Club Financials Summary" />
           {data?.union_id && totals.union_statements > 0 && (
-            <p className="sc-copy">
+            <p className="arena-ops-copy">
               {count(totals.union_statements)} Weekly Square-Up
               {totals.union_statements === 1 ? '' : 's'} Issued In This Window,{' '}
               {totals.union_squareup >= 0
@@ -702,40 +702,36 @@ export default function ClubFinancialsPage() {
               .
             </p>
           )}
-        </SpadeConsole>
+        </section>
       )}
 
       {/* Where the rake came from */}
       {data && data.by_table.length > 0 && (
-        <SpadeConsole
-          className="cf-console"
-          family="spade"
-          eyebrow="Club Arena"
-          title="Top Tables By Rake"
-          pill={count(data.by_table.length)}
-          pillInk="blue"
-          foot="foot"
-        >
-          <ol className="cf-list">
-            {data.by_table.map((t) => (
-              <li key={t.table_id} className="cf-row">
-                <span className="cf-row__name sc-ink--silver">{enumToTitleCase(t.name)}</span>
-                <span className="cf-row__meta sc-ink--muted">
-                  {enumToTitleCase([t.variant, t.stakes].filter(Boolean).join(' '))} -{' '}
-                  {count(t.raked_hands)} Raked Hands
-                </span>
-                <span className="cf-row__amount sc-ink--green">{chips(t.rake)}</span>
+        <section className="arena-case arena-ops-case" aria-label="Top Tables By Rake">
+          <h2 className="arena-section-title">
+            Top Tables By Rake<small>{count(data.by_table.length)}</small>
+          </h2>
+          <ol className="arena-ops-rows arena-ops-rows--single">
+            {data.by_table.map((t, index) => (
+              <li key={t.table_id}>
+                <ArenaRow
+                  index={index + 1}
+                  title={enumToTitleCase(t.name)}
+                  line={`${enumToTitleCase([t.variant, t.stakes].filter(Boolean).join(' '))} - ${count(t.raked_hands)} Raked Hands`}
+                  signal={chips(t.rake)}
+                  signalTone="live"
+                />
               </li>
             ))}
           </ol>
-        </SpadeConsole>
+        </section>
       )}
 
       {/* Club Financial Dashboard (club staff). Money-changing work stays in
           the maintained Club Bank Cashier and Agent Management surfaces. */}
       {clubId && (isClubStaff(userRole) || userRole === 'super_agent') && (
-        /* ClubFinancialDashboard owns its approved painted consoles. This
-           embed supplies layout room only, so no frame sits on its frames. */
+        /* ClubFinancialDashboard owns its own frames. This embed supplies
+           layout room only, so no case sits on its cases. */
         <section className="cf-embed">
           <ClubFinancialDashboard
             clubId={clubId}
@@ -753,29 +749,21 @@ export default function ClubFinancialsPage() {
       )}
 
       {/* ── Recent raked hands ───────────────────────────────────────── */}
-      <SpadeConsole
-        className="cf-console"
-        family="spade"
-        eyebrow="Club Arena"
-        title="Recent Rake"
-        pill={recent.length === 0 ? 'Empty' : count(recent.length)}
-        pillInk={recent.length === 0 ? 'muted' : 'blue'}
-        foot="foot"
-      >
+      <section className="arena-case arena-ops-case" aria-label="Recent Rake">
+        <h2 className="arena-section-title">
+          Recent Rake<small>{recent.length === 0 ? 'Empty' : count(recent.length)}</small>
+        </h2>
         {recent.length === 0 ? (
-          <div className="cf-empty">
-            <span className="sc-label sc-ink--muted">Nothing Raked</span>
-            <p className="sc-copy sc-copy--center">No Rake In This Period.</p>
-          </div>
+          <ArenaState tone="empty" title="Nothing Raked" message="No Rake In This Period." />
         ) : (
-          <ol className="cf-list">
+          <ol className="arena-ops-rows arena-ops-rows--single">
             {recent.map((tx) => (
               /* THE STAGGER STILL PLAYS. Same `visibleTransactions` set, same
                  60ms step, same eight-pixel lift - it just runs on the global
                  `animationsFadeInUp` keyframe instead of a local copy. */
               <li
                 key={tx.id}
-                className="cf-row"
+                className="cf-stagger"
                 style={
                   visibleTransactions.has(tx.id)
                     ? {
@@ -786,38 +774,33 @@ export default function ClubFinancialsPage() {
                     : { opacity: 0, transform: 'translateY(8px)' }
                 }
               >
-                <span className="cf-row__name sc-ink--silver">
-                  {formatPopupText(
+                <ArenaRow
+                  title={formatPopupText(
                     tx.kind === 'cash_rake'
                       ? `${chips(tx.rake_amount)} Raked From A ${chips(tx.pot_size)} Pot At ${enumToTitleCase(tx.table_name)}`
                       : `${chips(tx.rake_amount)} Tournament Fee`
                   )}
-                </span>
-                <span className="cf-row__meta sc-ink--muted">
-                  {formatDate(tx.created_at)}
-                  {tx.bbj_contribution > 0 ? ` - ${chips(tx.bbj_contribution)} To The Jackpot` : ''}
-                </span>
-                <span className="cf-row__amount sc-ink--green">+{chips(tx.rake_amount)}</span>
+                  line={`${formatDate(tx.created_at)}${
+                    tx.bbj_contribution > 0 ? ` - ${chips(tx.bbj_contribution)} To The Jackpot` : ''
+                  }`}
+                  signal={`+${chips(tx.rake_amount)}`}
+                  signalTone="live"
+                />
               </li>
             ))}
           </ol>
         )}
-      </SpadeConsole>
+      </section>
 
       {/* Chip Ledger - Club Transaction Audit Trail.
           Through the club-scoped RPC: chip_ledger's own RLS returns the
           CALLER's rows, so this panel showed a club owner their personal
           movements under the heading "Club Chip Audit Trail". */}
       {resolvedClubId && (
-        <SpadeConsole
-          className="cf-console"
-          family="spade"
-          eyebrow="Club Arena"
-          title="Club Chip Audit Trail"
-          foot="foot"
-        >
+        <section className="arena-case arena-ops-case" aria-label="Club Chip Audit Trail">
+          <h2 className="arena-section-title">Club Chip Audit Trail</h2>
           <TransactionLedgerView clubId={resolvedClubId} clubScoped limit={25} />
-        </SpadeConsole>
+        </section>
       )}
 
       {/* Phase 7 (roadmap 9.5): the treasury's own statement - balance now,
@@ -830,7 +813,7 @@ export default function ClubFinancialsPage() {
       )}
 
       {data?.data_updated_at && (
-        <p className="cf-footnote sc-ink--muted">
+        <p className="arena-ops-copy cf-footnote">
           Rake Updated {formatDate(data.data_updated_at)} - Figures Are From The Club Ledger
         </p>
       )}

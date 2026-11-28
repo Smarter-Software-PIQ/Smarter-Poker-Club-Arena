@@ -29,7 +29,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import TournamentPaymentStatus from '../tournament/TournamentPaymentStatus';
-import { SpadeConsole } from '../console/SpadeConsole';
+import { SpadeConsole as PaintedConsole } from '../console/SpadeConsole';
+import { ClubPageSection } from '../club/ClubPageSection';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import { useCashoutScope, useCashoutScopeKey } from '../../hooks/useCashoutScope';
 import { supabase } from '../../lib/supabase';
@@ -637,6 +638,12 @@ interface Props {
   clubId?: string | null;
   pageSize?: number;
   title?: string;
+  /** #SmarterDesign (Dan 2026-11-27): print in the arena workspace's thin
+   *  chrome case instead of the painted riveted console. The Transaction
+   *  History page opts in (and so do the Tournament Payments under it); the
+   *  wallet and the Financials page keep the painted console. Frame only:
+   *  every figure, format and hook is the same either way. */
+  arena?: boolean;
 }
 
 interface BoundProps extends Props {
@@ -644,7 +651,16 @@ interface BoundProps extends Props {
   viewKey: string;
 }
 
-function ChipStatementRows({ scope, clubId, pageSize = 50, title, actorId, viewKey }: BoundProps) {
+function ChipStatementRows({
+  scope,
+  clubId,
+  pageSize = 50,
+  title,
+  actorId,
+  viewKey,
+  arena = false,
+}: BoundProps) {
+  const SpadeConsole = (arena ? ClubPageSection : PaintedConsole) as typeof ClubPageSection;
   const [statement, setStatement] = useState<Statement | null>(null);
   const [legs, setLegs] = useState<StatementLeg[]>([]);
   const [loading, setLoading] = useState(true);
@@ -807,6 +823,7 @@ function ChipStatementRows({ scope, clubId, pageSize = 50, title, actorId, viewK
   if (loading) {
     return (
       <SpadeConsole
+        arena={arena || undefined}
         className="chip-statement"
         family="riveted"
         eyebrow="Club Arena"
@@ -824,6 +841,7 @@ function ChipStatementRows({ scope, clubId, pageSize = 50, title, actorId, viewK
   if (denied) {
     return (
       <SpadeConsole
+        arena={arena || undefined}
         className="chip-statement"
         family="riveted"
         eyebrow="Club Arena"
@@ -842,6 +860,7 @@ function ChipStatementRows({ scope, clubId, pageSize = 50, title, actorId, viewK
   if (error || !statement) {
     return (
       <SpadeConsole
+        arena={arena || undefined}
         className="chip-statement"
         family="riveted"
         eyebrow="Club Arena"
@@ -864,6 +883,7 @@ function ChipStatementRows({ scope, clubId, pageSize = 50, title, actorId, viewK
   return (
     <>
       <SpadeConsole
+        arena={arena || undefined}
         className="chip-statement"
         family="riveted"
         eyebrow="Club Arena"
@@ -991,12 +1011,21 @@ function ChipStatementRows({ scope, clubId, pageSize = 50, title, actorId, viewK
           )}
         </footer>
       </SpadeConsole>
-      {scope === 'player' && <TournamentPaymentStatus clubId={clubId ?? null} />}
+      {scope === 'player' && (
+        <TournamentPaymentStatus clubId={clubId ?? null} arena={arena || undefined} />
+      )}
     </>
   );
 }
 
-export default function ChipStatement({ scope, clubId, pageSize = 50, title }: Props) {
+export default function ChipStatement({
+  scope,
+  clubId,
+  pageSize = 50,
+  title,
+  arena = false,
+}: Props) {
+  const SpadeConsole = (arena ? ClubPageSection : PaintedConsole) as typeof ClubPageSection;
   const { user, isHydrating } = useAuthUser();
   const limit = Number.isFinite(pageSize) ? Math.min(200, Math.max(1, Math.trunc(pageSize))) : 50;
   const heading = titleCase(
@@ -1008,6 +1037,7 @@ export default function ChipStatement({ scope, clubId, pageSize = 50, title }: P
   if (!user?.id) {
     return (
       <SpadeConsole
+        arena={arena || undefined}
         className="chip-statement"
         family="riveted"
         eyebrow="Club Arena"
@@ -1028,6 +1058,7 @@ export default function ChipStatement({ scope, clubId, pageSize = 50, title }: P
   if (scope === 'club_treasury' && !clubId) {
     return (
       <SpadeConsole
+        arena={arena || undefined}
         className="chip-statement"
         family="riveted"
         eyebrow="Club Arena"
@@ -1053,6 +1084,7 @@ export default function ChipStatement({ scope, clubId, pageSize = 50, title }: P
       title={title}
       actorId={user.id}
       viewKey={viewIdentity}
+      arena={arena}
     />
   );
 }

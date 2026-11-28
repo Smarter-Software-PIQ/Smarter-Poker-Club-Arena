@@ -1,17 +1,23 @@
 /**
  * TRANSACTION HISTORY PAGE
  *
- * The page is the Rewards Circuit header and the player's chip statement
- * (ChipStatement, the riveted money console). Both paint themselves from the
- * approved masters; this sheet only places them on the page. The list, tabs,
- * summary cards and export button that used to be styled here read the wrong
- * ledger and are gone (launch audit, 2026-10-06).
+ * #SmarterDesign (Dan 2026-11-27; player pages batch P4, 2026-11-28). The page
+ * root carries `arena-workspace`: the chrome mast, the thin chrome cases, the
+ * chrome keys and rows come from src/components/lobby/ArenaWorkspace.css and
+ * src/components/ops/ArenaOps.css. The chip statement and the tournament
+ * payments under it print in the arena case through their opt-in `arena`
+ * prop; the rakeback week is a case of its own. This sheet lays them out in
+ * one column and dresses the statement's insides with the workspace's inks.
+ *
+ * Every rule that reaches inside a shared component is scoped under
+ * `.transaction-history-page.arena-workspace`, so the wallet, the Financials
+ * page and the Tournament Results page keep their own look
+ * (tests/unit/transactionHistoryArenaDressIsScoped.test.ts).
  */
 
 .transaction-history-page {
   min-height: 100vh;
   min-height: 100dvh; /* the visible viewport on a phone; vh above is the toolbar-hidden one */
-  background: linear-gradient(180deg, #0a0a14 0%, #0d1520 50%, #0a0a14 100%);
   width: 100%;
   max-width: 100vw;
   /* clip, not hidden - see src/styles/design-system.css on body. `hidden` on
@@ -20,18 +26,250 @@
      viewport. The bar leaves the bottom of the screen and rides up the page. */
   overflow-x: hidden;
   overflow-x: clip;
-  padding-bottom: max(70px, env(safe-area-inset-bottom));
 }
 
-/* Same column as the header above it, so the two consoles line up. */
+.transaction-history-page.arena-workspace {
+  padding: 7px 6px max(70px, env(safe-area-inset-bottom));
+  background: #050d17;
+  color: #f1f5fc;
+  font-family: 'Roboto Condensed', 'Arial Narrow', Arial, sans-serif;
+}
+
+.transaction-history-page.arena-workspace > * {
+  box-sizing: border-box;
+  width: min(1000px, 100%);
+  margin-inline: auto;
+}
+
+/* One column under the mast: the week, the statement, the payments. */
 .transaction-history-page__statement {
-  width: min(100%, 640px);
+  width: min(100%, 760px);
   margin: 0 auto;
-  padding: 0 8px;
 }
 
-@media (max-width: 440px) {
-  .transaction-history-page__statement {
-    padding: 0;
-  }
+/* ── Rakeback this week: a case with one ledger row per club ─────────── */
+.transaction-history-page.arena-workspace .rakeback-week {
+  margin: 7px 0;
+  padding: 14px;
+  border: 0;
+  border-radius: 0;
+}
+
+.transaction-history-page.arena-workspace .rakeback-week > p {
+  margin: 0;
+  color: #dce5ef;
+  font:
+    13px/1.4 Arial,
+    sans-serif;
+}
+
+.transaction-history-page.arena-workspace .rakeback-week .rakeback-week__note {
+  color: #9fbacc;
+  font-size: 12px;
+  opacity: 1;
+}
+
+.transaction-history-page.arena-workspace .rakeback-week li {
+  gap: 4px 12px;
+  padding: 7px 9px;
+  color: #dce5ef;
+  font:
+    13px/1.35 Arial,
+    sans-serif;
+}
+
+.transaction-history-page.arena-workspace .rakeback-week__club {
+  color: #f1f5fc;
+  font:
+    800 16px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.transaction-history-page.arena-workspace .rakeback-week li strong {
+  color: #74dfff;
+}
+
+/* ── The chip statement's insides on the arena glass ──────────────────── */
+.transaction-history-page.arena-workspace .chip-statement {
+  font-family: Arial, sans-serif;
+}
+
+.transaction-history-page.arena-workspace .chip-statement__header {
+  padding: 0;
+  border-bottom: 0;
+  box-shadow: none;
+}
+
+/* Balance Now is the statement's hero readout: a chrome tile. */
+.transaction-history-page.arena-workspace .chip-statement__balance {
+  align-items: center;
+  padding: 8px 10px;
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  background: var(--arena-tile);
+}
+
+.transaction-history-page.arena-workspace .chip-statement__balance-label {
+  color: #9fbacc;
+  font:
+    700 12px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.transaction-history-page.arena-workspace .chip-statement__balance-value {
+  color: #74dfff;
+  font:
+    800 22px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-shadow: none;
+}
+
+.transaction-history-page.arena-workspace .chip-statement__clubs,
+.transaction-history-page.arena-workspace .chip-statement__legs {
+  display: grid;
+  gap: 4px;
+}
+
+/* Every club balance and every journal leg is a chrome ledger row. */
+.transaction-history-page.arena-workspace :is(.chip-statement__club, .chip-statement__leg) {
+  padding: 7px 9px;
+  border: 4px solid transparent;
+  border-image: var(--arena-row) 13 / 6px stretch;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+  box-shadow: none;
+  color: #dce5ef;
+  font:
+    13px/1.35 Arial,
+    sans-serif;
+}
+
+.transaction-history-page.arena-workspace .chip-statement__leg-category {
+  color: #f1f5fc;
+  font:
+    800 15px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.transaction-history-page.arena-workspace .chip-statement__leg-amount {
+  font:
+    800 16px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.transaction-history-page.arena-workspace .chip-statement__leg-amount--in {
+  color: #35d95a;
+}
+
+.transaction-history-page.arena-workspace .chip-statement__leg-amount--out {
+  color: #ff5b6e;
+}
+
+.transaction-history-page.arena-workspace .chip-statement__leg-meta {
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+}
+
+.transaction-history-page.arena-workspace .chip-statement__leg-meta time {
+  color: #74dfff;
+}
+
+/* The nightly check: a receipt on the field glass, its verdict in its ink. */
+.transaction-history-page.arena-workspace .chip-statement__audit {
+  padding: 8px 10px;
+  border: 1px solid #476079;
+  background: #040d17;
+  color: #dce5ef;
+  font:
+    12px/1.45 Arial,
+    sans-serif;
+}
+
+.transaction-history-page.arena-workspace .chip-statement__audit--good strong {
+  color: #c8ffd2;
+}
+
+.transaction-history-page.arena-workspace .chip-statement__audit--bad strong {
+  color: #ff5b6e;
+}
+
+.transaction-history-page.arena-workspace :is(.chip-statement__empty, .chip-statement__footer) {
+  color: #9fbacc;
+  font:
+    12px/1.45 Arial,
+    sans-serif;
+}
+
+.transaction-history-page.arena-workspace .chip-statement__empty {
+  padding: 18px 8px;
+  color: #dce5ef;
+  font-size: 13px;
+}
+
+.transaction-history-page.arena-workspace .chip-statement__empty[role='alert'] {
+  color: #ff5b6e;
+}
+
+.transaction-history-page.arena-workspace .chip-statement__more-error {
+  padding: 8px;
+  color: #ff5b6e;
+}
+
+.transaction-history-page.arena-workspace .chip-statement__legs:focus-visible {
+  outline: 2px solid #9ae5ff;
+}
+
+/* ── Tournament payments in the same case language ────────────────────── */
+.transaction-history-page.arena-workspace .tournament-payments__note {
+  margin: 0;
+  color: #9fbacc;
+  font:
+    12px/1.4 Arial,
+    sans-serif;
+  text-align: left;
+}
+
+.transaction-history-page.arena-workspace .tournament-payments__message {
+  margin: 0;
+  font:
+    13px/1.4 Arial,
+    sans-serif;
+}
+
+.transaction-history-page.arena-workspace .tournament-payments__row {
+  padding: 7px 9px;
+  border: 4px solid transparent;
+  border-image: var(--arena-row) 13 / 6px stretch;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+  box-shadow: none;
+}
+
+/* Every key here: Title Case, the workspace's press and focus. */
+.transaction-history-page.arena-workspace .arena-switch > :is(button, a) {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.transaction-history-page.arena-workspace .arena-switch > :is(button, a):active {
+  filter: brightness(0.86);
+}
+
+.transaction-history-page.arena-workspace .arena-switch > :is(button, a):focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+
+.transaction-history-page.arena-workspace .arena-switch > :is(button, a):disabled {
+  opacity: 0.5;
+  cursor: default;
 }

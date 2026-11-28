@@ -4898,6 +4898,12 @@ export class GameServer {
       if (error) throw new Error(error.message);
       return data;
     },
+    catchUpIndex: async () => {
+      const { error } = await supabase.rpc('ca_refresh_hand_player_index', {
+        p_max_hands: 60000,
+      });
+      if (error) throw new Error(error.message);
+    },
     raise: (a) => raiseEngineAlert(a),
     resolve: (name, component, note) => resolveEngineAlert(name, component, note),
     paused: () => this.maintenanceBreak.isActive(),
@@ -6171,11 +6177,17 @@ export class GameServer {
    */
   getLiveness(): { running: boolean; liveness: 'ok' | 'standby' | 'dead' } {
     const now = Date.now();
-    const tables: Array<{ dealable: number; paused: boolean; msSinceProgress: number }> = [];
+    const tables: Array<{
+      dealable: number;
+      paused: boolean;
+      liveDecisionClock: boolean;
+      msSinceProgress: number;
+    }> = [];
     for (const engine of this.tableEngines.values()) {
       tables.push({
         dealable: engine.dealableCount(),
         paused: engine.isPausedByDesign(),
+        liveDecisionClock: engine.hasLiveDecisionClock?.() === true,
         msSinceProgress: engine.msSinceProgress(),
       });
     }
@@ -6206,6 +6218,7 @@ export class GameServer {
       livenessQuery?.kind === 'tables' ? new Set(livenessQuery.tableIds) : undefined
     );
     const liveStalledTables = tableLiveness
+      .filter((t) => !t.liveDecisionClock)
       .filter((t) => t.dealable >= 2 && !t.paused && t.msSinceProgress > 120_000)
       .map((t) => ({
         tableId: t.tableId,
@@ -6616,7 +6629,7 @@ export class GameServer {
       // by a restart while a human's could not. This counts tables actually
       // mid-hand, whoever is sitting at them, and is what the gate reads now.
       handsInFlightTotal: tableLiveness.filter(
-        (t) => t.dealable >= 2 && !t.paused && t.msSinceProgress < 120_000
+        (t) => t.dealable >= 2 && !t.paused && (t.liveDecisionClock || t.msSinceProgress < 120_000)
       ).length,
       /**
        * THE RESTART GATE (Dan 2026-09-01).
@@ -6844,7 +6857,9 @@ export class GameServer {
        could deal and did not is a stall, which is the definition the liveness
        verdict and the alerts already use. */
     const stalledSamples = liveness
-      .filter((t) => t.dealable >= 2 && t.msSinceProgress >= STALL_SAMPLE_FLOOR_MS)
+      .filter(
+        (t) => t.dealable >= 2 && !t.liveDecisionClock && t.msSinceProgress >= STALL_SAMPLE_FLOOR_MS
+      )
       .sort((a, b) => b.msSinceProgress - a.msSinceProgress)
       .slice(0, PER_TABLE_LIVENESS_SAMPLE_CAP);
     const undealableSamples = liveness
@@ -6863,7 +6878,7 @@ export class GameServer {
         : {}),
     });
     const stalled = liveness.filter(
-      (t) => t.dealable >= 2 && !t.paused && t.msSinceProgress > 120_000
+      (t) => t.dealable >= 2 && !t.paused && !t.liveDecisionClock && t.msSinceProgress > 120_000
     );
     const pausedCount = liveness.filter((t) => t.paused).length;
     const failingAdmission = this.tournamentTablesFailingAdmission(now);
@@ -7142,7 +7157,7 @@ export class GameServer {
       `poker_fleet_table_stall_max_ms ${fleetStallMaxMs(liveness)}`,
       '# HELP poker_fleet_tables_stalled Dealable tables (two or more seats that can be dealt) that have made no observable progress for at least 30s; a table below its deal minimum is waiting, not stalled',
       '# TYPE poker_fleet_tables_stalled gauge',
-      `poker_fleet_tables_stalled ${liveness.filter((t) => t.dealable >= 2 && t.msSinceProgress >= STALL_SAMPLE_FLOOR_MS).length}`,
+      `poker_fleet_tables_stalled ${liveness.filter((t) => t.dealable >= 2 && !t.liveDecisionClock && t.msSinceProgress >= STALL_SAMPLE_FLOOR_MS).length}`,
       '# HELP poker_fleet_dealable_seats Seats able to be dealt into, summed across every table',
       '# TYPE poker_fleet_dealable_seats gauge',
       `poker_fleet_dealable_seats ${liveness.reduce((sum, t) => sum + t.dealable, 0)}`,
@@ -7316,7 +7331,7 @@ export class GameServer {
       '# HELP poker_human_tables_ms_since_progress_max Worst time-since-progress among tables with a human seated',
       '# TYPE poker_human_tables_ms_since_progress_max gauge',
       `poker_human_tables_ms_since_progress_max ${liveness
-        .filter((t) => t.humans > 0)
+        .filter((t) => t.humans > 0 && !t.liveDecisionClock)
         .reduce((m, t) => Math.max(m, t.msSinceProgress), 0)}`,
       // ── AUTH REFUSALS (2026-09-04) ───────────────────────────────────
       // Every socket Dan opened was refused for 22 hours and nothing paged,
@@ -7676,6 +7691,7 @@ export class GameServer {
           ? { postHandTiming: engine.postHandTimingSnapshot?.() ?? null }
           : {}),
         paused: engine.isPausedByDesign(),
+        liveDecisionClock: engine.hasLiveDecisionClock?.() === true,
         // Registered, and never started once. See hasNeverStarted() on the
         // engine base for why this could not be inferred from the fields
         // above: such a table reports dealable 0, so it is outside every
@@ -11079,7 +11095,11 @@ export class GameServer {
         const dealerless = !engine || !engine.isRunning() || failing.has(tableId);
         if (!dealerless) {
           // A dealer that is running again ends the table's hand-off budget.
-          if (engine && engine.msSinceProgress() < 120_000) handoffs$.delete(tableId);
+          if (
+            engine &&
+            (engine.hasLiveDecisionClock?.() === true || engine.msSinceProgress() < 120_000)
+          )
+            handoffs$.delete(tableId);
           continue;
         }
         seen.add(tableId);

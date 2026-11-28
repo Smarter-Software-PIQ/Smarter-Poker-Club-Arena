@@ -71,8 +71,8 @@ afterEach(() => {
 describe('automatic tournament purchases', () => {
   it('reports both switches and sends table-scoped actions', () => {
     openMenu([tab({ isTournament: true, tournamentAutoRebuy: false, tournamentAutoAddOn: true })]);
-    expect(badge('Auto Rebuy')).toBe('OFF');
-    expect(badge('Auto Add-On')).toBe('ON');
+    expect(badge('Auto Rebuy')).toBe('Off');
+    expect(badge('Auto Add-On')).toBe('On');
     fireEvent.click(row('Auto Rebuy'));
     fireEvent.click(row('Auto Add-On'));
     expect(emit).toHaveBeenCalledWith('TABLE_MENU_ACTION', {
@@ -99,14 +99,14 @@ describe('the Sounds and Vibrations rows', () => {
     act(() => setTableSetting('isSoundEnabled', true));
     act(() => setTableSetting('isHapticEnabled', false));
     openMenu();
-    expect(badge('Sounds')).toBe('ON');
-    expect(badge('Vibrations')).toBe('OFF');
+    expect(badge('Sounds')).toBe('On');
+    expect(badge('Vibrations')).toBe('Off');
   });
 
   it('send the press to the table, stay open, and change in front of the player', () => {
     act(() => setTableSetting('isSoundEnabled', false));
     openMenu();
-    expect(badge('Sounds')).toBe('OFF');
+    expect(badge('Sounds')).toBe('Off');
 
     /* The owning table page answers TOGGLE_SOUNDS by committing to this store. */
     emit.mockImplementation((type: string, payload: { action?: string }) => {
@@ -123,7 +123,7 @@ describe('the Sounds and Vibrations rows', () => {
       action: 'TOGGLE_SOUNDS',
     });
     expect(screen.queryByRole('menu'), 'a switch must not close the menu').not.toBeNull();
-    expect(badge('Sounds')).toBe('ON');
+    expect(badge('Sounds')).toBe('On');
   });
 
   it('take a second press straight away', () => {
@@ -141,11 +141,11 @@ describe('the Sounds and Vibrations rows', () => {
 describe('Stand Up Next Big Blind and Auto Top Up', () => {
   it('say OFF when off and ON when the table page reports them on', () => {
     const view = openMenu([tab()]);
-    expect(badge('Stand Up Next Big Blind')).toBe('OFF');
-    expect(badge('Auto Top Up')).toBe('OFF');
+    expect(badge('Stand Up Next Big Blind')).toBe('Off');
+    expect(badge('Auto Top Up')).toBe('Off');
     view.rerender(bar([tab({ standUpNextBB: true, isAutoRebuyEnabled: true })]));
-    expect(badge('Stand Up Next Big Blind')).toBe('ON');
-    expect(badge('Auto Top Up')).toBe('ON');
+    expect(badge('Stand Up Next Big Blind')).toBe('On');
+    expect(badge('Auto Top Up')).toBe('On');
   });
 
   it('stay open when pressed', () => {
@@ -160,7 +160,7 @@ describe('rows that lived only in a menu no table rendered', () => {
     const view = openMenu([tab()]);
     expect(row('Straddle')).toBeUndefined();
     view.rerender(bar([tab({ straddleAvailable: true, straddleEnabled: false })]));
-    expect(badge('Straddle')).toBe('OFF');
+    expect(badge('Straddle')).toBe('Off');
     fireEvent.click(row('Straddle'));
     expect(emit).toHaveBeenCalledWith('TABLE_MENU_ACTION', {
       tableId: 'table-1',
@@ -168,7 +168,7 @@ describe('rows that lived only in a menu no table rendered', () => {
     });
     expect(screen.queryByRole('menu')).not.toBeNull();
     view.rerender(bar([tab({ straddleAvailable: true, straddleEnabled: true })]));
-    expect(badge('Straddle')).toBe('ON');
+    expect(badge('Straddle')).toBe('On');
   });
 
   it('Club Marketplace asks the table page to open its club shop', () => {
@@ -199,7 +199,7 @@ describe('rows that lived only in a menu no table rendered', () => {
     const view = openMenu([tab()]);
     expect(badge('Leave Table Next Hand')).toBeNull();
     view.rerender(bar([tab({ leaveNextHandQueued: true })]));
-    expect(badge('Leave Table Next Hand')).toBe('ON');
+    expect(badge('Leave Table Next Hand')).toBe('On');
   });
 });
 
@@ -282,7 +282,7 @@ describe('every ON/OFF row is marked as a switch', () => {
   it('in the shared sections', () => {
     const actions = createDefaultMenuSections(
       { onToggleProfitTracking: () => {}, onToggleStraddle: () => {} },
-      { soundsBadge: 'OFF', vibrationsBadge: 'OFF', profitTrackingBadge: 'OFF' }
+      { soundsBadge: 'Off', vibrationsBadge: 'Off', profitTrackingBadge: 'Off' }
     ).flatMap((s) => s.actions);
     const switches = actions.filter((a) => a.keepOpen).map((a) => a.id);
     expect(switches.sort()).toEqual(
@@ -305,8 +305,8 @@ describe('the reports the badges depend on', () => {
   it('the bar reads sound and haptics from the gates, never from a tab', () => {
     expect(BAR).toMatch(/const soundOn = useSoundSwitch\(\);/);
     expect(BAR).toMatch(/const vibrationOn = useVibrationSwitch\(\);/);
-    expect(BAR).toMatch(/soundsBadge: soundOn \? 'ON' : 'OFF'/);
-    expect(BAR).toMatch(/vibrationsBadge: vibrationOn \? 'ON' : 'OFF'/);
+    expect(BAR).toMatch(/soundsBadge: soundOn \? 'On' : 'Off'/);
+    expect(BAR).toMatch(/vibrationsBadge: vibrationOn \? 'On' : 'Off'/);
     expect(BAR).not.toMatch(/\?\.soundEnabled|\?\.vibrationsEnabled/);
   });
 

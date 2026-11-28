@@ -302,7 +302,7 @@ describe('Plinko starts only its earned funding, on the player choice', () => {
     expect(screen.getByRole('button', { name: 'Land Released (0)' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Drop One' }));
     await act(async () => {});
-    expect(screen.getByText(/Drop confirmation pending/)).toBeInTheDocument();
+    expect(screen.getByText(/Drop Confirmation Pending/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Drop One' }));
     await act(async () => {});
     expect(backend.releasePlinko.mock.calls[1]).toEqual(backend.releasePlinko.mock.calls[0]);

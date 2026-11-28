@@ -378,18 +378,6 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
   private readonly ownClientClaims = new Set<string>();
 
   /**
-   * True only after an externally-computed runout payout may have touched the
-   * HandController and before that controller has emitted HAND_COMPLETE.
-   *
-   * The no-seat watchdog normally calls continueRunout as a recovery. That is
-   * safe while a runout is only parked, but it would distribute the pot again
-   * after Run It Twice has already credited its winners. The runout layer owns
-   * this fence; the turn layer reads it because the watchdog is the only
-   * lower-layer continuation that can bypass the runout error boundary.
-   */
-  protected runoutPayoutMutationUnsafe = false;
-
-  /**
    * Dan 2026-08-20: a queued pre-action (auto-check / auto-fold / auto-call)
    * used to fire synchronously at 0ms the instant the turn arrived — the seat
    * never visibly took its turn, and with several players holding pre-actions
@@ -833,6 +821,13 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
 
     if (idleMs <= ServerTableEngineBase.WATCHDOG_STALL_MS) return;
 
+    // A legitimate turn or mid-hand decision window can outlive WATCHDOG_STALL_MS
+    // (45s): e.g. primary + time bank + VIP 45s reconnect protection, a configured
+    // >45s action clock, or an active RIT / Insurance / Pineapple discard window.
+    // Consult the single authoritative, fail-closed live-deadline oracle shared
+    // with GameServer's liveness and ca-stall-watch gauges.
+    if (this.hasLiveDecisionClock()) return;
+
     const state = this.handController.getState();
     const seat = state.currentPlayerSeat;
 
@@ -878,34 +873,6 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         'ServerTableEngine.' + this.tableId + '.watchdog_seat_missing'
       );
       if (this.watchdogTrips >= 3) this.killForRestart('current_seat_not_in_state');
-      return;
-    }
-    // A legitimate turn can outlive WATCHDOG_STALL_MS (45s): e.g. 15s primary +
-    // 2s grace + 30s reconnect protection (49s), VIP 45s protection (62s), or
-    // an active time bank (72s+). Stand down when any of the three server-owned
-    // timers for this seat holds a live future deadline inside a bounded 90s
-    // ceiling (so a corrupted far-future timer can never mask a genuine hang).
-    const now = Date.now();
-    const maxLiveDeadlineMs = now + 90_000;
-    const isLiveDeadline = (deadlineMs: number): boolean =>
-      Number.isFinite(deadlineMs) && deadlineMs > now && deadlineMs <= maxLiveDeadlineMs;
-    const primaryDeadline =
-      typeof this.preciseTimer.getDeadline === 'function'
-        ? this.preciseTimer.getDeadline(this.tableId, p.user_id)
-        : 0;
-    const disconnectDeadline =
-      typeof this.disconnectEngine.armedAutoActionDeadlineMs === 'function'
-        ? this.disconnectEngine.armedAutoActionDeadlineMs(this.tableId, p.user_id)
-        : 0;
-    const timeBankDeadline =
-      typeof this.preciseTimer.getDeadline === 'function'
-        ? this.preciseTimer.getDeadline(this.tableId, `timebank:${p.user_id}`)
-        : 0;
-    if (
-      isLiveDeadline(primaryDeadline) ||
-      isLiveDeadline(disconnectDeadline) ||
-      isLiveDeadline(timeBankDeadline)
-    ) {
       return;
     }
     // PreciseActionTimer keys on user_id (SeatPlayer.user_id in types.ts) — an
@@ -1522,6 +1489,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
           }
           this.turnFSM.transition('time_bank_active');
           this.timeBankActivatedThisTurn = true;
+          this.noteActiveClockProgress();
           // F06 fix: clear only the primary PreciseActionTimer when durable time
           // bank takes over this SAME turn, preserving in-flight horse tank/decision
           // work so THINK_TIMEBANK_SENTINEL tanks commit cleanly inside time_bank.
@@ -1960,6 +1928,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     }
 
     this.timeBankActivatedThisTurn = true;
+    this.noteActiveClockProgress();
     if (activationIsDurable) this.clearTurnTimer();
 
     // Get bank info for the broadcast
@@ -3146,6 +3115,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     this.playerTurnStartTime = Date.now();
     this.playerTurnDuration = Math.max(0, (armed - this.playerTurnStartTime) / 1000);
     this.timeBankSuppressedThisTurn = true;
+    if (armed > this.playerTurnStartTime) this.noteActiveClockProgress();
     return true;
   }
 
@@ -3382,6 +3352,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     );
     if (seconds === null) return;
     this.timeBankActivatedThisTurn = true;
+    this.noteActiveClockProgress();
     this.startTurnTimer(actor.user_id, actor.seat, seconds, 'time_bank');
     const seated = this.seatedPlayers.find(
       (p) => p.user_id === actor.user_id && p.seat_number === actor.seat

@@ -1976,28 +1976,39 @@ export default function ClubMembersPage() {
         aria-label="Club Member Directory"
         aria-busy={loading || isLoadingMore}
       >
+        {/* A list may only own list items (axe aria-required-children, 2026-11-28):
+            every state the directory shows in place of its rows sits in one
+            list item, so the list keeps its role and name in every state. */}
         {loading && members.length === 0 ? (
-          <>
+          <div role="listitem">
             <PageSkeleton variant="list" />
             {loadSlow && <p className="members-slow">The Roster Is Still Connecting.</p>}
-          </>
+          </div>
         ) : notFound ? (
-          <div className="members-error" role="alert">
-            We Could Not Find That Club.
+          <div role="listitem">
+            <div className="members-error" role="alert">
+              We Could Not Find That Club.
+            </div>
           </div>
         ) : accessDenied ? (
-          <div className="members-error" role="alert">
-            This Roster Is Available Only To Approved Club Members.
+          <div role="listitem">
+            <div className="members-error" role="alert">
+              This Roster Is Available Only To Approved Club Members.
+            </div>
           </div>
         ) : loadError && members.length === 0 ? (
-          <div className="members-error" role="alert">
-            Could Not Load The Roster.
-            <button type="button" className="members-export" onClick={retryLiveSync}>
-              Try Again
-            </button>
+          <div role="listitem">
+            <div className="members-error" role="alert">
+              Could Not Load The Roster.
+              <button type="button" className="members-export" onClick={retryLiveSync}>
+                Try Again
+              </button>
+            </div>
           </div>
         ) : members.length === 0 ? (
-          <EmptyRoster filter={filter} searchQuery={searchQuery} />
+          <div role="listitem">
+            <EmptyRoster filter={filter} searchQuery={searchQuery} />
+          </div>
         ) : (
           <div
             ref={virtual.containerRef}

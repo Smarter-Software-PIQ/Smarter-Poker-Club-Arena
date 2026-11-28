@@ -3,9 +3,11 @@
   "files": [
     "src/engine/GtoPublicHist215FeatureDescriptor.json",
     "src/engine/GtoPublicHist215FeatureDescriptorV2.json",
+    "src/engine/HorseHoldemFacingBetPeoplePriorTables.json",
     "src/engine/HorseHoldemPeopleRiverFoldTables.json",
     "src/engine/HorseHoldemPeopleTurnFoldTables.json",
     "src/engine/HorseOmahaFacingBetRangeTables.json",
+    "src/engine/HorseOmahaMultiwayRiverFoldTables.json",
     "src/engine/HorseOmahaOpeningBluffRangeTables.json",
     "src/engine/HorseOmahaPeopleFoldTables.json",
     "src/engine/HorseOmahaRiverOpeningRangeTables.json",

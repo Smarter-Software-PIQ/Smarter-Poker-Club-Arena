@@ -177,6 +177,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "people's measured fold to a heads-up PLO4/PLO5 cash turn or river opening bet (PLO-OWNER lead-7 2026-11-26): his record -> people's population -> equilibrium; read by the default-off opening bluffs, the river blocker bluff and omahaRiverBetFoldIsPeopleMeasured",
     'src/engine/HorseOmahaPeopleFoldTables.json':
       'the people-only fold table behind HorseOmahaPeopleFold.ts (answers by people only; scripts/ops/omaha-people-fold-fit.mjs)',
+    'src/engine/HorseOmahaMultiwayRiverBluff.ts':
+      "the default-off multiway river opening bluff (PLO-OWNER lead-9 lane underbluff 2026-11-27, omahaMultiwayRiverBluffIsPricedOnBlockers): in PLO4/PLO5 cash on the river with two or more opponents, nothing to call and no river wager, a final check becomes the priced bluff only with the price (each opponent's fold: his record -> people's multiway population -> equilibrium) and a positive blocker effect; pure",
+    'src/engine/HorseOmahaMultiwayRiverFoldTables.json':
+      'the people-only multiway river fold table behind HorseOmahaMultiwayRiverBluff.ts (answers by people only, public actions only; scripts/ops/omaha-multiway-river-fold-fit.mjs)',
     'src/engine/HorseOmahaOpeningBluff.ts':
       'the default-off heads-up turn and river opening bluff (PLO-OWNER lead-7 lane plo-bluffs 2026-11-26, omahaTurnBluffIsPricedOnBlockers, omahaTurnBluffIsPricedOnRangeAdvantage, omahaRiverBluffIsPricedOnRangeAdvantage): a final check with nothing to call becomes the priced bet only with the price and a second leg (blockers, or the range advantage with the hand in the weakest share its range value carries); off, the decision is returned as given',
     'src/engine/HorseOmahaRiverOpeningBet.ts':
@@ -233,6 +237,12 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the default-off priced Hold'em opening side (plo-lead7 2026-11-25, holdemOpeningValueBetIsPriced and holdemOpeningBluffIsPriced): NLH cash heads-up, not facing a wager, a check becomes a value bet or a blocker / range-advantage bluff only when it prices above the check against his record-first fold anchored to equilibrium; off never runs",
     'src/engine/HorseHoldemMultiwayOpeningIsPriced.ts':
       "the default-off priced first bet of the turn or river against two or more opponents (plo-lead7 2026-11-26, holdemMultiwayOpeningBluffIsPriced and holdemMultiwayOpeningValueBetIsPriced): NLH cash, nobody has bet the street, a check becomes a value bet or a blocker / range-advantage bluff only when it prices above the check against the field's joint fold (the minimum defence shared across the field, each opponent's record first, anchored to equilibrium); off never runs",
+    'src/engine/HorseHoldemFacingBetPeoplePrior.ts':
+      "the default-off people-measured Hold'em river facing-bet prior (lead-9 2026-11-27, holdemRiverFacingBetPriorIsPeopleMeasured): what a heads-up NLH cash river first bet is, the bettor's own shown river bets shrunk to people's measured river first bets by size, line and pot type (shown cards only), shrunk to equilibrium; a fold becomes a call only when the call clears its sampling error",
+    'src/engine/HorseHoldemBetRead.ts':
+      "the per-player record behind HorseHoldemFacingBetPeoplePrior.ts (lead-9 2026-11-27): what a player's called heads-up NLH cash river first bets were shown to be, by line, size and region (showdown reveals only; memory only; read only while holdemRiverFacingBetPriorIsPeopleMeasured is on)",
+    'src/engine/HorseHoldemFacingBetPeoplePriorTables.json':
+      'the people-only river first-bet table behind HorseHoldemFacingBetPeoplePrior.ts (bets by people only, shown cards only; scripts/ops/holdem-people-facing-bet-prior-fit.mjs)',
     'src/engine/HorseHoldemPeopleRiverFold.ts':
       "the default-off people-measured Hold'em river fold (lead-8 2026-11-27, holdemRiverBluffIsPricedOnPeople): his fold to a heads-up NLH cash river first bet read size by size, his own lifetime river record of that size shrunk to people's measured fold for the Horse's line and that size, shrunk to equilibrium; off never runs",
     'src/engine/HorseHoldemPeopleRiverFoldTables.json':

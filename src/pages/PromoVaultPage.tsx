@@ -48,8 +48,9 @@ import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useToast } from '../components/common/Toast';
-import PageSkeleton from '../components/common/PageSkeleton';
-import { ErrorState } from '../components/common/EmptyState';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import PageBar from '../components/help/PageBar';
+import { ArenaState } from '../components/ops/ArenaOps';
 import RoleBadge from '../components/club/RoleBadge';
 import { resolveClubUUIDStrict } from '../utils/strictClubIdResolver';
 import { runWithRequestDeadline } from '../utils/requestDeadline';
@@ -123,16 +124,23 @@ const ITEM_GLYPH: Record<string, string> = {
   'vip-gold': '▣',
 };
 
-/** Bronze, club blue and gold. No green, no purple. */
+/** Chrome silver, club blue and gold: the smarter.poker inks only (no brown,
+ *  no green, no purple). */
 const TIER_COLOR: Record<string, string> = {
-  bronze: '#C88A4A',
-  sapphire: '#4169E1',
-  gold: '#FFC93C',
+  bronze: '#9fbacc',
+  sapphire: '#45adff',
+  gold: '#ffd700',
 };
 
 function itemColor(item: VaultItem): string {
-  if (item.category === 'vip_card' && item.tier) return TIER_COLOR[item.tier] ?? '#00D4FF';
-  return '#00D4FF';
+  if (item.category === 'vip_card' && item.tier) return TIER_COLOR[item.tier] ?? '#74dfff';
+  return '#74dfff';
+}
+
+/** The club's name as the route spells it; a raw UUID names nothing. */
+function clubContext(clubId?: string): string | undefined {
+  if (!clubId || /^[0-9a-f]{8}-/i.test(clubId)) return undefined;
+  return clubId.replace(/[-_]/g, ' ');
 }
 
 /**
@@ -309,7 +317,7 @@ export default function PromoVaultPage() {
       } catch (error) {
         if (live()) {
           reportError(error, 'PromoVaultPage.loadVault');
-          setLoadError('The live vault catalog could not be loaded. No diamonds were spent.');
+          setLoadError('The Live Vault Catalog Could Not Be Loaded. No Diamonds Were Spent.');
           toast.error('Failed To Load The Promo Vault');
         }
       } finally {
@@ -546,42 +554,55 @@ export default function PromoVaultPage() {
 
   /* ── Render ───────────────────────────────────────────────────────────── */
 
+  const heldCount = items.reduce((sum, item) => sum + (item.quantity > 0 ? item.quantity : 0), 0);
+
   return (
-    <div className="promo-vault-page">
-      <header className="pv-header">
+    <div className="promo-vault-page arena-workspace">
+      {/* #SmarterDesign (Dan 2026-11-27): the way back sits above the chrome
+          mast, the club's diamonds and stock read as chrome meters, the two
+          sections are a chrome switch and every item and record is a chrome
+          ledger row inside a thin chrome case. */}
+      <div className="arena-switch pv-back-row">
         <button
           type="button"
-          className="pv-back"
           onClick={() => navigate(clubId ? `/clubs/${clubId}` : '/clubs')}
           aria-label="Go Back"
         >
-          <span aria-hidden="true">‹</span>
+          <span aria-hidden="true">‹</span> Back
         </button>
+      </div>
 
-        <h1 className="pv-title">Promo Vault</h1>
+      <ArenaWorkspaceHeader
+        area="control"
+        title="Promo Vault"
+        context={clubContext(clubId)}
+        summary="The Club's Stock Of Promo Items: Buy Them With Club Diamonds, Send Them To A Member, And Read Every Purchase And Send In Records."
+      />
+      <PageBar
+        title="Promo Vault"
+        titleAs={false}
+        showHelp={false}
+        metrics={[
+          {
+            label: 'Club Diamonds',
+            tone: 'live',
+            value: (
+              <span title="Club Diamond Balance">
+                {diamonds === null ? (loading ? 'Loading' : 'Unavailable') : count(diamonds)}
+                <span className="sr-only">Diamonds In The Club Wallet</span>
+              </span>
+            ),
+          },
+          { label: 'Items Held', value: loading || loadError ? '-' : count(heldCount) },
+          { label: 'Item Types', value: loading || loadError ? '-' : count(items.length) },
+        ]}
+      />
 
-        <div className="pv-header-right">
-          <span className="pv-balance" title="Club Diamond Balance">
-            <span className="pv-balance__glyph" aria-hidden="true">
-              ◆
-            </span>
-            <span className="pv-balance__value">
-              {diamonds === null ? (loading ? 'Loading' : 'Unavailable') : count(diamonds)}
-            </span>
-            <span className="sr-only">Diamonds In The Club Wallet</span>
-          </span>
-          <button
-            type="button"
-            className="pv-help-button"
-            onClick={() => setHelpOpen(true)}
-            aria-label="How The Promo Vault Works"
-          >
-            ?
-          </button>
-        </div>
-      </header>
-
-      <div className="pv-tabs" role="tablist" aria-label="Promo Vault Sections">
+      <div
+        className="arena-switch arena-ops-keys pv-tabs"
+        role="tablist"
+        aria-label="Promo Vault Sections"
+      >
         <button
           type="button"
           role="tab"
@@ -611,6 +632,15 @@ export default function PromoVaultPage() {
           Records
         </button>
       </div>
+      <div className="arena-switch pv-help-row">
+        <button
+          type="button"
+          onClick={() => setHelpOpen(true)}
+          aria-label="How The Promo Vault Works"
+        >
+          How It Works
+        </button>
+      </div>
 
       <div
         id="pv-items-panel"
@@ -620,15 +650,28 @@ export default function PromoVaultPage() {
       >
         {tab === 'items' &&
           (loading ? (
-            <PageSkeleton variant="list" />
+            <section className="arena-case arena-ops-case">
+              <ArenaState tone="loading" title="Reading The Vault" />
+            </section>
           ) : loadError ? (
-            <ErrorState message={loadError} onRetry={() => void loadVault()} />
+            <section className="arena-case arena-ops-case">
+              <ArenaState
+                tone="error"
+                title="Vault Unavailable"
+                message={loadError}
+                actions={
+                  <button type="button" onClick={() => void loadVault()}>
+                    Try Again
+                  </button>
+                }
+              />
+            </section>
           ) : (
             <div className="pv-body">
-              <p className="pv-hint">Click An Item To Grant</p>
+              <p className="arena-ops-live">Click An Item To Grant</p>
 
               {!canManage && (
-                <p className="pv-readonly">
+                <p className="arena-ops-copy">
                   Only Owners And Admins Can Buy Or Send Items From This Vault.
                 </p>
               )}
@@ -656,16 +699,40 @@ export default function PromoVaultPage() {
         aria-labelledby="pv-records-tab"
         hidden={tab !== 'records'}
       >
-        {tab === 'records' &&
-          (loading ? (
-            <PageSkeleton variant="list" />
-          ) : loadError ? (
-            <ErrorState message={loadError} onRetry={() => void loadVault()} />
-          ) : recordsError ? (
-            <ErrorState message={recordsError} onRetry={() => void loadRecords()} />
-          ) : (
-            <RecordsList records={records} loading={recordsLoading} />
-          ))}
+        {tab === 'records' && (
+          <section className="arena-case arena-ops-case" aria-label="Vault Records">
+            <h2 className="arena-section-title">
+              Records<small>Purchases And Sends</small>
+            </h2>
+            {loading ? (
+              <ArenaState tone="loading" title="Reading The Vault" />
+            ) : loadError ? (
+              <ArenaState
+                tone="error"
+                title="Vault Unavailable"
+                message={loadError}
+                actions={
+                  <button type="button" onClick={() => void loadVault()}>
+                    Try Again
+                  </button>
+                }
+              />
+            ) : recordsError ? (
+              <ArenaState
+                tone="error"
+                title="Records Unavailable"
+                message={recordsError}
+                actions={
+                  <button type="button" onClick={() => void loadRecords()}>
+                    Try Again
+                  </button>
+                }
+              />
+            ) : (
+              <RecordsList records={records} loading={recordsLoading} />
+            )}
+          </section>
+        )}
       </div>
 
       {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
@@ -719,9 +786,12 @@ function ItemSection({
   if (items.length === 0) return null;
 
   return (
-    <section className="pv-section">
-      <h2 className="pv-section__heading">{heading}</h2>
-      <div className="pv-grid">
+    <section className="arena-case arena-ops-case pv-section" aria-label={heading}>
+      <h2 className="arena-section-title">
+        {heading}
+        <small>{count(items.length)} Items</small>
+      </h2>
+      <ul className="arena-ops-rows pv-grid">
         {items.map((item) => (
           <ItemTile
             key={item.item_key}
@@ -731,7 +801,7 @@ function ItemSection({
             onBuy={onBuy}
           />
         ))}
-      </div>
+      </ul>
     </section>
   );
 }
@@ -752,8 +822,8 @@ function ItemTile({
   const tileAction = item.quantity > 0 ? 'Grant' : canManage ? 'Buy' : 'Check Availability For';
 
   return (
-    <div
-      className={`pv-tile${item.quantity > 0 ? ' pv-tile--held' : ''}`}
+    <li
+      className={`pv-tile arena-ledger-row${item.quantity > 0 ? ' pv-tile--held' : ''}`}
       style={{ '--tile-color': color } as React.CSSProperties}
     >
       <button
@@ -765,12 +835,14 @@ function ItemTile({
         <span className="pv-tile__icon" aria-hidden="true">
           {ITEM_GLYPH[item.icon_key ?? ''] ?? '◇'}
         </span>
+        <span className="pv-tile__copy">
+          <span className="pv-tile__label">{item.label}</span>
+          {meta && <span className="pv-tile__meta">{meta}</span>}
+        </span>
         {item.quantity > 0 && <span className="pv-tile__badge">{count(item.quantity)}</span>}
-        <span className="pv-tile__label">{item.label}</span>
-        {meta && <span className="pv-tile__meta">{meta}</span>}
       </button>
 
-      <div className="pv-tile__foot">
+      <span className="pv-tile__foot">
         <span className="pv-tile__cost">
           <span className="pv-tile__cost-glyph" aria-hidden="true">
             ◆
@@ -778,17 +850,14 @@ function ItemTile({
           {count(item.diamond_cost)}
         </span>
         {canManage && (
-          <button
-            type="button"
-            className="pv-tile__plus"
-            onClick={() => onBuy(item)}
-            aria-label={`Buy More ${item.label}`}
-          >
-            +
-          </button>
+          <span className="arena-switch pv-tile__buy">
+            <button type="button" onClick={() => onBuy(item)} aria-label={`Buy More ${item.label}`}>
+              +
+            </button>
+          </span>
         )}
-      </div>
-    </div>
+      </span>
+    </li>
   );
 }
 
@@ -822,7 +891,7 @@ function BuyDialog({
       </h2>
       {itemMeta(item) && <p className="pv-dialog__sub">{itemMeta(item)}</p>}
 
-      <div className="pv-stepper">
+      <div className="arena-switch pv-stepper">
         <button type="button" onClick={() => step(-1)} aria-label="Fewer" disabled={quantity <= 1}>
           −
         </button>
@@ -858,13 +927,13 @@ function BuyDialog({
 
       {!affordable && <p className="pv-dialog__warn">Not Enough Diamonds For This Purchase.</p>}
 
-      <div className="pv-dialog__actions">
-        <button type="button" className="pv-btn pv-btn--ghost" onClick={onCancel}>
+      <div className="arena-switch pv-dialog__actions">
+        <button type="button" className="pv-btn--ghost" onClick={onCancel}>
           Cancel
         </button>
         <button
           type="button"
-          className="pv-btn pv-btn--primary"
+          className="pv-btn--primary active"
           disabled={busy || !affordable}
           onClick={async () => {
             setBusy(true);
@@ -944,8 +1013,8 @@ function GrantDialog({
           {item.label}
         </h2>
         <p className="pv-dialog__body">Only Owners And Admins Can Send Items From This Vault.</p>
-        <div className="pv-dialog__actions">
-          <button type="button" className="pv-btn pv-btn--primary" onClick={onCancel}>
+        <div className="arena-switch pv-dialog__actions">
+          <button type="button" className="pv-btn--primary active" onClick={onCancel}>
             Close
           </button>
         </div>
@@ -967,7 +1036,7 @@ function GrantDialog({
         <>
           <input
             type="text"
-            className="pv-search"
+            className="pv-search arena-ops-well"
             ref={recipientSearchRef}
             placeholder={toTitleCase('search by name, username or player number')}
             aria-label="Search Players"
@@ -982,7 +1051,7 @@ function GrantDialog({
                 <button
                   key={m.user_id}
                   type="button"
-                  className="pv-picker__row"
+                  className="pv-picker__row arena-ledger-row"
                   onClick={() => {
                     recipientFocusPendingRef.current = true;
                     setRecipient(m);
@@ -1002,15 +1071,15 @@ function GrantDialog({
               ))
             )}
           </div>
-          <div className="pv-dialog__actions">
-            <button type="button" className="pv-btn pv-btn--ghost" onClick={onCancel}>
+          <div className="arena-switch pv-dialog__actions">
+            <button type="button" className="pv-btn--ghost" onClick={onCancel}>
               Cancel
             </button>
           </div>
         </>
       ) : (
         <>
-          <div className="pv-chosen">
+          <div className="pv-chosen arena-ledger-row">
             <RoleBadge role={recipient.role} size="sm" />
             <span className="pv-chosen__alias">{recipient.alias}</span>
             {recipient.player_number && (
@@ -1028,7 +1097,7 @@ function GrantDialog({
             </button>
           </div>
 
-          <div className="pv-stepper">
+          <div className="arena-switch pv-stepper">
             <button
               type="button"
               onClick={() => step(-1)}
@@ -1062,13 +1131,13 @@ function GrantDialog({
             </button>
           </div>
 
-          <div className="pv-dialog__actions">
-            <button type="button" className="pv-btn pv-btn--ghost" onClick={onCancel}>
+          <div className="arena-switch pv-dialog__actions">
+            <button type="button" className="pv-btn--ghost" onClick={onCancel}>
               Cancel
             </button>
             <button
               type="button"
-              className="pv-btn pv-btn--primary"
+              className="pv-btn--primary active"
               disabled={busy || item.quantity < 1}
               onClick={async () => {
                 setBusy(true);
@@ -1090,24 +1159,23 @@ function GrantDialog({
    ═══════════════════════════════════════════════════════════════════════════════ */
 
 function RecordsList({ records, loading }: { records: VaultRecord[]; loading: boolean }) {
-  if (loading && records.length === 0) return <PageSkeleton variant="list" />;
+  if (loading && records.length === 0)
+    return <ArenaState tone="loading" title="Reading The Records" />;
 
   if (records.length === 0) {
     return (
-      <div className="pv-empty">
-        <span className="pv-empty__mark" aria-hidden="true">
-          ◇
-        </span>
-        <p className="pv-empty__heading">No Records Yet</p>
-        <p className="pv-empty__body">Purchases And Items You Send Out Will Be Listed Here.</p>
-      </div>
+      <ArenaState
+        tone="empty"
+        title="No Records Yet"
+        message="Purchases And Items You Send Out Will Be Listed Here."
+      />
     );
   }
 
   return (
-    <div className="pv-records">
+    <ul className="arena-ops-rows arena-ops-rows--single pv-records">
       {records.map((r) => (
-        <div key={r.id} className={`pv-record pv-record--${r.action}`}>
+        <li key={r.id} className={`pv-record arena-ledger-row pv-record--${r.action}`}>
           <div className="pv-record__head">
             <span className="pv-record__action">{ACTION_LABEL[r.action]}</span>
             <span className="pv-record__date">{formatWhen(r.created_at)}</span>
@@ -1135,9 +1203,9 @@ function RecordsList({ records, loading }: { records: VaultRecord[]; loading: bo
             )}
           </div>
           {r.note && <p className="pv-record__note">{r.note}</p>}
-        </div>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }
 
@@ -1187,8 +1255,8 @@ function HelpDialog({ onClose }: { onClose: () => void }) {
         The Records Tab Keeps Your Purchase History Along With Every Item Received And Sent Out.
       </p>
 
-      <div className="pv-dialog__actions">
-        <button type="button" className="pv-btn pv-btn--primary" onClick={onClose}>
+      <div className="arena-switch pv-dialog__actions">
+        <button type="button" className="pv-btn--primary active" onClick={onClose}>
           Got It
         </button>
       </div>
@@ -1224,10 +1292,10 @@ function Overlay({
 
   // Escape the isolated page stage so the dialog and backdrop cover navigation.
   return createPortal(
-    <div className="pv-overlay" onClick={onClose} role="presentation">
+    <div className="pv-overlay arena-workspace" onClick={onClose} role="presentation">
       <div
         ref={dialogRef}
-        className="pv-dialog"
+        className="pv-dialog arena-case arena-ops-case"
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}

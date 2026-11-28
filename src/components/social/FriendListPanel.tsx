@@ -252,13 +252,13 @@ function FriendListPanelInner({
       if (!isMounted.current) return;
 
       if (findError || !targetUser) {
-        setError('User not found');
+        setError('User Not Found');
         setAddingFriend(false);
         return;
       }
 
       if (targetUser.id === user.id) {
-        setError("You can't add yourself");
+        setError("You Can't Add Yourself");
         setAddingFriend(false);
         return;
       }
@@ -281,13 +281,13 @@ function FriendListPanelInner({
          a raw database error where "Already friends" was the truth. */
       if (existingErr) {
         reportError(existingErr, 'FriendListPanel.friendship_check');
-        setError('Could not check that friendship. Try again.');
+        setError('Could Not Check That Friendship. Try Again.');
         setAddingFriend(false);
         return;
       }
 
       if (existing) {
-        setError('Already friends');
+        setError('Already Friends');
         setAddingFriend(false);
         return;
       }
@@ -317,7 +317,7 @@ function FriendListPanelInner({
         setError(null);
       }
     } catch (err) {
-      if (isMounted.current) setError('Failed to send request');
+      if (isMounted.current) setError('Failed To Send Request');
     }
     if (isMounted.current) setAddingFriend(false);
   };

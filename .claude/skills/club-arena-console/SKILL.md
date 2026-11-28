@@ -715,6 +715,14 @@ produce. Most review rounds are lost in a state nobody rendered.
 node .claude/skills/club-arena-console/scripts/find-generic-surfaces.mjs
 ```
 
+**It does not measure routed pages (2026-11-28).** A page built from painted
+`SpadeConsole` sections scores 0 here, which reads as finished, while under
+#SmarterDesign those plates are the old style on a page; "0 to go" sent lanes
+to the wrong list. Routed pages, sub pages and workspaces are measured by
+`node scripts/smarterdesign-inventory.mjs` (see the smarter-design skill,
+section 5.5). This scanner stays the measure for popups, modals, sheets and
+dialogs.
+
 Scores every page, modal, sheet, panel and card in `src/` by how far it is from
 the standard - PAINTED corner radii and gradients count against it, references to
 `club-buttons/` or the console kit zero it out, a `:hover` rule is weighted five

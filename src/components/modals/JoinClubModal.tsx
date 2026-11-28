@@ -94,12 +94,12 @@ export default function JoinClubModal({
         if (!isMounted.current || sequence !== previewSequenceRef.current) return;
         setPreview(result.found ? result : null);
         verifiedIdentifierRef.current = result.found ? normalized : null;
-        if (!result.found) setStatusMessage('No club was found for that code.');
+        if (!result.found) setStatusMessage('No Club Was Found For That Code.');
       } catch (error) {
         if (!isMounted.current || sequence !== previewSequenceRef.current) return;
         reportError(error, 'JoinClubModal.Preview');
         setPreview(null);
-        setStatusMessage(error instanceof Error ? error.message : 'Could not look up that code.');
+        setStatusMessage(error instanceof Error ? error.message : 'Could Not Look Up That Code.');
       } finally {
         if (isMounted.current && sequence === previewSequenceRef.current) setIsPreviewing(false);
       }
@@ -149,7 +149,7 @@ export default function JoinClubModal({
 
   const handleJoinResult = (result: ClubJoinResult) => {
     if (!result.success) {
-      setStatusMessage(result.error || 'This club could not be joined.');
+      setStatusMessage(result.error || 'This Club Could Not Be Joined.');
       return;
     }
     const club = result.club;
@@ -157,7 +157,7 @@ export default function JoinClubModal({
     setPreview((current) => (current ? { ...current, membership_status: result.status } : current));
     if (result.status === 'pending') {
       toast.success(titleCase(`Request sent to ${club.name}. You can track or cancel it here.`));
-      setStatusMessage('Application pending owner approval.');
+      setStatusMessage('Application Pending Owner Approval.');
       return;
     }
     toast.success(titleCase(`Welcome to ${club.name}!`));
@@ -216,7 +216,7 @@ export default function JoinClubModal({
     setPreview(null);
     setClubCode(parsed.identifier);
     setReferralCode(parsed.referralCode);
-    setStatusMessage(parsed.referralCode ? 'Invitation detected. Confirm the club below.' : null);
+    setStatusMessage(parsed.referralCode ? 'Invitation Detected. Confirm The Club Below.' : null);
     return true;
   };
 
@@ -225,7 +225,7 @@ export default function JoinClubModal({
       consumeInput(await navigator.clipboard.readText());
     } catch (error) {
       reportError(error, 'JoinClubModal.Clipboard');
-      setStatusMessage('Clipboard access was blocked. Paste directly into the code field.');
+      setStatusMessage('Clipboard Access Was Blocked. Paste Directly Into The Code Field.');
     }
   };
 
@@ -248,7 +248,7 @@ export default function JoinClubModal({
       }
       ClubEntryTrustService.track('join', 'qr_imported', { outcome: 'succeeded' });
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : 'Could not read that QR image.');
+      setStatusMessage(error instanceof Error ? error.message : 'Could Not Read That QR Image.');
     } finally {
       setIsScanning(false);
       if (qrInputRef.current) qrInputRef.current.value = '';
@@ -260,10 +260,10 @@ export default function JoinClubModal({
     try {
       if (await ClubJoinService.cancelRequest(preview.id)) {
         setPreview({ ...preview, membership_status: null });
-        setStatusMessage('Join request cancelled.');
+        setStatusMessage('Join Request Cancelled.');
       }
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : 'Could not cancel the request.');
+      setStatusMessage(error instanceof Error ? error.message : 'Could Not Cancel The Request.');
     }
   };
 

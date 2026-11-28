@@ -29,6 +29,26 @@ const PAGES: Record<string, string> = {
   'Finance Overview And Control Overview': 'src/pages/workspaces/ArenaWorkspacePages.tsx',
   'Club Data': 'src/pages/club/ClubDataSimplePage.tsx',
   Settings: 'src/pages/ClubSettingsPage.tsx',
+  // The tool pages the Overview opens (Dan 2026-11-27: "EVERY SINGLE ONE OF THESE PAGES").
+  Applicants: 'src/pages/ClubApplicantsPage.tsx',
+  'Agent Team': 'src/pages/AgentManagementPage.tsx',
+  'Agent Network': 'src/pages/SuperAgentDashboard.tsx',
+  'Anti-Cheat': 'src/pages/AntiCheatPage.tsx',
+  Disputes: 'src/pages/DisputeManagementPage.tsx',
+  Blacklist: 'src/pages/BlacklistManagerPage.tsx',
+  Financials: 'src/pages/ClubFinancialsPage.tsx',
+  'Diamond Wheel': 'src/pages/club/ClubWheelOperationsPage.tsx',
+  'Diamond Games': 'src/pages/club/ClubDiamondGamesOperationsPage.tsx',
+  'Diamond Costs': 'src/pages/club/ClubDiamondCostsPage.tsx',
+  Settlement: 'src/pages/SettlementPage.tsx',
+  'Insurance Report': 'src/pages/club/ClubInsuranceReportPage.tsx',
+  'Bomb Pot Report': 'src/pages/club/ClubBombPotReportPage.tsx',
+  Announcements: 'src/pages/ClubAnnouncementsPage.tsx',
+  'Player Offers': 'src/pages/PromotionsPage.tsx',
+  'Promo Vault': 'src/pages/PromoVaultPage.tsx',
+  'Table Management': 'src/pages/GameManagementPage.tsx',
+  Lightning: 'src/pages/club/ClubLightningOperationsPage.tsx',
+  'Club Rules': 'src/pages/ClubRulesPage.tsx',
 };
 
 /** The old painted-console style, by the names it is imported or written with. */

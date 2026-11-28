@@ -329,9 +329,15 @@ def read(args):
     rid, attempt = run["id"], run["run_attempt"]
     require(type(rid) is int and rid > 0 and type(attempt) is int and attempt > 0, "invalid run coordinates")
     jobs = api(f"repos/{repo}/actions/runs/{rid}/attempts/{attempt}/jobs?per_page=100")
-    expected = {f"Qualify exact engine ({n}/4)" for n in range(1, 5)} | {"Stage immutable candidate and rollback images"}
+    expected = (
+        {f"Qualify exact engine ({n}/8)" for n in range(1, 9)}
+        | {
+            "Stage immutable candidate and rollback images",
+            "Retire superseded prequalification runs",
+        }
+    )
     rows = jobs["jobs"]
-    require(jobs["total_count"] == len(rows) == 5 and {j["name"] for j in rows} == expected,
+    require(jobs["total_count"] == len(rows) == len(expected) and {j["name"] for j in rows} == expected,
             f"incomplete qualification jobs (run {rid})")
     for job in rows:
         require(job["run_id"] == rid and job["run_attempt"] == attempt and job["head_sha"] == target and job["conclusion"] == "success"

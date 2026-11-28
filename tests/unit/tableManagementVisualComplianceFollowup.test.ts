@@ -41,8 +41,8 @@ describe('Table Management visual compliance follow-up', () => {
   it('title-cases operator-facing database and configuration names at print sites', () => {
     expect(management).toContain('title: titleCase(game.name)');
     expect(management).toContain('subtitle: titleCase(game.hostName)');
-    expect(management).toContain('subtitle={titleCase(scopeName)}');
-    expect(ticker).toContain("subtitle={titleCase(scopeName || 'Live Message Rail')}");
+    expect(management).toContain('context={titleCase(scopeName)}');
+    expect(ticker).toContain("{titleCase(scopeName || 'Live Message Rail')}");
   });
 
   it('keeps production creator proof read-only and covers every purpose-built frame', () => {
@@ -62,6 +62,8 @@ describe('Table Management visual compliance follow-up', () => {
     expect(production).toMatch(
       /await expectRivetedCreator\(page, path, pill\);\s*await expectNoHorizontalOverflow\(page, path\);/
     );
-    expect(production).toContain("expect(await frameFamilies(page)).toEqual(['sc--family-shark'])");
+    expect(production).toMatch(
+      /expect\(await open\(page, refusalPath\)\)\.toBe\('refused'\);\s*expect\(await frameFamilies\(page\)\)\.toEqual\(\[\]\);\s*expect\(await page\.locator\(CASES\)\.count\(\)\)\.toBe\(1\);/
+    );
   });
 });

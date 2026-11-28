@@ -98,7 +98,7 @@
   font-size: 3cqw;
   font-weight: 700;
   letter-spacing: 0.1em;
-  text-transform: uppercase;
+  text-transform: none;
   font-variant-numeric: tabular-nums;
 }
 
@@ -132,7 +132,7 @@
   font-size: 2.9cqw;
   font-weight: 700;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .cpc__row-value {
@@ -175,7 +175,7 @@
     system-ui,
     sans-serif;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  text-transform: none;
   white-space: nowrap;
   cursor: pointer;
   touch-action: manipulation;

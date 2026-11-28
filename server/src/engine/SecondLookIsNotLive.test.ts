@@ -488,8 +488,8 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'pure arithmetic: the same persona shift the live base takes, on the untrimmed base of that receipt',
       ],
       noteDecisionRuleReceipt: [
-        30,
-        'BrainTelemetry: copies the action a receipted rule was given and the one it left into the active isolated decision or second-look capture; never alters the decision (2026-11-26: +3, the river opening value and bluff receipts and the trips-board full house call; +3 the flop raise price receipts; +3 the opening bluff receipts)',
+        32,
+        'BrainTelemetry: copies the action a receipted rule was given and the one it left into the active isolated decision or second-look capture; never alters the decision (2026-11-26: +3, the river opening value and bluff receipts and the trips-board full house call; +3 the flop raise price receipts; +3 the opening bluff receipts; 2026-11-27: +2 the multiway river bluff receipts, three-way and four-way plus)',
       ],
     },
     methods: {
@@ -518,8 +518,8 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
     },
     outside: {
       'const tele = telemetryOn(opts);': [
-        58,
-        'the local name of the gate (two names on each line; includes holdemPersonaPostflopPriced helper, the opening-side priced rule, the multiway opening priced rule and the tournament bluff priced rule)',
+        60,
+        'the local name of the gate (two names on each line; includes holdemPersonaPostflopPriced helper, the opening-side priced rule, the multiway opening priced rule the tournament bluff priced rule and the river facing-bet people prior)',
       ],
       'const tele15 = telemetryOn(opts);': [2, 'the local name of the gate (preflop)'],
       'const teleLive = tele && !inSecondLookCapture();': [
@@ -594,6 +594,10 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
       'peopleFieldPriced && verdict !== null && telemetryOn(opts)': [
         1,
         'omahaMultiwayFieldIsPeopleMeasured: decides whether to re-run the verdict on the stated field constants only to name the changed receipt; the decision is the same either way',
+      ],
+      'riverMultiwayPriced !== null && verdict !== null && telemetryOn(opts)': [
+        1,
+        'omahaMultiwayRiverBetPriorIsPeopleMeasured: decides whether to re-run the verdict on the reads before the multiway river people cell only to name the changed receipt; the decision is the same either way',
       ],
       tele: [
         2,

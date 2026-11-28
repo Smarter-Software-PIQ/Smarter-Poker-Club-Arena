@@ -325,7 +325,7 @@
   box-sizing: border-box;
   width: min(480px, 100%);
   padding: 16px 16px 14px !important;
-  color: #f1f5fc;
+  color: var(--sd-ink);
   font-family: 'Inter', system-ui, sans-serif;
   background:
     radial-gradient(ellipse at 90% -40%, #1e3853, transparent 63%),
@@ -382,7 +382,7 @@
   grid-area: title;
   display: block;
   padding: 4px 52px 0;
-  color: #f4f8ff;
+  color: var(--sd-white);
   font:
     700 clamp(22px, 6cqw, 28px) / 1.1 'Rajdhani',
     'Roboto Condensed',
@@ -394,7 +394,7 @@
   grid-area: sub;
   padding: 0 4px 8px;
   border-bottom: 1px solid rgb(134 218 255 / 18%);
-  color: #bdd0e2;
+  color: var(--sd-silver);
   font-size: 14px;
   font-weight: 600;
   text-align: center;
@@ -411,11 +411,11 @@
   border: 7px solid transparent;
   border-image: var(--pc-readout) 21 / 10px stretch;
   background: radial-gradient(ellipse at 50% 5%, #132e47, transparent 68%), #030b14;
-  color: #f4f8ff;
+  color: var(--sd-white);
   text-align: center;
 }
 .addon-console.addon-console.addon-console .addon-console__timer strong {
-  color: #f4f8ff;
+  color: var(--sd-white);
   font:
     700 32px / 1.05 'Rajdhani',
     'Roboto Condensed',
@@ -423,7 +423,7 @@
   font-variant-numeric: tabular-nums;
 }
 .addon-console.addon-console.addon-console .addon-console__timer span {
-  color: #86daff;
+  color: var(--sd-ice);
   font-size: 13px;
   font-weight: 600;
 }
@@ -444,11 +444,11 @@
   font-size: 15px;
 }
 .addon-console.addon-console.addon-console .addon-console__row > span {
-  color: #bdd0e2;
+  color: var(--sd-silver);
   font-weight: 600;
 }
 .addon-console.addon-console.addon-console .addon-console__row strong {
-  color: #f4f8ff;
+  color: var(--sd-white);
   font:
     700 18px / 1.15 'Rajdhani',
     'Roboto Condensed',
@@ -463,13 +463,13 @@
   grid-area: chips;
 }
 .addon-console.addon-console.addon-console .addon-console__row--chips strong {
-  color: #4dc660;
+  color: var(--sd-green);
 }
 .addon-console.addon-console.addon-console .addon-console__row--balance {
   grid-area: balance;
 }
 .addon-console.addon-console.addon-console .addon-console__row--balance strong {
-  color: #f4f8ff;
+  color: var(--sd-white);
 }
 .addon-console.addon-console.addon-console .is-poor strong {
   color: #ff6b78;
@@ -486,7 +486,7 @@
   border: 4px solid transparent !important;
   border-image: var(--pc-stat) 11 / 5px stretch !important;
   background: linear-gradient(155deg, #12273b, #07111c 70%) !important;
-  color: #f1f5fc !important;
+  color: var(--sd-ink) !important;
   font:
     700 15px / 1.1 'Rajdhani',
     'Roboto Condensed',
@@ -495,13 +495,17 @@
 }
 .addon-console.addon-console.addon-console .purchase-console__presets button[aria-pressed='true'] {
   border-image-source: var(--pc-active) !important;
-  background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
+  background: linear-gradient(
+    var(--sd-cobalt-top),
+    var(--sd-cobalt-mid) 55%,
+    var(--sd-cobalt-deep)
+  ) !important;
   background-clip: padding-box !important;
   color: #fff !important;
 }
 .addon-console.addon-console.addon-console .purchase-console__amount.purchase-console__amount {
   max-width: 100%;
-  color: #f4f8ff !important;
+  color: var(--sd-white) !important;
   font:
     700 32px / 1.05 'Rajdhani',
     'Roboto Condensed',
@@ -517,7 +521,7 @@
   border: 5px solid transparent !important;
   border-image: var(--pc-stat) 11 / 6px stretch !important;
   background: linear-gradient(155deg, #12273b, #07111c 70%) !important;
-  color: #f1f5fc !important;
+  color: var(--sd-ink) !important;
   font:
     700 17px / 1.12 'Rajdhani',
     'Roboto Condensed',
@@ -530,7 +534,11 @@
 .addon-console.addon-console.addon-console .addon-console__plate--primary {
   grid-area: primary;
   border-image-source: var(--pc-active) !important;
-  background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
+  background: linear-gradient(
+    var(--sd-cobalt-top),
+    var(--sd-cobalt-mid) 55%,
+    var(--sd-cobalt-deep)
+  ) !important;
   background-clip: padding-box !important;
   color: #fff !important;
 }
@@ -572,12 +580,12 @@
   position: relative;
   z-index: 1;
   padding: 10px 4px 0;
-  color: #bdd0e2;
+  color: var(--sd-silver);
 }
 .addon-console.addon-console.addon-console .addon-console__messages [role='alert'] {
-  color: #ff8a93;
+  color: var(--sd-red);
 }
 .addon-console.addon-console.addon-console .cashier-error {
-  color: #ff8a93;
+  color: var(--sd-red);
   font-size: 13px;
 }

@@ -1113,7 +1113,7 @@ function CashierTradeWorkspace() {
         reportError(error, 'CashierTradePage.memberships');
         if (live) {
           setMemberships([]);
-          setMembershipsError('Could not load your club cashiers.');
+          setMembershipsError('Could Not Load Your Club Cashiers.');
         }
       } finally {
         if (live) setMembershipsLoading(false);
@@ -1770,7 +1770,7 @@ function CashierTradeWorkspace() {
         setRecords([]);
         setRecordsHasMore(false);
         setRecordsLoadingMore(false);
-        setRecordsError('Could not load your transaction history.');
+        setRecordsError('Could Not Load Your Transaction History.');
       }
       return false;
     } finally {

@@ -490,7 +490,7 @@ export default function UnionDashboardPage() {
             setAuthorizedScope(null);
             setUnion(null);
             setAdminRole(null);
-            setError('You are not a union admin or owner.');
+            setError('You Are Not A Union Admin Or Owner.');
           }
           return;
         }
@@ -1106,7 +1106,7 @@ export default function UnionDashboardPage() {
                   onClick={async () => {
                     const rate = parseFloat(editCommRate) / 100;
                     if (isNaN(rate) || rate < 0.01 || rate > 1) {
-                      setError('Rate must be 1-100%');
+                      setError('Rate Must Be 1-100%');
                       return;
                     }
                     setProcessing(true);
@@ -1909,7 +1909,7 @@ export default function UnionDashboardPage() {
                         try {
                           const amt = parseInt(depositForm.amount || '0', 10);
                           if (isNaN(amt) || amt <= 0) {
-                            setError('Enter a valid amount');
+                            setError('Enter A Valid Amount');
                             setProcessing(false);
                             return;
                           }
@@ -2003,7 +2003,7 @@ export default function UnionDashboardPage() {
                         try {
                           const amt = parseInt(spinReserveForm.amount || '0', 10);
                           if (isNaN(amt) || amt <= 0) {
-                            setError('Enter a valid amount');
+                            setError('Enter A Valid Amount');
                             setProcessing(false);
                             return;
                           }
@@ -2065,7 +2065,7 @@ export default function UnionDashboardPage() {
                         try {
                           const amt = parseInt(bbjFundAmount || '0', 10);
                           if (isNaN(amt) || amt <= 0) {
-                            setError('Enter a valid amount');
+                            setError('Enter A Valid Amount');
                             setProcessing(false);
                             return;
                           }
@@ -2269,12 +2269,12 @@ export default function UnionDashboardPage() {
                           const reason = clawbackForm.reason || 'Union clawback';
 
                           if (!target) {
-                            setError('Select a target');
+                            setError('Select A Target');
                             setProcessing(false);
                             return;
                           }
                           if (isNaN(amt) || amt <= 0) {
-                            setError('Enter a valid amount');
+                            setError('Enter A Valid Amount');
                             setProcessing(false);
                             return;
                           }
@@ -2306,7 +2306,7 @@ export default function UnionDashboardPage() {
                               const msg = (cbRes as any).error || 'Clawback failed';
                               setError(
                                 msg.includes('insufficient')
-                                  ? 'Club has insufficient treasury balance'
+                                  ? 'Club Has Insufficient Treasury Balance'
                                   : msg
                               );
                               setProcessing(false);
@@ -2377,7 +2377,7 @@ export default function UnionDashboardPage() {
                         try {
                           const chipAmount = parseInt(transferForm.amount, 10);
                           if (isNaN(chipAmount) || chipAmount <= 0) {
-                            setError('Enter a valid chip amount');
+                            setError('Enter A Valid Chip Amount');
                             setProcessing(false);
                             return;
                           }
@@ -3098,7 +3098,7 @@ export default function UnionDashboardPage() {
                         if (settingsForm.union_rake_hold) {
                           const v = parseFloat(settingsForm.union_rake_hold) / 100;
                           if (isNaN(v)) {
-                            setError('Invalid rake hold value');
+                            setError('Invalid Rake Hold Value');
                             setProcessing(false);
                             return;
                           }
@@ -3107,7 +3107,7 @@ export default function UnionDashboardPage() {
                         if (settingsForm.default_agent_commission) {
                           const v = parseFloat(settingsForm.default_agent_commission) / 100;
                           if (isNaN(v)) {
-                            setError('Invalid agent commission value');
+                            setError('Invalid Agent Commission Value');
                             setProcessing(false);
                             return;
                           }
@@ -3116,7 +3116,7 @@ export default function UnionDashboardPage() {
                         if (settingsForm.default_club_commission_rate) {
                           const v = parseFloat(settingsForm.default_club_commission_rate) / 100;
                           if (isNaN(v)) {
-                            setError('Invalid club commission value');
+                            setError('Invalid Club Commission Value');
                             setProcessing(false);
                             return;
                           }
