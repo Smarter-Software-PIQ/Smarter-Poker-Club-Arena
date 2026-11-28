@@ -1,0 +1,3 @@
+# tests/the-four-played-cert-hu-clubs-retire-with-their-owners.law.test.ts
+
+Dan, 2026-11-14: remove any and all post-deploy test accounts. The law pins the one-time settlement of the four heads-up rematch certification clubs no door could retire: exactly these four ids, owners and measured treasuries; every proof taken before anything moves; cancellation, seed and BBJ return through the platform's own doors; the whole estate (399,999.70) retired to chip_retirement and read back to the cent; the owner deleted with no actor claim once its club holds nothing; the club retired through the retained-record core.
