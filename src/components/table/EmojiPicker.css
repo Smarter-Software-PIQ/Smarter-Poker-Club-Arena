@@ -90,3 +90,47 @@
     font-size: 24px;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   #SMARTERDESIGN (Dan 2026-11-27): the picker on one thin chrome case over ink
+   navy, section labels as live ice-blue lettering, each emoji on a chrome key
+   (44px on phones). The press spring still plays.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.emoji-picker-overlay .emoji-picker {
+  isolation: isolate;
+  border: 0;
+  border-radius: 0;
+  background:
+    radial-gradient(ellipse at 90% -40%, #1e3853, transparent 63%),
+    linear-gradient(145deg, #091727, #030b14 74%);
+  padding: 14px;
+}
+.emoji-picker-overlay .emoji-picker::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  border-image: url('../lobby/console-art/chrome-case.webp') 41 / 19px stretch;
+}
+.emoji-picker-overlay .emoji-picker__label {
+  color: #86daff;
+  font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+.emoji-picker-overlay .emoji-picker__grid button {
+  position: relative;
+  z-index: 1;
+  border: 3px solid transparent;
+  border-image: url('../lobby/console-art/chrome-stat.webp') 11 / 4px stretch;
+  border-radius: 0;
+  background: linear-gradient(155deg, #12273b, #07111c 70%);
+  box-shadow: none;
+}
+.emoji-picker-overlay .emoji-picker__grid button:focus-visible {
+  outline: 2px solid #9ee3ff;
+  outline-offset: 2px;
+}

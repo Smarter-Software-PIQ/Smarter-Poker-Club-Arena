@@ -192,3 +192,96 @@
     padding: 4px;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   #SMARTERDESIGN (Dan 2026-11-27): the watcher badge as a chrome key, the
+   viewer list on one thin chrome case with ledger rows, the close a 44px
+   chrome key. The badge pulse and panel entrance still play.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.spectator-overlay .so-badge {
+  min-height: 40px;
+  border: 4px solid transparent;
+  border-image: url('../lobby/console-art/chrome-stat.webp') 11 / 5px stretch;
+  border-radius: 0;
+  background: linear-gradient(155deg, #12273b, #07111c 70%);
+  color: #86daff;
+  font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
+  font-weight: 700;
+}
+.spectator-overlay .so-badge__count {
+  color: #f4f8ff;
+  font-variant-numeric: tabular-nums;
+}
+.spectator-overlay .so-following {
+  border: 4px solid transparent;
+  border-image: url('../lobby/console-art/chrome-row.webp') 13 / 6px stretch;
+  border-radius: 0;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+}
+.spectator-overlay .so-following__label {
+  color: #4dc660;
+}
+.spectator-overlay .so-following__unfollow {
+  min-width: 32px;
+  min-height: 32px;
+  color: #bdd0e2;
+}
+.spectator-overlay .so-panel {
+  position: relative;
+  isolation: isolate;
+  width: 240px;
+  padding: 6px;
+  border: 0;
+  border-radius: 0;
+  background:
+    radial-gradient(ellipse at 90% -40%, #1e3853, transparent 63%),
+    linear-gradient(145deg, #091727, #030b14 74%);
+  overflow: visible;
+}
+.spectator-overlay .so-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  border-image: url('../lobby/console-art/chrome-case.webp') 41 / 19px stretch;
+}
+.spectator-overlay .so-panel__header {
+  border-bottom: 1px solid rgb(134 218 255 / 18%);
+}
+.spectator-overlay .so-panel__title {
+  color: #f4f8ff;
+  font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.spectator-overlay .so-panel__close.so-panel__close {
+  position: relative;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 4px solid transparent !important;
+  border-image: url('../lobby/console-art/chrome-stat.webp') 11 / 5px stretch !important;
+  border-radius: 0 !important;
+  background: linear-gradient(180deg, #1d344b, #0a1726 60%, #10243a) !important;
+  color: #e9f1fb !important;
+}
+.spectator-overlay .so-viewer {
+  margin: 3px 4px;
+  border: 3px solid transparent;
+  border-image: url('../lobby/console-art/chrome-row.webp') 13 / 5px stretch;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+}
+.spectator-overlay .so-viewer__name {
+  color: #f1f5fc;
+}
+.spectator-overlay .so-viewer__time,
+.spectator-overlay .so-panel__empty {
+  color: #9fb4c8;
+}
+.spectator-overlay :is(.so-badge, .so-panel__close, .so-following__unfollow):focus-visible {
+  outline: 2px solid #9ee3ff;
+  outline-offset: 2px;
+}

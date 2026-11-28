@@ -270,3 +270,88 @@
     animation: none;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   #SMARTERDESIGN (Dan 2026-11-27): one thin chrome case on ink navy, live
+   Rajdhani title, the badge and each fact as chrome readouts and rows, the X
+   a 44px chrome key. The fade-in and the timer ring still animate.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.maintenance-break .maintenance-break__content {
+  isolation: isolate;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 0;
+  background:
+    radial-gradient(ellipse at 90% -40%, #1e3853, transparent 63%),
+    linear-gradient(145deg, #091727, #030b14 74%);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 60%);
+  color: #f1f5fc;
+}
+.maintenance-break .maintenance-break__content::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  border-image: url('../lobby/console-art/chrome-case.webp') 41 / 19px stretch;
+}
+.maintenance-break .maintenance-break__close.maintenance-break__close {
+  top: 12px;
+  right: 12px;
+  z-index: 4;
+  width: 44px;
+  height: 44px;
+  border: 4px solid transparent !important;
+  border-image: url('../lobby/console-art/chrome-stat.webp') 11 / 5px stretch !important;
+  border-radius: 0 !important;
+  background: linear-gradient(180deg, #1d344b, #0a1726 60%, #10243a) !important;
+  color: #e9f1fb !important;
+  font-size: 16px;
+}
+.maintenance-break .maintenance-break__close:focus-visible {
+  outline: 2px solid #9ee3ff;
+  outline-offset: 2px;
+}
+.maintenance-break .maintenance-break__badge {
+  border: 4px solid transparent;
+  border-image: url('../lobby/console-art/chrome-stat.webp') 11 / 5px stretch;
+  border-radius: 0;
+  background: linear-gradient(155deg, #12273b, #07111c 70%);
+  color: #86daff;
+  font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+.maintenance-break .maintenance-break__title {
+  color: #f4f8ff;
+  font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
+  font-size: 24px;
+}
+.maintenance-break .maintenance-break__time {
+  color: #f4f8ff;
+  font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.maintenance-break .maintenance-break__time-label {
+  color: #86daff;
+}
+.maintenance-break .maintenance-break__facts li {
+  border: 4px solid transparent;
+  border-image: url('../lobby/console-art/chrome-row.webp') 13 / 6px stretch;
+  border-radius: 0;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+}
+.maintenance-break .maintenance-break__fact-title {
+  color: #f4f8ff;
+  font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
+  font-size: 15px;
+}
+.maintenance-break .maintenance-break__fact-body {
+  color: #bdd0e2;
+  font-size: 12.5px;
+}
+.maintenance-break .maintenance-break__reason {
+  color: #9fb4c8;
+  text-transform: none;
+}

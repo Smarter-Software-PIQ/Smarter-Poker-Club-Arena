@@ -672,3 +672,67 @@
 .share-hand__content {
   background: #0d1016;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   #SMARTERDESIGN (Dan 2026-11-27): Share As Video in the arena workspace
+   language - the make-clip button and the post / share pair as chrome keys
+   (the primary lit blue), the status as live type, the preview and caption
+   in chrome readouts. Text, handlers and the clip flow are unchanged.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.share-hand__video .share-hand__video-btn.share-hand__video-btn {
+  min-height: 50px;
+  border: 5px solid transparent !important;
+  border-image: url('../lobby/console-art/chrome-active.webp') 11 / 6px stretch !important;
+  border-radius: 0 !important;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
+  background-clip: padding-box !important;
+  box-shadow: none !important;
+  color: #fff !important;
+  font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
+  font-size: 17px;
+  text-shadow: none;
+}
+.share-hand__video .share-hand__video-btn.share-hand__video-btn--plate {
+  border-image-source: url('../lobby/console-art/chrome-stat.webp') !important;
+  background: linear-gradient(155deg, #12273b, #07111c 70%) !important;
+  color: #f1f5fc !important;
+}
+.share-hand__video .share-hand__video-btn.share-hand__video-btn:disabled {
+  border-image-source: url('../lobby/console-art/chrome-stat.webp') !important;
+  background: #13202c !important;
+  color: #a7b7c8 !important;
+  opacity: 1;
+}
+.share-hand__video .share-hand__video-btn:focus-visible {
+  outline: 2px solid #9ee3ff;
+}
+.share-hand__video .share-hand__video-status {
+  color: #f4f8ff;
+  font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
+  font-size: 17px;
+}
+.share-hand__video .share-hand__video-status--failed {
+  color: #ff8a93;
+}
+.share-hand__video .share-hand__video-status--done {
+  color: #4dc660;
+}
+.share-hand__video .share-hand__video-hint {
+  color: #bdd0e2;
+}
+.share-hand__video .share-hand__video-preview {
+  border: 7px solid transparent;
+  border-image: url('../lobby/console-art/chrome-readout.webp') 21 / 10px stretch;
+  border-radius: 0;
+  box-shadow: none;
+}
+.share-hand__video .share-hand__video-caption {
+  border: 4px solid transparent;
+  border-image: url('../lobby/console-art/chrome-row.webp') 13 / 6px stretch;
+  border-radius: 0;
+  background: #030b14;
+  color: #f1f5fc;
+}
+.share-hand__video .share-hand__video-link {
+  color: #86daff;
+}

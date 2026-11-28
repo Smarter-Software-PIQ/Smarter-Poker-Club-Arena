@@ -44,9 +44,23 @@ names, roles, test ids, handlers and labels are unchanged.
 No behaviour, data, money path, timer or animation changed. The painted families and their
 zone laws are untouched for every surface off the table.
 
-## Still painted on the table
+## The rest of the table (second batch, same day)
 
-The Insurance deck (`InsuranceModal`) draws its own painted layout; it is the next pass.
+- **Insurance and EV Cashout**: chrome case, flow head with the countdown in a chrome tile, tabs
+  and presets as chrome keys, player rows, readouts and outcomes on chrome rows, No / Play It Out
+  and Insure / Cash Out as chrome keys with the primary lit. Gold ink is ice blue or white.
+- **Must Move Lobby**: chrome case, live title, chrome keys (the 34px small button is 44px now),
+  one chrome row per table section with your own table outlined blue, four chrome tiles.
+- **Tournament Lobby host**: ink-navy background; it stays frameless (owner ruling of Oct 4).
+- **Tournament announcements, Maintenance Break, Spectators, Emoji picker, Share As Video, Bomb
+  Pot lettering, Lightning lines**: chrome cases, rows, keys and 44px chrome X keys; gold accents
+  re-coloured ice blue. The Bomb Pot bomb, fuse and explosion art and every animation are
+  untouched (no block sets `animation`).
+- The skin's success green is the house green `#4dc660` (`gameplay-wears-the-house-colours`).
+
+New pins: `tests/components/table-overlays-wear-smarterdesign-a.test.tsx` and `-b.test.tsx`.
+481 test files touching these surfaces ran: 475 pass; the 6 that fail need Postgres or host
+shell state that the sandbox lacks and read none of these files.
 
 ## One trap, fixed before it shipped
 
