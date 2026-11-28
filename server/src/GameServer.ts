@@ -6212,9 +6212,8 @@ export class GameServer {
       livenessQuery?.kind === 'tables' ? new Set(livenessQuery.tableIds) : undefined
     );
     const liveStalledTables = tableLiveness
-      .filter(
-        (t) => t.dealable >= 2 && !t.paused && !t.liveDecisionClock && t.msSinceProgress > 120_000
-      )
+      .filter((t) => !t.liveDecisionClock)
+      .filter((t) => t.dealable >= 2 && !t.paused && t.msSinceProgress > 120_000)
       .map((t) => ({
         tableId: t.tableId,
         dealable: t.dealable,
@@ -6624,8 +6623,7 @@ export class GameServer {
       // by a restart while a human's could not. This counts tables actually
       // mid-hand, whoever is sitting at them, and is what the gate reads now.
       handsInFlightTotal: tableLiveness.filter(
-        (t) =>
-          t.dealable >= 2 && !t.paused && (t.liveDecisionClock || t.msSinceProgress < 120_000)
+        (t) => t.dealable >= 2 && !t.paused && (t.liveDecisionClock || t.msSinceProgress < 120_000)
       ).length,
       /**
        * THE RESTART GATE (Dan 2026-09-01).
