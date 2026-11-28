@@ -330,6 +330,7 @@
   text-overflow: ellipsis;
   font:
     750 clamp(10px, 1.1cqi, 12px)/1.2 'Barlow Condensed',
+    'Roboto Condensed',
     'Arial Narrow',
     Arial,
     sans-serif;
@@ -358,6 +359,7 @@
   color: #d1e1ed;
   font:
     600 clamp(11px, 1.25cqi, 14px)/1.2 'Barlow',
+    'Roboto Condensed',
     'Arial Narrow',
     Arial,
     sans-serif;
@@ -408,7 +410,8 @@
   border-bottom: 1px solid #253e57;
   color: #f1f5fc;
   font:
-    800 20px/1.05 'Arial Narrow',
+    800 20px/1.05 'Roboto Condensed',
+    'Arial Narrow',
     Arial,
     sans-serif;
   letter-spacing: -0.35px;
@@ -451,7 +454,8 @@
   box-shadow: none;
   text-align: center;
   font:
-    700 12px 'Arial Narrow',
+    700 12px 'Roboto Condensed',
+    'Arial Narrow',
     Arial,
     sans-serif;
   white-space: normal;
@@ -665,7 +669,8 @@
 }
 .arena-cashier .dw__row[data-wallet-key='player_wallet'] .dw__row-value {
   font:
-    800 41px/1.1 'Arial Narrow',
+    800 41px/1.1 'Roboto Condensed',
+    'Arial Narrow',
     Arial,
     sans-serif;
   text-shadow: 0 0 13px #2878bc8c;
@@ -1089,7 +1094,8 @@
   box-sizing: border-box;
   cursor: pointer;
   font:
-    700 14px/1.2 'Arial Narrow',
+    700 14px/1.2 'Roboto Condensed',
+    'Arial Narrow',
     Arial,
     sans-serif;
   color: #ecf6ff;

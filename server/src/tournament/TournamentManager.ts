@@ -4558,13 +4558,17 @@ export class TournamentManager extends TournamentManagerEliminations {
         step2Tables = null;
       }
     }
-    // Hand the balanced board we just read to any fenced source that parked
-    // while this sweep held the manager so onEliminationSweepSettled releases
-    // it immediately without a duplicate 5-query Supabase board read (~950 ms).
+    // Hand the balanced board we just read to any fenced gap-balance source
+    // that is already parked OR already in its post-hand completion hold
+    // (`boundaryPlanAwaitingPark`) so the boundary drain releases or moves it
+    // immediately on park without paying a miss_absent penalty and a duplicate
+    // 5-query Supabase board read (~950 ms, incident 1e532243). Still-dealing
+    // sources wait for onManagedHandSettled -> prepareBoundaryBalancePlan so a
+    // mid-hand sweep never caches a board that could age across an entire hand.
     // Epoch-gated identically to prepareBoundaryBalancePlan.
     const seedBalancedBoardForParkedSources = (tables: BalancerTable[] | null): void => {
       if (
-        this.hasParkedGapBalanceSource() &&
+        (this.hasParkedGapBalanceSource() || this.boundaryPlanAwaitingPark.size > 0) &&
         freshBoardEpoch === this.balanceBoardEpoch &&
         this.seatMoveBatchesInFlight === 0 &&
         this.boundaryPlanLifecycleAllowed()

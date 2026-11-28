@@ -31,7 +31,11 @@ import { isAuthzError } from '../../utils/clubDashboard';
 import { reportError } from '../../utils/errorReporter';
 import { downloadCsv, csvEscape } from '../../utils/downloadCsv';
 import styles from './ClubInsuranceReportPage.module.css';
-import { SpadeConsole } from '../../components/console/SpadeConsole';
+/* #SmarterDesign (Dan 2026-11-27): the painted console is the old style for a
+   page section; the report prints in the thin chrome case with chrome keys. */
+import { ClubPageSection as SpadeConsole } from '../../components/club/ClubPageSection';
+import '../../components/console/SpadeConsole.css';
+import '../../components/lobby/ArenaWorkspace.css';
 import { compactChips } from '../../utils/format';
 import { useIsMounted } from '../../hooks/useIsMounted';
 import { useAuthUser } from '../../hooks/useAuthUser';
@@ -487,26 +491,22 @@ export default function ClubInsuranceReportPage() {
 
   if (notFound) {
     return (
-      <div className={styles.page}>
+      <div className={`${styles.page} arena-workspace`}>
         <SpadeConsole
-          className={styles.console}
+          arena
           family="spade"
+          className={styles.console}
           eyebrow="Insurance"
           title="Club Not Found"
           titleId="insurance-report-title"
           pill="Missing"
           pillInk="muted"
-          foot="foot"
         >
           <p className={`sc-copy sc-copy--center ${styles.state}`}>
             No Club Answers To That Address.
           </p>
-          <div className={styles.actions}>
-            <button
-              type="button"
-              className={`${styles.word} sc-ink--white`}
-              onClick={() => navigate('/clubs')}
-            >
+          <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.actions}`}>
+            <button type="button" className={styles.word} onClick={() => navigate('/clubs')}>
               Back To Clubs
             </button>
           </div>
@@ -517,24 +517,24 @@ export default function ClubInsuranceReportPage() {
 
   if (denied) {
     return (
-      <div className={styles.page}>
+      <div className={`${styles.page} arena-workspace`}>
         <SpadeConsole
-          className={styles.console}
+          arena
           family="spade"
+          className={styles.console}
           eyebrow="Insurance"
           title="Insurance Report"
           titleId="insurance-report-title"
           pill="Staff"
           pillInk="red"
-          foot="foot"
         >
           <p className={`sc-copy sc-copy--center ${styles.state}`}>
             This Report Is Only Available To Club Staff.
           </p>
-          <div className={styles.actions}>
+          <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.actions}`}>
             <button
               type="button"
-              className={`${styles.word} sc-ink--white`}
+              className={styles.word}
               onClick={() => navigate(`/clubs/${clubId}`)}
             >
               Back To Club
@@ -558,10 +558,11 @@ export default function ClubInsuranceReportPage() {
   const netInk = (n: number) => (n >= 0 ? 'sc-ink--green' : 'sc-ink--red');
 
   return (
-    <div className={styles.page}>
+    <div className={`${styles.page} arena-workspace`}>
       <SpadeConsole
-        className={styles.console}
+        arena
         family="riveted"
+        className={styles.console}
         eyebrow="Insurance"
         title="Insurance Report"
         titleId="insurance-report-title"
@@ -572,12 +573,12 @@ export default function ClubInsuranceReportPage() {
           primary: { label: 'Export CSV', ink: 'white', onClick: exportCsv, disabled: !report },
         }}
       >
-        <div className={styles.windows} role="group" aria-label="Report Window">
+        <div className={`arena-switch ${styles.windows}`} role="group" aria-label="Report Window">
           {WINDOWS.map((w) => (
             <button
               key={w}
               type="button"
-              className={`${styles.word} ${days === w ? 'sc-ink--white' : 'sc-ink--muted'}`}
+              className={styles.word}
               aria-pressed={days === w}
               onClick={() => setDays(w)}
             >
@@ -593,50 +594,48 @@ export default function ClubInsuranceReportPage() {
         ) : error ? (
           <div className={styles.errorState} role="alert">
             <p className={`sc-copy sc-copy--center ${styles.state} sc-ink--red`}>{error}</p>
-            <button
-              type="button"
-              className={`${styles.word} sc-ink--white`}
-              onClick={() => void load()}
-            >
-              Retry
-            </button>
+            <div className="arena-switch arena-ops-keys arena-ops-primary">
+              <button type="button" className={styles.word} onClick={() => void load()}>
+                Retry
+              </button>
+            </div>
           </div>
         ) : !report ? (
           <p className={`sc-copy sc-copy--center ${styles.state}`}>No Report Data</p>
         ) : (
           <>
             <section className={styles.section} aria-label="Decision Funnel">
-              <div className={styles.row}>
+              <div className={`arena-meter ${styles.row}`}>
                 <span className={`${styles.rowLabel} sc-ink--blue`}>Offers Shown</span>
                 <span className={`${styles.rowValue} sc-ink--silver`}>
                   {(t?.offers ?? 0).toLocaleString()}
                 </span>
               </div>
-              <div className={styles.row}>
+              <div className={`arena-meter ${styles.row}`}>
                 <span className={`${styles.rowLabel} sc-ink--blue`}>Insured / Cashed Out</span>
                 <span className={`${styles.rowValue} sc-ink--silver`}>
                   {t?.accepted ?? 0} / {t?.cashouts ?? 0}
                 </span>
               </div>
-              <div className={styles.row}>
+              <div className={`arena-meter ${styles.row}`}>
                 <span className={`${styles.rowLabel} sc-ink--blue`}>Declined / Timed Out</span>
                 <span className={`${styles.rowValue} sc-ink--silver`}>
                   {t?.declined ?? 0} / {t?.timeouts ?? 0}
                 </span>
               </div>
-              <div className={styles.row}>
+              <div className={`arena-meter ${styles.row}`}>
                 <span className={`${styles.rowLabel} sc-ink--blue`}>Take Rate</span>
                 <span className={`${styles.rowValue} sc-ink--silver`}>
                   {acceptRate === null ? '-' : `${acceptRate}%`}
                 </span>
               </div>
-              <div className={styles.row}>
+              <div className={`arena-meter ${styles.row}`}>
                 <span className={`${styles.rowLabel} sc-ink--blue`}>Avg Offer Equity</span>
                 <span className={`${styles.rowValue} sc-ink--silver`}>
                   {t?.avg_offer_equity == null ? '-' : `${t.avg_offer_equity}%`}
                 </span>
               </div>
-              <div className={styles.row}>
+              <div className={`arena-meter ${styles.row}`}>
                 <span className={`${styles.rowLabel} sc-ink--blue`}>Avg Insurable Pot</span>
                 <span className={`${styles.rowValue} sc-ink--silver`}>
                   {t?.avg_offer_pot == null ? '-' : chips(t.avg_offer_pot)}
@@ -645,14 +644,14 @@ export default function ClubInsuranceReportPage() {
             </section>
 
             <section className={styles.section} aria-label="Money">
-              <div className={styles.row}>
+              <div className={`arena-meter ${styles.row}`}>
                 <span className={`${styles.rowLabel} sc-ink--blue`}>
                   Settled Contracts ({m?.insurance_contracts ?? 0} Ins / {m?.cashout_contracts ?? 0}{' '}
                   Cash)
                 </span>
                 <span className={`${styles.rowValue} sc-ink--silver`}>{m?.contracts ?? 0}</span>
               </div>
-              <div className={styles.row}>
+              <div className={`arena-meter ${styles.row}`}>
                 <span className={`${styles.rowLabel} sc-ink--blue`}>
                   Bank In (Fees + Redirects)
                 </span>
@@ -660,13 +659,13 @@ export default function ClubInsuranceReportPage() {
                   {chips(m?.bank_in ?? 0)}
                 </span>
               </div>
-              <div className={styles.row}>
+              <div className={`arena-meter ${styles.row}`}>
                 <span className={`${styles.rowLabel} sc-ink--blue`}>Bank Out (Payouts)</span>
                 <span className={`${styles.rowValue} sc-ink--silver`}>
                   {chips(m?.bank_out ?? 0)}
                 </span>
               </div>
-              <div className={styles.row}>
+              <div className={`arena-meter ${styles.row}`}>
                 <span className={`${styles.rowLabel} sc-ink--blue`}>
                   Net {report.bank === 'union' ? '(To Union Bank)' : '(Club Bank)'}
                 </span>
@@ -677,10 +676,7 @@ export default function ClubInsuranceReportPage() {
             </section>
 
             <section className={styles.section} aria-labelledby="insurance-per-day">
-              <h2
-                id="insurance-per-day"
-                className={`${styles.sectionTitle} sc-label sc-ink--silver`}
-              >
+              <h2 id="insurance-per-day" className={`arena-section-title ${styles.sectionTitle}`}>
                 Per Day
                 {report.window_start ? ` - ${report.window_start} To ${report.window_end}` : ''}
               </h2>
@@ -691,7 +687,7 @@ export default function ClubInsuranceReportPage() {
               ) : (
                 <ul className={styles.records}>
                   {report.days.map((d) => (
-                    <li key={d.day} className={styles.record}>
+                    <li key={d.day} className={`arena-ledger-row ${styles.record}`}>
                       <div className={styles.recordHead}>
                         <span className={`${styles.recordName} sc-ink--silver`}>{d.day}</span>
                         <span className={`${styles.recordNet} ${netInk(d.bank_net)}`}>

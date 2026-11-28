@@ -1,4 +1,5 @@
 import { test, expect, vi, afterEach } from 'vitest';
+import { getEventDbPriorityOverride } from '../services/supabase/eventDatabaseBulkhead.js';
 const io = vi.hoisted(() => ({ loadTournamentBlinds: vi.fn() }));
 vi.mock('../services/supabase.js', async (importOriginal) => ({
   ...(await importOriginal<any>()),
@@ -183,4 +184,14 @@ test('current owner preserves the existing transient retry and successful update
   expect(io.loadTournamentBlinds).toHaveBeenCalledTimes(2);
   expect(e.meta()).toMatchObject(fresh);
   expect(e.events()).toHaveBeenCalledTimes(1);
+});
+test('refreshBlinds elevates loadTournamentBlinds under high EventDb priority (1e532243)', async () => {
+  const e = create();
+  let observedPriority: string | undefined;
+  io.loadTournamentBlinds.mockImplementation(async () => {
+    observedPriority = getEventDbPriorityOverride();
+    return fresh;
+  });
+  await e.refresh();
+  expect(observedPriority).toBe('high');
 });

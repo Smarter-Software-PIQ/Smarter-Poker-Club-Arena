@@ -203,8 +203,16 @@ describe('the Stage job', () => {
     expect(job.if).not.toContain('always()');
   });
 
+  // 2026-11-27 (the estate App starts the next cycle): the send moved to its
+  // own job, start-backup-as-estate-app, because the App key lives in another
+  // main-only environment than the Messenger note's. The pins below follow the
+  // send to that job unchanged; the recording job can no longer send at all.
+  const sender = stage.jobs['start-backup-as-estate-app'];
   it('dispatches one workflow and sends one note, nothing else; the key lives only in the note step', () => {
-    expect(job.permissions).toEqual({ actions: 'write', contents: 'read' });
+    expect(job.permissions).toEqual({ actions: 'read', contents: 'read' });
+    expect(sender.permissions).toEqual({ actions: 'write' });
+    expect(sender.needs).toEqual(['detect', 'next-candidate-after-cycle']);
+    expect(sender['continue-on-error']).toBeUndefined();
     expect(job.environment).toBe('ci-main');
     expect(job['continue-on-error']).toBeUndefined();
     type Step = {
@@ -232,13 +240,25 @@ describe('the Stage job', () => {
     expect(JSON.stringify(next)).not.toMatch(/secrets\./);
     expect(next?.run).toContain('echo "did_not_seal=true" >> "$GITHUB_OUTPUT"');
     const run = steps.map((s) => s.run ?? '').join('\n');
-    const writes = [...run.matchAll(/gh api --method (\w+) "([^"]+)"/g)].map(
-      (m) => `${m[1]} ${m[2]}`
-    );
-    expect(writes).toEqual(['POST repos/$REPO/actions/workflows/backup-engine.yml/dispatches']);
+    const writesOf = (text: string) =>
+      [...text.matchAll(/gh api --method (\w+) "([^"]+)"/g)].map((m) => `${m[1]} ${m[2]}`);
+    // The recording job writes nothing to GitHub; the sending job writes the
+    // one dispatch, once in its source (one send function, one body).
+    expect(writesOf(run)).toEqual([]);
+    const sending = (sender.steps as Step[]).map((s) => s.run ?? '').join('\n');
+    expect(writesOf(sending)).toEqual([
+      'POST repos/$REPO/actions/workflows/backup-engine.yml/dispatches',
+    ]);
     // O27b: the body is the one the recorded intent printed, never typed here.
     expect(run).not.toContain('inputs[refresh]');
+    expect(sending).not.toContain('inputs[refresh]');
     expect(run).toContain(
+      'echo "dispatch_body=$(cat "$RUNNER_TEMP/keep-serving-dispatch.json")" >> "$GITHUB_OUTPUT"'
+    );
+    expect(sending).toContain(
+      'printf \'%s\' "$DISPATCH_BODY" > "$RUNNER_TEMP/keep-serving-dispatch.json"'
+    );
+    expect(sending).toContain(
       'gh api --method POST "repos/$REPO/actions/workflows/backup-engine.yml/dispatches" --input "$RUNNER_TEMP/keep-serving-dispatch.json"'
     );
     // One wait, bounded by the plan and the job timeout.
@@ -248,7 +268,7 @@ describe('the Stage job', () => {
   });
 
   it('names the run it started or fails out loud', () => {
-    const run = job.steps.map((s: { run?: string }) => s.run ?? '').join('\n');
+    const run = sender.steps.map((s: { run?: string }) => s.run ?? '').join('\n');
     expect(run).toContain('title="Backup after keep-serving $RELEASE_DATE $INTENT_NONCE"');
     expect(run).toContain('no \\"$title\\" run appeared');
   });
@@ -267,13 +287,30 @@ describe('the Stage job', () => {
     const decided = at((s) => s.id === 'next');
     const wrote = at((s) => s.id === 'intent');
     const published = at((s) => String(s.uses ?? '').startsWith('actions/upload-artifact@'));
-    const sent = at((s) => String(s.run ?? '').includes('/dispatches'));
     expect(decided).toBeGreaterThan(0);
     expect(wrote).toBeGreaterThan(decided);
     expect(published).toBe(wrote + 1);
-    expect(sent).toBe(published + 1);
-    for (const index of [wrote, published, sent])
+    // Nothing in the recording job sends; the send is the job that needs it,
+    // so it can only start after the intent is recorded and published.
+    expect(at((s) => String(s.run ?? '').includes('/dispatches'))).toBe(-1);
+    for (const index of [wrote, published])
       expect(steps[index].if).toBe("steps.next.outputs.did_not_seal == 'true'");
+    expect(job.outputs).toEqual({
+      did_not_seal: '${{ steps.next.outputs.did_not_seal }}',
+      reason: '${{ steps.next.outputs.reason }}',
+      nonce: '${{ steps.intent.outputs.nonce }}',
+      dispatch_body: '${{ steps.intent.outputs.dispatch_body }}',
+    });
+    const sendSteps = sender.steps as Step[];
+    const sent = sendSteps.findIndex((s) => String(s.run ?? '').includes('/dispatches'));
+    expect(sent).toBeGreaterThan(-1);
+    expect(sender.needs).toContain(JOB);
+    // Gated on the recording job's result and on its published intent (the
+    // sending job's first step), never on a job output GitHub can drop.
+    expect(sender.if).toContain(`needs.${JOB}.result == 'success'`);
+    expect(sendSteps[sent].if).toBe("steps.decide.outputs.send == 'true'");
+    expect(sender.if).toContain('github.run_attempt == 1');
+    expect(sender.if).not.toContain('always()');
     expect(steps[wrote].run).toContain(
       'node scripts/ci/dispatch-intent.mjs write --operation backup-after-keep-serving --dir "$RUNNER_TEMP/dispatch-intents"'
     );
@@ -283,11 +320,15 @@ describe('the Stage job', () => {
       path: '${{ runner.temp }}/dispatch-intents',
       'if-no-files-found': 'error',
     });
-    // The sender checks the body it is about to send against what it decided.
-    expect(steps[sent].run).toContain(
+    // The sender checks the body it is about to send against what was
+    // decided and against this exact run attempt, and admits no other field.
+    expect(sendSteps[sent].run).toContain(
       '.ref == "main" and .inputs.after_cycle == $cycle and .inputs.refresh == "true" and .inputs.intent_nonce == $nonce'
     );
-    expect(steps[sent].run).toContain('[[ "$INTENT_NONCE" =~ ^[0-9a-f]{32}$ ]]');
+    expect(sendSteps[sent].run).toContain(
+      'and .inputs.intent_run_id == $run and .inputs.intent_run_attempt == $attempt and ((.inputs | keys | length) == 5) and ((keys | length) == 2)'
+    );
+    expect(sendSteps[sent].run).toContain('[[ "$INTENT_NONCE" =~ ^[0-9a-f]{32}$ ]]');
     // The sparse checkout carries the script it runs.
     expect(JSON.stringify(steps[0])).toContain('scripts/ci/dispatch-intent.mjs');
     // The wait/decide step sends nothing any more.
@@ -295,7 +336,7 @@ describe('the Stage job', () => {
   });
 
   it('fails when the run it started skipped its refresh job, and says "could not tell" as a warning (O27b)', () => {
-    const run = job.steps.map((s: { run?: string }) => s.run ?? '').join('\n');
+    const run = sender.steps.map((s: { run?: string }) => s.run ?? '').join('\n');
     expect(run).toContain('"repos/$REPO/actions/runs/$backup_id/jobs?per_page=100"');
     expect(run).toContain(
       'if . == null then "unknown" elif .conclusion == "skipped" then "skipped" else "admitted" end'
@@ -307,9 +348,14 @@ describe('the Stage job', () => {
     // Bounded reads, no open-ended loop.
     expect(run).toContain('for _ in $(seq 1 24); do');
     expect(run).not.toMatch(/while (true|:)/);
-    // It no longer claims the completion starts the election.
+    // It claims the completion starts the election only for a run GitHub
+    // itself records as started by the estate App (read back, never assumed
+    // from the token that was used), and says the opposite for any other.
     expect(run).not.toContain('starts the next election');
-    expect(run).toContain('Its completion does not start the election');
+    expect(run).toMatch(
+      /if \[ "\$actor" = 'smarter-poker-autopilot\[bot\]' \]; then\n\s*elects="Its completion starts the next cycle's election \(started by \$actor\)\."\n\s*else\n\s*elects="Its completion does not start the election/
+    );
+    expect(run.match(/Its completion starts the next cycle's election/g)).toHaveLength(1);
   });
 });
 
@@ -671,6 +717,46 @@ describe('the owner note says it plainly, once per cycle', () => {
         refusedCandidates: [{ sha: 'b'.repeat(40), reason: 'Backup Engine refused the candidate' }],
       })
     ).toContain('did not happen: the newest build failed its safety test before the cutoff.');
+    // Real engine-release-installed-migrations.py judge() schema-drift wording & cutoff/control/error refusals
+    for (const driftReason of [
+      "Backup copy does not hold production's definition of migration 20261127172908",
+      'Backup copy lacks the exact candidate migration 20261127172908',
+      'Backup copy holds migration production does not have: 20261127172908',
+      'Backup copy holds a different name for migration 20261127172908',
+    ]) {
+      expect(
+        noteFor('2026-11-27T16', 'false', {
+          reason: NO_EVIDENCE,
+          deferredCandidates: [{ sha: 'c'.repeat(40), reason: driftReason }],
+        }),
+        driftReason
+      ).toContain('did not happen: a database update landed after the new build was tested.');
+    }
+    expect(
+      noteFor('2026-11-27T16', 'false', {
+        reason: NO_EVIDENCE,
+        refusedCandidates: [
+          { sha: 'd'.repeat(40), reason: 'protected release controls differ from head' },
+        ],
+      })
+    ).toContain('did not happen: release controls changed after the newest build was tested.');
+    expect(
+      noteFor('2026-11-27T16', 'false', {
+        reason: NO_EVIDENCE,
+        refusedCandidates: [
+          {
+            sha: 'e'.repeat(40),
+            reason: 'Backup certificate certified after the selection cutoff',
+          },
+        ],
+      })
+    ).toContain('did not happen: the newest build finished its test just after the cutoff.');
+    expect(
+      noteFor('2026-11-27T16', 'false', {
+        reason: NO_EVIDENCE,
+        refusedCandidates: [{ sha: '1'.repeat(40), reason: 'Backup certificate is error' }],
+      })
+    ).toContain('did not happen: the test runner hit an error before finishing the safety test.');
   });
 
   it('says nothing when the cycle had nothing new to ship', () => {

@@ -3610,11 +3610,9 @@
   text-shadow: 0 0 8px rgba(255, 215, 0, 0.4);
 }
 
-[data-enhanced-view='1'] .seat--active .seat__info-box {
-  box-shadow:
-    0 0 16px 4px rgba(255, 215, 0, 0.25),
-    0 0 4px 1px rgba(255, 215, 0, 0.5);
-}
+/* Removed dead `[data-enhanced-view='1'] .seat--active .seat__info-box` stub:
+   `.seat__info-box` never existed in markup, and active seats carry the neon
+   blue ActionTimerRing on `.seat__info` with no yellow outline behind it. */
 
 /* ═══════════════════════════════════════════════════════════════════════════════
    BACKGROUND TAB — Freeze animations when tab is hidden (battery savings)

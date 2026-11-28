@@ -10,6 +10,7 @@ import {
   type ConsoleInk,
   type PlateButtonProps,
 } from '../console/SpadeConsole';
+import { ClubPageSection } from '../club/ClubPageSection';
 import styles from './RewardsSurfaceHeader.module.css';
 import './RewardsCircuitSurfaces.css';
 import './PlayCircuitSurfaces.css';
@@ -45,6 +46,10 @@ interface RewardsSurfaceHeaderProps {
   steps?: TutorialStep[];
   /** The page itself, printed on the console's glass so the surface stays one picture. */
   children?: ReactNode;
+  /** #SmarterDesign (Dan 2026-11-27): print the page in the arena workspace's
+   *  thin chrome case instead of the painted console. The page itself must
+   *  sit inside an `.arena-workspace`. Opt in per page. */
+  arena?: boolean;
 }
 
 const TONE_INK: Record<NonNullable<RewardMetric['tone']>, ConsoleInk> = {
@@ -149,6 +154,7 @@ export default function RewardsSurfaceHeader({
   family = 'spade',
   steps,
   children,
+  arena = false,
 }: RewardsSurfaceHeaderProps) {
   const titleId = useId();
   const pageTitle = formatPopupText(title);
@@ -175,48 +181,67 @@ export default function RewardsSurfaceHeader({
   const pillText = pill ? formatPopupText(pill) : fromStatus.text;
   const ink = pillInk ?? (pill ? 'blue' : fromStatus.ink);
 
+  const body = (
+    <>
+      {metrics.length > 0 && (
+        <dl className={styles.metrics} aria-label={`${title} Live Summary`}>
+          {metrics.map((metric) => (
+            <div className={styles.metric} key={metric.label}>
+              <dt className={`sc-label sc-ink--blue ${styles.metricLabel}`}>
+                {formatPopupText(metric.label)}
+              </dt>
+              <dd className={`sc-ink--${TONE_INK[metric.tone || 'default']} ${styles.metricValue}`}>
+                {metric.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
+      {actions && <div className={styles.actions}>{actions}</div>}
+
+      {children}
+    </>
+  );
+
   return (
-    <div className={styles.header}>
+    <div className={arena ? `${styles.header} ${styles.arena}` : styles.header}>
       <PageBar
         title={pageTitle}
         summary={formatPopupText(description)}
         steps={steps}
         titleAs={false}
       />
-      <SpadeConsole
-        as="section"
-        title={pageTitle}
-        titleId={titleId}
-        pill={pillText}
-        pillInk={ink}
-        crest={crest}
-        family={family}
-        foot={plates ? 'plates' : 'foot'}
-        plates={plates}
-        className={styles.console}
-        aria-labelledby={titleId}
-      >
-        {metrics.length > 0 && (
-          <dl className={styles.metrics} aria-label={`${title} Live Summary`}>
-            {metrics.map((metric) => (
-              <div className={styles.metric} key={metric.label}>
-                <dt className={`sc-label sc-ink--blue ${styles.metricLabel}`}>
-                  {formatPopupText(metric.label)}
-                </dt>
-                <dd
-                  className={`sc-ink--${TONE_INK[metric.tone || 'default']} ${styles.metricValue}`}
-                >
-                  {metric.value}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        )}
-
-        {actions && <div className={styles.actions}>{actions}</div>}
-
-        {children}
-      </SpadeConsole>
+      {arena ? (
+        <ClubPageSection
+          arena
+          as="section"
+          title={pageTitle}
+          titleId={titleId}
+          pill={pillText}
+          plates={plates}
+          className={styles.console}
+          aria-labelledby={titleId}
+        >
+          {body}
+        </ClubPageSection>
+      ) : (
+        <SpadeConsole
+          as="section"
+          title={pageTitle}
+          titleId={titleId}
+          pill={pillText}
+          pillInk={ink}
+          crest={crest}
+          family={family}
+          foot={plates ? 'plates' : 'foot'}
+          plates={plates}
+          className={styles.console}
+          aria-labelledby={titleId}
+        >
+          {body}
+        </SpadeConsole>
+      )}
     </div>
   );
 }

@@ -17,7 +17,11 @@ import { formatDate } from '../utils/format';
 import './ClubAnnouncementsPage.css';
 import PageSkeleton from '../components/common/PageSkeleton';
 import StandardContentLayout from '../components/layouts/StandardContentLayout';
-import { SpadeConsole } from '../components/console/SpadeConsole';
+/* #SmarterDesign (Dan 2026-11-27): the painted console is the old style for a
+   page section; the posts print in the thin chrome case with chrome keys. */
+import { ClubPageSection as SpadeConsole } from '../components/club/ClubPageSection';
+import '../components/console/SpadeConsole.css';
+import '../components/lobby/ArenaWorkspace.css';
 import { reportError } from '../utils/errorReporter';
 
 const announcementAnimationStyle = (index: number) => ({
@@ -455,8 +459,9 @@ export default function ClubAnnouncementsPage() {
       : undefined;
 
   return (
-    <StandardContentLayout className="announcements-page">
+    <StandardContentLayout className="announcements-page arena-workspace">
       <SpadeConsole
+        arena
         onClose={() => navigate(`/clubs/${clubId}`)}
         className="announcements-console"
         aria-busy={loading || posting || undefined}
@@ -479,13 +484,11 @@ export default function ClubAnnouncementsPage() {
           <div className="ann-empty">
             <span className="sc-label sc-ink--red">Could Not Load</span>
             <p className="sc-copy sc-copy--center">Failed To Load Announcements.</p>
-            <button
-              type="button"
-              className="ann-word sc-ink--blue"
-              onClick={() => loadAnnouncements()}
-            >
-              Retry
-            </button>
+            <div className="arena-switch arena-ops-keys arena-ops-primary ann-keys">
+              <button type="button" className="ann-word" onClick={() => loadAnnouncements()}>
+                Retry
+              </button>
+            </div>
           </div>
         ) : loading ? (
           <div className="loading-state">
@@ -543,7 +546,7 @@ export default function ClubAnnouncementsPage() {
                       <span>{formatDate(announcement.created_at)}</span>
                     </div>
                     {isAdmin && (
-                      <div className="ann-post__actions">
+                      <div className="ann-post__actions arena-switch">
                         <button
                           type="button"
                           className="ann-word sc-ink--blue"

@@ -648,3 +648,283 @@ input.sc-check__box:disabled {
     transition: none;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   #SMARTERDESIGN SKIN (Dan 2026-11-27)
+   "NO DO NOT USE THOSE BULKY FRAMES, THATS THE OLD STYLE... USE THE
+   #SMARTERDESIGN STYLE". The arena workspace language (ArenaWorkspace.css):
+   one thin chrome case on ink navy, live condensed lettering in normal flow,
+   chrome keys that light blue for the primary action, and the X as a 44px
+   chrome key in the upper-right corner. Rendered by SpadeConsole when a
+   ConsoleSkinProvider says `smarterdesign` (the table provides it). Nothing
+   here touches the painted families above.
+
+   The selectors carry `.sc.sc--sd.sc--sd` so they outrank the per-popup
+   stylesheets that reach into the painted head and body
+   (`.hdm-console .sc__head .sc__title`, `.break-screen__content > .sc__body`
+   and the like). Solid all the way through (Dan 2026-10-24): the case paints
+   an opaque panel, so nothing on the felt shows through a popup.
+   ══════════════════════════════════════════════════════════════════════════ */
+.sc.sc--sd.sc--sd {
+  --sd-case: url('/assets/club-buttons/console/smarterdesign-v1/chrome-case.webp');
+  --sd-stat: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp');
+  --sd-active: url('/assets/club-buttons/console/smarterdesign-v1/chrome-active.webp');
+  --sd-panel:
+    radial-gradient(ellipse at 90% -40%, #1e3853, transparent 63%),
+    linear-gradient(145deg, #091727, #030b14 74%);
+  --sc-max: 560px;
+  position: relative;
+  isolation: isolate;
+  box-sizing: border-box;
+  max-width: var(--sc-max);
+  padding: 14px 14px 16px;
+  gap: 12px;
+  color: #f1f5fc;
+  font-family: 'Rajdhani', 'Roboto Condensed', Inter, system-ui, sans-serif;
+  background: var(--sd-panel), #030b14;
+}
+.sc.sc--sd.sc--sd::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  border-image: var(--sd-case) 41 / 19px stretch;
+}
+
+/* Head: lettering on the left, the pill and the X on the right. */
+.sc.sc--sd.sc--sd > .sc__head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: auto;
+  min-height: 44px;
+  margin: 0;
+  padding: 2px 0 10px;
+  aspect-ratio: auto;
+  background: none;
+  border-bottom: 1px solid rgb(134 218 255 / 18%);
+}
+.sc.sc--sd.sc--sd > .sc__head::before {
+  content: none;
+}
+.sc.sc--sd.sc--sd .sc-sd__lettering {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding-left: 4px;
+}
+.sc.sc--sd.sc--sd .sc__eyebrow,
+.sc.sc--sd.sc--sd .sc__title,
+.sc.sc--sd.sc--sd .sc__subtitle,
+.sc.sc--sd.sc--sd .sc__pill {
+  position: static;
+  display: block;
+  inset: auto;
+  width: auto;
+  height: auto;
+  margin: 0;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-shadow: none;
+  -webkit-text-fill-color: currentcolor;
+  text-transform: none;
+}
+.sc.sc--sd.sc--sd .sc__eyebrow {
+  color: #86daff;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+}
+.sc.sc--sd.sc--sd .sc__title {
+  color: #f4f8ff;
+  font-family: 'Rajdhani', 'Roboto Condensed', Inter, system-ui, sans-serif;
+  font-size: clamp(20px, 5.6cqw, 28px);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.08;
+}
+.sc.sc--sd.sc--sd .sc__subtitle {
+  color: #bdd0e2;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+}
+.sc.sc--sd.sc--sd .sc__pill {
+  flex: none;
+  max-width: 42%;
+  padding: 5px 10px;
+  border: 4px solid transparent;
+  border-image: var(--sd-stat) 11 / 5px stretch;
+  background: linear-gradient(155deg, #12273b, #07111c 70%);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1.15;
+  text-align: center;
+}
+.sc.sc--sd.sc--sd .sc__pill.sc-ink--silver,
+.sc.sc--sd.sc--sd .sc__pill.sc-ink--white,
+.sc.sc--sd.sc--sd .sc__pill.sc-ink--muted {
+  color: #e4edf7;
+}
+.sc.sc--sd.sc--sd .sc__pill.sc-ink--blue {
+  color: #86daff;
+}
+
+/* The X: a 44px chrome key, tucked into the upper-right corner. */
+.sc.sc--sd.sc--sd .sc__close {
+  position: relative;
+  inset: auto;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  min-width: 44px !important;
+  margin: 0 0 0 auto;
+  padding: 0;
+  border: 4px solid transparent !important;
+  border-image: var(--sd-stat) 11 / 5px stretch !important;
+  background: linear-gradient(180deg, #1d344b, #0a1726 60%, #10243a) !important;
+  color: #e9f1fb !important;
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+}
+.sc.sc--sd.sc--sd .sc__close::after {
+  content: none;
+}
+.sc.sc--sd.sc--sd .sc__close:active {
+  filter: brightness(0.86);
+}
+.sc.sc--sd.sc--sd .sc__close:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.sc.sc--sd.sc--sd .sc__close:focus-visible,
+.sc.sc--sd.sc--sd .sc-plate:focus-visible {
+  outline: 2px solid #9ee3ff;
+  outline-offset: 2px;
+}
+
+/* Body: the content on the case's own panel, never the painted rails. */
+.sc.sc--sd.sc--sd > .sc__body {
+  position: relative;
+  z-index: 1;
+  gap: 12px;
+  margin: 0;
+  padding: 0 2px;
+  background: none;
+}
+
+/* Foot: the plates as chrome keys, one row, the primary lit blue. */
+.sc.sc--sd.sc--sd > .sc__foot {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 8px;
+  width: auto;
+  margin: 0;
+  padding: 2px 0 0;
+  aspect-ratio: auto;
+  background: none;
+}
+.sc.sc--sd.sc--sd .sc-sd__plate {
+  position: relative;
+  inset: auto;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 48px !important;
+  margin: 0;
+  padding: 6px 10px;
+  border: 5px solid transparent !important;
+  border-image: var(--sd-stat) 11 / 6px stretch !important;
+  border-radius: 0 !important;
+  background: linear-gradient(155deg, #12273b, #07111c 70%) !important;
+  color: #f1f5fc !important;
+  font-family: 'Rajdhani', 'Roboto Condensed', Inter, system-ui, sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: 0.02em;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.sc.sc--sd.sc--sd .sc-sd__plate::after {
+  content: none;
+}
+.sc.sc--sd.sc--sd .sc-sd__plate--primary {
+  border-image-source: var(--sd-active) !important;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
+  background-clip: padding-box !important;
+  color: #fff !important;
+}
+.sc.sc--sd.sc--sd .sc-sd__plate-text {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  text-shadow: none;
+  -webkit-text-fill-color: currentcolor;
+  text-transform: none;
+}
+.sc.sc--sd.sc--sd .sc-sd__plate-text.sc-ink--red {
+  color: #ff8a93;
+}
+.sc.sc--sd.sc--sd .sc-sd__plate-text.sc-ink--green {
+  color: #4dc660;
+}
+.sc.sc--sd.sc--sd .sc-sd__plate--primary .sc-sd__plate-text:not(.sc-ink--red) {
+  color: #fff;
+}
+.sc.sc--sd.sc--sd .sc-sd__plate:active {
+  filter: brightness(0.86);
+}
+.sc.sc--sd.sc--sd .sc-sd__plate:disabled {
+  border-image-source: var(--sd-stat) !important;
+  background: #13202c !important;
+  color: #a7b7c8 !important;
+  cursor: default;
+}
+.sc.sc--sd.sc--sd .sc-sd__plate:disabled .sc-sd__plate-text {
+  color: #a7b7c8;
+}
+
+/* Copy and labels inside a #SmarterDesign console read as live type. */
+.sc.sc--sd.sc--sd :where(.sc-copy) {
+  color: #d7e3f0;
+}
+.sc.sc--sd.sc--sd :where(.sc-label) {
+  color: #86daff;
+}
+/* Inside a dialog the shared popup sheet (metallic-popups.css) paints any
+   `__head` as a raised, rounded header bar with !important. The #SmarterDesign
+   head is part of the one chrome case, separated only by its hairline. */
+.sc.sc--sd.sc--sd > .sc__head.sc__head {
+  border: 0 !important;
+  border-bottom: 1px solid rgb(134 218 255 / 18%) !important;
+  border-radius: 0 !important;
+  background: none !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  outline: 0 !important;
+}
+.sc.sc--sd.sc--sd .sc__title.sc__title {
+  text-shadow: none !important;
+}

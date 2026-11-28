@@ -36,7 +36,11 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../../components/common/Toast';
 import { reportError } from '../../utils/errorReporter';
-import { SpadeConsole } from '../../components/console/SpadeConsole';
+/* #SmarterDesign (Dan 2026-11-27): the painted console is the old style for a
+   page section; the settings print in the thin chrome case with chrome keys. */
+import { ClubPageSection as SpadeConsole } from '../../components/club/ClubPageSection';
+import '../../components/console/SpadeConsole.css';
+import '../../components/lobby/ArenaWorkspace.css';
 import PageBar from '../../components/help/PageBar';
 import { titleCase } from '../../utils/titleCase';
 import styles from './TableBombSettingsPage.module.css';
@@ -291,14 +295,14 @@ export default function TableBombSettingsPage() {
 
   if (loading)
     return (
-      <div className={styles.page}>
+      <div className={`${styles.page} arena-workspace`}>
         <SpadeConsole
+          arena
           className={styles.console}
           title="Bomb Pots"
           titleId="table-bomb-settings-title"
           pill="Loading"
           pillInk="muted"
-          foot="foot"
         >
           <p className={`sc-copy sc-copy--center ${styles.state}`} aria-busy="true">
             Loading Table Settings...
@@ -308,22 +312,22 @@ export default function TableBombSettingsPage() {
     );
   if (error || !draft)
     return (
-      <div className={styles.page}>
+      <div className={`${styles.page} arena-workspace`}>
         <SpadeConsole
+          arena
           className={styles.console}
           title="Bomb Pots"
           titleId="table-bomb-settings-title"
           pill="Error"
           pillInk="red"
-          foot="foot"
         >
           <p className={`sc-copy sc-copy--center ${styles.state} sc-ink--red`} role="alert">
             {error ?? 'No Table'}
           </p>
-          <div className={styles.actions}>
+          <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.actions}`}>
             <button
               type="button"
-              className={`${styles.word} sc-ink--white`}
+              className={styles.word}
               onClick={() => navigate(`/clubs/${clubId}`)}
             >
               Back
@@ -334,7 +338,7 @@ export default function TableBombSettingsPage() {
     );
 
   return (
-    <div className={styles.page}>
+    <div className={`${styles.page} arena-workspace`}>
       {/* Dan, 2026-10-17: the descriptive eyebrow and the intro line moved
           behind the painted "?". The table's name stays: it is live, and it
           says which running game these settings change. */}
@@ -344,6 +348,7 @@ export default function TableBombSettingsPage() {
         summary="These Take Effect On A Running Table. The Engine Picks Them Up Within A Minute, So You Do Not Need To Close The Game."
       />
       <SpadeConsole
+        arena
         className={styles.console}
         title="Bomb Pots"
         titleId="table-bomb-settings-title"
@@ -374,7 +379,11 @@ export default function TableBombSettingsPage() {
           <>
             <div className={styles.field}>
               <span className={`${styles.label} sc-ink--blue`}>Trigger</span>
-              <div className={styles.modes} role="group" aria-label="Trigger">
+              <div
+                className={`arena-switch arena-ops-keys ${styles.modes}`}
+                role="group"
+                aria-label="Trigger"
+              >
                 {MODES.map((m) => (
                   <button
                     key={m.value}
@@ -383,12 +392,8 @@ export default function TableBombSettingsPage() {
                     aria-pressed={draft.mode === m.value}
                     onClick={() => set('mode', m.value)}
                   >
-                    <span
-                      className={`${styles.modeLabel} ${draft.mode === m.value ? 'sc-ink--white' : 'sc-ink--muted'}`}
-                    >
-                      {m.label}
-                    </span>
-                    <span className={`${styles.modeHint} sc-ink--muted`}>{m.hint}</span>
+                    <span className={styles.modeLabel}>{m.label}</span>
+                    <span className={styles.modeHint}>{m.hint}</span>
                   </button>
                 ))}
               </div>

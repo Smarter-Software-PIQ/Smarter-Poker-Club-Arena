@@ -31,7 +31,8 @@ export function ClubPageSection({
   ...rest
 }: ClubPageSectionProps) {
   const action = (props: PlateButtonProps, key: string) => {
-    const { label, ink = 'blue', haptic: _haptic, buttonRef, href, ...buttonProps } = props;
+    const { label, ink = 'blue', haptic, buttonRef, href, ...buttonProps } = props;
+    void haptic;
     return href ? (
       <a key={key} href={href} className={`club-page-action sc-ink--${ink}`}>
         {label}
@@ -50,7 +51,9 @@ export function ClubPageSection({
   };
   if (arena) {
     const key = (props: PlateButtonProps, id: string, primary: boolean) => {
-      const { label, ink: _ink, haptic: _haptic, buttonRef, href, ...buttonProps } = props;
+      const { label, ink, haptic, buttonRef, href, ...buttonProps } = props;
+      void ink; // the arena keys take no painted ink
+      void haptic;
       const cls = primary ? 'club-page-key--primary' : undefined;
       return href ? (
         <a key={id} href={href} className={cls}>

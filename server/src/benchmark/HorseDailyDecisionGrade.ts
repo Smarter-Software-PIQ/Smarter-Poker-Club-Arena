@@ -78,7 +78,9 @@
  *
  * One hand can carry several decisions of one Horse, each graded on the same
  * hand result, so the standard error is clustered by hand. A class is flagged
- * only when its mean is beyond 1 SE and n >= 10; the same table is shown with
+ * only when its mean is beyond 1 SE and n >= 10 (and, when over 80% of the class
+ * is against one person, only if it still flags without that person: otherwise
+ * "one person", ONE_PERSON_SHARE); the same table is shown with
  * the most frequent person excluded (owner rule: results must hold without
  * the most frequent opponent).
  *
@@ -705,7 +707,21 @@ export interface ClassRow extends Stat {
   flagged: boolean;
   /** share of this class's graded decisions that are against its own most frequent person */
   topPersonShare: number;
+  /**
+   * The class meets the flag test (mean > 1 SE, n >= FLAG_MIN_N) but more than
+   * ONE_PERSON_SHARE of it is against one person, and without that person it does not:
+   * reported as "one person", not flagged (2026-11-27; absent in reports written before).
+   */
+  onePerson?: boolean;
 }
+
+/**
+ * Above this share of a class against its own most frequent person, the class is a read on
+ * that person, not on the Horses: it flags only if it still flags without that person.
+ * (2026-11-27: PLO5 "preflop facing open call" flagged four days running at 92% WooWoo; a
+ * 7-day measurement found no leak, +0.98 +/- 1.28 bb per call.)
+ */
+export const ONE_PERSON_SHARE = 0.8;
 
 /** A bet graded against checking and one graded against giving up are never one class. */
 export const actionLabel = (d: GradedDecision): string =>
@@ -738,12 +754,22 @@ export function classTable(
     const stat = clusteredStat(ds.map((d) => ({ cluster: d.hand, x: d.lossBb as number })));
     const counts = new Map<string, number>();
     for (const d of ds) for (const p of d.persons) counts.set(p, (counts.get(p) ?? 0) + 1);
-    rows.push({
-      key,
-      ...stat,
-      flagged: flagged(stat),
-      topPersonShare: Math.max(0, ...counts.values()) / ds.length,
-    });
+    let top: string | null = null;
+    for (const [p, c] of counts) if (top === null || c > counts.get(top)!) top = p;
+    const topPersonShare = top === null ? 0 : counts.get(top)! / ds.length;
+    const raw = flagged(stat);
+    // the same class with its own most frequent person excluded must flag too
+    const onePerson =
+      raw &&
+      topPersonShare > ONE_PERSON_SHARE &&
+      !flagged(
+        clusteredStat(
+          ds
+            .filter((d) => !d.persons.includes(top!))
+            .map((d) => ({ cluster: d.hand, x: d.lossBb as number }))
+        )
+      );
+    rows.push({ key, ...stat, flagged: raw && !onePerson, topPersonShare, onePerson });
   }
   return rows.sort((a, b) => b.total - a.total || a.key.localeCompare(b.key));
 }
@@ -1068,7 +1094,7 @@ function classRows(rows: readonly ClassRow[], rollup = false): string[] {
     );
   shown.forEach((r, i) =>
     out.push(
-      `| ${i + 1} | ${r.key} | ${r.n} | ${r.clusters} | ${f1(r.total)} | ${f2(r.mean)} | ${se(r.se)} | ${pct(r.topPersonShare)} | ${r.flagged ? 'YES' : 'no'} |`
+      `| ${i + 1} | ${r.key} | ${r.n} | ${r.clusters} | ${f1(r.total)} | ${f2(r.mean)} | ${se(r.se)} | ${pct(r.topPersonShare)} | ${r.flagged ? 'YES' : r.onePerson ? 'one person' : 'no'} |`
     )
   );
   return out;
@@ -1120,7 +1146,7 @@ export function renderMarkdown(
     );
   L.push(
     '',
-    "Sign: **+ = the Horse lost bb**. fold = forgone call EV on real cards (every live person showed at showdown, or heads-up facing a person's all-in, where that person's stored chips-in cards are used); call heads-up facing a person's all-in = the call's EV on real cards (`call_all_in_exact`); other calls and raises = realised result from the decision point; bet vs check = against checking where the check closes the street and the run-out and every live opponent's cards are known; bet vs give up = realised, against giving the pot up. SE is clustered by hand. A class is flagged only when mean > 1 SE and n >= 10. People appear by table alias; no card is printed.",
+    "Sign: **+ = the Horse lost bb**. fold = forgone call EV on real cards (every live person showed at showdown, or heads-up facing a person's all-in, where that person's stored chips-in cards are used); call heads-up facing a person's all-in = the call's EV on real cards (`call_all_in_exact`); other calls and raises = realised result from the decision point; bet vs check = against checking where the check closes the street and the run-out and every live opponent's cards are known; bet vs give up = realised, against giving the pot up. SE is clustered by hand. A class is flagged only when mean > 1 SE and n >= 10, and, when over 80% of it is against one person, only if it still flags without that person (otherwise it shows \"one person\"). People appear by table alias; no card is printed.",
     ''
   );
   for (const s of r.sections) {
@@ -1143,8 +1169,9 @@ export function renderMarkdown(
       `Folds and calls graded heads-up against a person's all-in on that person's stored chips-in cards: ${s.gradedOnChipsInCards}. Heads-up folds to a person still ungradeable (a non all-in wager, nothing shown): ${s.headsUpFoldsUngraded}.`
     );
     const flaggedN = s.classes.filter((c) => c.flagged).length;
+    const onePersonN = s.classes.filter((c) => c.onePerson).length;
     L.push(
-      `Classes: ${s.classes.length}; flagged: ${flaggedN}. Roll-up rows flagged: ${s.rollup.filter((c) => c.flagged).length} (most frequent person excluded: ${s.rollupExcludingTopPerson.filter((c) => c.flagged).length}).`,
+      `Classes: ${s.classes.length}; flagged: ${flaggedN}; one person (over ${pct(ONE_PERSON_SHARE)} against one person and not flagged without that person): ${onePersonN}. Roll-up rows flagged: ${s.rollup.filter((c) => c.flagged).length} (most frequent person excluded: ${s.rollupExcludingTopPerson.filter((c) => c.flagged).length}).`,
       ''
     );
     L.push(
@@ -1853,14 +1880,18 @@ export function rangeSection(decisions: readonly RangeGradedDecision[]): RangeSe
   };
 }
 
-const mark2 = (r: ClassRow): string =>
-  r.se === null || r.n < FLAG_MIN_N
-    ? ''
-    : r.mean - 2 * r.se > 0
-      ? 'FLAGGED >2 SE'
-      : r.mean - r.se > 0
-        ? 'FLAGGED >1 SE'
-        : '';
+const mark2 = (r: ClassRow, groupTrusted = true): string =>
+  !groupTrusted
+    ? 'not graded'
+    : r.onePerson
+      ? 'one person'
+      : r.se === null || r.n < FLAG_MIN_N
+        ? ''
+        : r.mean - 2 * r.se > 0
+          ? 'FLAGGED >2 SE'
+          : r.mean - r.se > 0
+            ? 'FLAGGED >1 SE'
+            : '';
 
 /** The range-grade section, rendered after the real-card report (which it does not change). */
 export function renderRangeSection(s: RangeSection): string[] {
@@ -1911,14 +1942,52 @@ export function renderRangeSection(s: RangeSection): string[] {
     );
   }
   L.push('');
-  const table = (title: string, rows: readonly ClassRow[]) => {
+  const trusted = (g: string) =>
+    s.validation.find((v) => v.group.startsWith(g))?.verdict === 'PASS';
+  // A group that did not pass is NOT GRADED: say plainly which check missed and by how much,
+  // and carry no flag for it below (2026-11-27: G2 was printed with FLAGGED marks under a
+  // "not trusted" heading, and its miss was only readable by working the table).
+  for (const v of s.validation) {
+    if (v.verdict === 'PASS') continue;
+    const V = RANGE_GRADE.validation;
+    const name = v.group.split(' ')[0];
+    const n =
+      name === 'G2' ? (s.byFamily.preflop_r1 ?? 0) : s.graded - (s.byFamily.preflop_r1 ?? 0);
+    const misses: string[] = [];
+    const why = (c: RangeValidationCheck, who: string) => {
+      if (!c.v1)
+        misses.push(
+          `${who}: sign agreement ${c.signAgreement === null ? 'n/a' : pct(c.signAgreement)} is below ${pct(V.signAgreement)}`
+        );
+      if (!c.v2) {
+        const bound = Math.min(
+          c.seDiff === null ? Infinity : V.seMultiple * c.seDiff,
+          V.relTolerance * c.meanAbsReal
+        );
+        misses.push(
+          `${who}: the range grade's mean is ${f(c.diff)} bb per decision off the real-card mean, beyond the bar of ${Number.isFinite(bound) ? bound.toFixed(2) : 'n/a'} bb (the smaller of ${V.seMultiple} SE = ${c.seDiff === null ? 'n/a' : (V.seMultiple * c.seDiff).toFixed(2)} and ${pct(V.relTolerance)} of mean abs real = ${(V.relTolerance * c.meanAbsReal).toFixed(2)}), on ${c.n} validation decisions`
+        );
+      }
+    };
+    if (v.verdict === 'INCONCLUSIVE')
+      misses.push(`only ${v.all.n} validation decisions, below the declared ${V.minN}`);
+    else {
+      why(v.all, 'all validation decisions');
+      if (v.excludingTopPerson) why(v.excludingTopPerson, `${v.topPerson} excluded`);
+    }
+    L.push(
+      `**${v.group} is NOT GRADED in this report (${v.verdict}).** ${n} of its range-graded decisions carry no flag below. Missed: ${misses.join('; ')}. The bar is unchanged. Its only ground truth is a person's cards shown at showdown (folded and mucked cards are never stored), so the validation sample is selected toward holdings that went on; the criteria declare this, and with the cards that exist the grade cannot tell that selection apart from range error.`,
+      ''
+    );
+  }
+  const table = (title: string, rows: readonly ClassRow[], groupTrusted: boolean) => {
     L.push(`### ${title}`, '');
     L.push('| row | n | hands | mean bb | SE | mark |', '|---|---|---|---|---|---|');
     const shown = rows.filter((r) => r.n >= FLAG_MIN_N || r.mean > 0);
     if (!shown.length) L.push('| none | - | - | - | - | - |');
     for (const r of [...shown].sort((x, y) => y.mean - x.mean))
       L.push(
-        `| ${r.key.replaceAll(' | ', ' / ')} | ${r.n} | ${r.clusters} | ${f(r.mean)} | ${se(r.se)} | ${mark2(r)} |`
+        `| ${r.key.replaceAll(' | ', ' / ')} | ${r.n} | ${r.clusters} | ${f(r.mean)} | ${se(r.se)} | ${mark2(r, groupTrusted)} |`
       );
     L.push('');
   };
@@ -1930,19 +1999,16 @@ export function renderRangeSection(s: RangeSection): string[] {
     '|---|---|---|---|---|---|'
   );
   for (const r of s.overall)
-    L.push(`| ${r.key} | ${r.n} | ${r.clusters} | ${f(r.mean)} | ${se(r.se)} | ${mark2(r)} |`);
+    L.push(
+      `| ${r.key} | ${r.n} | ${r.clusters} | ${f(r.mean)} | ${se(r.se)} | ${mark2(r, trusted(r.key.startsWith('ALL G2') ? 'G2' : 'G1'))} |`
+    );
   L.push('');
-  const trusted = (g: string) =>
-    s.validation.find((v) => v.group.startsWith(g))?.verdict === 'PASS';
-  table(
-    `G1 roll-up (rows with n >= 10 or a positive mean)${trusted('G1') ? '' : ' - NOT TRUSTED: validation did not pass'}`,
-    s.rollupG1
-  );
-  table(`G1 roll-up, most frequent person excluded: ${top}`, s.rollupG1ExcludingTopPerson);
-  table(
-    `G2 preflop realisation-1 roll-up${trusted('G2') ? '' : ' - NOT TRUSTED: validation did not pass'}`,
-    s.rollupG2
-  );
-  table(`G2 roll-up, most frequent person excluded: ${top}`, s.rollupG2ExcludingTopPerson);
+  const t1 = trusted('G1');
+  const t2 = trusted('G2');
+  const untrusted = ' - NOT GRADED: validation did not pass, no flag';
+  table(`G1 roll-up (rows with n >= 10 or a positive mean)${t1 ? '' : untrusted}`, s.rollupG1, t1);
+  table(`G1 roll-up, most frequent person excluded: ${top}`, s.rollupG1ExcludingTopPerson, t1);
+  table(`G2 preflop realisation-1 roll-up${t2 ? '' : untrusted}`, s.rollupG2, t2);
+  table(`G2 roll-up, most frequent person excluded: ${top}`, s.rollupG2ExcludingTopPerson, t2);
   return L;
 }

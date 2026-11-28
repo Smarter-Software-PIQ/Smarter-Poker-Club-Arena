@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthUser } from '../hooks/useAuthUser';
-import { SpadeConsole } from '../components/console/SpadeConsole';
+/* #SmarterDesign (Dan 2026-11-27): the painted console is the old style for a
+   page section; this page prints in the thin chrome case with chrome keys. */
+import { ClubPageSection as SpadeConsole } from '../components/club/ClubPageSection';
+import '../components/console/SpadeConsole.css';
+import '../components/lobby/ArenaWorkspace.css';
 import PageBar from '../components/help/PageBar';
 import StandardContentLayout from '../components/layouts/StandardContentLayout';
 import { useToast } from '../components/common/Toast';
@@ -118,7 +122,7 @@ function BannerEditor({ clubId, userId }: { clubId?: string; userId?: string }) 
   };
 
   return (
-    <StandardContentLayout className="club-banner-page">
+    <StandardContentLayout className="club-banner-page arena-workspace">
       {/* Dan, 2026-10-17: the subtitle and the intro line moved behind the
           painted "?". The club's name stays on the head. */}
       <PageBar
@@ -127,6 +131,8 @@ function BannerEditor({ clubId, userId }: { clubId?: string; userId?: string }) 
         summary="Your Club Lobby Promotion. Manage Your Club Banner, Including In Union Clubs."
       />
       <SpadeConsole
+        arena
+        className="club-banner-console"
         eyebrow={club ? titleCase(club.name) : undefined}
         title="Banner Displays"
         plates={{
@@ -148,7 +154,7 @@ function BannerEditor({ clubId, userId }: { clubId?: string; userId?: string }) 
           {!loading && !isOwner && club && <p>Only The Club Owner Can Change Banner Displays.</p>}
           {!loading && isOwner && club && (
             <>
-              <h2>Club Banner Preview</h2>
+              <h2 className="arena-section-title">Club Banner Preview</h2>
               {preview ||
               (!removeBanner && club.banner_url && !isRetiredClubBanner(club.banner_url)) ? (
                 <img
@@ -193,19 +199,21 @@ function BannerEditor({ clubId, userId }: { clubId?: string; userId?: string }) 
                 JPEG, PNG, Or WebP. Maximum 2 MB. Use A Wide Image With Text Away From The Edges.
                 Preview Shows The Full Image.
               </p>
-              <button
-                type="button"
-                disabled={saving || (!file && !club.banner_url)}
-                onClick={() => {
-                  setFile(null);
-                  setRemoveBanner(true);
-                  setError('');
-                  uploaded.current = null;
-                  if (input.current) input.current.value = '';
-                }}
-              >
-                Remove Club Banner
-              </button>
+              <span className="arena-switch arena-ops-keys club-banner-keys">
+                <button
+                  type="button"
+                  disabled={saving || (!file && !club.banner_url)}
+                  onClick={() => {
+                    setFile(null);
+                    setRemoveBanner(true);
+                    setError('');
+                    uploaded.current = null;
+                    if (input.current) input.current.value = '';
+                  }}
+                >
+                  Remove Club Banner
+                </button>
+              </span>
               <p>Banner Taps Open Your Club Announcements.</p>
               <p>
                 Smarter.Poker Ads Are Managed By The Platform And Cannot Be Changed Or Turned Off By
@@ -214,9 +222,15 @@ function BannerEditor({ clubId, userId }: { clubId?: string; userId?: string }) 
             </>
           )}
           {!loading && (
-            <button type="button" disabled={saving} onClick={() => setReload((value) => value + 1)}>
-              Reload
-            </button>
+            <span className="arena-switch arena-ops-keys club-banner-keys">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => setReload((value) => value + 1)}
+              >
+                Reload
+              </button>
+            </span>
           )}
         </div>
       </SpadeConsole>
