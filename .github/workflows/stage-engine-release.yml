@@ -1337,7 +1337,15 @@ jobs:
     # election, which the operator fallback on the Mac
     # (scripts/ops/cutover-operator-preparation.mjs) still covers. An App POST
     # GitHub refuses falls back the same way unless the run already exists.
-    if: needs.next-candidate-after-cycle.outputs.did_not_seal == 'true' && github.run_attempt == 1 && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    # THE RECORD DECIDES, NOT A JOB OUTPUT. GitHub drops a job output it takes
+    # for a secret, and a dropped did_not_seal or nonce would have skipped or
+    # failed this send. So the job runs whenever next-candidate-after-cycle
+    # succeeded, and its first step reads that job's published intent
+    # (dispatch-intents-<attempt> of this run): a record means the cycle did
+    # not seal and holds the nonce and the body; no record means nothing is
+    # sent, so a sealed cycle can never send. The outputs are only the
+    # second source, for a record that cannot be read.
+    if: needs.next-candidate-after-cycle.result == 'success' && github.run_attempt == 1 && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Start The Backup As The Estate App So Its Completion Elects
     needs: [detect, next-candidate-after-cycle]
     runs-on: ubuntu-latest
@@ -1346,8 +1354,68 @@ jobs:
     permissions:
       actions: write
     steps:
+      - name: Read the recorded intent to decide whether a Backup is owed
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RELEASE_DATE: ${{ needs.detect.outputs.daily_preparation_date }}
+          OUT_DID_NOT_SEAL: ${{ needs.next-candidate-after-cycle.outputs.did_not_seal }}
+          OUT_NONCE: ${{ needs.next-candidate-after-cycle.outputs.nonce }}
+          OUT_BODY: ${{ needs.next-candidate-after-cycle.outputs.dispatch_body }}
+        run: |
+          set -euo pipefail
+          name="dispatch-intents-$GITHUB_RUN_ATTEMPT"
+          # How many intent artifacts this run attempt published: 0, 1 or unknown.
+          count=unknown
+          artifact=''
+          for _ in 1 2 3; do
+            if listing=$(gh api "repos/$REPO/actions/runs/$GITHUB_RUN_ID/artifacts?name=$name&per_page=10" 2>/dev/null) &&
+              found=$(jq -r --arg n "$name" 'if (.artifacts | type) == "array" then [.artifacts[] | select(.name == $n and (.expired | not)) | .id] | "\(length) \(.[0] // "")" else empty end' <<< "$listing" 2>/dev/null) &&
+              [ -n "$found" ]; then
+              read -r count artifact <<< "$found" || true
+              break
+            fi
+            sleep 5
+          done
+          nonce=''
+          body=''
+          if [ "$count" = 1 ] && [[ "$artifact" =~ ^[1-9][0-9]*$ ]]; then
+            # Only data is read from the record: one JSON member, parsed by jq.
+            zip="$RUNNER_TEMP/keep-serving-intents.zip"
+            if gh api "repos/$REPO/actions/artifacts/$artifact/zip" > "$zip" 2>/dev/null &&
+              member=$(unzip -Z1 "$zip" 2>/dev/null) && [[ "$member" =~ ^[0-9a-f]{32}\.json$ ]] &&
+              record=$(unzip -p "$zip" "$member" 2>/dev/null | head -c 65536) &&
+              body=$(jq -ce --arg cycle "$RELEASE_DATE" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg nonce "${member%.json}" '
+                select(.operation == "backup-after-keep-serving" and .senderRunId == $run and .senderRunAttempt == $attempt and .nonce == $nonce
+                  and .inputs.after_cycle == $cycle and .inputs.refresh == "true" and ((.inputs | keys | length) == 2)) |
+                {ref: "main", inputs: {after_cycle: .inputs.after_cycle, refresh: .inputs.refresh, intent_run_id: .senderRunId, intent_run_attempt: .senderRunAttempt, intent_nonce: .nonce}}' <<< "$record" 2>/dev/null); then
+              nonce="${member%.json}"
+              echo "This run recorded a keep-serving intent ($nonce): cycle $RELEASE_DATE did not seal."
+            else
+              body=''
+              echo '::warning title=RECORDED INTENT UNREADABLE::This run published an intent artifact that could not be read back; the job outputs decide.'
+            fi
+          fi
+          if [ -z "$nonce" ] && [ "$OUT_DID_NOT_SEAL" = true ] && [[ "$OUT_NONCE" =~ ^[0-9a-f]{32}$ ]]; then
+            nonce="$OUT_NONCE"
+            body="$OUT_BODY"
+            echo "The job outputs say cycle $RELEASE_DATE did not seal (intent $nonce)."
+          fi
+          if [ -n "$nonce" ]; then
+            echo "send=true" >> "$GITHUB_OUTPUT"
+            echo "nonce=$nonce" >> "$GITHUB_OUTPUT"
+            echo "body=$body" >> "$GITHUB_OUTPUT"
+          elif [ "$count" = 0 ]; then
+            echo "send=false" >> "$GITHUB_OUTPUT"
+            echo "Cycle $RELEASE_DATE: this run recorded no keep-serving intent (the cycle sealed, or nothing was owed); nothing is sent."
+          else
+            echo "send=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=KEEP-SERVING INTENT UNKNOWN::Could not tell whether this run recorded a keep-serving intent for cycle $RELEASE_DATE (artifacts: $count; did_not_seal output: '${OUT_DID_NOT_SEAL:-}'); nothing is sent."
+          fi
       - name: Mint the estate App token for this one dispatch
         id: app-token
+        if: steps.decide.outputs.send == 'true'
         # Never fatal: the next step falls back to the job token.
         continue-on-error: true
         timeout-minutes: 3
@@ -1359,14 +1427,17 @@ jobs:
           repositories: Smarter-Poker-Club-Arena
           permission-actions: write
       - name: Start one Backup of main and prove it is doing the work
+        # Runs whatever the mint step did (success() is true after a step
+        # that continues on error).
+        if: steps.decide.outputs.send == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
           REPO: ${{ github.repository }}
           RELEASE_DATE: ${{ needs.detect.outputs.daily_preparation_date }}
-          INTENT_NONCE: ${{ needs.next-candidate-after-cycle.outputs.nonce }}
-          DISPATCH_BODY: ${{ needs.next-candidate-after-cycle.outputs.dispatch_body }}
-          REASON: ${{ needs.next-candidate-after-cycle.outputs.reason }}
+          INTENT_NONCE: ${{ steps.decide.outputs.nonce }}
+          DISPATCH_BODY: ${{ steps.decide.outputs.body }}
+          REASON: ${{ needs.next-candidate-after-cycle.outputs.reason || 'did not seal' }}
         run: |
           set -euo pipefail
           [[ "$INTENT_NONCE" =~ ^[0-9a-f]{32}$ ]] || { echo '::error::No recorded Backup intent.'; exit 1; }
@@ -1400,10 +1471,17 @@ jobs:
             if send "$APP_TOKEN"; then
               sender='the estate App'
             else
-              # A refused or failed App POST. GitHub may still have accepted it,
-              # so look once before sending again: the intent is honoured once.
-              sleep 10
-              if [ -n "$(started || true)" ]; then
+              # A refused or failed App POST. GitHub may still have accepted it
+              # and list the run late, so look six times, five seconds apart,
+              # before sending again: the intent is honoured once, and a second
+              # run would go red for nothing.
+              seen=''
+              for _ in $(seq 1 6); do
+                sleep 5
+                seen=$(started || true)
+                [ -z "$seen" ] || break
+              done
+              if [ -n "$seen" ]; then
                 sender='the estate App'
                 echo "::warning title=ESTATE APP DISPATCH ANSWER LOST::GitHub answered the estate App dispatch with an error and started \"$title\" anyway; nothing is sent again."
               else

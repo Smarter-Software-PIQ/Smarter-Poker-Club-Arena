@@ -305,7 +305,10 @@ describe('the Stage job', () => {
     const sent = sendSteps.findIndex((s) => String(s.run ?? '').includes('/dispatches'));
     expect(sent).toBeGreaterThan(-1);
     expect(sender.needs).toContain(JOB);
-    expect(sender.if).toContain(`needs.${JOB}.outputs.did_not_seal == 'true'`);
+    // Gated on the recording job's result and on its published intent (the
+    // sending job's first step), never on a job output GitHub can drop.
+    expect(sender.if).toContain(`needs.${JOB}.result == 'success'`);
+    expect(sendSteps[sent].if).toBe("steps.decide.outputs.send == 'true'");
     expect(sender.if).toContain('github.run_attempt == 1');
     expect(sender.if).not.toContain('always()');
     expect(steps[wrote].run).toContain(

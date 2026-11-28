@@ -78,6 +78,8 @@ const SENDERS = [
     job: 'start-backup-as-estate-app',
     post: 'gh api --method POST "repos/$REPO/actions/workflows/backup-engine.yml/dispatches" --input "$RUNNER_TEMP/keep-serving-dispatch.json"',
     permission: 'permission-actions',
+    // Its first step reads the recorded intent and decides (see below).
+    gate: "steps.decide.outputs.send == 'true'" as string | undefined,
   },
   {
     label: 'the post-seal Backup (receiver)',
@@ -85,6 +87,7 @@ const SENDERS = [
     job: 'certify-production',
     post: 'gh api --method POST "repos/$REPO/dispatches" --input "$RUNNER_TEMP/certification-dispatch.json"',
     permission: 'permission-contents',
+    gate: undefined as string | undefined,
   },
 ] as const;
 
@@ -174,9 +177,11 @@ describe('both dispatches are sent as the estate App from a github-app-main job'
       // The mint step cannot fail the job, and cannot hang it.
       expect(mint['continue-on-error']).toBe(true);
       expect(mint['timeout-minutes']).toBeLessThanOrEqual(3);
-      expect(mint.if).toBeUndefined();
-      // The send step runs whatever the mint step did.
-      expect(send.if).toBeUndefined();
+      // Neither step depends on the other's result: the send step runs
+      // whatever the mint step did (no status function, no outcome check).
+      expect(mint.if).toBe(sender.gate);
+      expect(send.if).toBe(sender.gate);
+      expect(JSON.stringify(send.if ?? '')).not.toMatch(/app-token|failure\(|always\(/);
       expect(send['continue-on-error']).toBeUndefined();
       const run = String(send.run);
       // No token: the job-token send, announced as a warning (never an error).
@@ -221,12 +226,13 @@ describe('both dispatches are sent as the estate App from a github-app-main job'
   it('the Stage sending job only sends: it needs the job that decided and recorded, and holds no other secret', () => {
     const job = stage.jobs['start-backup-as-estate-app'];
     expect(job.needs).toEqual(['detect', 'next-candidate-after-cycle']);
-    expect(String(job.if)).toContain(
-      "needs.next-candidate-after-cycle.outputs.did_not_seal == 'true'"
-    );
+    // Gated on the deciding job's result, which GitHub cannot drop the way it
+    // drops a job output it takes for a secret; never on an output.
+    expect(String(job.if)).toContain("needs.next-candidate-after-cycle.result == 'success'");
+    expect(String(job.if)).not.toContain('.outputs.');
     expect(String(job.if)).toContain('github.run_attempt == 1');
     expect(job.permissions).toEqual({ actions: 'write' });
-    expect(job.steps).toHaveLength(2);
+    expect(job.steps.map((s) => s.id ?? 'send')).toEqual(['decide', 'app-token', 'send']);
     expect(job.steps.some((s) => String(s.uses ?? '').startsWith('actions/checkout'))).toBe(false);
     const secrets = [...JSON.stringify(job).matchAll(/secrets\.([A-Z0-9_]+)/g)].map((m) => m[1]);
     expect(secrets).toEqual(['AUTOPILOT_APP_PRIVATE_KEY']);
@@ -265,7 +271,8 @@ describe('both dispatches are sent as the estate App from a github-app-main job'
 
 // The two send steps, run for real against a stand-in `gh` that records which
 // token made each call. APP_POST: ok | refused (GitHub starts nothing) | lost
-// (GitHub answers with an error and starts the run anyway). JOB_POST: ok | refused.
+// (GitHub answers with an error and starts the run anyway) | late (the same,
+// and the run is listed only from the fourth look). JOB_POST: ok | refused.
 const FAKE_GH = `#!/usr/bin/env bash
 set -euo pipefail
 who=other; [ "\${GH_TOKEN:-}" = app-token ] && who=app; [ "\${GH_TOKEN:-}" = job-token ] && who=job
@@ -282,7 +289,7 @@ case "$args" in
     mode="$JOB_POST"; [ "$who" = app ] && mode="$APP_POST"
     case "$mode" in
       ok) start "$who" ;;
-      lost) start "$who"; echo 'HTTP 502' >&2; exit 1 ;;
+      lost | late) start "$who"; echo 'HTTP 502' >&2; exit 1 ;;
       *) echo 'HTTP 403: Resource not accessible' >&2; exit 1 ;;
     esac ;;
   *'/jobs?per_page=100'*)
@@ -290,7 +297,11 @@ case "$args" in
     echo '{"jobs":[{"name":"refresh","conclusion":null}]}' | emit ;;
   *'/runs?event='*)
     [ "$who" = job ] || { echo "read with $who" >> "$FAKE_STATE/calls"; exit 1; }
-    if [ -f "$FAKE_STATE/started-by" ]; then
+    echo look >> "$FAKE_STATE/looks"
+    visible=1
+    # late: GitHub started the run but lists it only from the fourth look.
+    if [ "$APP_POST" = late ] && [ "$(wc -l < "$FAKE_STATE/looks")" -lt 4 ]; then visible=0; fi
+    if [ -f "$FAKE_STATE/started-by" ] && [ "$visible" = 1 ]; then
       title="$E2E_TITLE"; case "$args" in *backup-engine.yml*) title="$BACKUP_TITLE" ;; esac
       jq -n --arg title "$title" --arg at "$(now)" --arg actor "$(actor)" \
         '{workflow_runs:[{id:46100000001,display_title:$title,created_at:$at,actor:{login:$actor},triggering_actor:{login:$actor}}]}' | emit
@@ -303,7 +314,11 @@ esac
 const NONCE_HEX = 'd'.repeat(32);
 function runSend(
   which: 'stage' | 'receiver',
-  scenario: { token: boolean; app?: 'ok' | 'refused' | 'lost'; job?: 'ok' | 'refused' }
+  scenario: {
+    token: boolean;
+    app?: 'ok' | 'refused' | 'lost' | 'late';
+    job?: 'ok' | 'refused';
+  }
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'estate-app-send-'));
   try {
@@ -413,6 +428,26 @@ describe('the send steps, executed: every failure of the App token leaves the cy
       expect(r.out).toContain("starts the next cycle's election");
     });
 
+    it(`${which}: a run GitHub lists late, on the fourth look, is waited for: exactly one POST is made`, () => {
+      const r = runSend(which, { token: true, app: 'late' });
+      expect(r.status, r.out).toBe(0);
+      expect(r.calls).toEqual(['POST app']);
+      expect(r.out).toContain('::warning title=ESTATE APP DISPATCH ANSWER LOST::');
+      expect(r.out).not.toContain('JOB TOKEN FALLBACK');
+      expect(r.out).toContain("starts the next cycle's election");
+      // Bounded: six looks, five seconds apart, then the fallback.
+      const job =
+        which === 'stage'
+          ? stage.jobs['start-backup-as-estate-app']
+          : receiver.jobs['certify-production'];
+      const run = String(
+        job.steps.find((s) => String(s.run ?? '').includes('send "$APP_TOKEN"'))?.run
+      );
+      expect(run).toMatch(
+        /seen=''\n\s*for _ in \$\(seq 1 6\); do\n\s*sleep 5\n\s*seen=\$\((?:started|receiver) \|\| true\)\n\s*\[ -z "\$seen" \] \|\| break\n\s*done\n\s*if \[ -n "\$seen" \]; then/
+      );
+    });
+
     it(`${which}: when GitHub accepts neither identity the step fails, as it did before with the job token alone`, () => {
       const none = runSend(which, { token: false, job: 'refused' });
       expect(none.status).not.toBe(0);
@@ -431,6 +466,187 @@ describe('the send steps, executed: every failure of the App token leaves the cy
         expect(runSend(which, scenario).calls.filter((c) => c.startsWith('read with'))).toEqual([]);
     });
   }
+
+  // THE RECORD DECIDES, NOT A JOB OUTPUT. The Stage sending job's first step,
+  // run for real: `artifacts` is what GitHub lists for this run attempt
+  // (one | none | error), `record` what the artifact holds.
+  const STAGE_ENV = {
+    GITHUB_REPOSITORY: 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena',
+    GITHUB_EVENT_NAME: 'push',
+    GITHUB_WORKFLOW_REF:
+      'Smarter-Software-PIQ/Smarter-Poker-Club-Arena/.github/workflows/stage-engine-release.yml@refs/heads/main',
+    GITHUB_RUN_ID: '46000000000',
+    GITHUB_RUN_ATTEMPT: '1',
+    GITHUB_SHA: 'a'.repeat(40),
+  };
+  async function runDecide(scenario: {
+    artifacts: 'one' | 'none' | 'error';
+    cycle?: string;
+    outputs?: { did_not_seal?: string; nonce?: string; body?: string };
+  }) {
+    // @ts-expect-error untyped CI module
+    const { writeIntent } = await import('../scripts/ci/dispatch-intent.mjs');
+    const dir = mkdtempSync(join(tmpdir(), 'estate-app-decide-'));
+    try {
+      const recorded = writeIntent({
+        operation: 'backup-after-keep-serving',
+        inputs: { after_cycle: scenario.cycle ?? '2026-11-27T13', refresh: 'true' },
+        dir: join(dir, 'intents'),
+        nonce: NONCE_HEX,
+        env: STAGE_ENV,
+      }).body;
+      const zipped = spawnSync(
+        'python3',
+        [
+          '-c',
+          'import sys,zipfile,os\nz=zipfile.ZipFile(sys.argv[2],"w")\nfor f in os.listdir(sys.argv[1]): z.write(os.path.join(sys.argv[1],f),f)\nz.close()',
+          join(dir, 'intents'),
+          join(dir, 'artifact.zip'),
+        ],
+        { encoding: 'utf8' }
+      );
+      expect(zipped.status, zipped.stderr).toBe(0);
+      writeFileSync(
+        join(dir, 'gh'),
+        `#!/usr/bin/env bash
+[ "\${GH_TOKEN:-}" = job-token ] || exit 1
+case "$*" in
+  *'/artifacts?name=dispatch-intents-1'*)
+    case "$ARTIFACTS" in
+      one) echo '{"artifacts":[{"id":7001,"name":"dispatch-intents-1","expired":false}]}' ;;
+      none) echo '{"artifacts":[]}' ;;
+      *) echo 'HTTP 502' >&2; exit 1 ;;
+    esac ;;
+  *'/actions/artifacts/7001/zip'*) cat "$FAKE_STATE/artifact.zip" ;;
+  *) echo "unexpected gh call: $*" >&2; exit 9 ;;
+esac
+`
+      );
+      chmodSync(join(dir, 'gh'), 0o755);
+      const step = stage.jobs['start-backup-as-estate-app'].steps.find((s) => s.id === 'decide');
+      const r = spawnSync('bash', ['-c', `sleep() { :; }\n${step?.run}`], {
+        encoding: 'utf8',
+        timeout: 60_000,
+        env: {
+          PATH: `${dir}:${process.env.PATH}`,
+          RUNNER_TEMP: dir,
+          FAKE_STATE: dir,
+          GITHUB_OUTPUT: join(dir, 'output'),
+          GITHUB_RUN_ID: '46000000000',
+          GITHUB_RUN_ATTEMPT: '1',
+          GH_TOKEN: 'job-token',
+          REPO: 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena',
+          RELEASE_DATE: '2026-11-27T13',
+          ARTIFACTS: scenario.artifacts,
+          OUT_DID_NOT_SEAL: scenario.outputs?.did_not_seal ?? '',
+          OUT_NONCE: scenario.outputs?.nonce ?? '',
+          OUT_BODY: scenario.outputs?.body ?? '',
+        },
+      });
+      let written = '';
+      try {
+        written = readFileSync(join(dir, 'output'), 'utf8');
+      } catch {
+        written = '';
+      }
+      const out = Object.fromEntries(
+        written
+          .trim()
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)])
+      ) as Record<string, string>;
+      return { status: r.status, log: `${r.stdout}\n${r.stderr}`, out, recorded };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('stage: with every job output dropped, the recorded intent alone decides, and gives the nonce and the exact body', async () => {
+    const r = await runDecide({ artifacts: 'one' });
+    expect(r.status, r.log).toBe(0);
+    expect(r.out.send).toBe('true');
+    expect(r.out.nonce).toBe(NONCE_HEX);
+    expect(JSON.parse(r.out.body)).toEqual(r.recorded);
+    expect(r.log).not.toContain('::warning');
+    // The send step takes its nonce and body from this step, not from a job output.
+    const send = stage.jobs['start-backup-as-estate-app'].steps[2];
+    expect(send.env?.INTENT_NONCE).toBe('${{ steps.decide.outputs.nonce }}');
+    expect(send.env?.DISPATCH_BODY).toBe('${{ steps.decide.outputs.body }}');
+    expect(JSON.stringify(send.env)).not.toMatch(
+      /needs\.next-candidate-after-cycle\.outputs\.(?:nonce|dispatch_body|did_not_seal)/
+    );
+  });
+
+  it('stage: a sealed cycle records no intent, so nothing is sent, whatever a stray output says', async () => {
+    const sealed = await runDecide({ artifacts: 'none' });
+    expect(sealed.status, sealed.log).toBe(0);
+    expect(sealed.out).toEqual({ send: 'false' });
+    expect(sealed.log).not.toContain('::warning');
+    // A nonce with no did_not_seal, or did_not_seal with no nonce, sends nothing.
+    for (const outputs of [
+      { nonce: NONCE_HEX },
+      { did_not_seal: 'true' },
+      { did_not_seal: 'false', nonce: NONCE_HEX },
+    ])
+      expect((await runDecide({ artifacts: 'none', outputs })).out.send).toBe('false');
+    // The mint and the send both wait on this step's answer.
+    const [, mint, send] = stage.jobs['start-backup-as-estate-app'].steps;
+    expect(mint.if).toBe("steps.decide.outputs.send == 'true'");
+    expect(send.if).toBe("steps.decide.outputs.send == 'true'");
+  });
+
+  it('stage: a record that cannot be read leaves the job outputs to decide, and says so when neither can', async () => {
+    const outputs = { did_not_seal: 'true', nonce: NONCE_HEX, body: '{"ref":"main"}' };
+    const viaOutputs = await runDecide({ artifacts: 'error', outputs });
+    expect(viaOutputs.status, viaOutputs.log).toBe(0);
+    expect(viaOutputs.out).toEqual({ send: 'true', nonce: NONCE_HEX, body: '{"ref":"main"}' });
+    const unknown = await runDecide({ artifacts: 'error' });
+    expect(unknown.status, unknown.log).toBe(0);
+    expect(unknown.out).toEqual({ send: 'false' });
+    expect(unknown.log).toContain('::warning title=KEEP-SERVING INTENT UNKNOWN::');
+    // A record for another cycle is not this cycle's intent.
+    const other = await runDecide({ artifacts: 'one', cycle: '2026-11-27T16' });
+    expect(other.out).toEqual({ send: 'false' });
+    expect(other.log).toContain('::warning title=RECORDED INTENT UNREADABLE::');
+    expect((await runDecide({ artifacts: 'one', cycle: '2026-11-27T16', outputs })).out.send).toBe(
+      'true'
+    );
+  });
+
+  it('stage: decided from the record with every output dropped, the send makes one App POST of the recorded body', async () => {
+    const decided = await runDecide({ artifacts: 'one' });
+    const dir = mkdtempSync(join(tmpdir(), 'estate-app-chain-'));
+    try {
+      writeFileSync(
+        join(dir, 'gh'),
+        `#!/usr/bin/env bash\nfor a in "$@"; do [ -f "$a" ] && { cp "$a" "${dir}/sent.json"; echo "$GH_TOKEN" >> "${dir}/posts"; }; done\nexit 1\n`
+      );
+      chmodSync(join(dir, 'gh'), 0o755);
+      const step = stage.jobs['start-backup-as-estate-app'].steps[2];
+      spawnSync('bash', ['-c', `sleep() { :; }\n${step.run}`], {
+        encoding: 'utf8',
+        timeout: 30_000,
+        env: {
+          PATH: `${dir}:${process.env.PATH}`,
+          RUNNER_TEMP: dir,
+          GITHUB_RUN_ID: '46000000000',
+          GITHUB_RUN_ATTEMPT: '1',
+          GH_TOKEN: 'job-token',
+          APP_TOKEN: 'app-token',
+          REPO: 'o/r',
+          RELEASE_DATE: '2026-11-27T13',
+          INTENT_NONCE: decided.out.nonce,
+          DISPATCH_BODY: decided.out.body,
+          REASON: 'did not seal',
+        },
+      });
+      expect(JSON.parse(readFileSync(join(dir, 'sent.json'), 'utf8'))).toEqual(decided.recorded);
+      expect(readFileSync(join(dir, 'posts'), 'utf8').trim().split('\n')[0]).toBe('app-token');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 
   it('stage: a recorded body GitHub dropped between the jobs is rebuilt as the body the intent record prints, and still sent', async () => {
     // @ts-expect-error untyped CI module

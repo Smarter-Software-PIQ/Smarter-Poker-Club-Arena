@@ -349,9 +349,9 @@ describe('a job token cannot start trusted work', () => {
     );
     const sender = stageJobs['start-backup-as-estate-app'];
     expect([sender.needs].flat()).toContain('next-candidate-after-cycle');
-    expect(String(sender.if)).toContain(
-      "needs.next-candidate-after-cycle.outputs.did_not_seal == 'true'"
-    );
+    // Gated on that job's result; its first step reads the published intent
+    // itself, so a job output GitHub drops cannot skip or fail the send.
+    expect(String(sender.if)).toContain("needs.next-candidate-after-cycle.result == 'success'");
     expect(String(sender.if)).not.toContain('always()');
     const sends = (sender.steps ?? []).map((st) => String(st.run ?? st.uses ?? ''));
     const sent = sends.findIndex((r) =>
@@ -362,9 +362,12 @@ describe('a job token cannot start trusted work', () => {
     expect(sent).toBeGreaterThan(-1);
     expect(sends.filter((r) => r.includes('/dispatches')).length).toBe(1);
     expect((sender.steps ?? [])[sent].env).toMatchObject({
-      DISPATCH_BODY: '${{ needs.next-candidate-after-cycle.outputs.dispatch_body }}',
-      INTENT_NONCE: '${{ needs.next-candidate-after-cycle.outputs.nonce }}',
+      DISPATCH_BODY: '${{ steps.decide.outputs.body }}',
+      INTENT_NONCE: '${{ steps.decide.outputs.nonce }}',
     });
+    expect(String((sender.steps ?? [])[0].run)).toContain(
+      'actions/runs/$GITHUB_RUN_ID/artifacts?name=$name&per_page=10'
+    );
     // No other job of the file can dispatch a workflow.
     for (const [name, job] of Object.entries(stageJobs)) {
       if (name === 'start-backup-as-estate-app') continue;

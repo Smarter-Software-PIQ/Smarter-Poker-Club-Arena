@@ -1557,10 +1557,17 @@ jobs:
             if send "$APP_TOKEN"; then
               SENDER='the estate App'
             else
-              # A refused or failed App POST. GitHub may still have accepted it,
-              # so look once before sending again: the intent is honoured once.
-              sleep 10
-              if [ -n "$(receiver || true)" ]; then
+              # A refused or failed App POST. GitHub may still have accepted it
+              # and list the run late, so look six times, five seconds apart,
+              # before sending again: the intent is honoured once, and a second
+              # run would go red for nothing.
+              seen=''
+              for _ in $(seq 1 6); do
+                sleep 5
+                seen=$(receiver || true)
+                [ -z "$seen" ] || break
+              done
+              if [ -n "$seen" ]; then
                 SENDER='the estate App'
                 echo '::warning title=ESTATE APP DISPATCH ANSWER LOST::GitHub answered the estate App dispatch with an error and started the receiver anyway; nothing is sent again.'
               else
