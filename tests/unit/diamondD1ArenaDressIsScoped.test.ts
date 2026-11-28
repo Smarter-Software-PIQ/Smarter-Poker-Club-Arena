@@ -71,3 +71,27 @@ describe('Earn Diamonds wears the arena workspace, scoped to its page', () => {
     expect(tabs).toContain("arena ? 'arena-switch' : styles.spinsTabs");
   });
 });
+
+describe('the Lightning entry wears the arena workspace, scoped to its page', () => {
+  const page = read('src/pages/LightningEntryPage.tsx');
+  const css = read('src/pages/LightningEntryPage.css');
+
+  it('every state sits in the arena root under the chrome mast; the card keeps its own art', () => {
+    expect(page).toContain('className="arena-workspace lightning-entry-page"');
+    expect(page).toContain('<ArenaWorkspaceHeader');
+    expect(page).toContain('className="arena-case arena-ops-case lightning-entry__case"');
+    expect(page).toContain('className="arena-switch arena-ops-keys arena-ops-primary"');
+    expect(page).toContain('<LightningCashEntryCard');
+    expect(page).not.toContain('<EmptyState');
+    expect(page).not.toContain('SpadeConsole');
+    // The route hook stays on one inner element, outside the mast.
+    expect(page.match(/\n\s+data-testid="lightning-entry"\n/g) ?? []).toHaveLength(1);
+  });
+
+  it('every rule in the page sheet sits under the page arena root', () => {
+    const all = selectors(css);
+    expect(all.length).toBeGreaterThan(3);
+    for (const s of all) expect(s.startsWith('.arena-workspace.lightning-entry-page')).toBe(true);
+    ownsNoNewDress(css);
+  });
+});

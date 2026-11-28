@@ -32,9 +32,19 @@ import { cashBuyInLabel } from '../lib/cashBuyIn';
  */
 import { freezeRefusalText, useEntryFreeze, withFreezeTime } from '../hooks/useEntryFreeze';
 import MaintenanceBreakBanner from '../components/common/MaintenanceBreakBanner';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { EmptyState } from '../components/common/EmptyState';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import '../components/ops/ArenaOps.css';
+import { formatPopupText } from '../utils/popupStyle';
 import { useToast } from '../components/common/Toast';
 import {
   fetchLightningClusterMeta,
@@ -410,30 +420,30 @@ export default function LightningEntryPage() {
 
   if (!validId) {
     return (
-      <div className="lightning-entry" data-testid="lightning-entry">
-        <EmptyState
+      <LightningShell>
+        <LightningState
           tone="error"
           eyebrow="Lightning"
           title="Game Unavailable"
           description="This Game Link Is Invalid. Open A Game From The Lobby."
           action={{ label: 'Return To Lobby', onClick: () => navigate('/') }}
         />
-      </div>
+      </LightningShell>
     );
   }
 
   if (phase.kind === 'resolving') {
     return (
-      <div className="lightning-entry" data-testid="lightning-entry" aria-busy="true">
+      <LightningShell busy>
         {slow ? <p className="lightning-entry__quiet">One Moment...</p> : null}
-      </div>
+      </LightningShell>
     );
   }
 
   if (phase.kind === 'failed') {
     return (
-      <div className="lightning-entry" data-testid="lightning-entry">
-        <EmptyState
+      <LightningShell>
+        <LightningState
           tone="error"
           eyebrow="Lightning"
           title="Game Unavailable"
@@ -441,7 +451,7 @@ export default function LightningEntryPage() {
           action={{ label: 'Try Again', onClick: () => setAttempt((n) => n + 1) }}
           secondaryAction={{ label: 'Return To Lobby', onClick: () => navigate('/') }}
         />
-      </div>
+      </LightningShell>
     );
   }
 
@@ -450,8 +460,8 @@ export default function LightningEntryPage() {
     const seatTableId = decision.seatTableId;
     const stillLightning = isLightningMode(meta?.clusterMode) && meta?.clusterMode === 'lightning';
     return (
-      <div className="lightning-entry" data-testid="lightning-entry">
-        <EmptyState
+      <LightningShell>
+        <LightningState
           eyebrow={stillLightning ? LIGHTNING_SEAT_WAITING_EYEBROW : LIGHTNING_ENDED_EYEBROW}
           title={meta?.name ?? 'Lightning'}
           description={stillLightning ? LIGHTNING_SEAT_WAITING_TEXT : LIGHTNING_ENDED_TEXT}
@@ -464,7 +474,7 @@ export default function LightningEntryPage() {
           }}
           secondaryAction={{ label: 'Return To Lobby', onClick: () => navigate('/') }}
         />
-      </div>
+      </LightningShell>
     );
   }
   const joinLabel = decision.kind === 'entry' ? decision.joinLabel : 'Join Game';
@@ -494,7 +504,7 @@ export default function LightningEntryPage() {
   /* At the device's limit, another Cluster's JOIN LIGHTNING is not offered. */
   const atLimit = lightning && !closed && !withinLimit;
   return (
-    <div className="lightning-entry" data-testid="lightning-entry">
+    <LightningShell>
       <MaintenanceBreakBanner />
       <LightningCashEntryCard
         title={meta?.name ?? 'Lightning'}
@@ -568,6 +578,83 @@ export default function LightningEntryPage() {
           bigBlind={buyIn.bigBlind || meta?.bigBlind || 0}
         />
       ) : null}
+    </LightningShell>
+  );
+}
+
+/**
+ * #SmarterDesign batch D1 (2026-11-28): the arena workspace root and its
+ * chrome mast around every state of the entry. The route's own hook
+ * (`data-testid="lightning-entry"`, aria-busy while it resolves) stays on the
+ * inner element, which still prints nothing while the answer is quick.
+ */
+function LightningShell({ busy, children }: { busy?: boolean; children?: ReactNode }) {
+  return (
+    <div className="arena-workspace lightning-entry-page">
+      <ArenaWorkspaceHeader
+        area="dashboard"
+        title="Lightning"
+        summary="Choose How Much To Buy In For And Lightning Seats You. You Never Pick A Table Or A Seat."
+      />
+      <div
+        className="lightning-entry"
+        data-testid="lightning-entry"
+        aria-busy={busy ? 'true' : undefined}
+      >
+        {children}
+      </div>
     </div>
+  );
+}
+
+interface LightningStateAction {
+  label: string;
+  onClick: () => void;
+}
+
+/**
+ * A state the entry cannot open from (a broken link, a failed read, a seat
+ * already held): one chrome case in the words EmptyState printed, the title
+ * alone naming it, its first key lit.
+ */
+function LightningState({
+  tone,
+  eyebrow,
+  title,
+  description,
+  action,
+  secondaryAction,
+}: {
+  tone?: 'error';
+  eyebrow: string;
+  title: string;
+  description: string;
+  action: LightningStateAction;
+  secondaryAction?: LightningStateAction;
+}) {
+  const titleId = useId();
+  return (
+    <section
+      className="arena-case arena-ops-case lightning-entry__case"
+      role={tone === 'error' ? 'alert' : 'status'}
+      aria-live={tone === 'error' ? 'assertive' : 'polite'}
+      aria-labelledby={titleId}
+    >
+      <h2 className="arena-section-title" aria-labelledby={titleId}>
+        <span id={titleId}>{formatPopupText(title)}</span>
+        <small>{formatPopupText(eyebrow)}</small>
+      </h2>
+      <p className="arena-ops-copy">{formatPopupText(description)}</p>
+      <div className="arena-switch arena-ops-keys arena-ops-primary">
+        <button type="button" onClick={action.onClick}>
+          {formatPopupText(action.label)}
+        </button>
+        {secondaryAction && (
+          <button type="button" onClick={secondaryAction.onClick}>
+            {formatPopupText(secondaryAction.label)}
+          </button>
+        )}
+      </div>
+    </section>
   );
 }
