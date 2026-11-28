@@ -9915,8 +9915,9 @@ export class GameServer {
                 format_contract: tournament.format_contract,
                 variant: String(tournament.variant ?? ''),
                 currentPlayers: tournament.current_players ?? 0,
-                // Keep regular prestart fields small; the complete funded plan
-                // continues through late registration instead of buying 100 up front.
+                // The planned field sizes the prestart field (owner 2026-11-17:
+                // the night's biggest event shows 100-200 before the gun, capped
+                // at 200); the rest of the funded plan arrives in late registration.
                 guaranteedPrize: Number(tournament.guaranteed_prize) || 0,
                 prizePool: Number((tournament as { prize_pool?: unknown }).prize_pool) || 0,
                 buyInPrizeShare: mttGuaranteeEntryAmount(tournament),

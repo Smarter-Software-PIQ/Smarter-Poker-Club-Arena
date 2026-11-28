@@ -1,4 +1,4 @@
-/** Owner November 1: paid MTTs build a small random field from T-60;
+/** Owner November 1: paid MTTs build a random field from T-60 (sized by the plan since November 17);
  * free entry events build hours ahead. Capacity and funding doors stay intact. */
 import { describe, it, expect } from 'vitest';
 import { mttPlannedField, mttPrestartPlan } from './mttHorseArrivalPlan.js';
@@ -70,7 +70,7 @@ function replay(isFree = false, over: Record<string, unknown> = {}) {
   return { current, counts };
 }
 
-describe('paid MTTs build a small field from an hour before start', () => {
+describe('paid MTTs build a guarantee-sized field from an hour before start', () => {
   it('opens the ordinary window at T-60, not T-10', () => {
     expect(MTT_PRESTART_RAMP_MS).toBe(HOUR);
     expect(mtt(HOUR + 1)).toBe(0);
@@ -81,7 +81,7 @@ describe('paid MTTs build a small field from an hour before start', () => {
     expect(mtt(11 * MIN)).toBeGreaterThan(0);
   });
 
-  it('trickles progressively closer to start instead of buying a hundred seats', () => {
+  it('trickles a no-guarantee event progressively closer to start', () => {
     const opening = curveAt(HOUR);
     const halfway = curveAt(30 * MIN);
     const closing = curveAt(1);
@@ -99,20 +99,30 @@ describe('paid MTTs build a small field from an hour before start', () => {
     }
   });
 
-  it('cannot turn a huge guarantee into a hundred prestart purchases', () => {
-    for (const guaranteedPrize of [0, 500, 20_000, 5_000_000]) {
-      const { current, counts } = replay(false, { guaranteedPrize, buyInPrizeShare: 1 });
+  it('scales a guaranteed field before start: small stays small, big shows 100-200 (owner 2026-11-17)', () => {
+    for (const guaranteedPrize of [0, 500]) {
+      const { current } = replay(false, { guaranteedPrize, buyInPrizeShare: 5 });
       expect(current).toBeGreaterThanOrEqual(32);
       expect(current).toBeLessThanOrEqual(48);
-      expect(counts.every((count) => count < 100)).toBe(true);
+    }
+    // Nightly 20K: 20,000 guaranteed at 35 - "100-200 HORSES ... WITHIN 10 MINUTES OF STARTING".
+    const nightly = replay(false, { guaranteedPrize: 20_000, buyInPrizeShare: 35 });
+    expect(nightly.current).toBeGreaterThanOrEqual(114);
+    expect(nightly.current).toBeLessThanOrEqual(200);
+    const atT10 = nightly.counts[Math.floor((HOUR - 10 * MIN) / MTT_PRESTART_TICK_MS) - 1];
+    expect(atT10).toBeGreaterThanOrEqual(90);
+    for (const guaranteedPrize of [5_000_000]) {
+      const { current } = replay(false, { guaranteedPrize, buyInPrizeShare: 1 });
+      expect(current).toBe(200);
     }
   });
 
-  it('uses the same small prestart choice despite different guarantees', () => {
+  it('a bigger guarantee never shows a smaller prestart field', () => {
     const ordinary = replay(false, { guaranteedPrize: 0, buyInPrizeShare: 5 });
     const guaranteed = replay(false, { guaranteedPrize: 1_000_000, buyInPrizeShare: 5 });
-    expect(ordinary.current).toBe(guaranteed.current);
+    expect(guaranteed.current).toBeGreaterThanOrEqual(ordinary.current);
     expect(ordinary.current).toBe(mttPrestartPlan(mttPlannedField(0, 5, ID), null, ID));
+    expect(guaranteed.current).toBe(200);
   });
 
   it('does not mistake a zero net prize share for a free entry', () => {
