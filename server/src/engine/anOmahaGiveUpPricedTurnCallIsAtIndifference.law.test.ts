@@ -14,6 +14,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { sliceStatement } from '../testHelpers/sourceWindow.js';
 import { enableBrainTelemetry, withDecisionFireScope } from './BrainTelemetry.js';
 import {
   OMAHA_EV_UNKNOWN_READ,
@@ -153,9 +154,8 @@ describe('LAW: the call on a give-up-priced turn bet is made at indifference', (
 
   it('source law: the indifference call reads no identity', () => {
     const src = readFileSync(join(__dirname, 'HorseOmahaFacingBetEv.ts'), 'utf8');
-    const i = src.indexOf('const atIndifference =');
-    expect(i).toBeGreaterThan(0);
-    expect(src.slice(i, i + 400)).not.toMatch(
+    expect(src.indexOf('const atIndifference =')).toBeGreaterThan(0);
+    expect(sliceStatement(src, 'const atIndifference =')).not.toMatch(
       /is_human|isHuman|is_bot|isBot|is_horse|user_id|username/
     );
   });
