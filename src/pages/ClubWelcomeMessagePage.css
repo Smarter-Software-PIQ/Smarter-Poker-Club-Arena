@@ -80,8 +80,9 @@
   container-type: inline-size;
   width: 100%;
   max-width: 760px;
-  /* Clear the page's "?" (PageBar), which sits above the case, top right. */
-  margin: 52px auto 0;
+  /* The "?" rides the chrome mast now (2026-11-28), so the case sits one
+     case gap under it instead of clearing the old PageBar's "?". */
+  margin: 7px auto 0;
 }
 .arena-workspace .club-welcome-console .club-welcome-body {
   padding: 0;
