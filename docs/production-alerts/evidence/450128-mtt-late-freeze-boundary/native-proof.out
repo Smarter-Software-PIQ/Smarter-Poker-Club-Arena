@@ -1,0 +1,5 @@
+A live shape   pre-fix: 1,0,301   post-fix: 0,0,0
+B post-thaw stall post-fix: 1,0,181
+C freeze after late bar post-fix: 1,0,301
+D unbounded freeze post-fix: 1,0,301
+native-proof: PASS
