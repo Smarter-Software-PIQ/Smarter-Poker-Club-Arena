@@ -182,4 +182,20 @@ export function enumToTitleCase(value: string | null | undefined): string {
   return titleCase(String(value).replace(/_/g, ' '));
 }
 
+/**
+ * Title Case a NAME somebody typed (a club, a union, a custom table name).
+ *
+ * A name typed in mixed case ("The Felt Society", "iPoker Nights") is how its
+ * owner spells it, and it prints exactly as typed. Only a name typed in one
+ * case, "KINGS CLUB" or "kings club", is put into Title Case, with the known
+ * acronyms (PLO, NLH, VIP ...) kept upper case. This replaces the CSS
+ * uppercase transform the table masthead used to carry (2026-11-28).
+ */
+export function titleCaseName(name: string | null | undefined): string {
+  if (!name) return '';
+  const typed = String(name);
+  if (/[a-z]/.test(typed) && /[A-Z]/.test(typed)) return stripEmDashes(typed);
+  return titleCase(typed.toLowerCase());
+}
+
 export default titleCase;

@@ -111,19 +111,19 @@ const TournamentAnnouncementOverlay: React.FC<TournamentAnnouncementProps> = ({
   const config: Record<string, { icon: string; title: string; subtitle: string; color: string }> = {
     hand_for_hand: {
       icon: 'H',
-      title: 'HAND FOR HAND',
+      title: 'Hand For Hand',
       subtitle: 'All Tables Play One Hand At A Time - Bubble Approaching!',
       color: '#d6ad52',
     },
     bubble_burst: {
       icon: 'W',
-      title: 'BUBBLE BURST!',
+      title: 'Bubble Burst!',
       subtitle: 'Congratulations - All Remaining Players Are In The Money!',
       color: '#3fb950',
     },
     final_table: {
       icon: 'FT',
-      title: 'FINAL TABLE',
+      title: 'Final Table',
       subtitle: `${data?.playersRemaining || 'All'} Players Remain - Final Table Begins!`,
       color: '#ffd700',
     },
@@ -144,13 +144,13 @@ const TournamentAnnouncementOverlay: React.FC<TournamentAnnouncementProps> = ({
        * `??` not `||`: a genuine 0 must not be laundered into 1, it must look
        * wrong so the indexing bug cannot hide again.
        */
-      title: `LEVEL ${data?.level ?? '-'}`,
+      title: `Level ${data?.level ?? '-'}`,
       subtitle: `Blinds: ${data?.smallBlind ?? '-'}/${data?.bigBlind ?? '-'}${data?.ante ? ` Ante: ${data.ante}` : ''}`,
       color: '#45adff',
     },
     bounty_collected: {
       icon: '◎',
-      title: data?.mode === 'pko' ? 'BOUNTY CLAIMED' : 'KNOCKOUT!',
+      title: data?.mode === 'pko' ? 'Bounty Claimed' : 'Knockout!',
       subtitle: (() => {
         // Title Case, like every other line on this overlay (popup law, Dan
         // 2026-08-20). These two dynamic lines were the only ones printed in
@@ -167,14 +167,14 @@ const TournamentAnnouncementOverlay: React.FC<TournamentAnnouncementProps> = ({
     },
     mystery_bounty_revealed: {
       icon: '◈',
-      title: 'MYSTERY BOUNTY!',
+      title: 'Mystery Bounty!',
       subtitle: (() => {
         const who = data?.knockerName || 'A Player';
         const victim = data?.playerName || data?.eliminatedName;
         const amt = data?.amount != null ? `${data.amount}` : 'A Mystery Prize';
         const big =
           data?.avgBounty && data?.amount && Number(data.amount) >= Number(data.avgBounty) * 3
-            ? ' - JACKPOT!'
+            ? ' - Jackpot!'
             : '';
         return victim
           ? `${who} Opened ${victim}'s Envelope: ${amt}${big}`
@@ -184,7 +184,7 @@ const TournamentAnnouncementOverlay: React.FC<TournamentAnnouncementProps> = ({
     },
     seven_deuce_bounty: {
       icon: '72',
-      title: 'SEVEN-DEUCE BOUNTY',
+      title: 'Seven-Deuce Bounty',
       subtitle: data?.winnerName
         ? `${data.winnerName} Won With 7-2 - Collected ${data?.amount ?? ''} From The Table`
         : `Won With 7-2 - Collected ${data?.amount ?? ''} From The Table`,

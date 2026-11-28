@@ -948,3 +948,45 @@ it('the worker accepts a version-2 own-history packet and learns from it', () =>
   expect(bank.receipt(next)).toMatchObject({ version: 2, history: 'own_public_window' });
   HorseMind.reset();
 });
+
+it('stores acknowledged serialized history payloads as off-heap UTF-8 Buffers while preserving exact retainedBytes and restart recovery (1e532243 Phase 5)', async () => {
+  const budget = new HorseHistoryRetentionBudget(HISTORY_PACKET_MAX_BYTES * 2, ampleHeap);
+  const cache = new HorseOwnPublicHistoryCache(
+    async () => window(),
+    () => 200,
+    2048,
+    budget
+  );
+  try {
+    expect(cache.forSnapshot(context(), 200)).toBeUndefined();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const original = cache.forSnapshot(context(), 200)!;
+    const expectedBytes = Buffer.byteLength(JSON.stringify(original), 'utf8');
+
+    cache.acknowledge(context(), original.digest);
+    expect(cache.status()).toMatchObject({
+      entries: 1,
+      decodedPacketCount: 0,
+      serializedPacketCount: 1,
+      acknowledgedCount: 1,
+      retainedSerializedUtf8Bytes: expectedBytes,
+    });
+    expect(budget.status().encodedBytes).toBe(expectedBytes);
+
+    // Verify internal retained payload is an off-heap Node Buffer, not a V8 heap string.
+    const internalEntries = (cache as unknown as { entries: Map<string, any> }).entries;
+    const retainedEntry = [...internalEntries.values()][0];
+    expect(retainedEntry.packet).toBeUndefined();
+    expect(Buffer.isBuffer(retainedEntry.serialized?.payload)).toBe(true);
+    expect(retainedEntry.serialized.payload.byteLength).toBe(expectedBytes);
+    expect(retainedEntry.serialized.json).toBeUndefined();
+
+    // Restart / eviction recovery (#9387): null ACK restores the exact original packet from the Buffer.
+    cache.acknowledge(context(), null);
+    const recovered = cache.forSnapshot(context(), 201)!;
+    expect(recovered).toEqual(original);
+    expect(ownPublicHistoryIsValid(recovered, context(), 201)).toBe(true);
+  } finally {
+    cache.dispose();
+  }
+});

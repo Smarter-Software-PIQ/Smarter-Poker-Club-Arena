@@ -508,7 +508,7 @@ describe('Item 9 - the level shown is the level being played', () => {
 
   it('the banner does not add its own offset, and does not launder a zero', () => {
     const src = code(read(ANNOUNCE));
-    expect(src).toMatch(/LEVEL \$\{data\?\.level \?\? '-'\}/);
+    expect(src).toMatch(/Level \$\{data\?\.level \?\? '-'\}/);
     expect(src).not.toMatch(/data\?\.level \|\| 1/);
   });
 

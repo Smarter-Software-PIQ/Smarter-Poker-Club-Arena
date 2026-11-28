@@ -156,6 +156,8 @@ interface ClaimedTournamentMoveBoundary {
   sourceMode: TournamentSeatMoveSourceMode;
   engine: ServerTableEngine | null;
   mixedTransferId?: string;
+  /** True only while already inside one executeTournamentMoveAtBoundary barrier for a distinct-destination wave. */
+  boundaryGuardEntered?: boolean;
 }
 
 interface PendingTournamentSeatMoveOutcome {
@@ -3795,16 +3797,17 @@ export class TournamentManager extends TournamentManagerEliminations {
     } catch {
       /* presence is a courtesy to the destination, never a precondition */
     }
-    return boundary.engine
-      .executeTournamentMoveAtBoundary(this.tournamentMoveBoundaryOwner, () =>
-        moveTournamentPlayerAtomically(input, { outcomeWasAlreadyUnknown })
-      )
-      .catch((error: unknown) => {
-        if (!(error instanceof TournamentSeatMoveOutcomeUnknownError)) {
-          withdrawTournamentMovePresence(input.userId, input.destinationTableId, input.requestId);
-        }
-        throw error;
-      });
+    const runMove = boundary.boundaryGuardEntered
+      ? moveTournamentPlayerAtomically(input, { outcomeWasAlreadyUnknown })
+      : boundary.engine.executeTournamentMoveAtBoundary(this.tournamentMoveBoundaryOwner, () =>
+          moveTournamentPlayerAtomically(input, { outcomeWasAlreadyUnknown })
+        );
+    return runMove.catch((error: unknown) => {
+      if (!(error instanceof TournamentSeatMoveOutcomeUnknownError)) {
+        withdrawTournamentMovePresence(input.userId, input.destinationTableId, input.requestId);
+      }
+      throw error;
+    });
   }
 
   /**
@@ -4953,6 +4956,30 @@ export class TournamentManager extends TournamentManagerEliminations {
   /** The zero-stack set last seen per table, so one bust reported twice counts once. */
   private readonly lastObservedBustKey = new Map<string, string>();
   private seatMoveBatchesInFlight = 0;
+  private boundaryPlanReprepareHandle: ReturnType<typeof setImmediate> | null = null;
+
+  /**
+   * Coalesce proactive boundary-plan re-preparation onto the next event-loop turn
+   * whenever balanceBoardEpoch advances while a fenced source still sits in its
+   * completion hold. Any synchronous park on the same turn still sees the stale
+   * epoch and reads fresh at the boundary; holds with remaining dwell get a fresh
+   * prepared plan before they park (incident 1e532243 Phase 5).
+   */
+  private scheduleBoundaryPlanReprepare(): void {
+    if (!this.running || this.boundaryPlanAwaitingPark.size === 0) return;
+    if (this.boundaryPlanReprepareHandle !== null) return;
+    this.boundaryPlanReprepareHandle = setImmediate(() => {
+      this.boundaryPlanReprepareHandle = null;
+      if (
+        !this.running ||
+        this.boundaryPlanAwaitingPark.size === 0 ||
+        this.preparedBoundaryPlan?.epoch === this.balanceBoardEpoch
+      ) {
+        return;
+      }
+      this.prepareBoundaryBalancePlan();
+    });
+  }
 
   protected override onManagedHandSettled(
     tableId: string,
@@ -4964,13 +4991,19 @@ export class TournamentManager extends TournamentManagerEliminations {
       .map((player) => player.user_id)
       .sort()
       .join(',');
+    let epochBumped = false;
     if (bustKey === '') this.lastObservedBustKey.delete(tableId);
     else if (this.lastObservedBustKey.get(tableId) !== bustKey) {
       this.lastObservedBustKey.set(tableId, bustKey);
       this.balanceBoardEpoch++;
+      epochBumped = true;
     }
-    if (!this.gapBalanceFencedSources.has(tableId) || this.tableEngines.get(tableId) !== engine)
+    if (!this.gapBalanceFencedSources.has(tableId) || this.tableEngines.get(tableId) !== engine) {
+      if (epochBumped && this.boundaryPlanAwaitingPark.size > 0) {
+        this.scheduleBoundaryPlanReprepare();
+      }
       return;
+    }
     this.boundaryPlanAwaitingPark.add(tableId);
     this.prepareBoundaryBalancePlan();
   }
@@ -5540,6 +5573,9 @@ export class TournamentManager extends TournamentManagerEliminations {
     ).finally(() => {
       this.seatMoveBatchesInFlight--;
       this.balanceBoardEpoch++;
+      if (this.boundaryPlanAwaitingPark.size > 0) {
+        this.scheduleBoundaryPlanReprepare();
+      }
     });
   }
 
@@ -5652,25 +5688,12 @@ export class TournamentManager extends TournamentManagerEliminations {
           });
         }
         const consumedPrefetchedDest = new Set<string>();
-        for (const move of sourceMoves) {
-          if (!this.eliminationMutationAllowed() || refusedSources.has(sourceTableId)) break;
-          // The chair is chosen at the door, not at planning time (2026-11-25).
-          // Late registrants and other movers fill the same destination
-          // between the snapshot and this request; a chair taken meanwhile
-          // is replaced by one that is free now. One definite "occupied"
-          // refusal (a clean rollback) gets one fresh read and a new request.
-          let chair: number | null;
-          if (prefetchedDoorTables !== undefined && !consumedPrefetchedDest.has(move.toTableId)) {
-            consumedPrefetchedDest.add(move.toTableId);
-            chair = this.pickDoorChairFromTables(move, prefetchedDoorTables);
-          } else {
-            chair = await this.chairFreeAtTheDoor(move);
-          }
-          if (chair === null) {
-            refusedSources.add(sourceTableId);
-            this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
-            break;
-          }
+        const executeMoveForSource = async (
+          move: MoveInstruction,
+          initialChair: number,
+          boundary: ClaimedTournamentMoveBoundary
+        ): Promise<void> => {
+          let chair = initialChair;
           let lostTheChair = false;
           for (let doorAttempt = 0; doorAttempt < 2; doorAttempt++) {
             const requestId = randomUUID();
@@ -5730,6 +5753,89 @@ export class TournamentManager extends TournamentManagerEliminations {
               }
               this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
               break;
+            }
+          }
+        };
+
+        // Partition sourceMoves into distinct-destination waves (incident 1e532243 Phase 5).
+        // Moves to distinct destinations execute in parallel under ONE source-boundary
+        // barrier, while repeated moves to the same destination stay strictly serialized
+        // across waves so each reads fresh chairs after the prior move commits.
+        const distinctDestWaves: MoveInstruction[][] = [];
+        for (const move of sourceMoves) {
+          let placed = false;
+          for (const wave of distinctDestWaves) {
+            if (!wave.some((existing) => existing.toTableId === move.toTableId)) {
+              wave.push(move);
+              placed = true;
+              break;
+            }
+          }
+          if (!placed) distinctDestWaves.push([move]);
+        }
+
+        for (const wave of distinctDestWaves) {
+          if (
+            !this.eliminationMutationAllowed() ||
+            refusedSources.has(sourceTableId) ||
+            retainedUnknownSources.has(sourceTableId)
+          )
+            break;
+          // The chair is chosen at the door, not at planning time (2026-11-25).
+          // Late registrants and other movers fill the same destination
+          // between the snapshot and this request; a chair taken meanwhile
+          // is replaced by one that is free now. One definite "occupied"
+          // refusal (a clean rollback) gets one fresh read and a new request.
+          const resolvedChairs = await Promise.all(
+            wave.map(async (move) => {
+              if (
+                prefetchedDoorTables !== undefined &&
+                !consumedPrefetchedDest.has(move.toTableId)
+              ) {
+                consumedPrefetchedDest.add(move.toTableId);
+                return { move, chair: this.pickDoorChairFromTables(move, prefetchedDoorTables) };
+              }
+              return { move, chair: await this.chairFreeAtTheDoor(move) };
+            })
+          );
+          if (!this.eliminationMutationAllowed()) break;
+
+          const readyWave: Array<{ move: MoveInstruction; chair: number }> = [];
+          for (const entry of resolvedChairs) {
+            if (entry.chair === null) {
+              refusedSources.add(sourceTableId);
+              this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
+              break;
+            }
+            readyWave.push({ move: entry.move, chair: entry.chair });
+          }
+
+          if (readyWave.length === 1) {
+            await executeMoveForSource(readyWave[0].move, readyWave[0].chair, boundary);
+          } else if (readyWave.length > 1) {
+            if (
+              boundary.engine &&
+              !boundary.mixedTransferId &&
+              typeof boundary.engine.executeTournamentMoveAtBoundary === 'function'
+            ) {
+              await boundary.engine.executeTournamentMoveAtBoundary(
+                this.tournamentMoveBoundaryOwner,
+                async () => {
+                  const waveBoundary: ClaimedTournamentMoveBoundary = {
+                    ...boundary,
+                    boundaryGuardEntered: true,
+                  };
+                  await Promise.all(
+                    readyWave.map(({ move, chair }) =>
+                      executeMoveForSource(move, chair, waveBoundary)
+                    )
+                  );
+                }
+              );
+            } else {
+              await Promise.all(
+                readyWave.map(({ move, chair }) => executeMoveForSource(move, chair, boundary))
+              );
             }
           }
           if (refusedSources.has(sourceTableId) || retainedUnknownSources.has(sourceTableId)) break;

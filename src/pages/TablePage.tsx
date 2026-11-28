@@ -246,6 +246,7 @@ import { hubMarketplaceDestination } from '../utils/hubMarketplace';
 import { cachedAuthUserId, hydrateIdentity, persistIdentity } from '../lib/cachedIdentity';
 import { formatGameTitle, formatTournamentTitle } from '../utils/formatGameTitle';
 import { customCashGameName } from '../utils/customCashGameName';
+import { titleCaseName } from '../utils/titleCase';
 import { totalBuyIn } from '../utils/buyIn';
 import { tournamentTabBuyInLabel } from '../lib/tournamentTabLabel';
 import {
@@ -9726,8 +9727,8 @@ function LiveTablePage({
        house default, now says nothing. `boardCount` remains the source, so a
        club that configures three still gets told. */
     const boards = bombPotRules?.boardCount ?? 0;
-    const prefix = boards >= 3 ? 'TRIPLE BOARD ' : '';
-    if (bombPotActive) return { text: `${prefix}BOMB POT`, state: 'live' };
+    const prefix = boards >= 3 ? 'Triple Board ' : '';
+    if (bombPotActive) return { text: `${prefix}Bomb Pot`, state: 'live' };
     /* WHY THE BOMB HAS NOT COME (2026-08-29). A due bomb waits for
        bomb_pot_min_players, and the engine held it in silence - the pill said
        BOMB POT NEXT HAND and the table then dealt ordinary hands, forever,
@@ -9735,18 +9736,18 @@ function LiveTablePage({
        truest thing the badge can say when it applies. */
     if (tableState.bombPotWaitingFor != null)
       return {
-        text: `BOMB POT WAITING FOR ${tableState.bombPotWaitingFor} PLAYERS`,
+        text: `Bomb Pot Waiting For ${tableState.bombPotWaitingFor} Players`,
         state: 'eta',
       };
     /* URGENCY IS NOT A STEADY STATE (2026-08-29): on a bomb_pot_only table the
        scheduler reports 1 forever, so 'next' - the pulsing state - must not be
        reachable here, or the badge pulses for the whole session. */
     if (bombPotRules?.triggerMode === 'bomb_pot_only')
-      return { text: `${prefix}BOMB POT ONLY`, state: 'eta' };
+      return { text: `${prefix}Bomb Pot Only`, state: 'eta' };
     if (bombClockLabel != null)
       return bombClockLabel === 'NEXT HAND'
-        ? { text: `${prefix}BOMB POT NEXT HAND`, state: 'next' }
-        : { text: `BOMB POT IN ${bombClockLabel}`, state: 'eta' };
+        ? { text: `${prefix}Bomb Pot Next Hand`, state: 'next' }
+        : { text: `Bomb Pot In ${bombClockLabel}`, state: 'eta' };
     /* THE ANNOUNCE WINDOW IS A HOST DECISION, AND IT WAS BEING TALKED OVER
        (2026-09-06). `bombClockLabel` returns null for TWO different reasons:
        this table has no timed bomb at all, or it has one and the host's
@@ -9757,11 +9758,11 @@ function LiveTablePage({
        matters more now that the line is permanent. A timed bomb inside its
        quiet window says nothing. */
     if (tableState.bombPotNextAt != null) return null;
-    if (tableState.bombPotIn === 1) return { text: `${prefix}BOMB POT NEXT HAND`, state: 'next' };
+    if (tableState.bombPotIn === 1) return { text: `${prefix}Bomb Pot Next Hand`, state: 'next' };
     /* Hands, said so (Dan 2026-09-05: inside the last three minutes a timed
        bomb is "IN 1-5 HANDS" and the clock is gone). */
     if (tableState.bombPotIn != null)
-      return { text: `BOMB POT IN ${tableState.bombPotIn} HANDS`, state: 'eta' };
+      return { text: `Bomb Pot In ${tableState.bombPotIn} Hands`, state: 'eta' };
     return null;
   }, [
     bombPotActive,
@@ -30878,12 +30879,16 @@ function LiveTablePage({
                         )}
                         <span className="table-brand__line table-brand__line--identity">
                           <span className="table-brand__club">
-                            <span className="table-brand__club-name">{tableState.clubName}</span>
+                            <span className="table-brand__club-name">
+                              {titleCaseName(tableState.clubName)}
+                            </span>
                             {tableState.unionName && (
                               <>
                                 {' '}
                                 {tableState.clubName ? ' - ' : ''}
-                                <span className="table-brand__union">{tableState.unionName}</span>
+                                <span className="table-brand__union">
+                                  {titleCaseName(tableState.unionName)}
+                                </span>
                               </>
                             )}
                           </span>
@@ -30965,13 +30970,15 @@ function LiveTablePage({
                                     now, and the one breakable space on the row sits between
                                     the two names, so a row too long for one line breaks
                                     club / union and never inside either. */}
-                            <span className="table-brand__club-name">{tableState.clubName}</span>
+                            <span className="table-brand__club-name">
+                              {titleCaseName(tableState.clubName)}
+                            </span>
                             {tableState.unionName && (
                               <>
                                 {tableState.clubName ? ' ' : ''}
                                 <span className="table-brand__union">
                                   {tableState.clubName ? '· ' : ''}
-                                  {tableState.unionName}
+                                  {titleCaseName(tableState.unionName)}
                                 </span>
                               </>
                             )}
@@ -31020,7 +31027,7 @@ function LiveTablePage({
                       {customCashGameName(tableState.tableName) && (
                         <span className="table-brand__line table-brand__line--level">
                           <MastheadGameLine className="table-brand__game">
-                            {customCashGameName(tableState.tableName)}
+                            {titleCaseName(customCashGameName(tableState.tableName))}
                           </MastheadGameLine>
                         </span>
                       )}

@@ -640,8 +640,12 @@
    IS NOT A APPROVED COLOR". Green and red stay where they mean a real result
    (the all-in won/lost figures above). Off a console nothing here applies.
    ═══════════════════════════════════════════════════════════════════════════ */
+/* The column key (Player / Action / Amount / Stack) is silver support ink:
+   #9fbacc on the console's lightest navy (#12273b) is 7.5:1, well above 4.5:1.
+   Off the skin it is a 0.32 white wash, too faint to read on navy. */
 .sc--sd .hdv__colkey {
   color: #9fbacc;
+  font-weight: 600;
 }
 .sc--sd .hdv__pos {
   border: 1px solid rgba(116, 223, 255, 0.42);
