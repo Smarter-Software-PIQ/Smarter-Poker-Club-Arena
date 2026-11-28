@@ -1285,6 +1285,13 @@
       "prefixes": ["omaha_hidden_give_up_"],
       "unlessOn": []
     },
+    "omahaRiverBetPriorIsPotTypeSplit": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_river_pot_prior_"],
+      "unlessOn": []
+    },
     "omahaFacingBetFieldIsJoint": {
       "releaseDefault": "off",
       "source": "declared",
