@@ -9,13 +9,14 @@ import { isThrowableEventId } from '../throwables/identity';
  * and reaction message parsing for TableReactions.
  */
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { triggerHaptic } from '../services/HapticService';
 import { masterBus } from '../core/MasterBus';
 import { soundService } from '../services/SoundService';
 import type { ChatMessage } from '../components/table/TableChat';
 import { reportError } from '../utils/errorReporter';
+import { PLAYER_NAME_COLUMNS, playerDisplayName } from '../utils/playerDisplayName';
 
 // Reaction event type (shared with TableReactions)
 export interface ReactionEvent {
@@ -35,6 +36,57 @@ const REACTION_LIFETIME_MS = 2500;
 const RATE_LIMIT_MS = 1000;
 /** How long a message that failed to send stays visible before it is removed. */
 const FAILED_MESSAGE_LINGER_MS = 4000;
+/** Shown only when a sender's public name genuinely cannot be read. */
+const UNREADABLE_SENDER_NAME = 'Player';
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════
+ *  A CHAT LINE NAMES ITS SENDER WHEN IT IS READ, NOT WHEN IT ARRIVES
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ * 2026-11-28: every line in Table Chat said "Player" (avatar "P") at a table
+ * full of named seats. The name was looked up ONCE, in the seat list, at the
+ * moment the row arrived, and `|| 'Player'` was frozen into the message:
+ *
+ *  - history loads before the seat list does, so every historical line found
+ *    no seat and kept "Player" for ever;
+ *  - a sender who has left the table, or an observer who chatted, is never in
+ *    the seat list, so their lines were "Player" from the start.
+ *
+ * A PLAYER line now keeps only `playerId`. Its name is resolved here, on every
+ * read: the current seat name first (so it fills in the moment seats arrive),
+ * then the sender's public handle read once from `profiles` with the same
+ * public columns and resolver every other surface uses (PLAYER_NAME_COLUMNS,
+ * playerDisplayName 'arena': alias -> username, never a real name). The
+ * neutral label is used only when that read failed or found no row.
+ *
+ * Horses are players: a horse is named exactly like anyone else, by its seat
+ * or its profile. Nothing here reads is_horse.
+ */
+export function resolveChatSenderNames(
+  messages: ReadonlyArray<ChatMessage>,
+  players: ReadonlyArray<{ id?: string; name?: string } | null | undefined>,
+  profileNames: ReadonlyMap<string, string | null>
+): ChatMessage[] {
+  const seatNames = new Map<string, string>();
+  for (const p of players) {
+    const name = typeof p?.name === 'string' ? p.name.trim() : '';
+    if (p?.id && name) seatNames.set(p.id, name);
+  }
+  let changed = false;
+  const resolved = messages.map((m) => {
+    if (m.type !== 'PLAYER' || !m.playerId) return m;
+    const name =
+      seatNames.get(m.playerId) ||
+      profileNames.get(m.playerId) ||
+      m.playerName ||
+      UNREADABLE_SENDER_NAME;
+    if (name === m.playerName) return m;
+    changed = true;
+    return { ...m, playerName: name };
+  });
+  return changed ? resolved : (messages as ChatMessage[]);
+}
 
 // ── Basic profanity filter (client-side, additive safety net) ──
 const PROFANITY_LIST = [
@@ -250,7 +302,8 @@ export function useTableChat(
       if (data) {
         for (const m of data as any[]) if (m?.id) shownRowIds.add(String(m.id));
         const formatted = data.reverse().map((m: any) => {
-          const pName = playersRef.current.find((p) => p && p.id === m.user_id)?.name || 'Player';
+          // No name is frozen here: the seat list may not have arrived yet.
+          // resolveChatSenderNames names the line on every read.
           return {
             id: m.id,
             type: (m.message_type === 'dealer'
@@ -259,10 +312,9 @@ export function useTableChat(
                 ? 'SYSTEM'
                 : 'PLAYER') as 'DEALER' | 'SYSTEM' | 'PLAYER',
             playerId: m.user_id,
-            playerName: pName,
             content: m.message,
             timestamp: new Date(m.created_at),
-          };
+          } as ChatMessage;
         });
         setChatMessages((previous) => {
           if (!isMounted) return previous;
@@ -335,7 +387,6 @@ export function useTableChat(
           return true;
         });
 
-        const pName = playersRef.current.find((p) => p && p.id === m.user_id)?.name || 'Player';
         const newMsg: ChatMessage = {
           id: m.id,
           type: (m.message_type === 'dealer'
@@ -344,7 +395,6 @@ export function useTableChat(
               ? 'SYSTEM'
               : 'PLAYER') as 'DEALER' | 'SYSTEM' | 'PLAYER',
           playerId: m.user_id,
-          playerName: pName,
           content: m.message,
           timestamp: new Date(m.created_at),
         };
@@ -584,7 +634,6 @@ export function useTableChat(
       const cleanMessage = censorMessage(message);
 
       const tempId = `msg_${now}`;
-      const pName = players.find((p) => p && p.id === userId)?.name || 'Player';
 
       // Optimistically add to local state
       setChatMessages((prev) => [
@@ -593,7 +642,6 @@ export function useTableChat(
           id: tempId,
           type: 'PLAYER' as const,
           playerId: userId,
-          playerName: pName,
           content: cleanMessage,
           timestamp: new Date(),
         },
@@ -628,11 +676,76 @@ export function useTableChat(
         markFailed(tempId);
       }
     },
-    [tableId, userId, players, markFailed]
+    [tableId, userId, markFailed]
+  );
+
+  /* Public names of senders who are not in the seat list (left the table, or
+     observed and chatted), read once per table session and held in memory
+     only. `null` records a read that failed or found no row: the line then
+     shows the neutral label, and the read is not repeated in a loop. */
+  const [profileNames, setProfileNames] = useState<ReadonlyMap<string, string | null>>(
+    () => new Map()
+  );
+  const profileNamesTableRef = useRef(tableId);
+  const profileReadsRef = useRef<Set<string>>(new Set());
+  if (profileNamesTableRef.current !== tableId) {
+    profileNamesTableRef.current = tableId;
+    profileReadsRef.current = new Set();
+  }
+  useEffect(() => {
+    setProfileNames(new Map());
+  }, [tableId]);
+
+  const unseatedSenderIds = useMemo(() => {
+    const seated = new Set<string>();
+    for (const p of players) {
+      if (p?.id && typeof p.name === 'string' && p.name.trim()) seated.add(p.id);
+    }
+    const ids = new Set<string>();
+    for (const m of chatMessages) {
+      if (m.type === 'PLAYER' && m.playerId && !seated.has(m.playerId)) ids.add(m.playerId);
+    }
+    return [...ids].sort();
+  }, [chatMessages, players]);
+
+  useEffect(() => {
+    const wanted = unseatedSenderIds.filter((id) => !profileReadsRef.current.has(id));
+    if (!tableId || wanted.length === 0) return;
+    for (const id of wanted) profileReadsRef.current.add(id);
+    const readForTable = tableId;
+    void (async () => {
+      const names = new Map<string, string | null>(wanted.map((id) => [id, null]));
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select(`id, ${PLAYER_NAME_COLUMNS}`)
+          .in('id', wanted);
+        if (error) reportError(error, 'useTableChat.senderNames');
+        else if (Array.isArray(data)) {
+          for (const row of data as Array<Record<string, unknown>>) {
+            const id = typeof row?.id === 'string' ? row.id : '';
+            if (id && names.has(id)) names.set(id, playerDisplayName(row as any, 'arena'));
+          }
+        }
+      } catch (error) {
+        reportError(error, 'useTableChat.senderNames');
+      }
+      if (profileNamesTableRef.current !== readForTable) return;
+      setProfileNames((previous) => {
+        const next = new Map(previous);
+        for (const [id, name] of names) next.set(id, name);
+        return next;
+      });
+    })();
+  }, [tableId, unseatedSenderIds]);
+
+  const namedChatMessages = useMemo(
+    () => resolveChatSenderNames(chatMessages, players, profileNames),
+    [chatMessages, players, profileNames]
   );
 
   return {
-    chatMessages,
+    chatMessages: namedChatMessages,
     setChatMessages,
     isChatCollapsed,
     setIsChatCollapsed,
