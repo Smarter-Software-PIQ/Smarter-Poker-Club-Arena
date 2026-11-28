@@ -75,6 +75,12 @@ for (const w of widthsArg.split(',').map(Number)) {
     const path = route.startsWith('/') ? route : `/clubs/kings-club/${route}`;
     await page.goto(`${base}/hub/club-arena${path}`, { waitUntil: 'load', timeout: 90000 });
     await settle(page);
+    // A page whose reads retry before they answer (the Profile page) can
+    // settle on its spinner; SHOT_WAIT_MS holds the capture a little longer.
+    if (process.env.SHOT_WAIT_MS) {
+      await page.waitForTimeout(Number(process.env.SHOT_WAIT_MS));
+      await settle(page);
+    }
     const h = await page.evaluate(() =>
       Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)
     );
