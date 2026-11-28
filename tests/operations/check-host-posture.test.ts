@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
@@ -387,6 +395,14 @@ echo "sha256:abcd"
     const daemonPath = join(dir, 'daemon.json');
     try {
       mkdirSync(binDir, { recursive: true });
+      // Hermetic PATH: expose ONLY real bash + python3 plus our stubs so host
+      // /usr/bin/chronyc on Ubuntu CI runners never shadows the timedatectl path.
+      const bashBin = spawnSync('which', ['bash'], { encoding: 'utf8' }).stdout.trim();
+      const pythonBin = spawnSync('which', ['python3'], { encoding: 'utf8' }).stdout.trim();
+      expect(bashBin.length).toBeGreaterThan(0);
+      expect(pythonBin.length).toBeGreaterThan(0);
+      symlinkSync(bashBin, join(binDir, 'bash'));
+      symlinkSync(pythonBin, join(binDir, 'python3'));
       writeFileSync(
         daemonPath,
         JSON.stringify({
@@ -427,36 +443,39 @@ if [[ "$1" == "show" ]]; then
   echo "yes"
   exit 0
 fi
-echo "Server: 169.254.169.123"
-echo "${offsetLine}"
+echo "       Server: 169.254.169.123"
+echo "       ${offsetLine}"
 exit 0
 `,
           'utf8'
         );
         chmodSync(join(binDir, 'timedatectl'), 0o755);
-        const res = spawnSync('bash', [SCRIPT, '--local', '--daemon-json', daemonPath], {
+        const res = spawnSync(bashBin, [SCRIPT, '--local', '--daemon-json', daemonPath], {
           encoding: 'utf8',
           env: {
             ...process.env,
-            PATH: `${binDir}:/usr/bin:/bin:/opt/homebrew/bin`,
+            PATH: binDir,
           },
         });
-        return { status: res.status, parsed: JSON.parse(res.stdout) };
+        return { status: res.status, parsed: JSON.parse(res.stdout), stderr: res.stderr };
       };
 
       const minSkew = runWithTimesync('Offset: 1min 2.345s');
-      expect(minSkew.status).toBe(1);
+      expect(minSkew.status, minSkew.stderr).toBe(1);
+      expect(minSkew.parsed.checks.clockSkew.source).toBe('timedatectl');
       expect(minSkew.parsed.checks.clockSkew.ok).toBe(false);
       expect(minSkew.parsed.checks.clockSkew.unreadable).toBe(false);
       expect(minSkew.parsed.checks.clockSkew.skewMs).toBe(62345);
 
       const hourSkew = runWithTimesync('Offset: -1h 2min 3s');
-      expect(hourSkew.status).toBe(1);
+      expect(hourSkew.status, hourSkew.stderr).toBe(1);
+      expect(hourSkew.parsed.checks.clockSkew.source).toBe('timedatectl');
       expect(hourSkew.parsed.checks.clockSkew.ok).toBe(false);
       expect(hourSkew.parsed.checks.clockSkew.skewMs).toBe(3723000);
 
       const unparseable = runWithTimesync('Offset: 2days 5s');
-      expect(unparseable.status).toBe(3);
+      expect(unparseable.status, unparseable.stderr).toBe(3);
+      expect(unparseable.parsed.checks.clockSkew.source).toBe('timedatectl');
       expect(unparseable.parsed.checks.clockSkew.ok).toBe(false);
       expect(unparseable.parsed.checks.clockSkew.unreadable).toBe(true);
     } finally {
