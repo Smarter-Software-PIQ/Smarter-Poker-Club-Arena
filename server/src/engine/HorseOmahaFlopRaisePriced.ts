@@ -9,9 +9,10 @@
  *
  * WHAT IT DOES. PLO4/PLO5 cash, high only, one board, no bomb pot, the flop, heads-up, facing a wager, where the rule
  * chain's answer is a RAISE: the raise is priced at each candidate raise-to (the legal minimum, the chain's own size,
- * half way to the pot raise and the pot raise) beside the call and the fold, against the bettor's MEASURED flop range
- * (HorseOmahaMeasuredBettorRange: the shown strength of a player who made this street's wager on his line and size,
- * showdown bias corrected; his own shown record shrunk toward it). RAISE OR NOT: the call (or the fold) replaces the
+ * half way to the pot raise and the pot raise) beside the call and the fold, against the bettor's flop range priced
+ * from PEOPLE's play and his own record only (2026-11-27, omahaFlopRaisePeopleRange: his value region plus the
+ * people-only measured non-value share; before, the pooled HorseOmahaMeasuredBettorRange table of every player's
+ * shown wagers, mostly Horse play). RAISE OR NOT: the call (or the fold) replaces the
  * raise only when it prices above it by more than the equity estimate's error. WHICH SIZE (2026-11-26): when the raise
  * stays, the sizes are compared with each other on the same footing, the same equity sample with no realization
  * discount between two raises and no margin, among the sizes that survive the raise-or-not question. It never makes a
@@ -35,10 +36,14 @@ import { omahaNoCategoricalRulesInScope } from './HorseOmahaNoCategoricalRules.j
 import {
   OMAHA_MEASURED_BIN_EDGES,
   OMAHA_MEASURED_BINS,
-  omahaMeasuredBettorRange,
-  omahaMeasuredLineOf,
   type OmahaMeasuredRecord,
 } from './HorseOmahaMeasuredBettorRange.js';
+import { omahaFlopFacingBetEvSpot } from './HorseOmahaFlopFacingBetEv.js';
+import {
+  omahaFlopPeoplePriorShare,
+  type OmahaPeoplePriorShare,
+} from './HorseOmahaFacingBetPeoplePrior.js';
+import { omahaFlopPressureCapRegion } from './HorseOmahaFlopPressureCapPriced.js';
 import {
   OMAHA_FAST_PAIR_STRIDE,
   omahaFastCard,
@@ -272,6 +277,58 @@ export function omahaFlopRaisePrice(
   return { eq, rows, best, margin };
 }
 
+/**
+ * THE BETTOR'S RANGE, PEOPLE-ONLY (2026-11-27, lead-8 W8; Dan's order of 2026-11-26 12:21 PM: every population
+ * statistic or prior a Horse decision is priced on is measured from people's play only). Until this change the range
+ * was HorseOmahaMeasuredBettorRange's pooled table (every player's shown flop wagers, Nov 17-24: 113,115 hands, most
+ * of them Horse-only), so Horse play fed the price. Now, exactly as omahaFlopPressureCapIsPriced (which is live):
+ *   his value region  the strongest V of holdings, V the flop verdict's own value share for this bet and line
+ *                     (HorseOmahaFlopFacingBetEv.omahaFlopFacingBetEvSpot), narrowed by his own shown flop bets where
+ *                     they are tighter than people's (omahaFlopPressureCapRegion; a raise faced: no record);
+ *   his other holdings a share q of every holding weaker than V, q the PEOPLE-ONLY flop non-value share for the size
+ *                     and line (omahaFlopPeoplePriorShare: people's shown flop bets, blended toward the balanced share
+ *                     for the price at 30 pseudo-bets, moved by his own shown flop bets).
+ * As a histogram on the measured bins (strength = the share of holdings that beat a hand, so holdings are uniform on
+ * it): (1 - q) spread evenly over [0, V], q evenly over [V, 1]. Evidence order: his own record, then people, then the
+ * equilibrium anchor where the people cell is thin. Identity never enters.
+ */
+export function omahaFlopRaisePeopleRange(
+  potFrac: number,
+  isRaise: boolean,
+  valueShare: number,
+  paid: number,
+  winnable: number,
+  rake: number,
+  final: boolean,
+  record: OmahaMeasuredRecord | null
+): { hist: number[]; prior: OmahaPeoplePriorShare; valueShare: number } | null {
+  if (!fin(potFrac) || !fin(valueShare) || !(valueShare > 0) || !(valueShare < 1)) return null;
+  const rec = isRaise ? null : record;
+  const prior = omahaFlopPeoplePriorShare({
+    potFrac,
+    isRaise,
+    multiway: false,
+    paid,
+    winnable,
+    rake,
+    final,
+    record: rec,
+  });
+  if (!prior || !fin(prior.share)) return null;
+  const V = isRaise ? valueShare : omahaFlopPressureCapRegion(valueShare, potFrac, rec);
+  if (!(V > 0) || !(V < 1)) return null;
+  const q = clamp(prior.share, 0, 1);
+  const hist = new Array<number>(OMAHA_MEASURED_BINS).fill(0);
+  for (let i = 0; i < OMAHA_MEASURED_BINS; i++) {
+    const a = OMAHA_MEASURED_BIN_EDGES[i];
+    const b = OMAHA_MEASURED_BIN_EDGES[i + 1];
+    const inValue = Math.max(0, Math.min(b, V) - a);
+    const inOther = Math.max(0, b - Math.max(a, V));
+    hist[i] = ((1 - q) * inValue) / V + (q * inOther) / (1 - V);
+  }
+  return { hist, prior, valueShare: V };
+}
+
 export interface OmahaFlopRaiseResult {
   decision: HorseDecision;
   changed: 'resized' | 'called' | 'folded' | null;
@@ -304,18 +361,19 @@ export function omahaFlopRaisePricedRule(
   try {
     const spot = omahaFlopRaiseSpot(hero, gs);
     if (!spot) return same;
-    const variant = String(gs.gameVariant ?? '').toLowerCase();
-    const line = omahaMeasuredLineOf(
-      gs.actionHistory as never,
-      'flop',
-      spot.opponent.seat,
-      spot.isRaiseFaced
+    // The bettor's range from people's play and his own record only (omahaFlopRaisePeopleRange).
+    const spotF = omahaFlopFacingBetEvSpot(hero, gs);
+    if (!spotF || spotF.callers + spotF.allIns + spotF.behind !== 0) return same;
+    const range = omahaFlopRaisePeopleRange(
+      spotF.potFrac,
+      spotF.isRaise,
+      spotF.valueShare,
+      spotF.paid,
+      spotF.winnable,
+      rake,
+      spotF.final,
+      record
     );
-    const range = omahaMeasuredBettorRange(variant, 'flop', line, spot.potFrac, 'hu', {
-      record,
-      readFactor: 1,
-      minDefence: false,
-    });
     if (!range) return same;
     const bins = omahaFlopRaiseBinEquity(
       hero.cards,

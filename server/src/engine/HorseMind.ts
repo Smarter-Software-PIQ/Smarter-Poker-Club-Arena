@@ -3577,6 +3577,33 @@ export class HorseMind {
     };
     return { foldSmall: fold('small'), foldBig: fold('big') };
   }
+  /**
+   * HOLD'EM TURN FIRST-WAGER RECORD (holdemTurnBluffIsPricedOnPeople, default off): one opponent's lifetime public
+   * first answers to a heads-up NLH turn first wager, by size cell (small = at most 0.7 pot, big = above it), from the
+   * same provider (OPPONENT-HUD's t.fb.sm.hu / t.fb.bg.hu). Counts only; the consumer shrinks them. Null fields with
+   * no provider, no record, or on any provider error. Pure. One function for every opponent.
+   */
+  static holdemTurnFirstWagerFoldRecordOf(userId: string): {
+    foldSmall: { folds: number; opps: number } | null;
+    foldBig: { folds: number; opps: number } | null;
+  } {
+    const provider = this.omahaLifetimeStreetRecords;
+    if (!provider) return { foldSmall: null, foldBig: null };
+    const fold = (size: 'small' | 'big') => {
+      try {
+        const r = provider.firstWagerFoldRecord?.(userId, 'nlh', 'turn', 'hu', size);
+        if (!r) return null;
+        const folds = Number(r.folds);
+        const opps = Number(r.opps);
+        if (!Number.isFinite(folds) || !Number.isFinite(opps) || !(opps > 0) || folds < 0)
+          return null;
+        return { folds: Math.min(folds, opps), opps };
+      } catch {
+        return null;
+      }
+    };
+    return { foldSmall: fold('small'), foldBig: fold('big') };
+  }
   /** His bet rate on the decision's street (omahaReadIsByStreetAndTexture on), or `pooledRate` itself. */
   private static omahaReadByStreetBetRate(userId: string, pooledRate: number): number {
     const byStreet = omahaReadByStreetNow();

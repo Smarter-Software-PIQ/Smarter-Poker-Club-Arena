@@ -412,7 +412,35 @@ export function varietyDrainTable<T extends DrainTable>(
 export function varietyDrainTables<T extends DrainTable>(
   input: VarietyDrainManyInput<T>
 ): string[] {
-  if (input.owedGames.length === 0) return [];
+  return varietyDrainDecision(input).tables;
+}
+
+/**
+ * Why a decided owed cycle released what it did (2026-11-27). On the 1 AM CST
+ * seal the drain released nothing for ten hours while 18 games were owed, and
+ * the heartbeat could not say why: it took hand history to show that no game
+ * had a second occupied table. The beat now carries the reason itself.
+ *   nothing_owed    no owed start
+ *   room_free       the cap has a free slot (or the room is unknown): emptying a table frees nothing
+ *   no_extra_table  no game has a Horse-only extra table that may be released
+ *   covered         the tables already being released cover the shortfall
+ *   paced           a new table waits for the rotator's pace (one per cycle)
+ *   kept            the tables already being released are kept, none added
+ *   released        a new table was added this cycle
+ */
+export type VarietyDrainWhy =
+  | 'nothing_owed'
+  | 'room_free'
+  | 'no_extra_table'
+  | 'covered'
+  | 'paced'
+  | 'kept'
+  | 'released';
+
+export function varietyDrainDecision<T extends DrainTable>(
+  input: VarietyDrainManyInput<T>
+): { tables: string[]; why: VarietyDrainWhy } {
+  if (input.owedGames.length === 0) return { tables: [], why: 'nothing_owed' };
   const currentSet = new Set(input.current);
   const kept: string[] = [];
   const owed = new Set(input.owedGames);
@@ -476,8 +504,21 @@ export function varietyDrainTables<T extends DrainTable>(
     const n = input.seatedAt(id);
     return Number.isFinite(n) && n > 0;
   }).length;
-  if (candidates.length === 0 || stillSeated >= input.shortfall || input.mayAddNew === false)
-    return kept;
+  if (candidates.length === 0 || stillSeated >= input.shortfall || input.mayAddNew === false) {
+    const why: VarietyDrainWhy =
+      input.shortfall <= 0
+        ? kept.length > 0
+          ? 'kept'
+          : 'room_free'
+        : stillSeated >= input.shortfall
+          ? 'covered'
+          : candidates.length === 0
+            ? kept.length > 0
+              ? 'kept'
+              : 'no_extra_table'
+            : 'paced';
+    return { tables: kept, why };
+  }
   const owing = (x: T) => {
     const n = input.owingAt?.(String(x.id)) ?? 0;
     return Number.isFinite(n) && n > 0 ? n : 0;
@@ -489,7 +530,7 @@ export function varietyDrainTables<T extends DrainTable>(
       String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')) ||
       String(a.id).localeCompare(String(b.id))
   );
-  return [...kept, candidates[0].id];
+  return { tables: [...kept, candidates[0].id], why: 'released' };
 }
 
 /**

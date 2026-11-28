@@ -14,8 +14,12 @@
 //                                  prior, people's own folds or minimum defence; says if the cell's fix is ON)
 //   horse-overfold-fix-validation.mjs (one run per owner-map option whose switch is ON: BEFORE vs AFTER its ON
 //                                  instant on the cells it owns; VALIDATED / NOT YET / REGRESSED per cell)
+//   horse-overfold-scoreboard.mjs  (the live board: every PLO4/PLO5 Horse fold facing a bet, raise or check-raise,
+//                                  table and Lightning apart, facing a person or a Horse, against break-even and
+//                                  the people ceiling; gates only person cells the alarm does not already own)
 // and writes one dated folder with every tool's own output and a one-page SUMMARY.md.
 import { cellTable, foldThroughTable } from './horse-plo-overfold-gate-lib.mjs';
+import { boardTable } from './horse-overfold-scoreboard-lib.mjs';
 
 export const RANGE_HOURS = 24;
 /** Two boundaries closer than this are one (a cutover starts the engine and its standby minutes apart). */
@@ -141,6 +145,12 @@ export function planRuns(sinceMs, untilMs, splits, onOptions = []) {
       args: [...range, '--json'],
       out: 'plo-overfold.json',
     },
+    {
+      name: 'overfold-scoreboard',
+      script: 'horse-overfold-scoreboard.mjs',
+      args: [...range, '--json'],
+      out: 'overfold-scoreboard.json',
+    },
     ...onOptions.map((option) => ({
       name: `overfold-fix-validation-${option}`,
       script: 'horse-overfold-fix-validation.mjs',
@@ -202,6 +212,14 @@ export function exitMeaning(name, code) {
         'not ON (nothing to validate)',
       ][code] ?? `exit ${code}`
     );
+  if (name === 'overfold-scoreboard')
+    return (
+      [
+        'clean facing people',
+        'FINDING (Horses fold above break-even or the people ceiling facing a person)',
+        'no person cell has 20 decisions (Horse-only board: information)',
+      ][code] ?? `exit ${code}`
+    );
   if (name === 'plo-overfold')
     return (
       [
@@ -215,6 +233,8 @@ export function exitMeaning(name, code) {
 
 export const OVERFOLD_HEADING =
   "## Over-Fold Gate (PLO4, PLO5, Hold'em cash and tournaments; flop, turn, river; facing a person's first bet)";
+export const SCOREBOARD_HEADING =
+  '## Over-Fold Scoreboard (PLO4, PLO5 cash; table and Lightning; facing a bet, raise or check-raise; people and Horses)';
 const n1 = (x) => (typeof x === 'number' && Number.isFinite(x) ? x.toFixed(1) : '-');
 const arr = (x) => (Array.isArray(x) ? x : []);
 const pc1 = (x) => (typeof x === 'number' && Number.isFinite(x) ? `${(100 * x).toFixed(1)}%` : '-');
@@ -293,6 +313,19 @@ export function regressionRows(results) {
             c.fixClass === 'fix-on'
               ? `BREACH-CLASS (over-fold with the fix ON): ${c.line}`
               : c.line,
+        });
+    // the scoreboard: a person cell over at its corrected bar, only where the alarm does not already gate the same
+    // decisions (the alarm owns first bets with table and Lightning pooled): raises, check-raises and Lightning cells
+    if (name === 'overfold-scoreboard')
+      for (const c of arr(j?.cells).filter(
+        (x) => x.gating && (x.kind !== 'bet' || x.venue === 'lightning')
+      ))
+        out.push({
+          id: c.breachClass ? `${c.key}|fix-on` : c.key,
+          breachClass: c.breachClass === true,
+          text: c.breachClass
+            ? `BREACH-CLASS (over-fold with the fix ON, scoreboard): ${c.line}`
+            : `scoreboard: ${c.line}`,
         });
     // the fix validation: a cell its fix owns that REGRESSED after the fix went ON is breach-class
     if (name.startsWith('overfold-fix-validation'))
@@ -487,6 +520,28 @@ export function formatSummary({ sinceMs, untilMs, plan, runs, results, folder, p
       );
       L.push(...foldThroughTable(of.foldThrough));
     }
+  }
+  L.push('');
+  L.push(SCOREBOARD_HEADING);
+  L.push('');
+  const sb = results['overfold-scoreboard']?.json;
+  if (!sb || !Array.isArray(sb.cells))
+    L.push('Not measured (the tool failed or did not run: see Tools).');
+  else {
+    for (const l of arr(sb.lines)) L.push(`- ${l}`);
+    L.push(
+      '',
+      `Horse decisions facing aggression: ${sb.spots ?? '-'} (facing a person ${sb.personSpots ?? '-'}, facing a Horse ${sb.horseSpots ?? '-'}); hands ${sb.hands ?? '-'}.`
+    );
+    const flagged = sb.cells.filter((c) => c.venue !== 'all' && c.flag === 'OVER');
+    const person = flagged.filter((c) => c.bettor === 'person');
+    const horse = flagged.filter((c) => c.bettor === 'horse');
+    L.push(
+      `Cells flagged OVER at 2 SE (per venue): facing a person ${person.length}, facing a Horse ${horse.length} (information).`,
+      ''
+    );
+    if (person.length) L.push(...boardTable(person, { bettor: 'person' }), '');
+    if (horse.length) L.push(...boardTable(horse, { bettor: 'horse' }), '');
   }
   L.push('');
   const ofv = Object.entries(results).filter(([n]) => n.startsWith('overfold-fix-validation'));

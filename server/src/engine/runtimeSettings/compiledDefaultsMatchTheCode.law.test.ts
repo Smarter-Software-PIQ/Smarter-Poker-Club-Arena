@@ -43,6 +43,11 @@ import {
   OMAHA_BLANKET_ROW_OFF_SETTING_PREFIX,
   omahaBlanketRowsOffListFromSettings,
 } from '../HorseOmahaBlanketRowsOffInPlo45Cash.js';
+import {
+  VPIP_FLOOR_TEN_HAND_WINDOW_GAMES,
+  VPIP_FLOOR_TEN_HAND_WINDOW_GAME_SETTING_PREFIX,
+  vpipFloorTenHandWindowGamesFromSettings,
+} from '../HorseVpipFloorTenHandWindowGames.js';
 import { RUNTIME_SETTINGS_REGISTRY } from './registry.js';
 import { COMPILED_RUNTIME_SETTINGS, parseRuntimeSettings } from './snapshot.js';
 
@@ -59,6 +64,11 @@ const GAME_SCOPE_KEYS: readonly string[] = OMAHA_OPTION_GAME_SCOPE_OPTIONS.map(
 /** The declared-list keys of omahaBlanketRowsOffInPlo45Cash, one per registry member. */
 const BLANKET_ROW_OFF_KEYS: readonly string[] = OMAHA_BLANKET_ROWS_OFF_REGISTRY.map(
   (option) => OMAHA_BLANKET_ROW_OFF_SETTING_PREFIX + option
+);
+
+/** The game keys of vpipFloorLimpOnlyTenHandWindow (HorseVpipFloorTenHandWindowGames.ts), one per variant. */
+const TEN_HAND_WINDOW_GAME_KEYS: readonly string[] = VPIP_FLOOR_TEN_HAND_WINDOW_GAMES.map(
+  (game) => VPIP_FLOOR_TEN_HAND_WINDOW_GAME_SETTING_PREFIX + game
 );
 
 /** The constant the code reads for each key. */
@@ -81,6 +91,8 @@ const CODE_VALUE: Readonly<Record<string, number>> = {
   ...Object.fromEntries(GAME_SCOPE_KEYS.map((key) => [key, 0])),
   // HorseOmahaBlanketRowsOffInPlo45Cash: 0 is "not listed" (only 1 lists a blanket row)
   ...Object.fromEntries(BLANKET_ROW_OFF_KEYS.map((key) => [key, 0])),
+  // HorseVpipFloorTenHandWindowGames: 0 is "not listed" (no game listed = the switch as published)
+  ...Object.fromEntries(TEN_HAND_WINDOW_GAME_KEYS.map((key) => [key, 0])),
 };
 
 /**
@@ -94,6 +106,7 @@ const ADDED_AFTER_THE_SEED: readonly string[] = [
   'horse.openerAnswersPriorVersion',
   ...GAME_SCOPE_KEYS,
   ...BLANKET_ROW_OFF_KEYS,
+  ...TEN_HAND_WINDOW_GAME_KEYS,
 ];
 
 function seed(): Record<string, unknown> {
@@ -153,6 +166,11 @@ describe('every runtime-tunable setting has a published default equal to its com
         // omahaBlanketRowsOffListFromSettings (read by horseDecideOptsFromRuntimeSettings)
         expect(omahaBlanketRowsOffListFromSettings({ [spec.key]: 1 }), spec.key).toEqual([
           spec.key.slice(OMAHA_BLANKET_ROW_OFF_SETTING_PREFIX.length),
+        ]);
+      else if (spec.consumer === 'horse_ten_hand_window_games')
+        // vpipFloorTenHandWindowGamesFromSettings (read by horseDecideOptsFromRuntimeSettings)
+        expect(vpipFloorTenHandWindowGamesFromSettings({ [spec.key]: 1 }), spec.key).toEqual([
+          spec.key.slice(VPIP_FLOOR_TEN_HAND_WINDOW_GAME_SETTING_PREFIX.length),
         ]);
       else if (spec.consumer === 'horse_option_game_scope')
         // omahaOptionGameScopeFromSettings (read by horseDecideOptsFromRuntimeSettings)

@@ -1,0 +1,188 @@
+{
+  "version": "v1-2026-11-27-people-cash-turn",
+  "note": "People-only answers (responder not a Horse) to the first wager of a heads-up NLH cash turn, by the bettor's line (the flop's last wager: agg his, vsAgg the other player's, chk nobody's) and the bet's size; eq = sum of the equilibrium fold B/(P+B) of the bets answered. sm / bg are the OPPONENT-HUD size cells (at most 0.7 pot / above). scripts/ops/holdem-people-turn-fold-fit.mjs.",
+  "source": {
+    "from": "2026-10-01 17:43:56.135641+00",
+    "to": "2026-11-26 15:25:03.772849+00",
+    "handsRead": 18911,
+    "answersUsed": 746
+  },
+  "sizes": {
+    "a<40": [0, 0.4],
+    "b40-70": [0.4, 0.7],
+    "c70-110": [0.7, 1.1],
+    "d>110": [1.1, null]
+  },
+  "priorStrength": {
+    "cash|all": {
+      "players": 29,
+      "answers": 698,
+      "fold": 0.3668,
+      "k": 51.2
+    },
+    "cash|bg": {
+      "players": 11,
+      "answers": 134,
+      "fold": 0.4925,
+      "k": 11.1
+    },
+    "cash|sm": {
+      "players": 26,
+      "answers": 513,
+      "fold": 0.3333,
+      "k": 89.2
+    },
+    "pooled|all": {
+      "players": 48,
+      "answers": 1500,
+      "fold": 0.406,
+      "k": 37.2
+    },
+    "pooled|bg": {
+      "players": 24,
+      "answers": 355,
+      "fold": 0.4873,
+      "k": 38.1
+    },
+    "pooled|sm": {
+      "players": 41,
+      "answers": 1073,
+      "fold": 0.3793,
+      "k": 44.4
+    },
+    "tournament|all": {
+      "players": 31,
+      "answers": 767,
+      "fold": 0.4355,
+      "k": 40.6
+    },
+    "tournament|bg": {
+      "players": 16,
+      "answers": 189,
+      "fold": 0.4762,
+      "k": null
+    },
+    "tournament|sm": {
+      "players": 27,
+      "answers": 535,
+      "fold": 0.4187,
+      "k": 46.9
+    }
+  },
+  "cells": {
+    "turn|agg|a<40": {
+      "n": 91,
+      "fold": 18,
+      "raise": 15,
+      "eq": 19.5382
+    },
+    "turn|agg|b40-70": {
+      "n": 184,
+      "fold": 68,
+      "raise": 15,
+      "eq": 65.5298
+    },
+    "turn|agg|c70-110": {
+      "n": 105,
+      "fold": 44,
+      "raise": 6,
+      "eq": 49.4324
+    },
+    "turn|agg|d>110": {
+      "n": 11,
+      "fold": 9,
+      "raise": 0,
+      "eq": 6.0422
+    },
+    "turn|all|a<40": {
+      "n": 178,
+      "fold": 51,
+      "raise": 22,
+      "eq": 39.2358
+    },
+    "turn|all|all": {
+      "n": 746,
+      "fold": 278,
+      "raise": 62,
+      "eq": 263.5156
+    },
+    "turn|all|b40-70": {
+      "n": 374,
+      "fold": 136,
+      "raise": 29,
+      "eq": 131.8775
+    },
+    "turn|all|bg": {
+      "n": 193,
+      "fold": 90,
+      "raise": 11,
+      "eq": 91.9905
+    },
+    "turn|all|c70-110": {
+      "n": 174,
+      "fold": 73,
+      "raise": 11,
+      "eq": 81.4545
+    },
+    "turn|all|d>110": {
+      "n": 20,
+      "fold": 18,
+      "raise": 0,
+      "eq": 10.9478
+    },
+    "turn|all|sm": {
+      "n": 553,
+      "fold": 188,
+      "raise": 51,
+      "eq": 171.5251
+    },
+    "turn|chk|a<40": {
+      "n": 83,
+      "fold": 32,
+      "raise": 5,
+      "eq": 18.631
+    },
+    "turn|chk|b40-70": {
+      "n": 165,
+      "fold": 62,
+      "raise": 9,
+      "eq": 57.4295
+    },
+    "turn|chk|c70-110": {
+      "n": 62,
+      "fold": 27,
+      "raise": 5,
+      "eq": 28.792
+    },
+    "turn|chk|d>110": {
+      "n": 8,
+      "fold": 8,
+      "raise": 0,
+      "eq": 4.3786
+    },
+    "turn|vsAgg|a<40": {
+      "n": 4,
+      "fold": 1,
+      "raise": 2,
+      "eq": 1.0667
+    },
+    "turn|vsAgg|b40-70": {
+      "n": 25,
+      "fold": 6,
+      "raise": 5,
+      "eq": 8.9182
+    },
+    "turn|vsAgg|c70-110": {
+      "n": 7,
+      "fold": 2,
+      "raise": 0,
+      "eq": 3.2301
+    },
+    "turn|vsAgg|d>110": {
+      "n": 1,
+      "fold": 1,
+      "raise": 0,
+      "eq": 0.5269
+    }
+  }
+}

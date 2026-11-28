@@ -68,16 +68,24 @@ export const KEEPER_CLOSE_RETRY_MS = 15_000;
 // The hard stop (KEEPER_MAX_MINUTES + this) stays under the job's timeout-minutes,
 // so the keeper, not the runner, decides when it stops (law-tested).
 export const KEEPER_CLOSE_GRACE_MINUTES = 7;
+/** A run with no window within the horizon is one sweep, and it stops writing after this long. */
+export const ONE_SWEEP_BUDGET_MINUTES = 20;
 const MIGRATION_PATH = /^supabase\/migrations\/[^/]+\.sql$/;
 const OVERRIDE_LINE = /^\s*Outage override:\s*(.+?)\s*$/im;
 const MINUTE = 60_000;
+export const DRAFT_HELD = 'Draft: mark it ready, then it merges 10-27 min after a cycle or 4:15-4:27 AM';
 
 const chicago = new Intl.DateTimeFormat('en-US', {
   timeZone: 'America/Chicago',
   hour: 'numeric',
   minute: '2-digit',
 });
-export const chicagoTime = (ms) => `${chicago.format(new Date(ms))} CST`;
+const chicagoZone = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', timeZoneName: 'short' });
+/** "1:27 PM CST" in winter, "1:27 PM CDT" in daylight time (the label was always CST until 2026-11-27). */
+export const chicagoTime = (ms) => {
+  const zone = chicagoZone.formatToParts(new Date(ms)).find((part) => part.type === 'timeZoneName')?.value;
+  return `${chicago.format(new Date(ms))} ${zone === 'CDT' ? 'CDT' : 'CST'}`;
+};
 
 /** True when an ordinary migration may merge at nowMs (the applier admits now and through the in-flight margin). */
 export function mergeWindowOpen(nowMs, cadence) {
@@ -85,8 +93,22 @@ export function mergeWindowOpen(nowMs, cadence) {
   return admits(nowMs) && admits(nowMs + MERGE_IN_FLIGHT_MARGIN_MINUTES * MINUTE);
 }
 
-/** The first whole minute at or after nowMs when the merge window is open, within a day; null if none. */
+/**
+ * The minute the merge window is next open: the CURRENT minute when it is open
+ * at nowMs, otherwise the first whole minute after nowMs that is, within a day;
+ * null if none.
+ *
+ * A ONE-SHOT SWEEP NEVER OPENS A WINDOW (2026-11-27, release custody). This
+ * used to round nowMs up to the next whole minute first, so in the last minute
+ * of a window (1:26:31 PM) it answered with the NEXT window (4:10 PM) while
+ * mergeWindowOpen was still true. keep() then logged "No merge window opens
+ * within 25 minutes; one sweep", wrote success and left, and pushAction
+ * answered 'sweep': a green status with nobody to close it (run 46056717952,
+ * 1:26:57 PM CST). An open window is now its own answer, so every caller holds
+ * it to its close.
+ */
 export function nextMergeWindow(nowMs, cadence) {
+  if (mergeWindowOpen(nowMs, cadence)) return Math.floor(nowMs / MINUTE) * MINUTE;
   const start = Math.ceil(nowMs / MINUTE) * MINUTE;
   for (let t = start; t <= start + 24 * 60 * MINUTE; t += MINUTE) {
     if (mergeWindowOpen(t, cadence)) return t;
@@ -148,7 +170,7 @@ export function ordinaryMigrations(files) {
 }
 
 /** The status for one pull request at nowMs: { state: 'success'|'failure', description } (description <= 140 chars). */
-export function mergeWindowVerdict({ nowMs, cadence, baseRef, files, labels, body, lists = controlLists() }) {
+export function mergeWindowVerdict({ nowMs, cadence, baseRef, files, labels, body, isDraft = false, lists = controlLists() }) {
   if (!Number.isFinite(nowMs)) throw new Error('nowMs must be a finite epoch millisecond');
   const cut = (s) => (s.length <= 140 ? s : `${s.slice(0, 137)}...`);
   if (baseRef !== 'main') return { state: 'success', description: 'Not a pull request into main' };
@@ -157,6 +179,13 @@ export function mergeWindowVerdict({ nowMs, cadence, baseRef, files, labels, bod
   if (ordinary.length === 0 && controls.length === 0) {
     return { state: 'success', description: 'No ordinary migration in this pull request' };
   }
+  // A DRAFT IS NEVER OPENED (2026-11-27). GitHub refuses to merge a draft, so a
+  // green status on one buys nothing, and 58 of the 212 held pull requests were
+  // drafts: 116 of the 427 status writes of one window. The text never changes,
+  // so a draft is written once and not again at any boundary. Marking it ready
+  // is a pull request event (ready_for_review) and the keeper re-reads isDraft
+  // every minute.
+  if (isDraft) return { state: 'failure', description: DRAFT_HELD };
   if (mergeWindowOpen(nowMs, cadence)) {
     const closes = mergeWindowCloses(nowMs, cadence);
     return { state: 'success', description: cut(`Install window open: merge before ${chicagoTime(closes)}`) };
@@ -185,17 +214,35 @@ export function mergeWindowVerdict({ nowMs, cadence, baseRef, files, labels, bod
 // abuse detection, a dropped connection) with a short backoff, and nothing else:
 // a 4xx is an answer, not a hiccup.
 export const GH_RETRY_DELAYS_MS = [2_000, 5_000, 12_000];
+// ONE PASS IS BOUNDED (2026-11-27, release custody). A pass had no deadline:
+// every refused write was retried for 2 + 5 + 12 s, the publish loop ran to its
+// end whatever the clock said, and the hard stop was read only between passes.
+// One window wrote 427 statuses (215 at 4:10 PM, 212 at 4:27 PM) against
+// GitHub's 500 content-creating requests an hour; had the limit tripped in the
+// closing pass, 200 writes at 19 s each would have outlived the job's 50-minute
+// timeout with pull requests still green. So: a write GitHub refuses as
+// rate-limited is not retried and ends the pass (the rest are marked
+// writeFailed, and keep() retries the close every KEEPER_CLOSE_RETRY_MS up to
+// its hard stop); a pass also ends at its deadline; and no gh call can hang.
+export const RATE_LIMITED_GH_ERROR = /rate limit|abuse detection|was submitted too quickly|HTTP 429/i;
+export const GH_READ_TIMEOUT_MS = 120_000;
+export const GH_WRITE_TIMEOUT_MS = 20_000;
+/** The longest one pass may spend writing; the keeper's hard stop cuts it shorter. */
+export const PASS_BUDGET_MS = 4 * 60_000;
+/** The deadline of the pass being written; keep() sets it, publish() reads it. */
+export const passLimit = { deadline: Infinity };
 export const TRANSIENT_GH_ERROR =
   /HTTP 5\d\d|secondary rate limit|abuse detection|was submitted too quickly|ETIMEDOUT|ECONNRESET|EAI_AGAIN|connection reset|TLS handshake timeout|unexpected EOF/i;
 
 /** The runner `gh` goes through; tests replace exec and pause. */
 export const ghRunner = {
-  exec(args, input) {
+  exec(args, input, timeoutMs = GH_READ_TIMEOUT_MS) {
     return execFileSync('gh', args, {
       encoding: 'utf8',
       input,
       maxBuffer: 64 * 1024 * 1024,
       stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: timeoutMs,
     });
   },
   pause(ms) {
@@ -207,13 +254,15 @@ function ghErrorText(error) {
   return `${error?.message ?? ''}\n${error?.stderr ?? ''}`;
 }
 
-export function gh(args, input) {
+/** `giveUpOn`: an error matching it is thrown at once, never retried (a status write refused as rate-limited). */
+export function gh(args, input, { giveUpOn = null, timeoutMs = GH_READ_TIMEOUT_MS } = {}) {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      return ghRunner.exec(args, input);
+      return ghRunner.exec(args, input, timeoutMs);
     } catch (error) {
       const delay = GH_RETRY_DELAYS_MS[attempt];
-      if (delay === undefined || !TRANSIENT_GH_ERROR.test(ghErrorText(error))) throw error;
+      const text = ghErrorText(error);
+      if (delay === undefined || !TRANSIENT_GH_ERROR.test(text) || (giveUpOn && giveUpOn.test(text))) throw error;
       ghRunner.pause(delay);
     }
   }
@@ -367,9 +416,11 @@ export function prepare({ repo, number = null }) {
  * the next pass sees it as changed and writes it again. Results come back in the
  * order the pull requests were read.
  */
-export function publish(prepared, { repo, now = () => Date.now(), cadence = declaredCutoverCadence(), targetUrl, log = console.log }) {
+export function publish(prepared, { repo, now = () => Date.now(), cadence = declaredCutoverCadence(), targetUrl, log = console.log, deadline = passLimit.deadline }) {
   const byNumber = new Map(prepared.map((p) => [p.pr.number, p]));
   const resultByNumber = new Map();
+  let stopped = null; // why the pass stopped writing early
+  let unwritten = 0;
   for (const pr of publishOrder(prepared.map((p) => p.pr))) {
     const { files, error } = byNumber.get(pr.number);
     let verdict;
@@ -382,6 +433,7 @@ export function publish(prepared, { repo, now = () => Date.now(), cadence = decl
         files,
         labels: pr.labels.nodes.map((l) => l.name),
         body: pr.body,
+        isDraft: Boolean(pr.isDraft),
       });
     } catch (e) {
       verdict = { state: 'failure', description: `Merge window could not be computed: ${String(e?.message ?? e).slice(0, 90)}` };
@@ -389,14 +441,22 @@ export function publish(prepared, { repo, now = () => Date.now(), cadence = decl
     const current = currentStatus(pr);
     const changed = !current || current.state.toLowerCase() !== verdict.state || current.description !== verdict.description;
     let writeFailed = false;
+    if (changed && stopped === null && now() >= deadline) stopped = 'the pass deadline passed';
+    if (changed && stopped !== null) {
+      // Not attempted: its status on GitHub is unchanged, so the next pass writes it.
+      unwritten += 1;
+      resultByNumber.set(pr.number, { number: pr.number, ...verdict, changed, writeFailed: true });
+      continue;
+    }
     if (changed) {
       const args = ['api', '-X', 'POST', `repos/${repo}/statuses/${pr.headRefOid}`, '-f', `state=${verdict.state}`, '-f', `context=${MERGE_WINDOW_CONTEXT}`, '-f', `description=${verdict.description}`];
       if (targetUrl) args.push('-f', `target_url=${targetUrl}`);
       try {
-        gh(args);
+        gh(args, undefined, { giveUpOn: RATE_LIMITED_GH_ERROR, timeoutMs: GH_WRITE_TIMEOUT_MS });
       } catch (e) {
         writeFailed = true;
         log(`#${pr.number} ${pr.headRefOid.slice(0, 12)} WRITE FAILED (${verdict.state}): ${String(ghErrorText(e)).trim().slice(0, 160)}`);
+        if (RATE_LIMITED_GH_ERROR.test(ghErrorText(e))) stopped = 'GitHub refused a status write as rate-limited';
       }
       if (!writeFailed) {
         // A later pass of this keeper before its next read must not rewrite it.
@@ -411,6 +471,7 @@ export function publish(prepared, { repo, now = () => Date.now(), cadence = decl
     if (!writeFailed) log(`#${pr.number} ${pr.headRefOid.slice(0, 12)} ${verdict.state}${changed ? '' : ' (unchanged)'}: ${verdict.description}`);
     resultByNumber.set(pr.number, { number: pr.number, ...verdict, changed, writeFailed });
   }
+  if (stopped !== null) log(`PASS STOPPED EARLY: ${stopped}; ${unwritten} changed status(es) not attempted, left for the next pass.`);
   return prepared.map((p) => resultByNumber.get(p.pr.number));
 }
 
@@ -434,19 +495,33 @@ export function passClean(results) {
  * (2026-11-27): past the close it keeps passing until one closing pass is clean,
  * so a window can never be left green after it closes. The hard stop is
  * KEEPER_MAX_MINUTES plus KEEPER_CLOSE_GRACE_MINUTES.
+ *
+ * THE CLOSE IS CONFIRMED BY A READ TAKEN AFTER IT (2026-11-27, release
+ * custody). The closing write at the close uses heads read PREFETCH_LEAD_MS
+ * earlier, so a head pushed in those 25 s, and turned green by its own pull
+ * request's run, was not in it. After a clean closing write the keeper reads
+ * once more, at or after the close, and closes whatever that read still shows
+ * open; only then is the window closed. Every pass has a deadline (passLimit),
+ * and a run with no window near is one bounded sweep that can never write
+ * inside a window.
  */
 export async function keep({ repo, number = null, cadence = declaredCutoverCadence(), targetUrl, now = () => Date.now(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log, read = prepare, write = publish }) {
   const started = now();
+  const hardStop = started + (KEEPER_MAX_MINUTES + KEEPER_CLOSE_GRACE_MINUTES) * MINUTE;
   const next = nextMergeWindow(started, cadence);
   if (next === null || next - started > KEEPER_HORIZON_MINUTES * MINUTE) {
     log(`No merge window opens within ${KEEPER_HORIZON_MINUTES} minutes; one sweep.`);
-    return write(read({ repo, number }), { repo, now, cadence, targetUrl, log });
+    // One sweep closes nothing, so it must never write "window open": it stops before the next window.
+    const deadline = Math.min(started + ONE_SWEEP_BUDGET_MINUTES * MINUTE, next ?? Infinity);
+    return write(read({ repo, number }), { repo, now, cadence, targetUrl, log, deadline });
   }
   const closes = mergeWindowCloses(Math.max(next, started), cadence);
   log(`Merge window ${chicagoTime(next)} to ${chicagoTime(closes)}; keeping it.`);
   let tick = null; // the minute this pass writes on; null for the first pass
+  let confirming = false; // true for the read taken after a clean closing write
   for (;;) {
     let prepared = null;
+    const readAt = now();
     try {
       prepared = read({ repo, number });
     } catch (e) {
@@ -455,16 +530,27 @@ export async function keep({ repo, number = null, cadence = declaredCutoverCaden
     while (tick !== null && now() < tick) await sleep(tick - now());
     const t = now();
     let clean = false;
-    if (prepared !== null) {
+    if (prepared !== null && confirming && prepared.length === 0) {
+      clean = true; // nothing is open after the close: nothing to write
+    } else if (prepared !== null) {
+      passLimit.deadline = Math.min(t + PASS_BUDGET_MS, hardStop);
       try {
         clean = passClean(write(prepared, { repo, now, cadence, targetUrl, log }));
       } catch (e) {
         log(`Pass failed: ${String(ghErrorText(e)).trim().slice(0, 200)}`);
+      } finally {
+        passLimit.deadline = Infinity;
       }
     }
     if (t >= closes && clean) {
-      log('Window closed; closing sweep done.');
-      return true;
+      if (readAt >= closes) {
+        log('Window closed; closing sweep done.');
+        return true;
+      }
+      // Written from heads read before the close: confirm with a read taken after it.
+      confirming = true;
+      tick = null;
+      continue;
     }
     if (t - started > (KEEPER_MAX_MINUTES + KEEPER_CLOSE_GRACE_MINUTES) * MINUTE) {
       log('Keeper stopped before a clean closing sweep; the next pass must close it.');
@@ -488,29 +574,25 @@ async function main(argv) {
   const targetUrl = process.env.GITHUB_SERVER_URL && process.env.GITHUB_RUN_ID
     ? `${process.env.GITHUB_SERVER_URL}/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`
     : undefined;
-  if (mode === 'sweep') {
+  // EVERY MODE GOES THROUGH keep() (2026-11-27, release custody). A hand dispatch
+  // with the default mode=sweep inside a window painted every held pull request
+  // green and left, with nobody to close it. keep() is one bounded sweep when no
+  // window is open or near, and a held window otherwise, so no mode can be the
+  // writer of "window open" without also being its closer.
+  let number = null;
+  if (mode === 'sweep' || mode === 'keep') {
     const i = rest.indexOf('--pr');
-    const number = i >= 0 ? Number(rest[i + 1]) : null;
+    number = i >= 0 ? Number(rest[i + 1]) : null;
     if (i >= 0 && !Number.isInteger(number)) throw new Error('--pr needs a pull request number');
-    if (!passClean(sweep({ repo, number, targetUrl }))) process.exitCode = 1;
-    return;
-  }
-  if (mode === 'on-push') {
+  } else if (mode === 'on-push') {
     const action = pushAction(Date.now(), declaredCutoverCadence());
     console.log(`push: ${action}`);
-    if (action === 'keep' && (await keep({ repo, targetUrl })) === false) process.exitCode = 1;
-    if (action === 'sweep' && !passClean(sweep({ repo, targetUrl }))) process.exitCode = 1;
-    return;
+    if (action === 'none') return;
+  } else {
+    throw new Error('usage: migration-merge-window.mjs sweep [--pr N] | keep [--pr N] | on-push');
   }
-  if (mode === 'keep') {
-    const i = rest.indexOf('--pr');
-    const number = i >= 0 ? Number(rest[i + 1]) : null;
-    if (i >= 0 && !Number.isInteger(number)) throw new Error('--pr needs a pull request number');
-    const kept = await keep({ repo, number, targetUrl });
-    if (kept === false || (Array.isArray(kept) && !passClean(kept))) process.exitCode = 1;
-    return;
-  }
-  throw new Error('usage: migration-merge-window.mjs sweep [--pr N] | keep [--pr N] | on-push');
+  const kept = await keep({ repo, number, targetUrl });
+  if (kept === false || (Array.isArray(kept) && !passClean(kept))) process.exitCode = 1;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
