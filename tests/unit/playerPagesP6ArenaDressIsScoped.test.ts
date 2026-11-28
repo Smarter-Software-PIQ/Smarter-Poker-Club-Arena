@@ -2,13 +2,14 @@
  * THE P6 PLAYER PAGES' ARENA DRESS IS SCOPED TO EACH PAGE
  * (#SmarterDesign player pages batch P6, 2026-11-28)
  *
- * /bonuses and /vip wear the arena workspace. The Daily Bonus sheet is shared
+ * /bonuses, /vip and /search wear the arena workspace. The Daily Bonus sheet is shared
  * with the modal the shell raises on entry, so the sheet's own stylesheet is
  * untouched and every rule that dresses it sits under the page's arena root;
  * the modal keeps its painted console. VIP's membership plate and Diamond
  * Activity take an opt-in `arena` prop that only /vip passes, and VIP's own
  * painted sheet stays as the marketplace contract pins it, overridden only
- * under the page root. Each rule here is the shape of a regression that would
+ * under the page root. Search keeps its own CSS module (the global-class
+ * collision law) with every rule under the module's page root. Each rule here is the shape of a regression that would
  * leak the arena onto another host or bring the painted header back.
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -105,5 +106,28 @@ describe('VIP wears the arena workspace, scoped to its page', () => {
     // The components stay off by default.
     expect(read('src/components/vip/VIPMembershipPlate.tsx')).toContain('arena = false');
     expect(read('src/components/vip/VIPActivityHistory.tsx')).toContain('arena = false');
+  });
+});
+
+describe('Community Search wears the arena workspace, inside its own module', () => {
+  const page = read('src/pages/SearchPage.tsx');
+  const css = read('src/pages/SearchPage.module.css');
+
+  it('the page root carries the arena workspace and the chrome mast, never the community page bar', () => {
+    expect(page).toContain('<main className={`${styles.page} arena-workspace`}>');
+    expect(page).toContain('<ArenaWorkspaceHeader');
+    expect(page).not.toContain('CommunitySurfaceHeader');
+    expect(page).toContain('`${styles.console} arena-case arena-ops-case`');
+    expect(page).toContain('`${styles.indexStrip} arena-switch arena-ops-keys`');
+    expect(page).toContain('`${styles.categoryRail} arena-switch`');
+    expect(page.match(/`\$\{styles\.card\} arena-ledger-row`/g)).toHaveLength(4);
+    expect(page.match(/`\$\{styles\.actions\} arena-switch`/g)).toHaveLength(4);
+  });
+
+  it('every rule in the module sits under the page root, and none is global', () => {
+    const all = selectors(css);
+    expect(all.length).toBeGreaterThan(60);
+    for (const s of all) expect(s === '.page' || s.startsWith('.page ')).toBe(true);
+    expect(css).not.toContain(':global');
   });
 });
