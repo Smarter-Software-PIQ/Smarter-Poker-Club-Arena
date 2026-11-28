@@ -32,6 +32,9 @@ jobs:
       && github.event.workflow_run.path == '.github/workflows/agent-branch-proposal.yml'
       && github.event.workflow_run.head_branch != github.event.repository.default_branch
       && !startsWith(github.event.workflow_run.head_branch, 'backup/')
+      && !startsWith(github.event.workflow_run.head_branch, 'bookmark/')
+      && !startsWith(github.event.workflow_run.head_branch, 'handoff/')
+      && !startsWith(github.event.workflow_run.head_branch, 'wip/')
       && !startsWith(github.event.workflow_run.head_branch, 'ci-marker/')
       && !startsWith(github.event.workflow_run.head_branch, 'build/')
       && !startsWith(github.event.workflow_run.head_branch, 'dependabot/')
@@ -95,6 +98,21 @@ jobs:
 
           TITLE=$(gh api "repos/$REPO/commits/$SIGNAL_SHA" \
             --jq '.commit.message | split("\n")[0]')
+
+          # Unfinished work is never proposed (PR #3170, 2026-11-27): a bookmark,
+          # handoff or wip branch, or a head commit marked wip, bookmark:,
+          # handoff: or [do-not-ship], gets no pull request and therefore no
+          # auto-merge. A PR opened later can be held with the do-not-ship label.
+          set +e
+          HOLD=$(bash .github/scripts/unfinished-work-guard.sh "$BRANCH" "$TITLE")
+          HOLD_RC=$?
+          set -e
+          if [ "$HOLD_RC" = "10" ]; then
+            echo "::notice::No PR opened for $BRANCH: $HOLD"
+            exit 0
+          fi
+          [ "$HOLD_RC" = "0" ] || { echo "::error::unfinished-work guard failed ($HOLD_RC)"; exit 1; }
+
           [ -n "$TITLE" ] || TITLE="Propose $BRANCH"
           CREATED_URL=""
           if ! CREATED_URL=$(gh pr create --repo "$REPO" --head "$BRANCH" --base "$DEFAULT_BRANCH" \

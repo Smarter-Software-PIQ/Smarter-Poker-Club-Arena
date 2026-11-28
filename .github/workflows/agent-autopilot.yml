@@ -16,7 +16,11 @@ name: Agent Autopilot
 
 on:
   pull_request_target:
-    types: [opened, reopened, ready_for_review, synchronize]
+    # converted_to_draft and labeled are listed so a PR that goes back to
+    # draft, or is given the do-not-ship label, has any armed auto-merge taken
+    # off it by the hold-unfinished-work job below. unlabeled is listed so
+    # removing that label queues the PR normally again.
+    types: [opened, reopened, ready_for_review, synchronize, converted_to_draft, labeled, unlabeled]
   # RE-ARM (2026-10-23). GitHub can withdraw auto-merge right after this job
   # arms it: PR #7780 was armed at 06:39:18 and withdrawn at 06:39:35, and
   # nothing armed it again, so a fully green urgent engine fix sat unmerged for
@@ -37,15 +41,88 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Unfinished work is never armed (PR #3170, 2026-11-27): a handoff bookmark
+  # was opened and squash auto-merged into production. A draft, a PR labelled
+  # do-not-ship, a bookmark/, handoff/ or wip/ branch, or a head commit marked
+  # wip, bookmark:, handoff: or [do-not-ship] is held. No credential is minted
+  # here; the verdict comes from main's own reviewed guard script.
+  classify:
+    name: Classify unfinished work
+    if: >-
+      ((github.event_name == 'pull_request_target'
+      && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_run'
+      && github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.head_repository.full_name == github.repository
+      && github.event.workflow_run.workflow_id == 247739539
+      && github.event.workflow_run.event == 'pull_request')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    permissions:
+      contents: read
+      pull-requests: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      hold: ${{ steps.guard.outputs.hold }}
+      pr_number: ${{ steps.guard.outputs.pr_number }}
+    steps:
+      - name: Checkout reviewed default-branch automation
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+
+      - name: Read the head commit and apply the unfinished-work guard
+        id: guard
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BRANCH: ${{ github.event.pull_request.head.ref || github.event.workflow_run.head_branch }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            || { echo "::error::Invalid PR_HEAD_SHA: $PR_HEAD_SHA"; exit 1; }
+          if [ -z "$PR" ]; then
+            MATCH=$(gh pr list --repo "$REPO" --head "$BRANCH" --state open \
+              --json number,isDraft,headRefOid,labels \
+              --jq "[.[] | select(.headRefOid == \"$PR_HEAD_SHA\")][0] // empty")
+            if [ -z "$MATCH" ]; then
+              echo "No open PR at $PR_HEAD_SHA; nothing to classify."
+              echo "hold=none" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            PR=$(jq -r '.number' <<<"$MATCH")
+            DRAFT=$(jq -r '.isDraft' <<<"$MATCH")
+            LABELS=$(jq -r '[.labels[].name] | join(",")' <<<"$MATCH")
+          fi
+          echo "pr_number=$PR" >> "$GITHUB_OUTPUT"
+          SUBJECT=$(gh api "repos/$REPO/commits/$PR_HEAD_SHA" \
+            --jq '.commit.message | split("\n")[0]')
+          set +e
+          REASON=$(bash .github/scripts/unfinished-work-guard.sh "$BRANCH" "$SUBJECT" "$DRAFT" "$LABELS")
+          RC=$?
+          set -e
+          case "$RC" in
+            0) echo "hold=false" >> "$GITHUB_OUTPUT" ;;
+            10) echo "::notice::Holding this PR from auto-merge: $REASON"
+                echo "hold=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::unfinished-work guard failed ($RC)"; exit 1 ;;
+          esac
+
   queue-pr:
     name: Queue this PR for protected squash merge
+    needs: classify
     # pull_request_target can read the App secret, so same-repository branch
     # ownership is the authorization boundary. A fork may run ordinary CI but
     # can never mint merge authority, even when every check passes.
     # A workflow_run is matched by name; workflow_id 247739539 is the one CI
     # workflow file itself, so another file carrying that name never qualifies.
     if: >-
-      ((github.event_name == 'pull_request_target'
+      needs.classify.outputs.hold == 'false'
+      && ((github.event_name == 'pull_request_target'
       && github.event.pull_request.draft == false
       && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_run'
@@ -98,8 +175,51 @@ jobs:
             echo "Re-evaluating #$PR after its CI passed at $RUN_HEAD_SHA."
           fi
           case ",$LABELS," in
-            *,do-not-merge,*|*,hold,*|*,wip,*)
+            *,do-not-ship,*|*,do-not-merge,*|*,hold,*|*,wip,*)
               echo "PR #$PR carries a hold label ($LABELS); leaving it alone."
               exit 0 ;;
           esac
           bash .github/scripts/queue-pr.sh "$REPO" "$PR"
+
+  # A held PR that already has auto-merge armed (a wip commit pushed onto it,
+  # converted back to draft, or labelled do-not-ship) has it disabled, so it
+  # cannot merge on green.
+  hold-unfinished-work:
+    name: Keep unfinished work from auto-merging
+    needs: classify
+    if: >-
+      needs.classify.outputs.hold == 'true'
+      && ((github.event_name == 'pull_request_target'
+      && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_run'
+      && github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.head_repository.full_name == github.repository
+      && github.event.workflow_run.workflow_id == 247739539
+      && github.event.workflow_run.event == 'pull_request')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    runs-on: ubuntu-latest
+    # The GitHub App key lives only here (main-only), not in ci-main.
+    environment: github-app-main
+    timeout-minutes: 3
+    steps:
+      - name: Mint the GitHub App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.AUTOPILOT_APP_ID }}
+          private-key: ${{ secrets.AUTOPILOT_APP_PRIVATE_KEY }}
+
+      - name: Disable auto-merge if it is armed
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number || needs.classify.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          [ -n "$PR" ] || { echo "No PR number to disarm; nothing to do."; exit 0; }
+          ARMED=$(gh api "repos/$REPO/pulls/$PR" --jq 'if .auto_merge then "yes" else "no" end')
+          if [ "$ARMED" = "yes" ]; then
+            gh pr merge "$PR" --repo "$REPO" --disable-auto
+            echo "Disabled auto-merge on held PR #$PR."
+          else
+            echo "PR #$PR is held and has no auto-merge armed."
+          fi

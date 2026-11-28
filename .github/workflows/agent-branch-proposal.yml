@@ -8,6 +8,11 @@ on:
     branches-ignore:
       - main
       - 'backup/**'
+      # Handoff bookmarks and work in progress are places to resume from,
+      # never releases (PR #3170, 2026-11-27). Agent Open PR refuses them too.
+      - 'bookmark/**'
+      - 'handoff/**'
+      - 'wip/**'
       - 'ci-marker/**'
       - 'build/**'
       - 'dependabot/**'
