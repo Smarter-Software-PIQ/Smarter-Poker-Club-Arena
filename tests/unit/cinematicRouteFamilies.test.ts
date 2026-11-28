@@ -21,7 +21,6 @@ const PLAY_PAGES = [
 ];
 
 const UNION_PAGES = [
-  'src/pages/CreateUnionPage.tsx',
   'src/pages/UnionGamesPage.tsx',
   'src/pages/UnionStatementsPage.tsx',
   'src/pages/UnionDashboardPage.tsx',
@@ -179,6 +178,13 @@ describe('cinematic retained route families', () => {
     // the live figures under it and the arena cases.
     const source = readFileSync('src/pages/UnionDetailPage.tsx', 'utf8');
     expect(source).toContain('className="union-detail arena-workspace"');
+    expect(source).toContain('<ArenaWorkspaceHeader');
+    expect(source).not.toContain('CasinoSurfaceHeader');
+  });
+
+  it('Forge A Union wears the arena workspace (#SmarterDesign batch U1, 2026-11-28)', () => {
+    const source = readFileSync('src/pages/CreateUnionPage.tsx', 'utf8');
+    expect(source).toContain('className="create-union arena-workspace"');
     expect(source).toContain('<ArenaWorkspaceHeader');
     expect(source).not.toContain('CasinoSurfaceHeader');
   });

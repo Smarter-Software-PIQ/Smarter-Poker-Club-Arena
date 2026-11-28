@@ -65,6 +65,24 @@ describe('the Union pages wear the arena workspace, scoped', () => {
     expect(page).toMatch(/<GameCreationActions[^>]*\barena\b/);
   });
 
+  it('Forge A Union: the arena root, the chrome mast, every rule under the root', () => {
+    const page = read('src/pages/CreateUnionPage.tsx');
+    expect(page).toContain('className="create-union arena-workspace"');
+    expect(page).toContain('<ArenaWorkspaceHeader');
+    expect(page).not.toContain('SpadeConsole');
+    expectScoped(read('src/pages/CreateUnionPage.css'), '.create-union.arena-workspace');
+  });
+
+  it('Union Data: the arena root, the chrome mast, every rule under the root', () => {
+    const page = read('src/pages/UnionDataPage.tsx');
+    expect(page.match(/className="union-data arena-workspace"/g)?.length).toBe(2);
+    expect(page).toContain('<ArenaWorkspaceHeader');
+    expect(page).not.toContain('CasinoSurfaceHeader');
+    const css = read('src/pages/UnionDataPage.css');
+    for (const s of selectors(css))
+      expect(s.startsWith('.union-data.arena-workspace'), s).toBe(true);
+  });
+
   it('the shared state screens take the arena dress only by opt-in', () => {
     const source = read('src/components/common/EmptyState.tsx');
     expect(source).toContain('arena = false');
