@@ -169,7 +169,9 @@ export const LEGACY_RELEASE_SHARDS=Object.freeze(Array.from({length:4},(_,i)=>`T
 /** Since PR #9960 the receiver runs at the protected main tip, verifies client_payload.ref_sha and reads that exact candidate's prequalification. */
 export const RELEASE_PREFLIGHT='Verify the exact prepared engine release request';
 /** The exact receipt scripts/ci/read-engine-prequalification.py requires. */
-export const PREQUALIFICATION_JOBS=Object.freeze([...Array.from({length:4},(_,i)=>`Qualify exact engine (${i+1}/4)`),'Stage immutable candidate and rollback images']);
+export const STAGE_PREQUALIFICATION_JOB='Stage immutable candidate and rollback images';
+export const LEGACY_PREQUALIFICATION_JOBS_4=Object.freeze([...Array.from({length:4},(_,i)=>`Qualify exact engine (${i+1}/4)`),STAGE_PREQUALIFICATION_JOB]);
+export const PREQUALIFICATION_JOBS=Object.freeze([...Array.from({length:8},(_,i)=>`Qualify exact engine (${i+1}/8)`),STAGE_PREQUALIFICATION_JOB,'Retire superseded prequalification runs']);
 const PREPARED=/^Prepared image (sha256:[0-9a-f]{64}) rollback (sha256:[0-9a-f]{64}) tree ([0-9a-f]{40})$/;
 const succeeded=j=>j?.status==='completed'&&j.conclusion==='success';
 const when=v=>{const t=typeof v==='string'&&/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(v)?Date.parse(v):NaN;requireValue(Number.isFinite(t),'Exact provider timestamp required');return t;};
@@ -212,10 +214,11 @@ export function chosenPrequalification(runs,preflight,sha){
 }
 export function prequalificationReceipt(run,jobs,sha,tree,preflight){
  requireValue(SHA.test(tree)&&['push','workflow_dispatch'].includes(run?.event)&&run.status==='completed'&&run.conclusion==='success'&&Number.isSafeInteger(run.run_attempt)&&run.run_attempt>0,'Passing exact candidate prequalification required');
- requireValue(Array.isArray(jobs)&&jobs.length===PREQUALIFICATION_JOBS.length&&new Set(jobs.map(j=>j?.name)).size===jobs.length&&PREQUALIFICATION_JOBS.every(n=>jobs.some(j=>j.name===n)),'Complete exact prequalification jobs required');
+ const matchesJobSet=expected=>jobs.length===expected.length&&expected.every(n=>jobs.some(j=>j.name===n));
+ requireValue(Array.isArray(jobs)&&new Set(jobs.map(j=>j?.name)).size===jobs.length&&(matchesJobSet(PREQUALIFICATION_JOBS)||matchesJobSet(LEGACY_PREQUALIFICATION_JOBS_4)),'Complete exact prequalification jobs required');
  const start=when(preflight?.started_at);
  for(const j of jobs)requireValue(j.run_id===run.id&&j.run_attempt===run.run_attempt&&j.head_sha===sha&&succeeded(j)&&when(j.completed_at)<=start,'Passing prequalification job completed before the receiver read it');
- const markers=(jobs.find(j=>j.name===PREQUALIFICATION_JOBS[4]).steps||[]).filter(s=>s.conclusion==='success'&&typeof s.name==='string'&&s.name.startsWith('Prepared image '));
+ const markers=(jobs.find(j=>j.name===STAGE_PREQUALIFICATION_JOB).steps||[]).filter(s=>s.conclusion==='success'&&typeof s.name==='string'&&s.name.startsWith('Prepared image '));
  requireValue(markers.length===1,'One immutable image receipt required');
  const m=markers[0].name.match(PREPARED);requireValue(m&&m[3]===tree,'Immutable image receipt differs from the exact candidate server tree');
  return {prequalification_run:run.id,prequalification_attempt:run.run_attempt,image_id:m[1],rollback_image_id:m[2],server_tree:m[3]};
