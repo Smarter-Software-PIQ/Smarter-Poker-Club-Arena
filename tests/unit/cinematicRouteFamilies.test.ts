@@ -7,9 +7,7 @@ import {
 } from '../helpers/dailyChallengesSources';
 
 const REWARD_PAGES = [
-  'src/pages/VIPPage.tsx',
   'src/pages/RakebackPage.tsx',
-  'src/pages/DailyBonusPage.tsx',
   'src/pages/AchievementsPage.tsx',
   'src/pages/MarketplacePage.tsx',
 ];
@@ -46,6 +44,24 @@ describe('cinematic retained route families', () => {
     // the arena case, never the painted console (player pages batch P4).
     const source = readFileSync('src/pages/TransactionHistoryPage.tsx', 'utf8');
     expect(source).toContain('className="transaction-history-page arena-workspace"');
+    expect(source).toContain('<ArenaWorkspaceHeader');
+    expect(source).not.toContain('RewardsSurfaceHeader');
+  });
+
+  it('VIP wears the arena workspace (#SmarterDesign, Dan 2026-11-27)', () => {
+    // Player pages batch P6: the chrome mast and arena cases, never the
+    // Rewards Circuit page bar.
+    const source = readFileSync('src/pages/VIPPage.tsx', 'utf8');
+    expect(source).toContain('className="vip-page arena-workspace"');
+    expect(source).toContain('<ArenaWorkspaceHeader');
+    expect(source).not.toContain('RewardsSurfaceHeader');
+  });
+
+  it('Daily Bonus wears the arena workspace (#SmarterDesign, Dan 2026-11-27)', () => {
+    // Player pages batch P6: the chrome mast and one arena case around the
+    // sheet's glass, never the Rewards Circuit header's painted console.
+    const source = readFileSync('src/pages/DailyBonusPage.tsx', 'utf8');
+    expect(source).toContain('className="daily-bonus-page arena-workspace"');
     expect(source).toContain('<ArenaWorkspaceHeader');
     expect(source).not.toContain('RewardsSurfaceHeader');
   });
