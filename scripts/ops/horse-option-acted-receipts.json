@@ -1299,6 +1299,13 @@
       "prefixes": ["omaha_river_pot_prior_"],
       "unlessOn": []
     },
+    "omahaRiverBetPriorReadsHisFrequency": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_river_frequency_prior_"],
+      "unlessOn": []
+    },
     "omahaFacingBetFieldIsJoint": {
       "releaseDefault": "off",
       "source": "declared",

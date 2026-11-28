@@ -1397,6 +1397,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaRiverBetPriorReadsHisFrequency',
+    "lead-9 lane RFQ 2026-11-27 (plo-lead7-01TLQer8/l9-rfq/BUILD.md). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. inside omahaFacingBetPriorIsPeopleMeasured's heads-up river price, a river bet (never a raise) in a single-raised or limped pot: the bettor's own public heads-up unopened river first-bet record (OPPONENT-HUD) shrunk to people's measured rate sets the prior mean of his shown-bet record (HorseOmahaRiverFrequencyPrior); only a fold becomes a call. Public actions of the bettor and people-only measurements; no identity input.",
+    'V94'
+  ),
+  flag(
     'omahaFacingBetFieldIsJoint',
     "PLO-OWNER lead-6 2026-11-24 (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4; multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a multiway turn or river call is priced with the bettor, the callers, the earlier all-ins and the players behind (at their measured continue rate) dealt on the same cards from measured ranges (default OFF; PLO-OWNER lead-6 2026-11-24). HorseOmahaFacingBetPriced, HorseOmahaPricedJointSample.ts",
     'V94'
@@ -6462,6 +6467,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_river_frequency_prior_read',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetEv)',
+    "the heads-up river bettor's own river first-bet frequency was read for the price: a river bet in a single-raised or limped pot (omahaRiverBetPriorReadsHisFrequency)",
+    'V94'
+  ),
+  receipt(
+    'omaha_river_frequency_prior_called',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetEv)',
+    'the price with his river first-bet frequency turned the river fold into a call (omahaRiverBetPriorReadsHisFrequency)',
+    'V94'
+  ),
+  receipt(
     'omaha_mw_people_field_priced',
     'HorseLogic omahaFacingBetEvRule (HorseOmahaMultiwayPeopleField)',
     'the facing-bet verdict priced a multiway turn or river call on the people-measured caller width and multiway continue rate (omahaMultiwayFieldIsPeopleMeasured)',
@@ -11350,6 +11367,8 @@ export const OPTION_ACTED_RECEIPTS_DECLARED: Readonly<
   omahaHiddenBetsArePricedAsGiveUps: { prefixes: ['omaha_hidden_give_up_'] },
   // the pot-type river cell names its own receipt in its description; declared by prefix
   omahaRiverBetPriorIsPotTypeSplit: { prefixes: ['omaha_river_pot_prior_'] },
+  // the river frequency prior names its own receipts in its description; declared by prefix
+  omahaRiverBetPriorReadsHisFrequency: { prefixes: ['omaha_river_frequency_prior_'] },
   omahaFlopPressureCapIsPriced: { prefixes: ['omaha_flop_pressure_cap_priced'] },
   // the people-priced bare-overpair continuation names its own receipts in their descriptions; declared by prefix
   omahaBareOverpairContinuationIsPeoplePriced: { prefixes: ['omaha_bare_overpair_people_priced'] },

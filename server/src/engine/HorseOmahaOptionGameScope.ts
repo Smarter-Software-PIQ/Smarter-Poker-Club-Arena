@@ -131,6 +131,8 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaHiddenBetsArePricedAsGiveUps',
   // lead-9 lane RV2 2026-11-27: PLO4/PLO5 cash, default OFF
   'omahaRiverBetPriorIsPotTypeSplit',
+  // lead-9 lane RFQ 2026-11-27: PLO4/PLO5 cash, default OFF
+  'omahaRiverBetPriorReadsHisFrequency',
   // PLO-OWNER lead-7 2026-11-26: PLO4/PLO5 cash, default OFF
   'omahaFlopPressureCapIsPriced',
   // lead-9 lane HU2 2026-11-27: PLO4/PLO5 cash, default OFF

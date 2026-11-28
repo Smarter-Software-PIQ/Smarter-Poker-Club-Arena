@@ -61,6 +61,8 @@ export const OPTION_COST_LAWS: Readonly<Record<string, string>> = Object.freeze(
   omahaHiddenBetsArePricedAsGiveUps: 'engine/anOmahaHiddenGiveUpPriceIsFast.law.test.ts',
   // the pot-type river cell (2026-11-27): one preflop history scan and one keyed lookup where the people prior prices a river bet
   omahaRiverBetPriorIsPotTypeSplit: 'engine/anOmahaRiverPotPriorIsFast.law.test.ts',
+  // the river frequency prior (2026-11-27): one lifetime-record lookup, one preflop history scan and a second people-prior price where the people prior prices a heads-up river bet
+  omahaRiverBetPriorReadsHisFrequency: 'engine/anOmahaRiverFrequencyPriorIsFast.law.test.ts',
   // the priced flop pressure cap: one sampled flop count where the V40 cap prices a weak made hand (2026-11-26)
   omahaFlopPressureCapIsPriced: 'engine/anOmahaFlopPressureCapPriceIsFast.law.test.ts',
   // the people-priced bare-overpair continuation (2026-11-27): one sampled flop count (the flop pressure cap's own,

@@ -555,6 +555,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaRiverBetPriorIsPotTypeSplit: priced(
     "inside the people-measured heads-up river price, a river bet (never a raise) in a re-raised pot is priced on the PEOPLE-ONLY regions measured on people's shown river bets in re-raised pots, shrunk toward the pooled river cell and then the balanced share, moved by his own shown bets as today; single-raised and limped pots keep the pooled cell (default OFF; lead-9 lane RV2 2026-11-27)"
   ),
+  omahaRiverBetPriorReadsHisFrequency: priced(
+    "inside the people-measured heads-up river price, a river bet (never a raise) in a single-raised or limped pot: the bettor's own public heads-up river first-bet frequency, shrunk to people's rate by a measured 34 opportunities, sets the prior mean of his shown-bet record (value arrives at people's rate, so a frequency above people's is non-value); his shown bets still dominate as they grow; fold -> call only (default OFF; lead-9 lane RFQ 2026-11-27)"
+  ),
   omahaFacingBetFieldIsJoint: priced(
     'a multiway turn or river call is priced with the bettor, the callers, the earlier all-ins and the players behind (at their measured continue rate) dealt on the same cards from measured ranges (default OFF; PLO-OWNER lead-6 2026-11-24)'
   ),

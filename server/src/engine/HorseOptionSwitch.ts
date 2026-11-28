@@ -459,6 +459,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaHiddenBetsArePricedAsGiveUps',
   // 2026-11-27 lead-9 lane RV2: the heads-up river bet of a re-raised pot is priced on people's re-raised-pot river bets (ships dark)
   'omahaRiverBetPriorIsPotTypeSplit',
+  // 2026-11-27 lead-9 lane RFQ: the heads-up river bettor's own public river first-bet frequency sets the prior of his shown record (ships dark)
+  'omahaRiverBetPriorReadsHisFrequency',
   // 2026-11-26 PLO-OWNER lead-7: heads-up flop facing one bet, the V40 class cap priced against the bettor's range
   // on people-only flop shares for the call-or-fold check (ships dark)
   'omahaFlopPressureCapIsPriced',

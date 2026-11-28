@@ -1,4 +1,5 @@
 import { omahaRiverPotKeyOf } from './HorseOmahaRiverPotPrior.js';
+import { omahaRiverFrequencySpotOf } from './HorseOmahaRiverFrequencyPrior.js';
 import {
   checkedToNonBottomBoat,
   checkedToNonBottomRiverBoat,
@@ -3979,6 +3980,14 @@ export interface HorseDecideOpts {
    * the pooled cell. A fold may become a call and a call a fold: the price decides.
    */
   omahaRiverBetPriorIsPotTypeSplit?: boolean;
+  /**
+   * lead-9 lane RFQ 2026-11-27 (default OFF, read === true). PLO4/PLO5 cash, heads-up, a river BET (never a raise) in
+   * a single-raised or limped pot, only inside omahaFacingBetPriorIsPeopleMeasured's river price: the bettor's own
+   * public river first-bet frequency (OPPONENT-HUD's unopened river record) sets the prior mean of his shown-bet record
+   * (HorseOmahaRiverFrequencyPrior). Fold -> call only: the price may turn the river fold into a call, never a call
+   * into a fold.
+   */
+  omahaRiverBetPriorReadsHisFrequency?: boolean;
   /**
    * WooWoo audit FLOP-DEFENCE 2026-11-18 (default OFF, read === true): heads-up facing the
    * first flop bet with chips behind, the fold or call is the flop verdict with the call
@@ -15187,6 +15196,8 @@ let omahaFacingBetEvCountMemo: {
   hiddenGiveUps: boolean;
   /** omahaRiverBetPriorIsPotTypeSplit */
   riverPotSplit: boolean;
+  /** omahaRiverBetPriorReadsHisFrequency */
+  riverFreq: boolean;
   /** omahaFacingBetRangeIsMeasuredByLine and its siblings (HorseOmahaFacingBetPriced) */
   pricedKey: string;
   /** omahaGiveUpPricedTurnCallIsAtIndifference */
@@ -15426,6 +15437,12 @@ function omahaFacingBetEvCount(
     opts.omahaRiverBetPriorIsPotTypeSplit === true &&
     !isTournamentMode(gs) &&
     ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
+  // omahaRiverBetPriorReadsHisFrequency (default off): his river frequency inside #12116's heads-up river price
+  const riverFreq =
+    opts.omahaRiverBetPriorReadsHisFrequency === true &&
+    opts.omahaFacingBetPriorIsPeopleMeasured === true &&
+    !isTournamentMode(gs) &&
+    ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
   const turnLineHidden =
     turnLineSplit &&
     (opts as { omahaPeoplePriorCountsHiddenBets?: boolean }).omahaPeoplePriorCountsHiddenBets ===
@@ -15478,6 +15495,7 @@ function omahaFacingBetEvCount(
     memo.giveUpIndifference === giveUpIndifference &&
     memo.hiddenGiveUps === hiddenGiveUps &&
     memo.riverPotSplit === riverPotSplit &&
+    memo.riverFreq === riverFreq &&
     memo.pricedKey === pricedKey
   )
     return memo.answer;
@@ -15614,6 +15632,7 @@ function omahaFacingBetEvCount(
     // omahaFacingBetPriorIsPeopleMeasured (default off): heads-up, a bet or a raise: the non-value share is the
     // people-only measured share (river: three measured regions), the balanced share weighting a thin cell, moved
     // by the bettor's own shown bets (HorseOmahaFacingBetPeoplePrior); a raise reads the people raise cell only.
+    let riverFreqRead: typeof read | null = null;
     if (equilibriumAnchor && spot.callers + spot.allIns + spot.behind === 0) {
       try {
         const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
@@ -15640,7 +15659,7 @@ function omahaFacingBetEvCount(
           ? omahaRiverPotKeyOf(variant, spot.street, spot.isRaise === true, gs.actionHistory)
           : null;
         if (riverPotKey && telemetryOn(opts)) noteFire('omaha_river_pot_prior_read');
-        const anchored = omahaPeoplePriorShare({
+        const priorInput = {
           hidden: hiddenKey,
           riverPot: riverPotKey,
           giveUps: hiddenGiveUps && hiddenKey !== null,
@@ -15664,7 +15683,8 @@ function omahaFacingBetEvCount(
                   omahaPeoplePriorRecordCountsHidden(hiddenKey)
                 )
               : null,
-        });
+        };
+        const anchored = omahaPeoplePriorShare(priorInput);
         if (anchored) {
           readBeforeAnchor = read;
           read = {
@@ -15680,6 +15700,28 @@ function omahaFacingBetEvCount(
               : {}),
           };
           equilibriumAnchored = anchored;
+          // omahaRiverBetPriorReadsHisFrequency (default off): the same price with his river frequency as the prior
+          // mean of his record; used below only where it turns this read's fold into a call
+          if (
+            riverFreq &&
+            bettor &&
+            omahaRiverFrequencySpotOf(variant, spot.street, spot.isRaise === true, gs.actionHistory)
+          ) {
+            const frequency = HorseMind.omahaStabDefenceRecordOf(
+              bettor.user_id,
+              variant,
+              'river',
+              1
+            );
+            const withFreq = frequency ? omahaPeoplePriorShare({ ...priorInput, frequency }) : null;
+            if (telemetryOn(opts)) noteFire('omaha_river_frequency_prior_read');
+            if (withFreq && withFreq.share > anchored.share)
+              riverFreqRead = {
+                ...OMAHA_EV_UNKNOWN_READ,
+                pricedShare: withFreq.share,
+                pricedRegions: withFreq.regions,
+              };
+          }
         }
       } catch {
         equilibriumAnchored = null;
@@ -15861,6 +15903,14 @@ function omahaFacingBetEvCount(
         }
       );
     let verdict = verdictOf(spot, read);
+    // omahaRiverBetPriorReadsHisFrequency (default off): fold -> call only
+    if (riverFreqRead && verdict && !verdict.call) {
+      const withFreq = verdictOf(spot, riverFreqRead);
+      if (withFreq?.call) {
+        verdict = withFreq;
+        if (telemetryOn(opts)) noteFire('omaha_river_frequency_prior_called');
+      }
+    }
     peopleFieldPriced = verdict !== null && peopleFieldOf(spot) !== null;
     // Receipt only: the people-measured field changed the verdict the stated field constants give.
     const peopleFieldChanged =
@@ -16083,6 +16133,7 @@ function omahaFacingBetEvCount(
     giveUpIndifference,
     hiddenGiveUps,
     riverPotSplit,
+    riverFreq,
     pricedKey,
     answer,
   };
