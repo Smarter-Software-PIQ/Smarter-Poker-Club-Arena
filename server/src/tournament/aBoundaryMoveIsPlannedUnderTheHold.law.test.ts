@@ -1161,5 +1161,33 @@ describe('a boundary move is planned under the hold', () => {
         { ids: [destA.tableId], priority: 'high' },
       ]);
     });
+
+    it('seeds preparedBoundaryPlan during checkTableBalance for a hold-fenced source in boundaryPlanAwaitingPark so immediate park avoids miss_absent (1e532243)', async () => {
+      const big = table(0, 8);
+      const short = table(1, 5);
+      const { m, engines, park, readsAtTheBoundary } = manager([big, short]);
+      const bigEngine: any = engines.get(big.tableId)!;
+      // Source is already in its post-hand completion presentation hold when the sweep fences it.
+      bigEngine.isInCompletionPresentationHold = () => true;
+
+      m.isProcessingEliminations = true;
+      await m.checkTableBalance();
+      expect(m.gapBalanceFencedSources.has(big.tableId)).toBe(true);
+      expect(m.boundaryPlanAwaitingPark.has(big.tableId)).toBe(true);
+      // Fresh board was seeded directly into preparedBoundaryPlan instead of being discarded.
+      expect(m.preparedBoundaryPlan).not.toBeNull();
+      expect(m.preparedBoundaryPlan.epoch).toBe(m.balanceBoardEpoch);
+
+      // Source finishes its remaining hold and parks immediately: boundary drain reuses
+      // the seeded plan with ZERO duplicate balanceAtBoundary DB reads.
+      m.loadBalancerTables.mockClear();
+      m.isProcessingEliminations = false;
+      park(big.tableId);
+      expect(m.claimGapBalanceAtBoundary(big.tableId)).toBe(true);
+      await settle();
+
+      expect(readsAtTheBoundary()).toBe(0);
+      expect(m.executePlayerMoves).toHaveBeenCalledTimes(1);
+    });
   });
 });

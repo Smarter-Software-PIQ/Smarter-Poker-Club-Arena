@@ -450,21 +450,51 @@ export abstract class ServerTableEngineBase {
       : (this.handController?.getState() ?? null);
   }
 
-  /** All hand-owned capture fields survive together, including future additions. */
-  protected captureContinuationEngine(): Record<string, unknown> {
+  /**
+   * Clone a continuation field without invoking structuredClone on primitives
+   * (numbers, strings, booleans, null, undefined). Every object/array/Map/Set
+   * still receives a full detached structuredClone (incident 1e532243).
+   */
+  private static cloneContinuationValue(value: unknown): unknown {
+    return value !== null && typeof value === 'object' ? structuredClone(value) : value;
+  }
+
+  /**
+   * Capture only the three post-dispatch accounting fields needed by
+   * HandContinuationLane's second snapshot, avoiding redundant
+   * disconnectStates/timeBanks/waitingForButton copies on every tournament
+   * action batch (incident 1e532243).
+   */
+  protected captureContinuationAccounting(): {
+    fields: Record<string, unknown>;
+    timeBankMeta: unknown;
+    timeBankDebits: unknown;
+  } {
     const self = this as unknown as Record<string, unknown>;
     const fields: Record<string, unknown> = {};
     for (const k of Object.keys(self)) {
-      if (k.startsWith('currentHand')) fields[k] = structuredClone(self[k]);
+      if (k.startsWith('currentHand')) {
+        fields[k] = ServerTableEngineBase.cloneContinuationValue(self[k]);
+      }
     }
-    const capturedAt = Date.now();
     return {
       fields,
+      timeBankMeta: ServerTableEngineBase.cloneContinuationValue(this.timeBankMeta),
+      timeBankDebits: ServerTableEngineBase.cloneContinuationValue(this.unresolvedTimeBankDebits),
+    };
+  }
+
+  /** All hand-owned capture fields survive together, including future additions. */
+  protected captureContinuationEngine(): Record<string, unknown> {
+    const accounting = this.captureContinuationAccounting();
+    const capturedAt = Date.now();
+    return {
+      fields: accounting.fields,
       waitingForButton: Array.from(this.waitingForButton),
       capturedAt,
       disconnectStates: this.disconnectEngine.getFsmStatesForTable(this.tableId),
-      timeBankMeta: structuredClone(this.timeBankMeta),
-      timeBankDebits: structuredClone(this.unresolvedTimeBankDebits),
+      timeBankMeta: accounting.timeBankMeta,
+      timeBankDebits: accounting.timeBankDebits,
       timeBanks:
         this.handController?.getState().players.map((p) => {
           const bank = this.timeBankEngine.capturePlayerForRecovery(
