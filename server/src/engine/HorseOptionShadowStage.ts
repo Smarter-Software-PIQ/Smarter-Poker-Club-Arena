@@ -198,6 +198,14 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['turn']),
   }),
+  omahaRiverBetPriorIsPotTypeSplit: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['river']),
+  }),
+  omahaMultiwayCallNeedsNutShare: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop', 'turn', 'river']),
+  }),
   omahaBareOverpairContinuationIsPeoplePriced: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['flop']),
@@ -205,10 +213,6 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
   omahaGiveUpPricedTurnCallIsAtIndifference: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['turn']),
-  }),
-  omahaMultiwayCallNeedsNutShare: Object.freeze({
-    games: Object.freeze([4, 5] as const),
-    streets: Object.freeze(['flop', 'turn', 'river']),
   }),
   omahaTurnFacingBetPriorIsLineSplit: Object.freeze({
     games: Object.freeze([4, 5] as const),

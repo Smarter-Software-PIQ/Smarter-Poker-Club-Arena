@@ -5170,6 +5170,28 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       omahaPeoplePriorCountsHiddenBets: true,
     },
   })),
+  // 2026-11-27 lead-9 lane RV2 (default OFF, PLO4/PLO5 cash): the heads-up river bet of a re-raised pot priced on
+  // people's re-raised-pot river bets, on top of the people-measured facing-bet prior.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_river_bet_prior_is_pot_type_split`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaFacingBetEv: true,
+      omahaFacingBetPriorIsPeopleMeasured: true,
+      omahaRiverBetPriorIsPotTypeSplit: true,
+    },
+    b: { omahaFacingBetEv: true, omahaFacingBetPriorIsPeopleMeasured: true },
+  })),
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_facing_bet_field_is_joint`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaFacingBetFieldIsJoint: true },
+    b: { omahaFacingBetEv: true },
+  })),
   // 2026-11-27 lead-9 lane HU2 (default OFF, PLO4/PLO5 cash): the bare-overpair flop continuation priced on the
   // people-measured flop range (the flop pressure cap's own price) instead of the sampler's aggressor tiers.
   ...(['plo4', 'plo5'] as const).map((variant) => ({
@@ -5209,14 +5231,6 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       omahaPeoplePriorCountsHiddenBets: true,
       omahaHiddenBetsArePricedAsGiveUps: true,
     },
-  })),
-  ...(['plo4', 'plo5'] as const).map((variant) => ({
-    name: `${variant}_omaha_facing_bet_field_is_joint`,
-    variant,
-    pairs: 6000,
-    productionStyles: true,
-    a: { omahaFacingBetEv: true, omahaFacingBetFieldIsJoint: true },
-    b: { omahaFacingBetEv: true },
   })),
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_multiway_call_needs_nut_share`,

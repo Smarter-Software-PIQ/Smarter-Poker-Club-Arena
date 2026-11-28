@@ -1387,6 +1387,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaRiverBetPriorIsPotTypeSplit',
+    "lead-9 lane RV2 2026-11-27 (plo-lead7-01TLQer8/l9-river2/BUILD.md). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. inside omahaFacingBetPriorIsPeopleMeasured's heads-up river price, a river bet (never a raise) in a re-raised pot reads the people-only river regions measured in re-raised pots (HorseOmahaRiverPotPrior), shrunk toward the pooled river cell, then the equilibrium anchor, moved by the bettor's own shown bets; single-raised and limped pots keep the pooled cell. Public actions and shown cards of people only; no identity input.",
+    'V94'
+  ),
+  flag(
+    'omahaFacingBetFieldIsJoint',
+    "PLO-OWNER lead-6 2026-11-24 (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4; multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a multiway turn or river call is priced with the bettor, the callers, the earlier all-ins and the players behind (at their measured continue rate) dealt on the same cards from measured ranges (default OFF; PLO-OWNER lead-6 2026-11-24). HorseOmahaFacingBetPriced, HorseOmahaPricedJointSample.ts",
+    'V94'
+  ),
+  flag(
     'omahaBareOverpairContinuationIsPeoplePriced',
     "lead-9 lane HU2 2026-11-27 (plo-lead7-01TLQer8/l9-huresid2/BUILD.md). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. heads-up on the flop, the bare big pair that checked out of position and faces one bet (the continuation of omahaBareOverpairOopFlopCheck), never a re-raised pot: the call-or-fold is priced on the Horse's equity against the bettor's PEOPLE-ONLY measured flop range (HorseOmahaFlopPressureCapPriced: people's flop bets of this size, hidden bets counted with omahaPeoplePriorCountsHiddenBets, blended toward the balanced share, moved by his own flop record) instead of the sampler's aggressor tiers; the continuation's realization, rake, margin and never-a-raise are unchanged. Real-node replay: of 44 folds in the PLO4 single-raised out-of-position cell facing a 0.7-1.1 pot flop bet, 11 were this continuation and in 10 the people-measured flop price had called. Identity never enters.",
     'V94'
@@ -1394,11 +1404,6 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'omahaGiveUpPricedTurnCallIsAtIndifference',
     "lead-9 lane HU2 2026-11-27 (plo-lead7-01TLQer8/l9-huresid2/BUILD.md). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. inside omahaHiddenBetsArePricedAsGiveUps' heads-up turn bet (never a raise, never a re-raised pot, never multiway), the call is made at EV >= 0 instead of EV > 2% of the final pot: the verdict there is an exact count against a people-measured range with the give-up share priced, and the hands between zero and the margin are the ones a bluffer's price makes indifferent. Real-node replay on top of the give-up price: PLO4 flop checked through, turn bet 0.7-1.1 pot, single-raised out of position 59% -> 51% fold (zero-equity bluff +2.48 +/- 1.19 -> +0.76 +/- 1.22 bb per bet), limped 68% -> 62% (+0.86 +/- 0.32 -> +0.58 +/- 0.33). It reads no record of its own and no identity; it only turns a fold into a call.",
-    'V94'
-  ),
-  flag(
-    'omahaFacingBetFieldIsJoint',
-    "PLO-OWNER lead-6 2026-11-24 (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4; multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a multiway turn or river call is priced with the bettor, the callers, the earlier all-ins and the players behind (at their measured continue rate) dealt on the same cards from measured ranges (default OFF; PLO-OWNER lead-6 2026-11-24). HorseOmahaFacingBetPriced, HorseOmahaPricedJointSample.ts",
     'V94'
   ),
   flag(
@@ -6419,6 +6424,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_river_pot_prior_read',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetEv)',
+    'the heads-up river people cell was read from the pot-type river cells: a river bet in a re-raised pot (omahaRiverBetPriorIsPotTypeSplit)',
+    'V94'
+  ),
+  receipt(
+    'omaha_mw_people_field_priced',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaMultiwayPeopleField)',
+    'the facing-bet verdict priced a multiway turn or river call on the people-measured caller width and multiway continue rate (omahaMultiwayFieldIsPeopleMeasured)',
+    'V94'
+  ),
+  receipt(
     'omaha_bare_overpair_people_priced',
     'HorseLogic wager_rules (HorseOmahaOopChecks, the continuation; HorseOmahaFlopPressureCapPriced)',
     "the bare-overpair flop continuation priced its call-or-fold on the Horse's equity against the bettor's people-measured flop range (omahaBareOverpairContinuationIsPeoplePriced)",
@@ -6440,12 +6457,6 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_give_up_indifference_call',
     'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetEv)',
     'the turn verdict called a give-up-priced bet whose EV lies between zero and the safety margin (omahaGiveUpPricedTurnCallIsAtIndifference)',
-    'V94'
-  ),
-  receipt(
-    'omaha_mw_people_field_priced',
-    'HorseLogic omahaFacingBetEvRule (HorseOmahaMultiwayPeopleField)',
-    'the facing-bet verdict priced a multiway turn or river call on the people-measured caller width and multiway continue rate (omahaMultiwayFieldIsPeopleMeasured)',
     'V94'
   ),
   receipt(
@@ -11263,11 +11274,13 @@ export const OPTION_ACTED_RECEIPTS_DECLARED: Readonly<
   omahaPeoplePriorCountsHiddenBets: { prefixes: ['omaha_hidden_bets_prior_'] },
   // the give-up pricing names its own receipts in their descriptions; declared by prefix
   omahaHiddenBetsArePricedAsGiveUps: { prefixes: ['omaha_hidden_give_up_'] },
+  // the pot-type river cell names its own receipt in its description; declared by prefix
+  omahaRiverBetPriorIsPotTypeSplit: { prefixes: ['omaha_river_pot_prior_'] },
+  omahaFlopPressureCapIsPriced: { prefixes: ['omaha_flop_pressure_cap_priced'] },
   // the people-priced bare-overpair continuation names its own receipts in their descriptions; declared by prefix
   omahaBareOverpairContinuationIsPeoplePriced: { prefixes: ['omaha_bare_overpair_people_priced'] },
   // the indifference call inside the give-up price names its own receipts in their descriptions; declared by prefix
   omahaGiveUpPricedTurnCallIsAtIndifference: { prefixes: ['omaha_give_up_indifference_'] },
-  omahaFlopPressureCapIsPriced: { prefixes: ['omaha_flop_pressure_cap_priced'] },
   // the line-split turn prior names its own receipts in their descriptions; declared by prefix
   omahaTurnFacingBetPriorIsLineSplit: { prefixes: ['omaha_turn_line_prior_'] },
   omahaReraisedPositionVsEveryoneToAct: NO_OWN_RECEIPT(

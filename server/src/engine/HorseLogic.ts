@@ -1,3 +1,4 @@
+import { omahaRiverPotKeyOf } from './HorseOmahaRiverPotPrior.js';
 import {
   checkedToNonBottomBoat,
   checkedToNonBottomRiverBoat,
@@ -3962,6 +3963,23 @@ export interface HorseDecideOpts {
    */
   omahaHiddenBetsArePricedAsGiveUps?: boolean;
   /**
+   * lead-9 lane RV2 2026-11-27 (default OFF, read === true). PLO4/PLO5 cash, heads-up, a river BET (never a raise) in
+   * a RE-RAISED pot, only inside omahaFacingBetPriorIsPeopleMeasured's river price: the people cell is the one
+   * measured on people's shown river bets in re-raised pots (HorseOmahaRiverPotPrior), shrunk toward the pooled river
+   * cell, then the equilibrium anchor, moved by the bettor's own record as today. Single-raised and limped pots keep
+   * the pooled cell. A fold may become a call and a call a fold: the price decides.
+   */
+  omahaRiverBetPriorIsPotTypeSplit?: boolean;
+  /**
+   * WooWoo audit FLOP-DEFENCE 2026-11-18 (default OFF, read === true): heads-up facing the
+   * first flop bet with chips behind, the fold or call is the flop verdict with the call
+   * priced as a two-street tree (his measured turn/river bet rates, the Horse's priced turn
+   * and river answers) in place of equity x realization (HorseOmahaFlopDefenceTree.ts).
+   * Stands alone (omahaFlopFacingBetEv off: only that spot is answered); with
+   * omahaFlopFacingBetEv on it replaces that verdict's realization in the same spot.
+   */
+  omahaFlopDefenceIsPriced?: boolean;
+  /**
    * lead-9 lane HU2 2026-11-27 (default OFF, read === true). PLO4/PLO5 cash, heads-up, the flop, the bare big pair
    * that checked out of position and faces one bet (omahaBareOverpairOopFlopCheck's continuation), never a re-raised
    * pot: the continuation's call-or-fold is priced on the Horse's equity against the bettor's PEOPLE-MEASURED flop
@@ -3977,15 +3995,6 @@ export interface HorseDecideOpts {
    * range; folding every hand between zero and the margin is the fold a zero-equity bluff is paid by.
    */
   omahaGiveUpPricedTurnCallIsAtIndifference?: boolean;
-  /**
-   * WooWoo audit FLOP-DEFENCE 2026-11-18 (default OFF, read === true): heads-up facing the
-   * first flop bet with chips behind, the fold or call is the flop verdict with the call
-   * priced as a two-street tree (his measured turn/river bet rates, the Horse's priced turn
-   * and river answers) in place of equity x realization (HorseOmahaFlopDefenceTree.ts).
-   * Stands alone (omahaFlopFacingBetEv off: only that spot is answered); with
-   * omahaFlopFacingBetEv on it replaces that verdict's realization in the same spot.
-   */
-  omahaFlopDefenceIsPriced?: boolean;
   /** PLO Strategy lane 2026-11-19 (owner 2026-11-16: every decision from the
    * hand and its equity against the opponent's perceived range for that
    * action, line and board and his measured tendencies; how far the Horse
@@ -15123,10 +15132,12 @@ let omahaFacingBetEvCountMemo: {
   turnLineHidden: boolean;
   /** omahaHiddenBetsArePricedAsGiveUps */
   hiddenGiveUps: boolean;
-  /** omahaGiveUpPricedTurnCallIsAtIndifference */
-  giveUpIndifference: boolean;
+  /** omahaRiverBetPriorIsPotTypeSplit */
+  riverPotSplit: boolean;
   /** omahaFacingBetRangeIsMeasuredByLine and its siblings (HorseOmahaFacingBetPriced) */
   pricedKey: string;
+  /** omahaGiveUpPricedTurnCallIsAtIndifference */
+  giveUpIndifference: boolean;
   answer: OmahaFacingBetEvAnswer | null;
 } | null = null;
 
@@ -15357,13 +15368,18 @@ function omahaFacingBetEvCount(
     opts.omahaPeoplePriorCountsHiddenBets === true &&
     !isTournamentMode(gs) &&
     ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
-  // omahaGiveUpPricedTurnCallIsAtIndifference (default off): inside the give-up price, single-raised and limped pots
-  const giveUpIndifference =
-    hiddenGiveUps && opts.omahaGiveUpPricedTurnCallIsAtIndifference === true;
+  // omahaRiverBetPriorIsPotTypeSplit (default off): the pot type's river cell inside #12116's heads-up river price
+  const riverPotSplit =
+    opts.omahaRiverBetPriorIsPotTypeSplit === true &&
+    !isTournamentMode(gs) &&
+    ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
   const turnLineHidden =
     turnLineSplit &&
     (opts as { omahaPeoplePriorCountsHiddenBets?: boolean }).omahaPeoplePriorCountsHiddenBets ===
       true;
+  // omahaGiveUpPricedTurnCallIsAtIndifference (default off): inside the give-up price, single-raised and limped pots
+  const giveUpIndifference =
+    hiddenGiveUps && opts.omahaGiveUpPricedTurnCallIsAtIndifference === true;
   // omahaMultiwayFieldIsPeopleMeasured (default off): PLO4/PLO5 cash only.
   const multiwayFieldPeople =
     opts.omahaMultiwayFieldIsPeopleMeasured === true &&
@@ -15400,8 +15416,9 @@ function omahaFacingBetEvCount(
     memo.multiwayFieldPeople === multiwayFieldPeople &&
     memo.turnLineSplit === turnLineSplit &&
     memo.turnLineHidden === turnLineHidden &&
-    memo.hiddenGiveUps === hiddenGiveUps &&
     memo.giveUpIndifference === giveUpIndifference &&
+    memo.hiddenGiveUps === hiddenGiveUps &&
+    memo.riverPotSplit === riverPotSplit &&
     memo.pricedKey === pricedKey
   )
     return memo.answer;
@@ -15559,8 +15576,14 @@ function omahaFacingBetEvCount(
                 : null))
             : null;
         if (hiddenKey && telemetryOn(opts)) noteFire('omaha_hidden_bets_prior_read');
+        // omahaRiverBetPriorIsPotTypeSplit (default off): a river bet in a pot type the split reads
+        const riverPotKey = riverPotSplit
+          ? omahaRiverPotKeyOf(variant, spot.street, spot.isRaise === true, gs.actionHistory)
+          : null;
+        if (riverPotKey && telemetryOn(opts)) noteFire('omaha_river_pot_prior_read');
         const anchored = omahaPeoplePriorShare({
           hidden: hiddenKey,
+          riverPot: riverPotKey,
           giveUps: hiddenGiveUps && hiddenKey !== null,
           street: spot.street,
           potFrac: spot.potFrac,
@@ -15938,8 +15961,9 @@ function omahaFacingBetEvCount(
     multiwayFieldPeople,
     turnLineSplit,
     turnLineHidden,
-    hiddenGiveUps,
     giveUpIndifference,
+    hiddenGiveUps,
+    riverPotSplit,
     pricedKey,
     answer,
   };
