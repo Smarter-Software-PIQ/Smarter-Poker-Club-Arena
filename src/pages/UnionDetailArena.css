@@ -1,0 +1,569 @@
+/**
+ * UNION COMMAND (/unions/:unionId), #SmarterDesign (batch U1, 2026-11-28)
+ *
+ * The arena workspace language (src/components/lobby/ArenaWorkspace.css,
+ * src/components/ops/ArenaOps.css): the union and every tab section a thin
+ * chrome case, the figures on chrome readout tiles, the tabs and actions
+ * chrome keys (the open tab and each case's primary lit), every table, club,
+ * tournament and schedule a chrome ledger row. Every rule is scoped under the
+ * page's arena root. No hover state; focus rings only. The club selector
+ * dialog keeps UnionDetailPage.module.css.
+ */
+
+.union-detail.arena-workspace {
+  min-height: 100dvh;
+  padding-bottom: max(92px, env(safe-area-inset-bottom));
+  overflow-x: clip;
+}
+
+/* ── The union ─────────────────────────────────────────────────────── */
+.union-detail.arena-workspace .union-detail-identity__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.union-detail.arena-workspace .union-detail-identity__copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.union-detail.arena-workspace .union-detail-identity__copy .arena-section-title {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.union-detail.arena-workspace .union-detail-identity__copy .arena-ops-copy:empty {
+  display: none;
+}
+.union-detail.arena-workspace .union-detail-avatar {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  box-sizing: border-box;
+  overflow: hidden;
+  color: #74dfff;
+  background: var(--arena-tile);
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  font:
+    800 22px/1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  text-transform: uppercase;
+}
+.union-detail.arena-workspace .union-detail-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.union-detail.arena-workspace .union-detail-avatar--small {
+  width: 40px;
+  height: 40px;
+  font-size: 16px;
+}
+
+/* ── Readout tiles: value first in the DOM, label rides on top ─────── */
+.union-detail.arena-workspace .union-detail-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+  gap: 4px;
+}
+.union-detail.arena-workspace .union-detail-stats--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.union-detail.arena-workspace .union-detail-stat {
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+  gap: 2px;
+  min-width: 0;
+}
+.union-detail.arena-workspace .union-detail-stat__label {
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
+}
+.union-detail.arena-workspace .union-detail-stat__value {
+  color: #f1f5fc;
+  font:
+    800 18px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.union-detail.arena-workspace .union-detail-stat__value--live {
+  color: #74dfff;
+}
+.union-detail.arena-workspace .union-detail-progress {
+  height: 4px;
+  overflow: hidden;
+  background: #040d17;
+  border: 1px solid #253e57;
+}
+.union-detail.arena-workspace .union-detail-progress__fill {
+  height: 100%;
+}
+.union-detail.arena-workspace .union-detail-progress__copy {
+  color: #9fbacc;
+  text-align: right;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+}
+
+/* The money tiles carry a glyph above the figure; the figure and its label
+   stack the same way as every other tile. */
+.union-detail.arena-workspace .union-detail-money {
+  flex-direction: column;
+  align-items: stretch;
+}
+.union-detail.arena-workspace .union-detail-money > div {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 2px;
+}
+.union-detail.arena-workspace .union-detail-money__icon {
+  color: #74dfff;
+  font:
+    700 12px/1 Arial,
+    sans-serif;
+}
+.union-detail.arena-workspace .union-detail-money--overdue .union-detail-money__icon {
+  color: #ff5b6e;
+}
+.union-detail.arena-workspace .union-detail-positive {
+  color: #35d95a;
+}
+.union-detail.arena-workspace .union-detail-negative {
+  color: #ff5b6e;
+}
+
+/* ── Tabs ──────────────────────────────────────────────────────────── */
+.union-detail.arena-workspace .union-detail-tabs {
+  margin: 7px 0;
+}
+@media (min-width: 721px) {
+  .union-detail.arena-workspace .union-detail-tabs > button {
+    flex: 1 1 0;
+  }
+}
+@media (max-width: 720px) {
+  .union-detail.arena-workspace .union-detail-tabs > button {
+    flex: 1 1 calc(33.333% - 4px);
+  }
+}
+
+/* ── Tab bodies ────────────────────────────────────────────────────── */
+.union-detail.arena-workspace .union-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  gap: 0 10px;
+  align-items: start;
+}
+.union-detail.arena-workspace .union-detail-finance,
+.union-detail.arena-workspace .union-detail-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.union-detail.arena-workspace .union-detail-finance > .arena-ops-copy {
+  padding: 0 3px;
+}
+.union-detail.arena-workspace .union-detail-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+.union-detail.arena-workspace .union-detail-section-head > div:first-child {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.union-detail.arena-workspace .union-detail-section-head > .arena-switch {
+  flex: 1 1 160px;
+}
+.union-detail.arena-workspace .union-detail-alert {
+  margin: 0;
+  padding: 8px 10px;
+  color: #ff5b6e;
+  background: #040d17;
+  border-left: 3px solid #f02849;
+  font:
+    12px/1.4 Arial,
+    sans-serif;
+}
+
+.union-detail.arena-workspace .union-detail-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 18px 8px;
+  color: #9fbacc;
+  text-align: center;
+  font:
+    12px/1.4 Arial,
+    sans-serif;
+}
+.union-detail.arena-workspace .union-detail-empty p {
+  margin: 0;
+}
+.union-detail.arena-workspace .union-detail-empty__mark {
+  color: #74dfff;
+  font:
+    700 20px/1 Arial,
+    sans-serif;
+}
+.union-detail.arena-workspace .union-detail-empty__title {
+  color: #dce5ef;
+  font-weight: 700;
+}
+.union-detail.arena-workspace .union-detail-empty > .arena-switch {
+  width: min(100%, 320px);
+  margin-top: 6px;
+}
+
+/* ── Ledger rows ───────────────────────────────────────────────────── */
+.union-detail.arena-workspace .union-detail-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.union-detail.arena-workspace .union-detail-row {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 6px 10px;
+  color: #f1f5fc;
+  text-decoration: none;
+  font:
+    13px/1.3 Arial,
+    sans-serif;
+}
+.union-detail.arena-workspace .union-detail-row:focus-visible,
+.union-detail.arena-workspace .union-detail-link:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+.union-detail.arena-workspace .union-detail-row:active {
+  filter: brightness(0.86);
+}
+.union-detail.arena-workspace .union-detail-row__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font:
+    700 14px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  overflow-wrap: anywhere;
+}
+.union-detail.arena-workspace .union-detail-row__live {
+  color: #74dfff;
+  font:
+    700 12px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.union-detail.arena-workspace .union-detail-row__copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.union-detail.arena-workspace .union-detail-row__copy strong,
+.union-detail.arena-workspace .union-detail-row__copy h4 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  color: #f1f5fc;
+  font:
+    700 14px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  overflow-wrap: anywhere;
+}
+.union-detail.arena-workspace .union-detail-row__copy p {
+  margin: 0;
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+}
+.union-detail.arena-workspace .union-detail-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+}
+.union-detail.arena-workspace .union-detail-level {
+  font:
+    800 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.union-detail.arena-workspace .union-detail-row__governance {
+  flex: 0 0 auto;
+}
+
+/* The clubs come in one after another, as before. */
+.union-detail.arena-workspace .union-detail-club {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.union-detail.arena-workspace .union-detail-club--shown {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 0.3s ease-out,
+    transform 0.3s ease-out;
+}
+
+/* Tables, tournaments and schedules: a row card with its key under it. */
+.union-detail.arena-workspace .union-detail-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr));
+  gap: 4px;
+}
+.union-detail.arena-workspace .union-detail-card {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 10px;
+  color: #f1f5fc;
+}
+.union-detail.arena-workspace .union-detail-card--idle {
+  opacity: 0.6;
+}
+.union-detail.arena-workspace .union-detail-card > .arena-switch {
+  margin: 0;
+}
+.union-detail.arena-workspace .union-detail-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.union-detail.arena-workspace .union-detail-card__head h4 {
+  margin: 0;
+  min-width: 0;
+  font:
+    700 14px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  overflow-wrap: anywhere;
+}
+.union-detail.arena-workspace .union-detail-card__details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: #9fbacc;
+  font:
+    12px/1.3 Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.union-detail.arena-workspace .union-detail-card__variant {
+  color: #74dfff;
+}
+.union-detail.arena-workspace .union-detail-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  background: #35d95a;
+  border-radius: 50%;
+}
+.union-detail.arena-workspace .union-detail-badge {
+  flex: 0 0 auto;
+  color: #74dfff;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: capitalize;
+}
+.union-detail.arena-workspace :is(.union-detail-badge--good, .union-detail-badge--paid) {
+  color: #35d95a;
+}
+.union-detail.arena-workspace
+  :is(.union-detail-badge--bad, .union-detail-badge--overdue, .union-detail-badge--disputed) {
+  color: #ff5b6e;
+}
+.union-detail.arena-workspace :is(.union-detail-badge--pending, .union-detail-badge--unverified) {
+  color: #ffe98a;
+}
+.union-detail.arena-workspace :is(.union-detail-badge--missing, .union-detail-badge--cancelled) {
+  color: #9fbacc;
+}
+
+/* ── Latest statements ─────────────────────────────────────────────── */
+.union-detail.arena-workspace .union-detail-quick {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+.union-detail.arena-workspace .union-detail-quick > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  background: var(--arena-tile);
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+}
+.union-detail.arena-workspace .union-detail-quick span {
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+}
+.union-detail.arena-workspace .union-detail-quick strong {
+  color: #f1f5fc;
+  font:
+    800 16px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.union-detail.arena-workspace .union-detail-quick strong.union-detail-positive {
+  color: #35d95a;
+}
+.union-detail.arena-workspace .union-detail-quick strong.union-detail-negative {
+  color: #ff5b6e;
+}
+.union-detail.arena-workspace .union-detail-link {
+  color: #74dfff;
+  font-weight: 700;
+}
+
+/* ── The statements ledger ─────────────────────────────────────────── */
+.union-detail.arena-workspace .union-detail-table-well {
+  overflow-x: auto;
+  background: #040d17;
+  border: 1px solid #253e57;
+}
+.union-detail.arena-workspace .union-detail-table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  color: #dce5ef;
+  font:
+    12px/1.3 Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.union-detail.arena-workspace .union-detail-table th {
+  padding: 7px 8px;
+  color: #9fbacc;
+  text-align: left;
+  border-bottom: 1px solid #253e57;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+}
+.union-detail.arena-workspace .union-detail-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid #13253a;
+}
+.union-detail.arena-workspace .union-detail-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* ── Settings ──────────────────────────────────────────────────────── */
+.union-detail.arena-workspace .union-detail-setting {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  color: #dce5ef;
+  border: 4px solid transparent;
+  border-image: var(--arena-row) 13 / 6px stretch;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+  font:
+    700 13px/1.3 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.union-detail.arena-workspace .union-detail-setting > label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.union-detail.arena-workspace .union-detail-setting > label.union-detail-toggle {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+}
+.union-detail.arena-workspace .union-detail-toggle input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: #087cfa;
+}
+.union-detail.arena-workspace .union-detail-slider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.union-detail.arena-workspace .union-detail-slider__input {
+  flex: 1 1 auto;
+  min-height: 32px;
+  accent-color: #087cfa;
+}
+.union-detail.arena-workspace .union-detail-slider__value {
+  min-width: 44px;
+  color: #74dfff;
+  text-align: right;
+  font:
+    800 16px/1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.union-detail.arena-workspace .union-detail-rate {
+  max-width: 180px;
+  color-scheme: dark;
+  font-size: 16px;
+}
+.union-detail.arena-workspace .union-detail-hint {
+  margin: 0;
+  color: #9fbacc;
+  font:
+    11px/1.35 Arial,
+    sans-serif;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .union-detail.arena-workspace .union-detail-club {
+    opacity: 1;
+    transform: none;
+  }
+}
