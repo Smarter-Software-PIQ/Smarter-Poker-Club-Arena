@@ -226,6 +226,20 @@ test('the published table explains controlled seat moves without moving a player
     expect(origin.built_by).toBe('publish-club-arena.yml');
     return { ca_sha: origin.ca_sha as string, run_id: String(origin.run_id) };
   };
+  // A protected publish during the proof leaves no single build it could
+  // certify. Every re-read of the build identity names that case exactly; the
+  // workflow step classifies it as a NON-VERDICT only when the release window
+  // confirms a forward publish. A bare toEqual here reported a mid-proof
+  // publish as a defect (run 46145685859, aaeead9b -> 51b966e2).
+  const requireSameBuild = async () => {
+    const now = await readBuild();
+    if (JSON.stringify(now) !== JSON.stringify(evidence.before)) {
+      throw new Error(
+        `PRODUCTION_ADVANCED_DURING_PROOF ${JSON.stringify(evidence.before)} -> ${JSON.stringify(now)}`
+      );
+    }
+    return now;
+  };
 
   try {
     evidence.before = await readBuild();
@@ -425,8 +439,7 @@ test('the published table explains controlled seat moves without moving a player
       body: await page.screenshot(),
       contentType: 'image/png',
     });
-    evidence.after = await readBuild();
-    expect(evidence.after).toEqual(evidence.before);
+    evidence.after = await requireSameBuild();
     Object.assign(evidence, {
       sourceTableId: source.id,
       actorId,
@@ -711,15 +724,7 @@ test('the published table explains controlled seat moves without moving a player
     expect(refusedSynthetic.http).toBeGreaterThan(0);
     expect(forwardedSyntheticUpstream).toBe(0);
     expect(heroDiagnostics).toEqual([]);
-    const afterSynthetic = await readBuild();
-    // A protected publish during the proof leaves no single build it could
-    // certify. Name that case exactly; the workflow step classifies it as a
-    // NON-VERDICT only when the release window confirms a forward publish.
-    if (JSON.stringify(afterSynthetic) !== JSON.stringify(evidence.before)) {
-      throw new Error(
-        `PRODUCTION_ADVANCED_DURING_PROOF ${JSON.stringify(evidence.before)} -> ${JSON.stringify(afterSynthetic)}`
-      );
-    }
+    const afterSynthetic = await requireSameBuild();
     evidence.heroDiagnostic = {
       source: 'synthetic-reserved-row-browser-input',
       actualServedParserMapperAndEffect: true,

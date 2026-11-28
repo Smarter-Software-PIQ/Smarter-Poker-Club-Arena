@@ -147,6 +147,20 @@ describe('a publish during the seat-move proof is a non-verdict, not a defect', 
     expect(spec).not.toContain('expect(afterSynthetic).toEqual(evidence.before);');
   });
 
+  it('every re-read of the build identity after the first goes through the named check', () => {
+    // Run 46145685859 (2026-11-28): the FIRST comparison was still a bare
+    // toEqual, so a publish (aaeead9b -> 51b966e2) mid-proof failed the
+    // release instead of reaching the non-verdict branch.
+    expect(spec).not.toMatch(/toEqual\(evidence\.before\)/);
+    expect(spec).not.toMatch(/toStrictEqual\(evidence\.before\)/);
+    const reads = spec.match(/await readBuild\(\)/g) ?? [];
+    // One inside the named check, one for the baseline.
+    expect(reads.length).toBe(2);
+    expect(spec).toContain('evidence.before = await readBuild();');
+    expect(spec).toContain('evidence.after = await requireSameBuild();');
+    expect(spec).toContain('const afterSynthetic = await requireSameBuild();');
+  });
+
   it('the step stays a single attempt and classifies only on marker plus a confirmed forward publish', () => {
     expect(step).toContain('--retries=0');
     expect(step).not.toMatch(/--retries=[1-9]/);
