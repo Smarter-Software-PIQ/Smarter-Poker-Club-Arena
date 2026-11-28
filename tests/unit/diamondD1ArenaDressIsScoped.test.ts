@@ -95,3 +95,27 @@ describe('the Lightning entry wears the arena workspace, scoped to its page', ()
     ownsNoNewDress(css);
   });
 });
+
+describe('Flash Pool wears the arena workspace, scoped to its page', () => {
+  const page = read('src/pages/FlashPoolPage.tsx');
+  const css = read('src/pages/FlashPoolPage.css');
+
+  it('the page root carries the arena workspace and the chrome mast; no inline paint is left', () => {
+    expect(page).toContain('className="arena-workspace flash-pool-page"');
+    expect(page).toContain('<ArenaWorkspaceHeader');
+    expect(page).toContain('className="arena-case arena-ops-case flash-pool-case"');
+    expect(page).toContain('className="arena-meter"');
+    expect(page).toContain('className="arena-ops-well"');
+    expect(page).toContain('className="arena-switch arena-ops-primary"');
+    expect(page).toContain('data-flash-pools');
+    expect(page).not.toContain('style={{');
+    expect(page).not.toContain('PageBar');
+  });
+
+  it('every rule in the page sheet sits under the page arena root', () => {
+    const all = selectors(css);
+    expect(all.length).toBeGreaterThan(10);
+    for (const s of all) expect(s.startsWith('.arena-workspace.flash-pool-page')).toBe(true);
+    ownsNoNewDress(css);
+  });
+});

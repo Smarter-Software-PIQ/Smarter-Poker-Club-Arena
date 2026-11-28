@@ -21,7 +21,9 @@ import { useAuthUser } from '../hooks/useAuthUser';
 import { useToast } from '../components/common/Toast';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import PageSkeleton from '../components/common/PageSkeleton';
-import PageBar from '../components/help/PageBar';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import '../components/ops/ArenaOps.css';
+import './FlashPoolPage.css';
 import { reportError } from '../utils/errorReporter';
 import { resolvePageClubId } from '../utils/resolvePageClubId';
 
@@ -211,23 +213,20 @@ export default function FlashPoolPage() {
 
   if (loading) return <PageSkeleton />;
 
+  /* #SmarterDesign batch D1 (2026-11-28): the arena workspace. Back is one
+     chrome key above the mast (the gold title and tagline stay behind the
+     chrome "?", Dan 2026-10-17); every pool is a chrome case with its stakes
+     as the title, players and tables on readout tiles, the buy-in in a dark
+     well and Play its one lit key. Play still never joins (see above). */
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: 'linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #0a0a0a 100%)',
-        color: '#e4e6eb',
-        padding: '20px',
-        paddingBottom: 'max(70px, env(safe-area-inset-bottom))',
-        width: '100%',
-        maxWidth: '100vw',
-        boxSizing: 'border-box',
-        overflowX: 'hidden',
-      }}
-    >
-      {/* The gold title and its tagline went behind the "?" (Dan
-          2026-10-17). Back stays: it is the page's one action. */}
-      <PageBar
+    <div className="arena-workspace flash-pool-page">
+      <div className="arena-switch flash-pool-page__back">
+        <button type="button" onClick={() => navigate(-1)}>
+          ← Back
+        </button>
+      </div>
+      <ArenaWorkspaceHeader
+        area="dashboard"
         title="Flash Pool"
         summary="Fast-Fold Poker. Fold Instantly, Get New Cards."
         steps={[
@@ -241,85 +240,40 @@ export default function FlashPoolPage() {
             target: '[data-flash-pools]',
           },
         ]}
-      >
-        <button
-          onClick={() => navigate(-1)}
-          style={{
-            background: 'rgba(255,255,255,0.06)',
-            border: 'none',
-            borderRadius: '12px',
-            padding: '10px 14px',
-            color: '#e4e6eb',
-            cursor: 'pointer',
-            fontSize: '16px',
-          }}
-        >
-          ← Back
-        </button>
-      </PageBar>
+      />
 
-      {/* Pool List */}
-      <div data-flash-pools style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <div data-flash-pools className="flash-pool-page__pools">
         {pools.map((pool) => (
-          <div
-            key={pool.poolId}
-            style={{
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '16px',
-              padding: '20px',
-              transition: 'all 0.3s ease',
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: '12px',
-              }}
-            >
-              <div>
-                <div
-                  style={{
-                    fontSize: '20px',
-                    fontWeight: 700,
-                    color: '#FFD700',
-                  }}
-                >
-                  {pool.stakes}
-                </div>
-                <div style={{ fontSize: '12px', color: '#8b8fa3' }}>
+          <section key={pool.poolId} className="arena-case arena-ops-case flash-pool-case">
+            <h2 className="arena-section-title">{pool.stakes}</h2>
+            <div className="flash-pool-case__body">
+              <div className="flash-pool-case__terms">
+                <p className="flash-pool-case__line">
                   Buy-In: {pool.buyInMin.toLocaleString()} - {pool.buyInMax.toLocaleString()}
-                </div>
+                </p>
                 {userBalance !== null && (
-                  <div style={{ fontSize: '11px', color: '#60a5fa', marginTop: '2px' }}>
+                  <p className="flash-pool-case__line flash-pool-case__balance">
                     Your Balance: {formatWalletChips(userBalance)} Chips
-                  </div>
+                  </p>
                 )}
               </div>
-              <div style={{ textAlign: 'right' }}>
+              <dl className="flash-pool-case__meters">
                 <div
-                  style={{
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    color: pool.activePlayers > 0 ? '#3FB950' : '#8b8fa3',
-                    transition: 'color 0.3s ease',
-                  }}
+                  className="arena-meter"
+                  data-tone={pool.activePlayers > 0 ? 'live' : undefined}
                 >
-                  <span style={{ display: 'inline-block', transition: 'transform 0.3s ease' }}>
-                    {pool.activePlayers}
-                  </span>{' '}
-                  Players
+                  <dt>Players</dt>
+                  <dd>{pool.activePlayers}</dd>
                 </div>
-                <div style={{ fontSize: '12px', color: '#8b8fa3' }}>
-                  {pool.tablesRunning} Tables
+                <div className="arena-meter">
+                  <dt>Tables</dt>
+                  <dd>{pool.tablesRunning}</dd>
                 </div>
-              </div>
+              </dl>
             </div>
-
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div className="flash-pool-case__join">
               <input
+                className="arena-ops-well"
                 type="number"
                 placeholder={`Buy-In (${pool.buyInMin})`}
                 min={pool.buyInMin}
@@ -331,60 +285,26 @@ export default function FlashPoolPage() {
                     [pool.poolId]: e.target.value === '' ? 0 : Number(e.target.value),
                   }))
                 }
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  background: 'rgba(255,255,255,0.06)',
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  borderRadius: '10px',
-                  padding: '10px 14px',
-                  color: '#e4e6eb',
-                  fontSize: '16px' /* under 16px makes iOS zoom the page on focus */,
-                  outline: 'none',
-                  minHeight: '44px',
-                  boxSizing: 'border-box',
-                }}
               />
-              <button
-                onClick={() => handleJoinPool(pool)}
-                disabled={joiningPool === pool.poolId || pool.status === 'closed'}
-                style={{
-                  background:
-                    joiningPool === pool.poolId
-                      ? 'rgba(255,215,0,0.3)'
-                      : 'linear-gradient(135deg, #FFD700, #FFA500)',
-                  border: 'none',
-                  borderRadius: '10px',
-                  padding: '10px 24px',
-                  minHeight: '44px',
-                  touchAction: 'manipulation',
-                  color: '#000',
-                  fontWeight: 700,
-                  fontSize: '14px',
-                  cursor: 'pointer',
-                  opacity: joiningPool === pool.poolId ? 0.7 : 1,
-                  transition: 'all 0.3s ease',
-                }}
-              >
-                {joiningPool === pool.poolId ? '◷' : pool.status === 'closed' ? 'Closed' : 'Play'}
-              </button>
+              <div className="arena-switch arena-ops-primary">
+                <button
+                  type="button"
+                  onClick={() => handleJoinPool(pool)}
+                  disabled={joiningPool === pool.poolId || pool.status === 'closed'}
+                >
+                  {joiningPool === pool.poolId ? '◷' : pool.status === 'closed' ? 'Closed' : 'Play'}
+                </button>
+              </div>
             </div>
-          </div>
+          </section>
         ))}
       </div>
 
       {pools.length === 0 && (
-        <div
-          style={{
-            textAlign: 'center',
-            padding: '60px 20px',
-            color: '#8b8fa3',
-          }}
-        >
-          <div style={{ fontSize: '48px', marginBottom: '12px' }}>▲</div>
-          <p>No Flash Pools Available Yet.</p>
-          <p style={{ fontSize: '13px' }}>Check Back Soon!</p>
-        </div>
+        <section className="arena-case arena-ops-case flash-pool-empty">
+          <p className="flash-pool-empty__title">No Flash Pools Available Yet.</p>
+          <p className="arena-ops-copy">Check Back Soon!</p>
+        </section>
       )}
     </div>
   );
