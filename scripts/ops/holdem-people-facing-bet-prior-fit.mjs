@@ -29,7 +29,8 @@
  * TURN cells (turn|<fmt>|<size>|<line>|<pot>, turnFirstBetOf): the same count for the FIRST bet of a heads-up turn, the
  * region taken on the four-card board, the line taken from the flop, and the hidden bets counted (mucked at the
  * showdown: lower middle; given up, he checked the river and folded to a bet: bottom). Feeds
- * holdemTurnFacingBetPriorIsPeopleMeasured (the turn's first bet after a checked-through flop).
+ * a turn facing-bet piece (the turn's first bet after a checked-through flop) that is NOT shipped: graded 2026-11-27
+ * it failed its delayed-stab bluffer bar; nothing reads the turn cells.
  * And how much one person's river bets differ from another's (ownShown): the between-bettor prior strength of the
  * not-top share of a person's shown river first bets, every format (one-way analysis of variance intraclass
  * correlation rho over bettors; strength = (1 - rho) / rho pseudo-bets): the weight people's cell keeps against a

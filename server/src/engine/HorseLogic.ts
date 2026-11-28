@@ -52,12 +52,8 @@ import {
   holdemFacingBetPotOf,
   holdemFacingBetPrice,
   holdemFacingBetRegionWins,
-  holdemFacingBetFlopWasChecked,
-  holdemFacingBetRealized,
-  holdemTurnFacingBetOwnShares,
-  holdemTurnFacingBetRegionEquities,
 } from './HorseHoldemFacingBetPeoplePrior.js';
-import { holdemBetReadOf, holdemBetReadTurnOf } from './HorseHoldemBetRead.js';
+import { holdemBetReadOf } from './HorseHoldemBetRead.js';
 import {
   holdemTournamentBestBluff,
   holdemTournamentWagerParts,
@@ -6516,17 +6512,6 @@ export interface HorseDecideOpts {
    * (HorseHoldemFacingBetPeoplePrior). How often he bets is not read. It never folds a call, never raises, never
    * acts facing a raise. Off: byte-identical. */
   holdemRiverFacingBetPriorIsPeopleMeasured?: boolean;
-  /** PLO-OWNER lead-9 2026-11-27 (lane nlof2; the same owner order; 30 days of NLH cash against people: the first bet
-   * of a heads-up turn after a checked-through flop folds the Horse 57.8% of the time where a pure bluff breaks even
-   * at 36.3%, +2.26 +/- 0.58 bb per bet, 128 bets): opt-in (`=== true`), default OFF. NLH cash (table and
-   * Lightning), one board, heads-up, the turn, the flop was checked through, limped and single-raised pots, facing
-   * the turn's FIRST bet: the brain's FOLD becomes a call when the call prices above the fold by more than its
-   * sampling error against what such a bet is: the bettor's own turn stabs (HorseHoldemBetRead: shown cards, showdown
-   * mucks and give-ups), shrunk to PEOPLE's measured turn bets on that line by size and pot type (hidden bets
-   * counted), shrunk to equilibrium; the Horse's equity is exact over every river card and discounted by the
-   * engine's own realization of a turn call. It never folds a call, never raises, never acts facing a raise or in
-   * a re-raised pot. Off: byte-identical. */
-  holdemTurnFacingBetPriorIsPeopleMeasured?: boolean;
   /** plo-lead7 tourney-postflop 2026-11-26 (real-hand audit, NLH tournaments against people: missed river bluffs, the
    * top tournament leak after the flop): opt-in (`=== true`), default OFF. NLH tournaments (MTT, SNG, Spin,
    * heads-up), one board, heads-up in the pot, river, not facing a wager: the brain's check becomes a bluff at the
@@ -19342,10 +19327,6 @@ export class HorseLogic {
         // re-priced on the bettor's own shown river bets, then people's measured river bets.
         if (opts.holdemRiverFacingBetPriorIsPeopleMeasured === true)
           decision = this.holdemRiverFacingBetOnPeople(decision, player, gs, vi, opts);
-        // holdemTurnFacingBetPriorIsPeopleMeasured (default off): a fold facing the first bet of a heads-up turn
-        // after a checked flop re-priced on the bettor's own turn stabs, then people's measured turn bets.
-        if (opts.holdemTurnFacingBetPriorIsPeopleMeasured === true)
-          decision = this.holdemTurnFacingBetOnPeople(decision, player, gs, vi, opts);
         // holdemTournamentRiverBluffIsPriced / holdemTournamentTurnBluffIsPriced (default off): the tournament bluff priced.
         if (
           opts.holdemTournamentRiverBluffIsPriced === true ||
@@ -36327,132 +36308,6 @@ export class HorseLogic {
       return called;
     } catch {
       if (tele) noteFire('holdem_river_people_prior_unpriced');
-      return decision;
-    }
-  }
-
-  /**
-   * holdemTurnFacingBetPriorIsPeopleMeasured (PLO-OWNER lead-9 2026-11-27, default off, read `=== true`): NLH cash
-   * (table and Lightning), one board, heads-up, the turn, after a flop nobody bet, in a limped or single-raised pot,
-   * facing the turn's FIRST bet (the Horse has put nothing in on the turn and nobody has raised). The brain's FOLD
-   * becomes a call when the call's value clears its sampling error (HorseHoldemFacingBetPeoplePrior): the Horse's
-   * exact equity over every river card against his holdings of each region (where a hand stands on the turn),
-   * discounted by the engine's own realization of a turn call unless the call ends the betting, weighted by what
-   * such a bet is: his own turn stabs -> PEOPLE's measured turn bets on that line by size and pot type (hidden bets
-   * counted) -> equilibrium. Every other decision is kept: it never folds a call, never raises, prices nothing
-   * facing a raise and nothing in a re-raised pot (bluffs lose there). Draws nothing from fastRandom.
-   */
-  private static holdemTurnFacingBetOnPeople(
-    decision: HorseDecision,
-    player: SeatPlayer,
-    gs: HorseGameStateV2,
-    vi: VariantInfo,
-    opts: HorseDecideOpts
-  ): HorseDecision {
-    if (opts.holdemTurnFacingBetPriorIsPeopleMeasured !== true) return decision;
-    if (decision.action !== 'fold' || gs.stage !== 'turn') return decision;
-    if (
-      String(gs.gameVariant ?? '').toLowerCase() !== 'nlh' ||
-      vi.isOmaha ||
-      vi.isShortDeck ||
-      vi.isFixedLimit ||
-      vi.holeCount !== 2 ||
-      isTournamentMode(gs) ||
-      gs.bombPot === true ||
-      gs.allInOrFold === true ||
-      ((gs as { communityCards2?: readonly unknown[] }).communityCards2?.length ?? 0) > 0 ||
-      !Array.isArray(player.cards) ||
-      player.cards.length !== 2
-    )
-      return decision;
-    const live = gs.players.filter(
-      (p) => p.seat !== player.seat && !p.is_folded && (!p.is_sitting_out || p.is_all_in)
-    );
-    if (live.length !== 1) return decision;
-    const opp = live[0] as SeatPlayer;
-    const tele = telemetryOn(opts);
-    try {
-      const board = gs.communityCards ?? [];
-      if (board.length !== 4) return decision;
-      const history = gs.actionHistory ?? [];
-      // the line: nobody bet the flop; the pot: limped or single raised (a re-raised pot is not priced)
-      if (!holdemFacingBetFlopWasChecked(history)) return decision;
-      const potType = holdemFacingBetPotOf(history);
-      if (potType === 'reraised') return decision;
-      const heroIn = Math.max(0, Number(player.bet ?? 0));
-      const villainIn = Math.max(0, Number(opp.bet ?? 0));
-      const currentBet = Math.max(Number(gs.currentBet ?? 0), villainIn);
-      const heroStack = Math.max(0, Number(player.stack ?? 0));
-      const owed = currentBet - heroIn;
-      // a bet made into more than one player (somebody has folded to it) is not a heads-up bet: not priced
-      if (history.some((x) => x.stage === 'turn' && x.action === 'fold')) return decision;
-      // the turn's first bet only: the Horse has nothing in on the turn, and exactly one wager was made on it
-      const turnWagers = history.filter(
-        (x) =>
-          x.stage === 'turn' &&
-          (x.action === 'bet' || x.action === 'raise' || x.action === 'all_in')
-      );
-      if (
-        !(owed > 0) ||
-        heroIn > 0 ||
-        !(heroStack > 0) ||
-        turnWagers.length !== 1 ||
-        (turnWagers[0] as { seat: number }).seat !== opp.seat
-      )
-        return decision;
-      const toCall = Math.min(owed, heroStack);
-      const pot = Math.max(0, Number(gs.pot ?? 0));
-      const winnable = pot - (owed - toCall);
-      const before = pot - villainIn;
-      if (!(before > 0) || !(winnable > 0)) return decision;
-      const ratio = villainIn / before;
-      const eq = holdemTurnFacingBetRegionEquities(player.cards, board);
-      if (eq === null) {
-        if (tele) noteFire('holdem_turn_people_prior_unpriced');
-        return decision;
-      }
-      // a call that ends the betting (either player all-in) realizes all its equity; any other turn call realizes
-      // the engine's own share for the street and position (the Horse is in position when it has not acted yet)
-      const closes = toCall >= heroStack || Math.max(0, Number(opp.stack ?? 0)) <= 0;
-      const inPosition = !history.some((x) => x.stage === 'turn' && x.seat === player.seat);
-      const wins = closes
-        ? eq.wins
-        : holdemFacingBetRealized(eq.wins, realizationFactor({ street: 'turn', inPosition }));
-      const shares = holdemTurnFacingBetOwnShares(
-        ratio,
-        potType,
-        opts.mind !== false ? holdemBetReadTurnOf(opp.user_id, ratio) : null
-      );
-      if (tele && shares.shown > 0) noteFire('holdem_turn_people_prior_own_record_read');
-      const price = holdemFacingBetPrice(
-        wins,
-        shares,
-        winnable,
-        toCall,
-        rakeDrag(pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat))
-      );
-      if (price === null) {
-        if (tele) noteFire('holdem_turn_people_prior_unpriced');
-        return decision;
-      }
-      if (!price.call) {
-        if (tele) noteFire('holdem_turn_people_prior_fold_stands');
-        return decision;
-      }
-      const called = this.legalize(
-        { action: 'call', amount: toCall, thinkTime: decision.thinkTime ?? 0 },
-        player,
-        gs,
-        vi
-      );
-      if (called.action !== 'call' && called.action !== 'all_in') {
-        if (tele) noteFire('holdem_turn_people_prior_unpriced');
-        return decision;
-      }
-      if (tele) noteFire('holdem_turn_people_prior_call');
-      return called;
-    } catch {
-      if (tele) noteFire('holdem_turn_people_prior_unpriced');
       return decision;
     }
   }

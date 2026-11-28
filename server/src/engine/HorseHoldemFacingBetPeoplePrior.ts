@@ -312,8 +312,8 @@ export function holdemFacingBetPotOf(
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// THE TURN: THE FIRST BET OF A HEADS-UP TURN AFTER A FLOP NOBODY BET (holdemTurnFacingBetPriorIsPeopleMeasured,
-// default OFF; lane nlof2, 2026-11-27). 30 days of NLH cash against people: such a bet folds the Horse 57.8% of the
+// THE TURN: THE FIRST BET OF A HEADS-UP TURN AFTER A FLOP NOBODY BET (lane nlof2, 2026-11-27; NOT SHIPPED: no decision
+// calls these functions; graded as a turn option it failed its delayed-stab bluffer bar). 30 days of NLH cash against people: such a bet folds the Horse 57.8% of the
 // time where a pure bluff breaks even at 36.3% (+2.26 +/- 0.58 bb per bet, 128 bets), and people's shown turn bets on
 // that line are the weakest of any line (not top: 62% shown, 67% with the hidden bets). The same price as the river
 // with two differences: the regions are where his hand stands ON THE TURN, and the Horse's share against each region

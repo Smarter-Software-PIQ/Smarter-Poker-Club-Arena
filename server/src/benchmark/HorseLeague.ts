@@ -5385,16 +5385,6 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemRiverFacingBetPriorIsPeopleMeasured: true },
     b: {},
   },
-  // 2026-11-27 lead-9 (default OFF): a fold facing the first bet of a heads-up NLH cash turn after a checked flop
-  // re-priced on people's measured turn bets; a switches it on, b is today's brain. Graded by the lane's own mirror,
-  // probes and replay.
-  {
-    name: 'nlh_holdem_turn_facing_bet_prior_is_people_measured',
-    variant: 'nlh',
-    pairs: 6000,
-    a: { holdemTurnFacingBetPriorIsPeopleMeasured: true },
-    b: {},
-  },
   // 2026-11-26 plo-lead7 tourney-postflop (default OFF): the Hold'em tournament bluff after the flop, each option
   // alone, in the format it moves most (six-max MTT far from the money, 30bb) and on the three-left Sit & Go bubble
   // (bubble factor priced from the stacks); a switches it on, b is today's brain. Graded by the lane's own mirror,

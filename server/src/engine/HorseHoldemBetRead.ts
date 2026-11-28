@@ -24,7 +24,8 @@
  * or the live completed-hand observation's shown holdings, filled from the same reveal), and only for a player the
  * showdown lists as not mucked. A folded or mucked hand never enters.
  *
- * THE TURN STAB (read by holdemTurnFacingBetPriorIsPeopleMeasured, default OFF). The same count is kept for the FIRST
+ * THE TURN STAB (kept for a turn facing-bet piece that is NOT shipped: graded 2026-11-27 it failed its delayed-stab
+ * bluffer bar; no decision reads it). The same count is kept for the FIRST
  * bet of a turn with two players live after a flop nobody bet, by size and the region his hand stood in ON THE TURN
  * (the four-card board). Before the river the shown sample alone over-states value (a called turn bet is shown only if
  * the hand reaches a showdown), so the bets the public record marks as not value are counted too, exactly as the

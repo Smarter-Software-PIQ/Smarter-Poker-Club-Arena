@@ -2957,11 +2957,6 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "Hold'em Strategy"
   ),
   flag(
-    'holdemTurnFacingBetPriorIsPeopleMeasured',
-    "PLO-OWNER lead-9 2026-11-27 (lane nlof2; owner: 'all overfolding fixes for PLO4, PLO5 and No Limit'; 30 days of NLH cash against people: the first bet of a heads-up turn after a checked-through flop folded the Horse 57.8% of the time against a pure-bluff break-even of 36.3%, +2.26 bb per bet, 128 bets). Default off (read === true), Evidence in docs/horse-option-authority.d. No-limit hold'em cash (table and Lightning), one board, heads-up, the turn, after a flop nobody bet, limped and single-raised pots, facing the turn's first bet: the brain's fold becomes a call when the call clears its sampling error against what such a bet is: the bettor's own turn stabs (HorseHoldemBetRead: shown cards, showdown mucks, give-ups), shrunk to people's measured turn bets on that line by size and pot type (hidden bets counted), shrunk to equilibrium; the Horse's equity exact over every river card, discounted by the engine's realization of a turn call (HorseHoldemFacingBetPeoplePrior). Never folds a call, never raises, never in a re-raised pot.",
-    "Hold'em Strategy"
-  ),
-  flag(
     'holdemCommittedNoPairIsPriced',
     "Hold'em Strategy lane 2026-11-20 (priced rebuild of Antigravity 633eec005d5 and 6496e1610f0 'ace-high jamming gate'; owner 2026-11-17: no blanket rules). Default off (read === true), unevaluated. No-limit hold'em cash, one board, heads-up, the committed branch, a no-pair hand with no real hole draw facing a bet: fold, call or jam by EV (HorseHoldemCommittedPricing.holdemCommittedNoPairPrice): EV(call) = E (P + C)(1 - r) - C, EV(jam) = f P (1 - r) + (1 - f)(Ec (P + 2R - C)(1 - r) - R); E the engine's equity, f the MEASURED share of people folding to a Horse postflop raise at the price the jam lays them (HOLDEM_RAISE_FOLD_SHARE_BY_PRICE: under 0.20 0 of 5, 0.20-0.30 24 of 55, 0.30+ 28 of 64; NLH cash 2026-10-20..11-19), Ec hero's exact equity against the strongest (1 - f) of the bettor's range calibrated to E over the unseen combos. Tournaments, Lightning, bomb pots, multi-board and short deck untouched. Draws no random number. Off: byte-identical.",
     "Hold'em Strategy"
@@ -10586,30 +10581,6 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdem_river_people_prior_unpriced',
     'HorseLogic.holdemRiverFacingBetOnPeople (holdemRiverFacingBetPriorIsPeopleMeasured)',
     "a fold facing the first bet of a heads-up river could not be priced on people's measured river first bets: the fold stands",
-    "Hold'em Strategy"
-  ),
-  receipt(
-    'holdem_turn_people_prior_call',
-    'HorseLogic.holdemTurnFacingBetOnPeople (holdemTurnFacingBetPriorIsPeopleMeasured)',
-    "facing the first bet of a heads-up turn after a checked flop (NLH cash) the brain's fold became a call: priced on the bettor's own turn stabs and people's measured turn bets on that line by size and pot type, the Horse's exact equity over the river discounted by the realization of a turn call, the call clears its sampling error",
-    "Hold'em Strategy"
-  ),
-  receipt(
-    'holdem_turn_people_prior_fold_stands',
-    'HorseLogic.holdemTurnFacingBetOnPeople (holdemTurnFacingBetPriorIsPeopleMeasured)',
-    "facing the first bet of a heads-up turn after a checked flop the brain's fold was re-priced on the bettor's own turn stabs and people's measured turn bets and the call did not clear its sampling error: the fold stands",
-    "Hold'em Strategy"
-  ),
-  receipt(
-    'holdem_turn_people_prior_own_record_read',
-    'HorseLogic.holdemTurnFacingBetOnPeople (holdemTurnFacingBetPriorIsPeopleMeasured)',
-    "the bettor's own turn stabs (shown cards, showdown mucks and give-ups of his first bets of a heads-up turn after a checked flop) moved people's measured shares of such a bet",
-    "Hold'em Strategy"
-  ),
-  receipt(
-    'holdem_turn_people_prior_unpriced',
-    'HorseLogic.holdemTurnFacingBetOnPeople (holdemTurnFacingBetPriorIsPeopleMeasured)',
-    "a fold facing the first bet of a heads-up turn after a checked flop could not be priced on people's measured turn bets: the fold stands",
     "Hold'em Strategy"
   ),
   receipt(

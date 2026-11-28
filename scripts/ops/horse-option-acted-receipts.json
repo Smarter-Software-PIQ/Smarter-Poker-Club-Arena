@@ -2515,18 +2515,6 @@
       "prefixes": [],
       "unlessOn": []
     },
-    "holdemTurnFacingBetPriorIsPeopleMeasured": {
-      "releaseDefault": "off",
-      "source": "ledger",
-      "keys": [
-        "holdem_turn_people_prior_call",
-        "holdem_turn_people_prior_fold_stands",
-        "holdem_turn_people_prior_own_record_read",
-        "holdem_turn_people_prior_unpriced"
-      ],
-      "prefixes": [],
-      "unlessOn": []
-    },
     "cashDefenceTrimColdCalls": {
       "releaseDefault": "off",
       "source": "ledger",

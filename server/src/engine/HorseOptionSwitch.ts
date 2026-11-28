@@ -368,9 +368,6 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   // 2026-11-27 PLO-OWNER lead-9 (lane nlof): a fold facing the first bet of a heads-up NLH cash river re-priced on
   // what the bettor's own called river bets were shown to be, then people's measured river first bets (ship dark)
   'holdemRiverFacingBetPriorIsPeopleMeasured',
-  // 2026-11-27 PLO-OWNER lead-9 (lane nlof2): a fold facing the first bet of a heads-up NLH cash turn after a
-  // checked flop re-priced on the bettor's own turn stabs, then people's measured turn bets (ship dark)
-  'holdemTurnFacingBetPriorIsPeopleMeasured',
   'cashDefenceTrimColdCalls',
   // 2026-11-21: a process switch like fixedLimitBetsAreNeverProbes, read `=== true` (HorseMind.apply...Option)
   'styleShiftReleaseIsNoiseAware',
@@ -1194,11 +1191,6 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     HOLDEM,
     "NLH cash (table and Lightning), heads-up, river, facing the river's first bet",
     "a fold becomes a call when it clears its error on his own shown river bets, then people's measured river bets",
-  ],
-  holdemTurnFacingBetPriorIsPeopleMeasured: [
-    HOLDEM,
-    "NLH cash (table and Lightning), heads-up, turn after a checked flop, facing the turn's first bet",
-    "a fold becomes a call when it clears its error on his own turn stabs, then people's measured turn bets",
   ],
   holdemCommittedNoPairIsPriced: [
     HOLDEM,
