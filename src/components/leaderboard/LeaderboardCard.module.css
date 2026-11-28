@@ -82,25 +82,6 @@
   gap: 0.5em;
   color: #ff5b6e;
 }
-.glass .error button {
-  min-height: 44px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  padding: 8px 0;
-  text-align: left;
-  color: #45adff;
-  font: inherit;
-  cursor: pointer;
-}
-.error button:focus-visible {
-  outline: 2px solid #45adff;
-  outline-offset: 3px;
-}
-.error button:active {
-  color: #f4f7fb;
-}
 .position {
   color: #9aa5b3;
   padding-block: 3cqw;
@@ -119,4 +100,80 @@
     transform: none !important;
     transition: opacity 0.2s ease-out;
   }
+}
+
+/* ── #SmarterDesign (2026-11-28) ─────────────────────────────────────────
+   The standings print inside a Player Offers row (variant glass) or, on
+   their own, in the thin chrome case (ClubPageSection arena). Every rule
+   below is scoped under .arena-workspace, the page root of every host
+   (tests/unit/partialOperatorPanelsArenaIsScoped.test.ts): the workspace's
+   inks and Arial Narrow figures, and Retry Rankings as a chrome key. The
+   key's chrome comes from the workspace's .arena-switch; the lit-word rule
+   it used to wear is gone, because it fought that switch for the button. */
+:global(.arena-workspace) .glass {
+  color: #dce5ef;
+  font:
+    13px/1.4 Arial,
+    sans-serif;
+}
+:global(.arena-workspace) .row {
+  gap: 8px;
+  padding-block: 6px;
+}
+:global(.arena-workspace) .rank {
+  color: #74dfff;
+  font:
+    800 13px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+:global(.arena-workspace) .avatar {
+  color: #9fbacc;
+}
+:global(.arena-workspace) .name {
+  color: #f1f5fc;
+  font:
+    700 14px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+:global(.arena-workspace) .currentUser .name,
+:global(.arena-workspace) .you {
+  color: #74dfff;
+}
+:global(.arena-workspace) .score {
+  color: #f1f5fc;
+  font:
+    800 15px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+:global(.arena-workspace) .prize {
+  color: #ffd700;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+}
+:global(.arena-workspace) .message,
+:global(.arena-workspace) .position {
+  color: #9fbacc;
+  font:
+    12px/1.4 Arial,
+    sans-serif;
+}
+:global(.arena-workspace) .message {
+  min-height: 0;
+  padding-block: 10px;
+}
+:global(.arena-workspace) .error {
+  gap: 4px;
+  color: #ff5b6e;
+}
+:global(.arena-workspace) .error :global(.arena-switch) {
+  margin: 0;
+}
+:global(.arena-workspace) .error :global(.arena-switch) > button {
+  flex: 0 1 auto;
+  padding-inline: 14px;
 }

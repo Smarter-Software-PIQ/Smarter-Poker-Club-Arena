@@ -41,7 +41,7 @@ import { reportError } from '../../utils/errorReporter';
 import { ClubPageSection as SpadeConsole } from '../../components/club/ClubPageSection';
 import '../../components/console/SpadeConsole.css';
 import '../../components/lobby/ArenaWorkspace.css';
-import PageBar from '../../components/help/PageBar';
+import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
 import { titleCase } from '../../utils/titleCase';
 import styles from './TableBombSettingsPage.module.css';
 
@@ -293,9 +293,20 @@ export default function TableBombSettingsPage() {
     navigate(`/clubs/${clubId}`);
   }, [draft, tableId, clubId, toast, navigate]);
 
+  /* #SmarterDesign (2026-11-28): every state opens under the chrome mast,
+     which carries the "?" the PageBar used to hold. */
+  const header = (
+    <ArenaWorkspaceHeader
+      area="dashboard"
+      title="Bomb Pots"
+      summary="These Take Effect On A Running Table. The Engine Picks Them Up Within A Minute, So You Do Not Need To Close The Game."
+    />
+  );
+
   if (loading)
     return (
       <div className={`${styles.page} arena-workspace`}>
+        {header}
         <SpadeConsole
           arena
           className={styles.console}
@@ -313,6 +324,7 @@ export default function TableBombSettingsPage() {
   if (error || !draft)
     return (
       <div className={`${styles.page} arena-workspace`}>
+        {header}
         <SpadeConsole
           arena
           className={styles.console}
@@ -340,13 +352,9 @@ export default function TableBombSettingsPage() {
   return (
     <div className={`${styles.page} arena-workspace`}>
       {/* Dan, 2026-10-17: the descriptive eyebrow and the intro line moved
-          behind the painted "?". The table's name stays: it is live, and it
-          says which running game these settings change. */}
-      <PageBar
-        title="Bomb Pots"
-        titleAs={false}
-        summary="These Take Effect On A Running Table. The Engine Picks Them Up Within A Minute, So You Do Not Need To Close The Game."
-      />
+          behind the "?". The table's name stays: it is live, and it says
+          which running game these settings change. */}
+      {header}
       <SpadeConsole
         arena
         className={styles.console}
