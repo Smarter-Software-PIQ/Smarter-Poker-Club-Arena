@@ -1,6 +1,6 @@
 # omahaMultiwayRiverBluffIsPricedOnBlockers: Authority For The Live Switch
 
-**Evidence NOT MET: grades pending (bars and results below are filled in by the lane before any switch).** Default OFF (read `=== true`), switchable `off / shadow / on_shadow / on`, scopable per game (`horse.omahaGameScope.omahaMultiwayRiverBluffIsPricedOnBlockers`). Built 2026-11-27 by PLO-OWNER lead-9 worker UB (lane l9-underbluff) on Dan's orders (under-bluffing is priority one with over-folding; late-street bluffs are "MATH DEPENDANT, AND BLOCKER DEPENDANT, OR HAVE THE RANGE ADVANTAGE"; "the stats need to be used against human players, not horses"). This file does not authorize switching the option on: switches are made only through the shadow stage and the live-switch procedure.
+**Evidence MET for PLO4; Evidence NOT MET for PLO5 (2026-11-27, lead-9 lane l9-underbluff).** Switch it on only after the game scope `horse.omahaGameScope.omahaMultiwayRiverBluffIsPricedOnBlockers` = 4 (PLO4 only) is published, so that a switch-on acts in PLO4 and nowhere else; then shadow, then on. PLO4: no card below its floor on the fixed harness (gain not significant; people evidence thin). PLO5: the calling-station card fails (-1.28 +/- 0.48 bb/100, -2.7 SE). Default OFF (read `=== true`), switchable `off / shadow / on_shadow / on`, scopable per game (`horse.omahaGameScope.omahaMultiwayRiverBluffIsPricedOnBlockers`). Built 2026-11-27 by PLO-OWNER lead-9 worker UB (lane l9-underbluff) on Dan's orders (under-bluffing is priority one with over-folding; late-street bluffs are "MATH DEPENDANT, AND BLOCKER DEPENDANT, OR HAVE THE RANGE ADVANTAGE"; "the stats need to be used against human players, not horses"). This file does not authorize switching the option on: switches are made only through the shadow stage and the live-switch procedure.
 
 ## What It Does
 
@@ -24,9 +24,31 @@ Switch this option off (row off; nothing else to undo) when, counted on its own 
 
 Each opponent's own record moves his fold only at k = 75.9 answers: too slow to notice a person who starts calling. Worker RV (lane `l9-river`) is building a faster public-evidence record; once it exists this option's `recordOf` reads it, and until then the rollback trigger above is the guard.
 
-## What Was Measured
+## Grades (2026-11-27, head 3d86c8545b3f)
 
-Bars were written in the lane's BUILD.md before any grade. Results: see the Grades section the lane fills in below.
+Fixed harness (`server/scripts/horse-grade.ts`), base = the live switch rows of 2026-11-27 (flop cap and both river bluffs on), 100 bb, every figure ON minus the same-seed no-op in bb/100 pooled over two seeds; the no-op arm read 0.00 with 0 divergent deals on every run. Bars were written in the lane's BUILD.md before the runs: people responder and mirrors not below -1 SE, station / over-folder / balanced not below -2 SE, at least 30 changed deals over the people card and mirrors, people point estimate not negative, flag-off 0 differences, cost law.
+
+| game | card                        | seats | seeds | ON minus same-seed no-op, bb/100 | SE units | changed deals | floor | result |
+| ---- | --------------------------- | ----- | ----- | -------------------------------- | -------- | ------------- | ----- | ------ |
+| PLO4 | mirror (all Horses)         | 3     | 2     | +1.40 +/- 1.84                   | +0.8     | 453           | -1 SE | PASS   |
+| PLO4 | mirror (all Horses)         | 6     | 2     | +0.43 +/- 0.71                   | +0.6     | 83            | -1 SE | PASS   |
+| PLO4 | balanced bettor             | 3     | 2     | +0.49 +/- 0.24                   | +2.0     | 5             | -2 SE | PASS   |
+| PLO4 | calling station             | 3     | 2     | -1.59 +/- 0.94                   | -1.7     | 18            | -2 SE | PASS   |
+| PLO4 | over-folder                 | 3     | 2     | +0.68 +/- 0.40                   | +1.7     | 5             | -2 SE | PASS   |
+| PLO4 | people-calibrated responder | 3     | 2     | +0.60 +/- 0.42                   | +1.4     | 8             | -1 SE | PASS   |
+| PLO5 | mirror (all Horses)         | 3     | 2     | -1.54 +/- 1.60                   | -1.0     | 330           | -1 SE | PASS   |
+| PLO5 | mirror (all Horses)         | 6     | 2     | +0.46 +/- 0.64                   | +0.7     | 118           | -1 SE | PASS   |
+| PLO5 | balanced bettor             | 3     | 2     | +0.00 +/- 0.10                   | +0.0     | 2             | -2 SE | PASS   |
+| PLO5 | calling station             | 3     | 2     | -1.28 +/- 0.48                   | -2.7     | 13            | -2 SE | FAIL   |
+| PLO5 | over-folder                 | 3     | 2     | -0.05 +/- 0.12                   | -0.4     | 3             | -2 SE | PASS   |
+| PLO5 | people-calibrated responder | 3     | 2     | +0.00 +/- 0.10                   | +0.0     | 2             | -1 SE | PASS   |
+
+- PLO4: every card at or above its floor. The gain is not significant on any card and the people card rests on 8 changed deals: the harness shows no harm, not a win. Calling station -1.59 +/- 0.94: the cost of bluffing a caller before his own record takes over (see Dependency).
+- PLO5: the calling station card FAILS (-1.28 +/- 0.48, -2.7 SE) and the three-way mirror sits at -1.0 SE. PLO5 stays out by game scope.
+- Flag-off: 0 differences in 28,000 decisions (`scripts/ops/horse-flag-off-check.sh origin/main HEAD --set full`, head 3d86c8545b3f against main aa0d211cb689).
+- Cost: `anOmahaMultiwayRiverBluffIsFast.law.test.ts` ratio 1.03 against the exact bins alone (limit 3); about 1.6 ms a decision where it applies. Not measured on 500 live spots: the shadow stage reads it.
+- Audited replay: 0 of 869 and 0 of 2,697 audited decisions change (rows below): the audited sets hold no evidence for or against.
+- Not measured: chips against real people (none has played PLO cash since the build); the lead's replay of the first build on 823 real multiway river nodes was not repeated on this head.
 
 ## Prior anchor
 

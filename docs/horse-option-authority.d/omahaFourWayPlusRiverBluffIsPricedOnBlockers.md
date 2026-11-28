@@ -1,6 +1,6 @@
 # omahaFourWayPlusRiverBluffIsPricedOnBlockers: Authority For The Live Switch
 
-**Evidence NOT MET: grades pending (bars and results below are filled in by the lane before any switch).** Default OFF (read `=== true`), switchable `off / shadow / on_shadow / on`, scopable per game (`horse.omahaGameScope.omahaFourWayPlusRiverBluffIsPricedOnBlockers`). Built 2026-11-27 by PLO-OWNER lead-9 worker UB (lane l9-underbluff) on Dan's orders (under-bluffing is priority one with over-folding; late-street bluffs are "MATH DEPENDANT, AND BLOCKER DEPENDANT, OR HAVE THE RANGE ADVANTAGE"; "the stats need to be used against human players, not horses"). This file does not authorize switching the option on: switches are made only through the shadow stage and the live-switch procedure.
+**Evidence NOT MET: on the fixed harness it changed no deal on any card (0 changed deals on 6 runs), so nothing is measured about it acting.** Default OFF (read `=== true`), switchable `off / shadow / on_shadow / on`, scopable per game (`horse.omahaGameScope.omahaFourWayPlusRiverBluffIsPricedOnBlockers`). Built 2026-11-27 by PLO-OWNER lead-9 worker UB (lane l9-underbluff) on Dan's orders (under-bluffing is priority one with over-folding; late-street bluffs are "MATH DEPENDANT, AND BLOCKER DEPENDANT, OR HAVE THE RANGE ADVANTAGE"; "the stats need to be used against human players, not horses"). This file does not authorize switching the option on: switches are made only through the shadow stage and the live-switch procedure.
 
 ## What It Does
 
@@ -24,9 +24,22 @@ Switch this option off (row off; nothing else to undo) when, counted on its own 
 
 Each opponent's own record moves his fold only at k = 75.9 answers: too slow to notice a person who starts calling. Worker RV (lane `l9-river`) is building a faster public-evidence record; once it exists this option's `recordOf` reads it, and until then the rollback trigger above is the guard.
 
-## What Was Measured
+## Grades (2026-11-27, head 3d86c8545b3f)
 
-Bars were written in the lane's BUILD.md before any grade. Results: see the Grades section the lane fills in below.
+Fixed harness (`server/scripts/horse-grade.ts`), base = the live switch rows of 2026-11-27 (flop cap and both river bluffs on), 100 bb, every figure ON minus the same-seed no-op in bb/100 pooled over two seeds; the no-op arm read 0.00 with 0 divergent deals on every run. Bars were written in the lane's BUILD.md before the runs: people responder and mirrors not below -1 SE, station / over-folder / balanced not below -2 SE, at least 30 changed deals over the people card and mirrors, people point estimate not negative, flag-off 0 differences, cost law.
+
+| game | card                        | seats | seeds | ON minus same-seed no-op, bb/100 | SE units | changed deals | floor | result          |
+| ---- | --------------------------- | ----- | ----- | -------------------------------- | -------- | ------------- | ----- | --------------- |
+| PLO4 | mirror (all Horses)         | 6     | 1     | +0.00 +/- 0.00                   | +0.0     | 0             | -1 SE | PASS (one seed) |
+| PLO4 | calling station             | 6     | 1     | +0.00 +/- 0.00                   | +0.0     | 0             | -2 SE | PASS (one seed) |
+| PLO4 | people-calibrated responder | 6     | 1     | +0.00 +/- 0.00                   | +0.0     | 0             | -1 SE | PASS (one seed) |
+| PLO5 | mirror (all Horses)         | 6     | 1     | +0.00 +/- 0.00                   | +0.0     | 0             | -1 SE | PASS (one seed) |
+| PLO5 | calling station             | 6     | 1     | +0.00 +/- 0.00                   | +0.0     | 0             | -2 SE | PASS (one seed) |
+| PLO5 | people-calibrated responder | 6     | 1     | +0.00 +/- 0.00                   | +0.0     | 0             | -1 SE | PASS (one seed) |
+
+- It changed no deal on any card run (one seed per card; the second seed and the over-folder and balanced cards were stopped as nothing was being measured): with three or more opponents the product of the folds does not clear the price in the harness, and the thin four-way cells sit at the anchor by design. No harm shown, no evidence of acting.
+- Flag-off: 0 differences in 28,000 decisions (head 3d86c8545b3f against main aa0d211cb689). Cost: the same law as the three-way option (ratio 1.03, limit 3).
+- Audited replay: 0 of 869 and 0 of 2,697 audited decisions change (rows below).
 
 ## Prior anchor
 
