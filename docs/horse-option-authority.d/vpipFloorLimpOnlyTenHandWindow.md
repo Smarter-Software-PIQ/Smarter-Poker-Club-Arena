@@ -1,6 +1,6 @@
 # vpipFloorLimpOnlyTenHandWindow: authority for the live switch
 
-Evidence for switching this option on: **Evidence NOT MET** (2026-11-19). Mechanism, scope, receipts, tests and off-identity are MET, and the floor makes no raise and no call of a raise in any measured cell. The declared churn bar is not met on hold'em, PLO4 and PLO6: at a 40% floor judged on the sitting at ten hands with no grace, the limp-only floor evicts Horses more often than on any table the owner's ruling was given for. The rate is stated below; switching on needs the owner or the lead to accept it by name. Nothing in this change switches anything.
+**State: OFF (release default OFF in source; registered, never switched on).** Evidence MET for PLO5 only (2026-11-27, lead-8 lane tenhand): switch it on only with the game list `horse.vpipFloorTenHandWindowGame.plo5` = 1 published and accepted first, on a build that carries the game scope (section "Game scope"); with no game listed the switch would act in every game. PLO5 passes every declared bar (correctness; churn 0.52 and 0.56 evictions per table-hour against bars of 0.52 and 0.82; pool), its churn was accepted by the lead by name, and its audited replay rows are below. For hold'em, PLO4 and PLO6 the declared churn bar is not met (measurement of 2026-11-19 below): they stay unlisted until the owner or the lead accepts their rate by name. Mechanism, scope, receipts, tests and off-identity are MET, and the floor makes no raise and no call of a raise in any measured cell. Nothing in this change switches anything.
 
 ## The owner's orders it rests on (verbatim)
 
@@ -51,7 +51,34 @@ Against the declared bars:
 2. Churn within what the owner's ruling was given for (at most 0.52 evictions per table-hour on the six-Horse model and 0.82 on the one-chair model, the highest measured on a thirty-hand table at 40%): PLO5 (0.52, 0.56), PLO8 (0.23, 0.79) and short deck (0.14, 0.11) pass; hold'em (0.99, 1.35), PLO4 (0.65, 1.69) and PLO6 (1.08, 2.25) do NOT.
 3. Pool not exhausted: MET.
 
-So the evidence for switching on is NOT MET as declared. The option is one switch for every variant; it has no per-variant setting.
+So the evidence for switching on is NOT MET as declared for every variant at once. Since 2026-11-27 the switch can be confined to games (section "Game scope" below); PLO5 alone passes the churn bar.
+
+## Game scope (lead-8 lane tenhand, 2026-11-27)
+
+Engine runtime settings `horse.vpipFloorTenHandWindowGame.nlh`, `.plo4`, `.plo5` (0 or 1, compiled default 0; `server/src/engine/HorseVpipFloorTenHandWindowGames.ts`). None set to 1: the switch acts in every game it acts in above (unchanged). Any set to 1: the switch is on only at a ten-hand table whose variant is listed and reads as off (today's exception) at every other table, PLO4, hold'em, PLO6, PLO8 and short deck included. One read site (`vpipFloorLimpOnlyTenHandWindowOn`), used by `vpipFloorLimpOnlyGovernsTenHandTable` and `vpipFloorLimpOnlyApplies`. The list never turns the switch on. Law: `server/src/engine/aVpipFloorTenHandWindowIsScopedByGame.law.test.ts`.
+
+PLO5 against the declared bars: correctness MET; churn 0.52 (six-Horse) and 0.56 (one chair) per table-hour against bars of 0.52 and 0.82: MET; pool MET. Churn accepted by the lead by name (lead-8, 2026-11-26 11:45 PM Chicago, LEAD8-STATE: "end the exception for PLO5 ten-hand tables first, evictions 0.52 per table-hour, inside the accepted level"). Hold'em, PLO4 and PLO6 stay NOT MET on churn and must stay unlisted.
+
+Order: a serving engine refuses a whole settings version that names a key it does not register, so `horse.vpipFloorTenHandWindowGame.plo5 = 1` is published only after a build with this scope serves on every engine host, and it is published and accepted BEFORE the switch row goes on (the switch tool does not check the scope; with no list the switch would act in every game).
+
+## Cost (2026-11-27, lead-8 lane tenhand)
+
+Engine's own `HorseLogic.decide` on the compiled build, the real PLO4/PLO5 floored preflop nodes of lane preflop (hands with a person, 2026-11-20 to 11-27; public actions and the deciding Horse's own cards only), each made a table KNOWN to be judged at ten hands (window 10, the Horse's own judged row 10 hands at 30%), production option set plus `vpipFloorLimpOnly`; host load about 17. Arms: today (switch off), on with no list, on with the list [plo5].
+
+| game | arm             | spots | p50 ms | p95 ms | max ms | over 25 ms | over 50 ms |
+| ---- | --------------- | ----- | ------ | ------ | ------ | ---------- | ---------- |
+| PLO5 | today           | 4,786 | 0.22   | 0.96   | 2.80   | 0          | 0          |
+| PLO5 | on, no list     | 4,786 | 0.19   | 0.94   | 3.23   | 0          | 0          |
+| PLO5 | on, list [plo5] | 4,786 | 0.18   | 0.93   | 2.84   | 0          | 0          |
+| PLO4 | today           | 284   | 0.58   | 1.66   | 3.08   | 0          | 0          |
+| PLO4 | on, no list     | 284   | 1.38   | 9.19   | 24.65  | 0          | 0          |
+| PLO4 | on, list [plo5] | 284   | 0.56   | 1.74   | 6.88   | 0          | 0          |
+
+PLO5 is inside the bar (p95 <= 10 ms, max <= 25 ms, nothing over 50 ms). With the list [plo5] every PLO5 decision equals the switch on (4,786 of 4,786) and every PLO4 decision equals today (284 of 284). PLO4 on (the priced limp) is close to the bar on fewer than 500 spots: measure again before PLO4 is listed. On these nodes (limps and limps raised behind) no PLO5 action changes with the switch on, because today's old floor already limps and folds there through `omahaVpipFloorByLimp`; the receipts move from `vpip_floor_limp_only_not_governed_ten_hand_window` to `vpip_floor_limp_only_governed_ten_hand_window`. The decisions the switch changes are the old floor's widened opens and its call-downs of raises (`vpip_floor_call_down`), measured in the sitting model above.
+
+## Prior anchor
+
+None needed: the option prices nothing and reads no population or opponent statistic. It removes the old floor's widening (`vpipFloorMul`), call-down (`vpipFloorCallDown`) and intent swap (`omahaVpipFloorByLimp`) at ten-hand tables, which is the owner's ruling as written; the one action left is `vpipFloorLimpOnlyStep`, whose priced limp (hold'em, PLO4) is that of `vpipFloorLimpOnly` and uses no person-or-Horse prior. No hidden card is read.
 
 ## Receipts
 
@@ -81,7 +108,10 @@ Offline model, not a live table: six Horses with no reads and no human, preflop 
 
 Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
 
-- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)
+- Replay: fixed 0; newlyWrong 0; changed 0; unchanged 869; unjudged 0; set PLO-hand-audit-daily-2026-11-25T230000Z; scorer 5302af2ab3e; source placed verdict-only; arm TH vs off; replayed 869 of 869
+- Replay: fixed 0; newlyWrong 0; changed 0; unchanged 2697; unjudged 0; set PLO-hand-audit-2026-11-20-to-24; scorer 5302af2ab3e; source placed verdict-only; arm TH vs off; replayed 2697 of 2697
+
+What the rows mean (2026-11-27): no audited decision changes, because an audited node is replayed from the stored public node, which carries the table's floor and window but not the Horse's own judged row, so no audited table is KNOWN to be judged at ten hands (`vpipFloorLimpOnlyTenHandTable` needs that row) and the option has nothing to act on there. The audits hold no decision the option would have changed; what it changes is measured by the sitting model above and by the real-node run in "Cost" above.
 
 ## Rollback
 

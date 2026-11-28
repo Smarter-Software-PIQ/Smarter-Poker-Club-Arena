@@ -5427,6 +5427,15 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemRiverBluffIsPricedOnPeople: true },
     b: {},
   },
+  // 2026-11-27 lead-9 (default OFF): the NLH cash heads-up turn bluff priced on people's turn fold; a switches it
+  // on, b is today's brain. Graded by the lane's own mirror, probes and replay (docs/horse-option-authority.d).
+  {
+    name: 'nlh_holdem_turn_bluff_is_priced_on_people',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemTurnBluffIsPricedOnPeople: true },
+    b: {},
+  },
   // 2026-11-26 plo-lead7 tourney-postflop (default OFF): the Hold'em tournament bluff after the flop, each option
   // alone, in the format it moves most (six-max MTT far from the money, 30bb) and on the three-left Sit & Go bubble
   // (bubble factor priced from the stacks); a switches it on, b is today's brain. Graded by the lane's own mirror,

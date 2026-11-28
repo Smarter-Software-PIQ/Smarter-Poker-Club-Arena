@@ -437,7 +437,8 @@ describe('the fleet keeps no Horse at the released table', () => {
   it('decides after the hold, clears before the hourly read, and joins surplusTableIds before any seating', () => {
     const clear = fleet.indexOf('clearVarietyHolds();');
     const hourly = fleet.indexOf('const hourlyAdmissions = await readHourlyCashAdmissions();');
-    const decide = fleet.indexOf('varietyDrain = varietyDrainTables({');
+    /* the decision call (2026-11-27: varietyDrainDecision, which also says why) */
+    const decide = fleet.indexOf('const decision = varietyDrainDecision({');
     const surplus = fleet.indexOf(
       'for (const tableId of varietyDrain) surplusTableIds.add(tableId);'
     );
@@ -460,7 +461,8 @@ describe('the fleet keeps no Horse at the released table', () => {
     // set only after every early return and the catch of the read
     expect(set).toBeGreaterThan(catchAt);
     const gate = fleet.indexOf('this.humansWaitingReadComplete\n');
-    const decide = fleet.indexOf('varietyDrain = varietyDrainTables({');
+    /* the decision call (2026-11-27: varietyDrainDecision, which also says why) */
+    const decide = fleet.indexOf('const decision = varietyDrainDecision({');
     expect(gate).toBeGreaterThan(-1);
     expect(decide).toBeGreaterThan(gate);
   });

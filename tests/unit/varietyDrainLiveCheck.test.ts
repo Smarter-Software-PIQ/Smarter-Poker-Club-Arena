@@ -44,6 +44,7 @@ describe('the variety drain live check', () => {
       'cap_every_cycle',
       'owed_starts_made',
       'owed_waiting_now',
+      'drain_why',
     ]) {
       expect(body).toContain(`'${check}'`);
     }
@@ -106,6 +107,13 @@ describe('the variety drain live check', () => {
       "min(w.ts) <= (SELECT min(beat_at) FROM hb) + interval '60 seconds' AS truncated"
     );
     expect(body.match(/already owed at the release: their waits are minimums/g)?.length).toBe(2);
+  });
+
+  it('2026-11-27: says why the drain released what it did, over the beats with a start owed', () => {
+    expect(body).toContain("h.detail ->> 'variety_drain_why' AS why");
+    expect(body).toContain(
+      "SELECT coalesce(why, 'not recorded') AS why, count(*) AS n FROM hb WHERE owed > 0 GROUP BY 1"
+    );
   });
 
   it('is the R11 read the regression method names', () => {

@@ -33,6 +33,8 @@ const DESCRIBE = {
   'raised a draw out of position':
     'raised out of position with one pair or less and a draw, priced below calling or folding',
   'raise without price': 'raised where calling or folding priced higher',
+  'raise too small':
+    'raised a hand worth raising below the pot raise, where the pot raise priced higher (one size-independent fold rate: model upper bound)',
   'bluffed without price':
     'bet with low equity when called where the measured fold rate did not pay for it',
   'bet too thin (check better)': 'bet a medium hand where checking priced higher',

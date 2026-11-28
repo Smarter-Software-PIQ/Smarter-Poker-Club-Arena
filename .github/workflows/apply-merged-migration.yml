@@ -29,6 +29,17 @@
 # It is not a repair job (CLAUDE.md 10.12) - it writes no money and retries
 # nothing. THE READER is the person who dispatches it: the run's own conclusion
 # is the answer, and the job summary states it.
+#
+# THE APPLY RUN REPORTS ITS OWN REFUSAL (2026-11-27). The merge dispatcher
+# starts this run with the Actions job token, so no person is watching it, and
+# GitHub raises no workflow_run event for a run the job token started: the
+# separate Migration Apply Refusal Alert workflow, which listened for one, never
+# heard run 46054847104 refuse 20261127172908 (statement timeout, 13:13 CST) and
+# nothing was posted on its pull request or on #11599. The report-refusal job
+# below is therefore part of this run: when the apply job concludes failure it
+# posts one deduplicated alert on the owning pull request and one on the
+# custody log. It is reporting only: no environment, no database credential, no
+# retry, no dispatch. tests/the-apply-run-reports-its-own-refusal.law.test.ts.
 name: Apply Merged Migration
 run-name: Apply Merged Migration ${{ inputs.migration || github.event.client_payload.migration }}${{ github.event.client_payload.intent_nonce && format(' {0}', github.event.client_payload.intent_nonce) || '' }}
 
@@ -342,3 +353,45 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           test "$code" = "0"
+
+  # The reader of a refusal nobody is watching (see the header). It runs only
+  # when the apply job FAILED: a skipped apply (a refused job-token dispatch or
+  # re-run), a cancelled one and a successful one report nothing. A dry run
+  # sends nothing, so its refusal is not a merged migration left uninstalled
+  # and is not reported; the person who asked for the dry run reads the run.
+  # Only a run of the default branch is reported, as the listener required.
+  # The script reads the apply job's conclusion and log through the API; a
+  # completed job's log is readable while the run is still in progress. It
+  # dedups by run id, so the hand door and the workflow_run door of
+  # migration-apply-refusal-alert.yml, which can only start after this run has
+  # finished, find the alert already posted.
+  report-refusal:
+    name: Report a refused install
+    needs: apply
+    if: ${{ always() && needs.apply.result == 'failure' && github.ref_name == github.event.repository.default_branch && !(inputs.dry_run || toJSON(github.event.client_payload.dry_run) == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout reviewed default-branch automation
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Report the refusal to the owning pull request and the custody log
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          APPLY_RUN_ID: ${{ github.run_id }}
+        run: node scripts/ci/migration-apply-refusal-alert.mjs

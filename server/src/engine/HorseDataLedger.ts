@@ -1756,6 +1756,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'vpipFloorLimpOnlyTenHandWindowGames',
+    'Lead-8 lane tenhand 2026-11-27: the games vpipFloorLimpOnlyTenHandWindow may act in. A PARAMETER, not an on/off option, absent at the compiled defaults: the variants (nlh, plo4, plo5) whose engine runtime setting horse.vpipFloorTenHandWindowGame.<variant> is 1 (0 = not listed; published with scripts/runtime-settings-publish.ts, live at the next hand, no cutover). Absent or empty: the switch as published, byte-identical. Given: vpipFloorLimpOnlyTenHandWindow is on only at a ten-hand table whose variant is listed and reads as off (the integrator exception of 2026-11-18) at every other table (HorseVpipFloorTenHandWindowGames.vpipFloorLimpOnlyTenHandWindowOn, the one read site). It never turns the switch on.',
+    'V94'
+  ),
+  flag(
     'omahaOptionGameScope',
     "EMERG lane PLO4-FIX 2026-11-20 (lane PLO4-AUDIT: an option switch row is global, and several omaha* options grade positive or neutral in PLO5 and negative in PLO4, and others the other way). A PARAMETER, not an on/off option, absent at the compiled defaults: option name -> 4 (PLO4 only) or 5 (PLO5 only), set from the engine runtime settings horse.omahaGameScope.<option> (0 = both games; published with scripts/runtime-settings-publish.ts, live at the next hand, no cutover; the option switch rows and their validation are untouched). In a PLO4 or PLO5 cash decision (table or Lightning, one board, no hi-lo, no bomb pot) HorseLogic.decide and prepareOriginalReads pass every listed option scoped to the other game as false (its off path) before anything reads it (HorseOmahaOptionGameScope.withOmahaOptionGameScope, the one read site), so an option scoped to PLO5 decides a PLO4 hand exactly as if it were off. Listed: every registered omaha* switch option except the omahaMathCore family (own per-game street flags), the PLO6 options and the tournament-only options. Never PLO6, PLO8, hold'em or a tournament: the same options object runs. Receipt omaha_option_game_scope_<option>_off_in_plo<4|5>_seen.",
     'V94'
@@ -2964,6 +2969,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'holdemRiverBluffIsPricedOnPeople',
     "PLO-OWNER + Hold'em owner lead-8 2026-11-27 (daily real-hand audits, NLH cash against people: the missed river bluff is the top Hold'em chip leak; people fold 49% of heads-up river first bets where equilibrium folds 38%; owner: late-street bluffs are math dependent and blocker dependent or have the range advantage, never random; the stats are measured from people, never from Horses). Default off (read === true). No-limit hold'em cash, table and Lightning, one board, heads-up, river, not facing a wager: the brain's check becomes a bluff at the legal priced size only when the hand has no value size, the bet prices above the check by more than the error of his fold, AND either the Horse's cards remove more of his calling part than of his folding part or the Horse's public line range outscores his on this board. His fold is read size by size in the order his own lifetime river record of that size (OPPONENT-HUD r.fb.sm.hu / r.fb.bg.hu; with none, his recent river response record) -> PEOPLE's measured fold to a heads-up river first bet for the Horse's line and that size (answers by people only; HorseHoldemPeopleRiverFoldTables.json) -> equilibrium, each shrunk to the next by 19.9 pseudo-answers (HorseHoldemPeopleRiverFold). The same formula for every opponent. Draws no random number. Off: byte-identical.",
+    "Hold'em Strategy"
+  ),
+  flag(
+    'holdemTurnBluffIsPricedOnPeople',
+    "PLO-OWNER lead-9 2026-11-27 (lane nlzb; daily real-hand audits, NLH cash against people: missed turn bluffs are a top Hold'em chip leak; measured on people's answers: a heads-up turn barrel is not a profitable pure bluff, people fold 34% where break-even is 36%, while a small bet after a checked flop is, 39% where break-even is 22%; owner: late-street bluffs are math dependent and blocker dependent or have the range advantage, never random). Default off (read === true). No-limit hold'em cash, table and Lightning, one board, heads-up, turn, the flop checked through, not facing a wager (after a flop wager the option stands aside: people fold a turn bet at or below equilibrium there): the brain's check becomes a bluff at the legal priced size of highest EV only when the hand has no value size, the bluff prices above the check by more than the error of his fold, and the Horse's cards block his calling part or its line range outscores his. His fold is read size by size: his own lifetime turn record of that size, shrunk to people's measured turn fold for the Horse's line and that size (answers by people only), shrunk to equilibrium (HorseHoldemPeopleTurnFold). Off never runs it.",
     "Hold'em Strategy"
   ),
   flag(
@@ -10615,6 +10625,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdem_river_people_bluff_below_check',
     'HorseLogic.holdemOpeningPriced (holdemRiverBluffIsPricedOnPeople)',
     "no river bluff size cleared the check by more than the error of his fold on his own record and people's measured river fold: the check stands",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_turn_people_bluff_bet',
+    'HorseLogic.holdemOpeningPriced (holdemTurnBluffIsPricedOnPeople)',
+    "not facing a wager heads-up (NLH cash), turn after a checked-through flop, a check became a bluff: priced on his own turn record by size and people's measured turn fold for the Horse's line and the bet's size it clears the check by more than the error of his fold, and the Horse's cards block his calling part or its range outscores his",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_turn_people_bluff_no_edge',
+    'HorseLogic.holdemOpeningPriced (holdemTurnBluffIsPricedOnPeople)',
+    "a turn bluff priced above the check on people's fold but neither blockers nor the range advantage were the Horse's: the check stands",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_turn_people_bluff_below_check',
+    'HorseLogic.holdemOpeningPriced (holdemTurnBluffIsPricedOnPeople)',
+    "no turn bluff size cleared the check by more than the error of his fold on his own record and people's measured turn fold: the check stands",
     "Hold'em Strategy"
   ),
   receipt(
