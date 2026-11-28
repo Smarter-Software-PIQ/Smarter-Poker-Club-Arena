@@ -1,8 +1,8 @@
 /* THE LIGHTNING ENTRY IN #SMARTERDESIGN (batch D1, 2026-11-28).
    The mast, cases and keys come from ArenaWorkspace.css and ArenaOps.css;
    the approved Lightning cash-game card keeps its own art. This sheet lays
-   the entry out under its arena root and inks the one line that says why a
-   door is not offered. */
+   the entry out under its arena root and sets the one line that says why a
+   door is not offered on a chrome row. */
 
 .arena-workspace.lightning-entry-page {
   box-sizing: border-box;
@@ -25,9 +25,7 @@
 
 .arena-workspace.lightning-entry-page .lightning-entry__quiet {
   margin: 8px 0 0;
-  padding: 10px 12px;
-  border: 1px solid #476079;
-  background: #040d17;
+  padding: 8px 10px;
   color: #dce5ef;
   font:
     13px/1.4 Arial,

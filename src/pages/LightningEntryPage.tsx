@@ -552,11 +552,19 @@ export default function LightningEntryPage() {
       />
       {/* A door that is not offered says why, in one line. */}
       {atLimit ? (
-        <p className="lightning-entry__quiet" role="status" data-testid="lightning-entry-why">
+        <p
+          className="lightning-entry__quiet arena-ledger-row"
+          role="status"
+          data-testid="lightning-entry-why"
+        >
           {LIGHTNING_LIMIT_TEXT}
         </p>
       ) : joinsClosed ? (
-        <p className="lightning-entry__quiet" role="status" data-testid="lightning-entry-why">
+        <p
+          className="lightning-entry__quiet arena-ledger-row"
+          role="status"
+          data-testid="lightning-entry-why"
+        >
           {LIGHTNING_JOINS_CLOSED_TEXT}
         </p>
       ) : null}
