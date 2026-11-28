@@ -212,3 +212,20 @@ Both are prerendered for signed-out readers and crawlers, and the prerender prin
 | P3b | Wallet            | `src/pages/PlayerWalletPage.tsx`     | Arena root and `cashier` mast; the balance a chrome case with readout tiles; the read status over chrome keys with Add Chips lit; the panes a chrome switch lit by aria-selected; every wallet, ledger entry, id and earn door a chrome row; each pane a chrome case with its primary lit. Dress in `PlayerWalletArena.css`, scoped under the wallet's root. Pinned first (`tests/components/playerWalletPageIsPinned.test.tsx`).              |
 
 Hand History was skipped: `tests/unit/cinematicRouteFamilies.test.ts` (`PLAY_PAGES`) binds `src/pages/HandHistoryPage.tsx` to the Play & Review master (`CasinoSurfaceHeader`, `data-arena-surface="play"`).
+
+## Batch S1: the Settlement Center
+
+| #   | Surface           | File                                    | What changed                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| --- | ----------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| S1  | Settlement Center | `src/pages/SettlementDashboardPage.tsx` | Two painted spade consoles became the arena workspace: Back a chrome key above the finance mast, the scope a chrome status line, the weekly workspace in a chrome case (its `WeeklyAccountingArena.css` dress now applies), the ledger in a second case under its section title. `TransactionLedgerView` and `FinancialAdminScopeState` gained an opt-in `arena` prop (chrome ledger rows, a lit Try Again or Retry key, the scope states on the mast); their other hosts keep their look. |
+
+Every figure, word, region and control was pinned on main first
+(`tests/components/settlementDashboardIsPinned.test.tsx`, eleven states) and
+passes unchanged; the dress is held by
+`tests/unit/settlementDashboardArenaDressIsScoped.test.ts`.
+
+Union Statements was skipped: open PR #12313 (figures cut, never rounded)
+edits `src/pages/UnionStatementsPage.tsx`. Financials still prints its Club
+Chip Audit Trail on the painted ledger dress inside an arena case; passing
+`arena` to its `TransactionLedgerView` converts it once a before/after is
+approved.
