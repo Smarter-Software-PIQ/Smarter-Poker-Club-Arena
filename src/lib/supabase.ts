@@ -18,9 +18,10 @@ import { realtimeAdmission } from './realtimeAdmission';
 import type { RealtimeLivenessClient } from './realtimeLiveness';
 import { fetchAuthWithDeadline } from './authFetchDeadline';
 
-// Environment validation - follows VITE_ prefix law
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+// Environment validation - follows VITE_ prefix law (trimmed so trailing
+// env-var newlines never poison `new WebSocket(...)` with an invalid URL).
+const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim();
+const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim();
 
 // SECURITY: No hardcoded fallback credentials — env vars are required
 if (!supabaseUrl || !supabaseAnonKey) {
@@ -202,16 +203,69 @@ export async function requestAccessToken(): Promise<string> {
   return data.session?.access_token ?? supabaseAnonKey ?? '';
 }
 
-// Defense-in-depth (2026-11-27): a refused or missing WebSocket constructor
-// inside realtime-js must never throw synchronously out of a React effect.
-// realtimeAdmission.transport catches constructor throws at the socket layer;
-// this guard also catches any synchronous connect()/subscribe() throw before
-// the transport is reached.
+// Defense-in-depth (2026-11-27; hardened 2026-11-28 to full parity with World
+// Hub #3146): a refused or missing WebSocket constructor inside realtime-js
+// must never throw synchronously out of a React effect, must never spin in an
+// infinite reconnect loop, must wrap each channel idempotently, and must never
+// throw or reject unhandled during unsubscribe()/removeChannel()/removeAllChannels().
 {
-  const rt = supabase.realtime as unknown as { connect?: (...a: unknown[]) => unknown } | undefined;
+  const HARDENED_CHANNEL = Symbol.for('clubArena.supabaseChannelHardened');
+  type TimerOwner = { reset?: () => void };
+  type HardenedRealtime = {
+    connect?: (...a: unknown[]) => unknown;
+    reconnectTimer?: TimerOwner;
+    socketAdapter?: { socket?: { reconnectTimer?: TimerOwner } };
+    channels?: Array<{ rejoinTimer?: TimerOwner; channel?: { rejoinTimer?: TimerOwner } }>;
+  };
+
+  const rt = supabase.realtime as unknown as HardenedRealtime | undefined;
+  let degradedError: Error | null = null;
+
+  const stopReconnectTimers = () => {
+    if (!rt || typeof rt !== 'object') return;
+    try {
+      rt.reconnectTimer?.reset?.();
+    } catch {
+      /* best-effort timer reset */
+    }
+    try {
+      rt.socketAdapter?.socket?.reconnectTimer?.reset?.();
+    } catch {
+      /* best-effort nested PhoenixSocket timer reset */
+    }
+    try {
+      if (Array.isArray(rt.channels)) {
+        for (const ch of rt.channels) {
+          ch?.rejoinTimer?.reset?.();
+          ch?.channel?.rejoinTimer?.reset?.();
+        }
+      }
+    } catch {
+      /* best-effort channel rejoin timer reset */
+    }
+  };
+
+  const markDegraded = (err: unknown) => {
+    degradedError = err instanceof Error ? err : new Error(String(err));
+    stopReconnectTimers();
+    // Run again after RefusedWebSocket's microtask onclose fires so PhoenixSocket
+    // cannot arm reconnectTimer on the closed facade.
+    queueMicrotask(() => {
+      queueMicrotask(() => {
+        stopReconnectTimers();
+      });
+    });
+  };
+
+  realtimeAdmission.onRefusal(markDegraded);
+
   if (rt && typeof rt.connect === 'function') {
     const origConnect = rt.connect.bind(rt);
     rt.connect = (...args: unknown[]) => {
+      if (degradedError) {
+        stopReconnectTimers();
+        return undefined;
+      }
       try {
         return origConnect(...args);
       } catch (err) {
@@ -219,21 +273,40 @@ export async function requestAccessToken(): Promise<string> {
           '[Realtime] connect() refused; degrading live updates cleanly:',
           err instanceof Error ? err.message : String(err)
         );
+        markDegraded(err);
         return undefined;
       }
     };
   }
+
   const origChannel = supabase.channel.bind(supabase);
   (supabase as unknown as { channel: typeof supabase.channel }).channel = ((
     ...args: Parameters<typeof supabase.channel>
   ) => {
     const ch = origChannel(...args);
+    const tagged = ch as unknown as Record<symbol, unknown>;
+    if (!ch || typeof ch !== 'object' || tagged[HARDENED_CHANNEL]) return ch;
+
     const origSubscribe = ch.subscribe.bind(ch);
     ch.subscribe = ((callback?: Parameters<typeof ch.subscribe>[0], timeout?: number) => {
+      if (degradedError) {
+        const err = degradedError;
+        if (typeof callback === 'function') {
+          queueMicrotask(() => {
+            try {
+              callback('CHANNEL_ERROR' as never, err);
+            } catch {
+              /* ignore degraded callback error */
+            }
+          });
+        }
+        return ch;
+      }
       try {
         return origSubscribe(callback, timeout);
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
+        markDegraded(error);
         if (typeof callback === 'function') {
           queueMicrotask(() => {
             try {
@@ -246,8 +319,60 @@ export async function requestAccessToken(): Promise<string> {
         return ch;
       }
     }) as typeof ch.subscribe;
+
+    if (typeof ch.unsubscribe === 'function') {
+      const origUnsubscribe = ch.unsubscribe.bind(ch);
+      ch.unsubscribe = ((...unsubArgs: Parameters<typeof ch.unsubscribe>) => {
+        try {
+          const res = origUnsubscribe(...unsubArgs);
+          if (res && typeof (res as Promise<unknown>).catch === 'function') {
+            return (res as Promise<'ok' | 'timed out' | 'error'>).catch(() => 'ok' as const);
+          }
+          return res;
+        } catch {
+          return Promise.resolve('ok' as const);
+        }
+      }) as typeof ch.unsubscribe;
+    }
+
+    Object.defineProperty(ch, HARDENED_CHANNEL, { value: true, enumerable: false });
     return ch;
   }) as typeof supabase.channel;
+
+  if (typeof supabase.removeChannel === 'function') {
+    const origRemoveChannel = supabase.removeChannel.bind(supabase);
+    (supabase as unknown as { removeChannel: typeof supabase.removeChannel }).removeChannel = ((
+      channel: Parameters<typeof supabase.removeChannel>[0]
+    ) => {
+      if (!channel) return Promise.resolve('ok' as const);
+      try {
+        const res = origRemoveChannel(channel);
+        if (res && typeof res.catch === 'function') {
+          return res.catch(() => 'ok' as const);
+        }
+        return res;
+      } catch {
+        return Promise.resolve('ok' as const);
+      }
+    }) as typeof supabase.removeChannel;
+  }
+
+  if (typeof supabase.removeAllChannels === 'function') {
+    const origRemoveAllChannels = supabase.removeAllChannels.bind(supabase);
+    (
+      supabase as unknown as { removeAllChannels: typeof supabase.removeAllChannels }
+    ).removeAllChannels = (() => {
+      try {
+        const res = origRemoveAllChannels();
+        if (res && typeof res.catch === 'function') {
+          return res.catch(() => []);
+        }
+        return res;
+      } catch {
+        return Promise.resolve([]);
+      }
+    }) as typeof supabase.removeAllChannels;
+  }
 }
 
 (supabase as unknown as { accessToken?: () => Promise<string> }).accessToken = requestAccessToken;
