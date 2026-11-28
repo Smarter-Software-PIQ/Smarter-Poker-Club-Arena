@@ -14,23 +14,31 @@ describe('financial admin subpages keep the Club Arena console contract', () => 
     expect(page).not.toContain("label: 'Settlements'");
   });
 
-  it('renders Credit Admin on the approved money console without generic card chrome', () => {
+  it('renders Credit Admin in the arena workspace without generic card chrome (#SmarterDesign O2)', () => {
     const page = read('src/pages/CreditAdminPanel.tsx');
-    const pageCss = read('src/pages/CreditAdminPanel.module.css');
+    const pageCss = read('src/pages/CreditAdminPanel.css');
     const requestCss = read('src/components/agent/CreditRequestWidget.css');
 
-    expect(page).toContain('family="spade"');
-    expect(page).not.toContain('family="riveted"');
-    expect(page).toContain('crest="spade"');
+    // Dan, 2026-11-27: the painted spade console is the old style on a page.
+    expect(page).not.toContain('SpadeConsole');
+    expect(page).toContain('className="credit-admin-page arena-workspace"');
+    expect(page).toContain('<ArenaWorkspaceHeader');
+    expect(page).toContain('area="finance"');
     expect(page).toContain('const hasExport = dataReady && agents.length > 0');
-    expect(page).toContain("foot={hasExport ? 'plates' : 'foot'}");
-    expect(page).toContain('className={styles.backWord}');
+    // Export Shown Rows is the one lit key, and only when rows are shown.
+    expect(page).toMatch(
+      /\{hasExport && \(\s*<div className="arena-switch arena-ops-keys arena-ops-primary[^"]*">\s*<button type="button" onClick=\{exportShownRows\}>\s*Export Shown Rows/
+    );
+    // Back is a chrome key above the mast, never inside it.
+    for (const at of [...page.matchAll(/<ArenaWorkspaceHeader/g)].map((m) => m.index ?? 0))
+      expect(page.lastIndexOf('Back', at)).toBeGreaterThan(page.lastIndexOf('<main', at));
     expect(page).toContain('{titleCase(agent.clubName)}');
     expect(page).toContain('{titleCase(log.clubName)}');
     expect(page).not.toContain('PageSkeleton');
-    expect(page).not.toMatch(/plates=\{\{\s*secondary:[^}]+\}\}/);
     expect(page).not.toMatch(/style=\{\{/);
     expect(page).not.toMatch(/[✓✕←→]/);
+    // The chrome comes from the workspace's variables, never a new gradient,
+    // radius or blur written here.
     for (const css of [pageCss, requestCss]) {
       expect(css).not.toMatch(/border-radius\s*:/);
       expect(css).not.toMatch(/(?:linear|radial|conic)-gradient\s*\(/);

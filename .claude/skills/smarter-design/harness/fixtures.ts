@@ -498,7 +498,89 @@ export const fixtures = {
       },
     })),
     /* Agent Dashboard: the Performance Score (AgentScoreCard) reads. */
-    agents: [{ id: 'agent-1', user_id: ownerId, club_id: CLUB_UUID }],
+    agents: [
+      {
+        id: 'agent-1',
+        user_id: ownerId,
+        club_id: CLUB_UUID,
+        /* Credit Admin (route /credit-admin): the credit columns it reads. */
+        agent_wallet_balance: '1250.75',
+        credit_limit: '5000.00',
+        status: 'active',
+      },
+      {
+        id: 'agent-2',
+        user_id: 'member-02',
+        club_id: CLUB_UUID,
+        agent_wallet_balance: '-0.50',
+        credit_limit: '1234567.89',
+        status: 'suspended',
+      },
+      {
+        id: 'agent-3',
+        user_id: 'member-03',
+        club_id: CLUB_UUID,
+        agent_wallet_balance: '403.38',
+        credit_limit: '500.00',
+        status: 'active',
+      },
+    ],
+    credit_assignments: [
+      {
+        id: 'credit-change-1',
+        agent_id: 'agent-1',
+        old_limit: '2500.00',
+        new_limit: '5000.00',
+        created_at: '2026-11-25T18:00:00Z',
+      },
+      {
+        id: 'credit-change-2',
+        agent_id: 'agent-3',
+        old_limit: '750.00',
+        new_limit: '500.00',
+        created_at: '2026-11-20T18:00:00Z',
+      },
+    ],
+    /* Credit Admin's Credit Requests inbox: one pending request. The stub
+       ignores .eq(), so it is also read back as the viewer's own request. */
+    credit_requests: [
+      {
+        id: 'credit-request-1',
+        requester_id: ownerId,
+        approver_id: ownerId,
+        club_id: CLUB_UUID,
+        requested_amount: '2500.00',
+        approved_amount: null,
+        reason: 'friday night game',
+        status: 'pending',
+        created_at: '2026-11-27T18:00:00Z',
+        reviewed_at: null,
+        reviewed_by: null,
+        reviewer_notes: null,
+        decision_authority_version: 1,
+      },
+    ],
+    /* Settlement History (route /settlement-history): four union rake-hold cycles. */
+    settlement_invoices: [
+      ['paid', '2026-11-23T12:00:00Z', 47, '12840.55', '1284.06', '11556.49'],
+      ['paid', '2026-11-16T12:00:00Z', 46, '9310.20', '931.02', '8379.18'],
+      ['pending', '2026-11-09T12:00:00Z', 45, '403.38', '0', '403.38'],
+      ['generated', '2026-11-02T12:00:00Z', null, '7022.00', '702.20', '6319.80'],
+    ].map(([status, created, period, gross, hold, kept], i) => ({
+      id: `5e7f1a00-0000-4000-8000-00000000000${i + 1}`,
+      club_id: CLUB_UUID,
+      period_id: `5e7f1b00-0000-4000-8000-00000000000${i + 1}`,
+      invoice_type: 'union_to_club',
+      gross_amount: gross,
+      net_amount: hold,
+      breakdown: {
+        union_hold_amount: hold,
+        club_retained: kept,
+        ...(period === null ? {} : { period_number: period }),
+      },
+      status,
+      created_at: created,
+    })),
     chip_transactions: [
       { id: 'x1', amount: 100.5, clawed_back: false, to_user_id: 'member-01' },
       { id: 'x2', amount: 2500, clawed_back: true, to_user_id: 'member-02' },
@@ -515,6 +597,9 @@ export const fixtures = {
         club_arena_tos_accepted_at: '2026-11-20T00:00:00Z',
         club_arena_tos_revision: '2026-11-16-87a8e57589a09136',
       },
+      /* Credit Admin names its agents from these. */
+      { id: 'member-02', display_name: 'RiverRat', username: 'RiverRat' },
+      { id: 'member-03', display_name: 'Queen Of Hearts Long Name Player', username: 'NutFlush' },
     ],
   } as Record<string, unknown>,
 };

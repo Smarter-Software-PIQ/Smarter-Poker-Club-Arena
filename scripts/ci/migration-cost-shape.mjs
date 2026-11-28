@@ -550,6 +550,9 @@ export function migrationCostRisks(file, sql) {
   for (const hit of correlatedHotTableSubqueries(file, sql)) {
     reasons.push(`${file}: ${hit}`);
   }
+  for (const hit of operationalAlertTriggerDoubleIngest(file, sql)) {
+    reasons.push(`${file}: ${hit}`);
+  }
   return reasons;
 }
 
@@ -1380,6 +1383,46 @@ export function unboundedInstallTimeFunctionCalls(file, sql, alreadyReported = n
     }
   }
   return findings;
+}
+
+/**
+ * Migrations at or after this version (and synthetic non-dated test files)
+ * must not insert into `public.operational_alert_events` AND directly call
+ * `reliability_ingest_alert(...)` in the same install-time block (PR #12325 /
+ * run 46134399527 / incident 37a45c05 alert 450013).
+ */
+export const ALERT_TRIGGER_DOUBLE_INGEST_CHECKED_FROM = '20261128170000';
+
+/**
+ * Refuse install-time SQL (DO $probe$ or top-level statements) that BOTH
+ * inserts into `public.operational_alert_events` AND directly invokes
+ * `reliability_ingest_alert(...)`. Production's AFTER INSERT trigger on
+ * `operational_alert_events` already ingests `(id, delivery_count, status)`
+ * into `smarter_private.reliability_observations`, so the subsequent direct
+ * `reliability_ingest_alert(...)` call hits `ON CONFLICT DO NOTHING` and
+ * returns NULL (PR #12325 / run 46134399527 / incident 37a45c05).
+ */
+export function operationalAlertTriggerDoubleIngest(file, sql) {
+  const version = versionOf(file);
+  if (version !== null && version < ALERT_TRIGGER_DOUBLE_INGEST_CHECKED_FROM) return [];
+  const text = installExecutedText(sql);
+  const insertsAlertEvent =
+    /\binsert\s+into\s+(?:(?:"?public"?\s*\.\s*)?"?operational_alert_events"?)\b/i.test(text);
+  if (!insertsAlertEvent) return [];
+
+  const ingestRe =
+    /(?:(?:"?smarter_private"?\s*\.\s*)|(?<![.\w"]))"?reliability_ingest_alert"?\s*\(/gi;
+  let m;
+  while ((m = ingestRe.exec(text))) {
+    if (isDdlSignatureContext(text, m.index)) continue;
+    return [
+      'install-time SQL both inserts into public.operational_alert_events and calls smarter_private.reliability_ingest_alert(...) - ' +
+        "production's AFTER INSERT trigger on operational_alert_events already ingests (id, delivery_count, status) into reliability_observations, " +
+        'causing the direct reliability_ingest_alert(...) call to hit ON CONFLICT DO NOTHING and return NULL (PR #12325 / run 46134399527 / incident 37a45c05). ' +
+        'Call smarter_private.reliability_ingest_alert(...) directly with a synthetic negative id and isolated context.scope_id instead.',
+    ];
+  }
+  return [];
 }
 
 /** True when this file is judged by migrationCostRisks. */

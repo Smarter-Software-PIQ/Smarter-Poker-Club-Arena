@@ -473,4 +473,40 @@ describe('refused or missing WebSocket constructor never crashes callers', () =>
       warnSpy.mockRestore();
     }
   });
+
+  it('invokes the failing WebSocket constructor only once and notifies onRefusal observers (zero reconnect storm)', async () => {
+    let constructAttempts = 0;
+    class CountingThrowingWebSocket {
+      constructor() {
+        constructAttempts += 1;
+        throw new DOMException(PROD_ERROR, 'SyntaxError');
+      }
+    }
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const admission = new RealtimeAdmission(
+        CountingThrowingWebSocket as unknown as typeof WebSocket
+      );
+      const refusals: Error[] = [];
+      const unsub = admission.onRefusal((err) => refusals.push(err));
+
+      const s1 = new admission.transport('wss://fixture.invalid/realtime/v1');
+      const s2 = new admission.transport('wss://fixture.invalid/realtime/v1');
+      expect(s1.readyState).toBe(3);
+      expect(s2.readyState).toBe(3);
+      expect(constructAttempts).toBe(1);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(refusals.length).toBeGreaterThanOrEqual(1);
+      expect(admission.getRefusedError()?.message).toContain("Failed to construct 'WebSocket'");
+
+      // Late refusal subscriber receives the cached deterministic refusal immediately.
+      const late: Error[] = [];
+      const unsubLate = admission.onRefusal((err) => late.push(err));
+      expect(late).toHaveLength(1);
+      unsub();
+      unsubLate();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
 });
