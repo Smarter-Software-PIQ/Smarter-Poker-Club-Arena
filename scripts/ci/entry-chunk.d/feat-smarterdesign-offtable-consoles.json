@@ -1,0 +1,4 @@
+{
+  "_owner": "feat/smarterdesign-offtable-consoles - consoleSkin.ts is the ten-line React context that tells every SpadeConsole which dress to wear. SpadeConsole is already in first paint and App.tsx provides the skin at the root, so the context is first-paint by design; it moved out of SpadeConsole.tsx only so that file exports components alone (react-refresh/only-export-components, which put Client lint two warnings over its cap)",
+  "modules": ["src/components/console/consoleSkin.ts"]
+}

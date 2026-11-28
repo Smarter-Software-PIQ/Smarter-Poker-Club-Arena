@@ -177,8 +177,9 @@ on:
       after_cycle:
         # O27 (2026-11-25), O27b (2026-11-26): set by Stage's
         # next-candidate-after-cycle job for a cycle that did not seal. It
-        # names the run "Backup after keep-serving <cycle> <nonce>". That job
-        # sends with the job token, so refresh and certify admit it only as
+        # names the run "Backup after keep-serving <cycle> <nonce>". Stage
+        # sends it as the estate App (2026-11-27), or with the job token when
+        # no App token can be had; either way refresh and certify prove it is
         # the exact intent the Stage run recorded (the three intent_* inputs,
         # scripts/ci/dispatch-intent.mjs receiver backup-after-keep-serving),
         # and keep-serving-outcome fails the run when it certified nothing.
@@ -696,7 +697,10 @@ jobs:
     timeout-minutes: 180
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
-        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && (github.event_name == 'repository_dispatch' || github.event_name == 'workflow_dispatch')
+        # The estate App is trusted like a person when it cites no intent. When its
+        # dispatch cites one (Stage's keep-serving send and the receiver's post-seal
+        # send, 2026-11-27) the same record is proved exactly as for the job token.
+        if: (((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && (github.event_name == 'repository_dispatch' || github.event_name == 'workflow_dispatch')) || ((github.actor == 'smarter-poker-autopilot[bot]' || github.triggering_actor == 'smarter-poker-autopilot[bot]') && ((github.event_name == 'workflow_dispatch' && inputs.intent_nonce != '') || (github.event_name == 'repository_dispatch' && github.event.client_payload.intent_nonce != '')))
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -1517,7 +1521,10 @@ jobs:
       CONTROL_SHA: ${{ needs.refresh.outputs.control_sha || needs.plan.outputs.control_sha }}
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
-        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && (github.event_name == 'repository_dispatch' || github.event_name == 'workflow_dispatch')
+        # The estate App is trusted like a person when it cites no intent. When its
+        # dispatch cites one (Stage's keep-serving send and the receiver's post-seal
+        # send, 2026-11-27) the same record is proved exactly as for the job token.
+        if: (((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && (github.event_name == 'repository_dispatch' || github.event_name == 'workflow_dispatch')) || ((github.actor == 'smarter-poker-autopilot[bot]' || github.triggering_actor == 'smarter-poker-autopilot[bot]') && ((github.event_name == 'workflow_dispatch' && inputs.intent_nonce != '') || (github.event_name == 'repository_dispatch' && github.event.client_payload.intent_nonce != '')))
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

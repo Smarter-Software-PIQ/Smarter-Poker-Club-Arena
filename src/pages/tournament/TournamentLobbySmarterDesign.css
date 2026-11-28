@@ -1,0 +1,773 @@
+/*
+ * CLUB ARENA - Tournament Lobby in #SmarterDesign (2026-11-27)
+ *
+ * Dan, 2026-11-27: every page, sub page and button gets the #SmarterDesign
+ * upgrade. On a routed page and its sub pages that is the arena workspace
+ * language of src/components/lobby/ArenaWorkspace.css
+ * (.claude/skills/smarter-design/SKILL.md): a thin chrome case, section
+ * titles over a hairline, chrome readout tiles, chrome-stat buttons with one
+ * lit primary, and chrome ledger rows.
+ *
+ * The lobby root carries `arena-workspace` (TournamentDetails.tsx), so the
+ * workspace's art variables (--arena-frame, --arena-row, --arena-stat,
+ * --arena-active, --arena-readout, --arena-panel, --arena-tile) resolve here.
+ * This sheet only re-dresses the lobby's existing classes with them; it adds
+ * no new art, colour, radius or shadow. It replaces the heavier MTT console
+ * rims of MttSurfaces.css (32px case, 11px rows, steel lens) on this surface,
+ * which is why every selector starts with the five-class prefix below: the
+ * console sheet reaches three classes deep, and this one must win without
+ * !important.
+ *
+ * Every rule keeps the shell geometry TournamentDetails.css owns (the
+ * measured height, the one growing tab panel, the footer as a flex child).
+ * No :hover anywhere (tests/no-hover-effects.law.test.ts).
+ */
+
+/* ---- The shell: the workspace canvas, but the lobby keeps its own edges. */
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby {
+  padding: 0;
+  background: #050d17;
+  color: #f1f5fc;
+}
+
+/* ---- Header band: the event title stays the lobby's own plaque art; the
+   meta row underneath reads as workspace controls. */
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby .details-header {
+  padding: 4px 6px 6px;
+  border-bottom: 1px solid #253e57;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby .mtt-meta > b {
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  border-radius: 0;
+  background: var(--arena-tile);
+  color: #74dfff;
+  font:
+    700 12px/1.15 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .mtt-meta-actions
+  button {
+  box-sizing: border-box;
+  min-height: 44px;
+  min-width: 44px;
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  border-radius: 0;
+  background: linear-gradient(#152639, #06111e 65%);
+  color: #dce5ef;
+  box-shadow: none;
+  text-shadow: none;
+  font:
+    700 12px/1.1 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .mtt-header-info
+  > summary {
+  color: #9fbacc;
+}
+
+/* ---- The tab rail: an arena-switch. Steel chrome-stat keys, the selected
+   section lit blue on the active rim. */
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby .details-tabs {
+  gap: 4px;
+  padding: 6px;
+  background: none;
+  border-bottom: 1px solid #253e57;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby .details-tabs .tab {
+  min-height: 44px;
+  padding: 6px 5px;
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  border-radius: 0;
+  background: linear-gradient(#152639, #06111e 65%);
+  box-shadow: none;
+  text-shadow: none;
+  color: #dce5ef;
+  font:
+    700 13px/1.1 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-tabs
+  .tab[aria-selected='true'],
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-tabs
+  .tab.active {
+  color: #fff;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
+  border-image-source: var(--arena-active);
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-tabs
+  .tab:active,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-footer
+  button:active,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .mtt-meta-actions
+  button:active {
+  filter: brightness(0.86);
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-tabs
+  .tab:focus-visible,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-footer
+  button:focus-visible,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .mtt-meta-actions
+  button:focus-visible,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  summary:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+
+/* ---- Cases: every tab panel is one thin chrome case on the case glass. */
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .console-countdown,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .dov-hero,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .et-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .un-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby .details-content .rw,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tt-panel:has(.console-table),
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .sat-state,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .approved-satellite,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .blinds-tab__card {
+  box-sizing: border-box;
+  border: 10px solid transparent;
+  border-image: var(--arena-frame) 41 / 19px stretch;
+  border-radius: 0;
+  padding: 4px;
+  margin: 0 0 7px;
+  background: var(--arena-panel);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-panel
+  .tl-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .dov-hero
+  .tl-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .blinds-tab__card
+  .tl-panel {
+  /* A panel nested inside a case is a section of that case, not a second frame. */
+  border: 0;
+  border-image: none;
+  padding: 0;
+  background: none;
+}
+
+/* ---- Section titles: Roboto Condensed over the workspace hairline. */
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .console-section-heading,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-section-head,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .un-head__title
+  > .tl-stat__label,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .mtt-rewards-summary
+  h3 {
+  min-height: 30px;
+  margin: 0 0 6px;
+  padding: 0 3px 5px;
+  border: 0;
+  border-bottom: 1px solid #253e57;
+  background: none;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-section-head
+  h3,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-section-title,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .mtt-rewards-summary
+  h3,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .un-head__title
+  > .tl-stat__label {
+  color: #f1f5fc;
+  text-transform: none;
+  text-shadow: none;
+  letter-spacing: -0.2px;
+  font:
+    800 18px/1.05 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-section-note {
+  color: #9fbacc;
+  font:
+    11px/1.35 Arial,
+    sans-serif;
+}
+
+/* ---- Readout tiles: every figure on an arena-meter. */
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-stat,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .mtt-instruments
+  > div,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .console-facts
+  > div,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .dov-blind,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .console-pair {
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  border-radius: 0;
+  background: var(--arena-tile);
+  box-shadow: none;
+  min-width: 0;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-stat__label {
+  color: #9fbacc;
+  text-transform: none;
+  letter-spacing: 0;
+  font:
+    700 11px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-stat__value {
+  color: #f1f5fc;
+  text-shadow: none;
+  font-variant-numeric: tabular-nums;
+  font-family: 'Roboto Condensed', 'Arial Narrow', Arial, sans-serif;
+  font-weight: 800;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-stat__value--accent,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-num--accent {
+  color: #74dfff;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-stat__sub {
+  color: #9fbacc;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .mtt-instruments
+  > div:nth-child(2) {
+  /* The one live readout keeps its lit rim, as the workspace does for live. */
+  border-image-source: var(--arena-active);
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .blinds-tab__clockwrap,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .console-time {
+  border: 6px solid transparent;
+  border-image: var(--arena-readout) 21 / 10px stretch;
+  border-radius: 0;
+  background: #040d17;
+}
+
+/* ---- Ledger rows: every player, table, payout and roster record. */
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-row,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .et-row,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .rk-row,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .un-card,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .console-prize,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .console-strip,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .blinds-tab__blind,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .un-head__name {
+  border: 4px solid transparent;
+  border-image: var(--arena-row) 13 / 6px stretch;
+  border-radius: 0;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+  box-shadow: none;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-list
+  > li
+  > .tl-row,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-list
+  > li
+  > .et-row,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-list
+  > li
+  > .rk-row,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-list
+  > li
+  > .tt-item {
+  margin: 0;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-row--hero,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .rw-row--p1,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tt-row--mine {
+  /* The player's own row and the winning place are the lit records. */
+  border-image-source: var(--arena-active);
+  background: linear-gradient(#1678ec, #064da9 52%, #082d60);
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-name,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .rk-nameline,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .et-identity {
+  color: #f1f5fc;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-sub {
+  color: #9fbacc;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-avatar {
+  border: 1px solid #476079;
+  background: #040d17;
+  box-shadow: none;
+  color: #74dfff;
+}
+
+/* ---- Buttons inside a tab: chrome-stat steel, the go action lit. */
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .mp-card__toggle,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .dov-ladder-link,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .rk-filter,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .rk-btn,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .rw-head
+  summary,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .approved-satellite
+  summary,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .sat-state__retry,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .un-retry,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .dov-band__retry {
+  box-sizing: border-box;
+  min-height: 44px;
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  border-radius: 0;
+  background: linear-gradient(#152639, #06111e 65%);
+  color: #dce5ef;
+  text-shadow: none;
+  text-transform: none;
+  font:
+    700 13px/1.15 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .mp-card__toggle,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .rk-filter--on,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .rk-btn--go {
+  color: #fff;
+  background: linear-gradient(#1678ec, #064da9 52%, #082d60);
+  border-image-source: var(--arena-active);
+}
+
+/* ---- Fields: the search well. */
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  input[type='search'],
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  input[type='text'] {
+  min-height: 44px;
+  padding: 0 8px;
+  border: 1px solid #476079;
+  border-radius: 0;
+  background: #040d17;
+  color: #f1f5fc;
+  color-scheme: dark;
+  font:
+    16px/1.2 Arial,
+    sans-serif;
+}
+
+/* ---- Footer: Share in steel, the one register action lit. */
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby .details-footer {
+  margin: 0;
+  padding: 6px;
+  gap: 4px;
+  border-top: 1px solid #253e57;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-footer
+  .btn-share {
+  min-height: 44px;
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  border-radius: 0;
+  background: linear-gradient(#152639, #06111e 65%);
+  color: #dce5ef;
+  box-shadow: none;
+  text-shadow: none;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-footer
+  .btn-register,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-footer
+  .btn-enter-table {
+  min-height: 44px;
+  border-radius: 0;
+  box-shadow: none;
+  text-shadow: none;
+}
+
+/* ---- One frame per view: a case inside a case is a section of it. */
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-panel
+  .tl-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-panel
+  .rw,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-panel
+  .et-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-panel
+  .un-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .dov-hero
+  .tl-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .dov-hero
+  .rw,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .dov-hero
+  .et-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .dov-hero
+  .un-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .blinds-tab__card
+  .tl-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .blinds-tab__card
+  .rw,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .blinds-tab__card
+  .et-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .blinds-tab__card
+  .un-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .rw
+  .tl-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .rw
+  .rw,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .rw
+  .et-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .rw
+  .un-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .et-panel
+  .tl-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .et-panel
+  .rw,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .et-panel
+  .et-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .et-panel
+  .un-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .un-panel
+  .tl-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .un-panel
+  .rw,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .un-panel
+  .et-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .un-panel
+  .un-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .sat-state
+  .tl-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .sat-state
+  .rw,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .sat-state
+  .et-panel,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .sat-state
+  .un-panel {
+  border: 0;
+  border-image: none;
+  margin: 0 0 7px;
+  padding: 0;
+  background: none;
+}
+
+/* ---- The remaining figure housings of the Detail overview. */
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .dov-hero__clockcol,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .arena-event-facts
+  > div,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .mtt-pair
+  > div {
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  border-radius: 0;
+  background: var(--arena-tile);
+  box-shadow: none;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tl-clock {
+  border: 6px solid transparent;
+  border-image: var(--arena-readout) 21 / 10px stretch;
+  border-radius: 0;
+  background: #040d17;
+  color: #74dfff;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .dov-hero__eyebrow {
+  color: #9fbacc;
+  font-family: 'Roboto Condensed', 'Arial Narrow', Arial, sans-serif;
+}
+
+/* ---- The full blind structure as a ledger, not a grid: rows on the row
+   glass, a hairline between them, the current level lit. */
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .approved-schedule-scroll
+  table.blinds-tab__schedule {
+  display: table;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 3px;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .approved-schedule-scroll
+  table.blinds-tab__schedule
+  td,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .approved-schedule-scroll
+  table.blinds-tab__schedule
+  th {
+  border: 0;
+  border-block: 1px solid #253e57;
+  background: transparent;
+  color: #f1f5fc;
+  font:
+    700 15px/1.15 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .approved-schedule-scroll
+  table.blinds-tab__schedule
+  thead
+  th {
+  border: 0;
+  border-bottom: 1px solid #253e57;
+  background: #050d17;
+  color: #9fbacc;
+  text-transform: none;
+  font-size: 12px;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .approved-schedule-scroll
+  table.blinds-tab__schedule
+  tr[data-level-state='current']
+  > * {
+  color: #fff;
+  border-color: #74dfff;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .approved-schedule-scroll
+  table.blinds-tab__schedule
+  tr[data-break='true']
+  > * {
+  color: #74dfff;
+  background: #040d17;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .approved-schedule-scroll
+  .blinds-tab__schedule-state,
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .approved-schedule-scroll
+  .blinds-tab__schedule-note {
+  color: #9fbacc;
+}
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .approved-schedule-scroll
+  tr[data-level-state='current']
+  .blinds-tab__schedule-state {
+  color: #fff;
+}
+
+/* A table's wrapper holds the ledger row; it is not a second rim. */
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-content
+  .tt-item {
+  border: 0;
+  border-image: none;
+  background: none;
+}
+
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .approved-schedule-scroll
+  table.blinds-tab__schedule
+  tbody
+  tr {
+  /* The row carries the ledger glass so it reads as one record, not four cells. */
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+}

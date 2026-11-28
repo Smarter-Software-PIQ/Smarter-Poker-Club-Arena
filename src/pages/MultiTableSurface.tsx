@@ -1,5 +1,5 @@
 import MultiTablePage from './MultiTablePage';
-import { ConsoleSkinProvider } from '../components/console/SpadeConsole';
+import { ConsoleSkinProvider } from '../components/console/consoleSkin';
 
 /**
  * #SMARTERDESIGN for the whole table layer (Dan 2026-11-27). Every console the

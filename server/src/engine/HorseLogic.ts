@@ -1151,6 +1151,7 @@ import {
   omahaPreflopReraiseDefenceRule,
 } from './HorseOmahaPreflopReraiseDefenceRule.js';
 import { omahaReraisedPotPricedRule } from './HorseOmahaReraisedPotPricedRule.js';
+import { limpReraiseLimpStep, limpReraiseReraiseStep } from './HorseOmahaLimpReraise.js';
 import {
   omahaReraisedRaiseMultiwayPriced,
   omahaReraisedRaisePriced,
@@ -1229,6 +1230,7 @@ import { analyzePreflopOrbit, analyzeV38CommittedPopulation } from './HorsePrefl
 import { computeSideGamePotOverlay } from './HorseSideGameOverlay.js';
 import {
   omahaPeoplePriorHiddenKeyOf,
+  omahaPeoplePriorHiddenReraisedCheckedKeyOf,
   omahaPeoplePriorRecordCountsHidden,
 } from './HorseOmahaPeoplePriorHidden.js';
 import { computeActionLinePosterior } from './HorseActionLinePosterior.js';
@@ -3951,6 +3953,14 @@ export interface HorseDecideOpts {
    */
   omahaPeoplePriorCountsHiddenBets?: boolean;
   /**
+   * lead-9 lane HUOOP 2026-11-27 (default OFF, read === true). PLO4/PLO5 cash, heads-up, a turn BET (never a raise,
+   * never a re-raised pot), only where omahaPeoplePriorCountsHiddenBets prices it: the hidden part of the bettor's
+   * non-value share (people's bets that checked and folded later or mucked; the one-street balanced share behind a
+   * thin cell; moved by his own record) is priced as his weakest half of holdings with no realization discount, the
+   * rest of the share as today. A hidden bet is by construction one that did not bet the river and did not win.
+   */
+  omahaHiddenBetsArePricedAsGiveUps?: boolean;
+  /**
    * WooWoo audit FLOP-DEFENCE 2026-11-18 (default OFF, read === true): heads-up facing the
    * first flop bet with chips behind, the fold or call is the flop verdict with the call
    * priced as a two-street tree (his measured turn/river bet rates, the Horse's priced turn
@@ -4562,6 +4572,13 @@ export interface HorseDecideOpts {
    * re-raise read from his own public record, then the people-only person-level prior. It never makes a call and changes no call or
    * re-raise. */
   omahaReraisedPotFoldReraiseIsPriced?: boolean;
+  /** Owner order 2026-11-27 12:48 PM Chicago, lead-8 lane limprr (default OFF, read `=== true`; HorseOmahaLimpReraise.ts):
+   * PLO4/PLO5 cash preflop. A strong first-in raise becomes the priced limp (mixed) when the likeliest raiser behind,
+   * read from his own raise-when-unraised record against the people prior, makes the limp-then-pot-re-raise line worth
+   * more than the open, ONLY in position against him or with a connected rundown; and the Horse's own limp (never the
+   * VPIP floor's), raised heads-up, re-raises the pot where that is priced above the call and the fold, again only in
+   * position or with a rundown. */
+  omahaLimpReraiseVsIsoRaiser?: boolean;
   /** Owner 2026-11-15 11:55 (after calling a 3-bet or 4-bet the Horse
    * continues on the flop only with a pair plus a straight or flush draw, or
    * better): PLO4/PLO5 cash, on the flop of a pot raised twice or more
@@ -14891,6 +14908,10 @@ function omahaFacingBetEvRule(
         if (ev.anchored.shown > 0) noteFire('omaha_people_prior_record_read');
         if (ev.anchored.changed) noteFire('omaha_people_prior_changed');
       }
+      if (ev.verdict.giveUp !== undefined) {
+        noteFire('omaha_hidden_give_up_priced');
+        if (evCall) noteFire('omaha_hidden_give_up_priced_call');
+      }
       if (ev.lineSplit) {
         noteFire('omaha_turn_line_prior_priced');
         if (ev.lineSplit.checked) noteFire('omaha_turn_line_prior_checked_flop');
@@ -15004,6 +15025,8 @@ let omahaFacingBetEvCountMemo: {
   /** omahaTurnFacingBetPriorIsLineSplit (and whether its cell counts hidden bets) */
   turnLineSplit: boolean;
   turnLineHidden: boolean;
+  /** omahaHiddenBetsArePricedAsGiveUps */
+  hiddenGiveUps: boolean;
   /** omahaFacingBetRangeIsMeasuredByLine and its siblings (HorseOmahaFacingBetPriced) */
   pricedKey: string;
   answer: OmahaFacingBetEvAnswer | null;
@@ -15230,6 +15253,12 @@ function omahaFacingBetEvCount(
     opts.omahaTurnFacingBetPriorIsLineSplit === true &&
     !isTournamentMode(gs) &&
     ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
+  // omahaHiddenBetsArePricedAsGiveUps (default off): inside omahaPeoplePriorCountsHiddenBets' heads-up turn bet.
+  const hiddenGiveUps =
+    opts.omahaHiddenBetsArePricedAsGiveUps === true &&
+    opts.omahaPeoplePriorCountsHiddenBets === true &&
+    !isTournamentMode(gs) &&
+    ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
   const turnLineHidden =
     turnLineSplit &&
     (opts as { omahaPeoplePriorCountsHiddenBets?: boolean }).omahaPeoplePriorCountsHiddenBets ===
@@ -15270,6 +15299,7 @@ function omahaFacingBetEvCount(
     memo.multiwayFieldPeople === multiwayFieldPeople &&
     memo.turnLineSplit === turnLineSplit &&
     memo.turnLineHidden === turnLineHidden &&
+    memo.hiddenGiveUps === hiddenGiveUps &&
     memo.pricedKey === pricedKey
   )
     return memo.answer;
@@ -15416,11 +15446,20 @@ function omahaFacingBetEvCount(
           opts.omahaPeoplePriorCountsHiddenBets === true &&
           spot.street === 'turn' &&
           spot.isRaise !== true
-            ? omahaPeoplePriorHiddenKeyOf(variant, 'turn', gs.actionHistory, spot.bettorSeat)
+            ? (omahaPeoplePriorHiddenKeyOf(variant, 'turn', gs.actionHistory, spot.bettorSeat) ??
+              // omahaHiddenBetsArePricedAsGiveUps (default off): a re-raised pot whose flop checked through
+              (hiddenGiveUps
+                ? omahaPeoplePriorHiddenReraisedCheckedKeyOf(
+                    variant,
+                    gs.actionHistory,
+                    spot.bettorSeat
+                  )
+                : null))
             : null;
         if (hiddenKey && telemetryOn(opts)) noteFire('omaha_hidden_bets_prior_read');
         const anchored = omahaPeoplePriorShare({
           hidden: hiddenKey,
+          giveUps: hiddenGiveUps && hiddenKey !== null,
           street: spot.street,
           potFrac: spot.potFrac,
           isRaise: spot.isRaise === true,
@@ -15448,6 +15487,7 @@ function omahaFacingBetEvCount(
             ...OMAHA_EV_UNKNOWN_READ,
             pricedShare: anchored.share,
             pricedRegions: anchored.regions,
+            ...(anchored.giveUp !== undefined ? { pricedGiveUp: anchored.giveUp } : {}),
           };
           equilibriumAnchored = anchored;
         }
@@ -15790,6 +15830,7 @@ function omahaFacingBetEvCount(
     multiwayFieldPeople,
     turnLineSplit,
     turnLineHidden,
+    hiddenGiveUps,
     pricedKey,
     answer,
   };
@@ -19408,6 +19449,39 @@ export class HorseLogic {
           omahaVpipLimpTarget(gs, opts, isTournamentMode(gs)) !== undefined
         )
           noteFire('omaha_vpip_floor_limp');
+        // omahaLimpReraiseVsIsoRaiser (default OFF; owner order 2026-11-27 12:48 PM Chicago): after every VPIP-floor
+        // step, so a floor limp and the floor's limp-fold are never touched. A strong first-in raise may become the
+        // priced limp (in position against the likeliest raiser behind, or a connected rundown), and the Horse's own
+        // limp, raised heads-up, the priced pot re-raise (HorseOmahaLimpReraise.ts). Off: not entered.
+        // An exact chart_bb_defend answer is never touched; a change made after a chart_open_jam or variant_price
+        // route is the intent's, so the receipt names the active reference owner (as holdemAllInCallReference does).
+        if (
+          opts.omahaLimpReraiseVsIsoRaiser === true &&
+          phase6Reference.route !== 'chart_bb_defend'
+        ) {
+          const beforeLimpReraise = decision;
+          const lrLimp = limpReraiseLimpStep(decision, player, gs, opts.mind !== false);
+          decision = lrLimp.decision;
+          // Literal keys: the ledger contract finds each receipt by its noteFire call.
+          if (tele && lrLimp.receipt === 'limped') noteFire('omaha_limp_reraise_limped');
+          else if (tele && lrLimp.receipt === 'open_kept') noteFire('omaha_limp_reraise_open_kept');
+          if (lrLimp.receipt === null) {
+            const lrRaise = limpReraiseReraiseStep(decision, player, gs, opts.mind !== false);
+            decision = lrRaise.decision;
+            if (tele && lrRaise.receipt === 'reraised') noteFire('omaha_limp_reraise_reraised');
+            else if (tele && lrRaise.receipt === 'reraise_kept')
+              noteFire('omaha_limp_reraise_reraise_kept');
+          }
+          if (
+            decision !== beforeLimpReraise &&
+            (phase6Reference.route === 'chart_open_jam' ||
+              phase6Reference.route === 'variant_price')
+          ) {
+            phase6Reference.route =
+              (opts.v7Preflop ?? opts.v7 !== false) ? 'intent_engine' : 'legacy_preflop';
+            phase6Reference.lookup = null;
+          }
+        }
       } else {
         // The opportunity count for the postflop upgrade counters (01, 02, 06).
         if (tele) noteFire('decide_postflop');
