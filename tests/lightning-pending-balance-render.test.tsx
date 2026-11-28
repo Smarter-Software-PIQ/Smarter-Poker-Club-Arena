@@ -43,7 +43,8 @@ describe('a Lightning balance with no authoritative figure yet', () => {
   it('adopts a known balance without inventing a win from the placeholder', () => {
     const { container, rerender } = render(chair({ ...hero, stackPending: true }));
     rerender(chair({ ...hero, stack: 187.5, stackPending: false }));
-    expect(container.querySelector('.seat__stack')?.textContent).toBe('188');
+    // A stack from 100 up prints whole, cut and never rounded (Dan 2026-11-27).
+    expect(container.querySelector('.seat__stack')?.textContent).toBe('187');
     expect(container.querySelector('.seat__stack-delta')).toBeNull();
   });
 
