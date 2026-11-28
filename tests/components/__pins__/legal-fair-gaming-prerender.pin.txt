@@ -1,0 +1,52 @@
+{
+  "headings": [
+    "h1||Fair Gaming Policy",
+    "h2||Our Commitment To Fair Play",
+    "h2||Card Randomness",
+    "h2||Game Integrity Records",
+    "h2||Prohibited Conduct",
+    "h2||Detection And Review",
+    "h2||Player Reporting",
+    "h2||Enforcement",
+    "h2||Disputes And Continuous Review"
+  ],
+  "pageHelp": 1,
+  "text": "Legal Center / Fair Gaming Policy 01 Our Commitment To Fair Play 02 Card Randomness 03 Game Integrity Records 04 Prohibited Conduct 05 Detection And Review 06 Player Reporting 07 Enforcement 08 Disputes And Continuous Review 01 Our Commitment To Fair Play Club Arena Is Built To Provide A Fair, Secure, And Reviewable Social Poker Experience. Game Outcomes, Player Actions, And Operator Decisions Must Remain Traceable To Authoritative Records. 02 Card Randomness Live Card Paths Use Cryptographically Secure Random Values And An Unbiased Fisher-Yates Shuffle. Equity Simulations Use Separate Deterministic Sampling And Do Not Deal Live Cards. Each Live Deck Is Shuffled Before The Deal Live Dealing Does Not Use Predictable Math.Random Values Card Outcomes Are Not Selected By A Club Owner Or Player Client Distribution Monitoring Is Segmented By Game Variant 03 Game Integrity Records Server Authority: The Game Engine Owns Legal Actions And Final Outcomes Hand History: Completed Hands Preserve The Action Record For Review Secure Transport: Platform Traffic Uses Encrypted Connections Audit Signals: Suspicious Patterns Can Be Flagged For Investigation 04 Prohibited Conduct Collusion: Coordinating With Other Players For An Unfair Advantage Multi-Accounting: Controlling Multiple Accounts In The Same Game Chip Dumping: Intentionally Moving Chips Through Artificial Losses Automation: Using Unauthorized Software To Make Or Submit Decisions Real-Time Assistance: Using Prohibited External Decision Tools During Play Account Sharing: Allowing Another Person To Play Through Your Account Ghosting: Receiving Live Strategic Direction From Another Person 05 Detection And Review Integrity Review Can Use Multiple Signals: Automated Pattern And Relationship Detection Manual Review Of Flagged Accounts And Hands Player Reports And Supporting Evidence Statistical Analysis Of Actions And Outcomes Account, Session, Device, And Network Signals Where Permitted 06 Player Reporting Use Report Player From A Table Or Player Profile. Include The Hand Number, The Conduct You Observed, And Any Relevant Context. Reports Are Kept Within The Review Process. Review Your Own Evidence In Hand History Or Contact Support@Smarter.Poker . 07 Enforcement Confirmed Violations May Lead To Warnings, Feature Restrictions, Temporary Suspension, Chip Reversal Or Confiscation Where Supported By The Record, And Permanent Account Removal. Severity, Repetition, Evidence, And Player Impact Inform The Response. 08 Disputes And Continuous Review Send A Dispute With The Hand Number And Specific Concern To Support@Smarter.Poker. The Review Uses The Authoritative Hand And Account Records Available To The Platform. Security Controls, Detection Rules, And Fairness Measurements Are Reviewed As The Engine And Supported Game Variants Evolve. CA-FGP-02 · Effective August 29, 2026 Support@Smarter.Poker Fair Gaming Terms Of Service Privacy Policy Promotion Rules",
+  "regions": [
+    "main|main-content|||||",
+    "nav|||Breadcrumb|||",
+    "span||||||page",
+    "aside||||||",
+    "nav|||Fair Gaming Policy Sections|||",
+    "article|||Fair Gaming Policy|||",
+    "section|commitment|||||",
+    "section|card-randomness|||||",
+    "section|integrity-records|||||",
+    "section|prohibited-conduct|||||",
+    "section|detection-review|||||",
+    "section|reporting|||||",
+    "section|enforcement|||||",
+    "section|disputes|||||",
+    "footer||||||",
+    "nav|||Legal Documents|||"
+  ],
+  "controls": [],
+  "links": [
+    "Legal Center|/legal",
+    "01Our Commitment To Fair Play|#commitment",
+    "02Card Randomness|#card-randomness",
+    "03Game Integrity Records|#integrity-records",
+    "04Prohibited Conduct|#prohibited-conduct",
+    "05Detection And Review|#detection-review",
+    "06Player Reporting|#reporting",
+    "07Enforcement|#enforcement",
+    "08Disputes And Continuous Review|#disputes",
+    "Hand History|/hand-history",
+    "Support@Smarter.Poker|mailto:support@smarter.poker",
+    "Support@Smarter.Poker|mailto:support@smarter.poker",
+    "Fair Gaming|/legal/fair-gaming",
+    "Terms Of Service|/legal/tos",
+    "Privacy Policy|/legal/privacy",
+    "Promotion Rules|/legal/promotions"
+  ]
+}
