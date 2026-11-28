@@ -1,0 +1,34 @@
+{
+  "money": {
+    "figures": [
+      "1",
+      "48219",
+      "2",
+      "<date>25",
+      "1,412",
+      "32% / 24%",
+      "21",
+      "7",
+      "Kings Main 1",
+      "2"
+    ],
+    "hooks": []
+  },
+  "text": "1 | RiverRat | Player # | 48219 | Deep Stack PLO Regular. | Lifetime VIP | 2 | Cash Clubs | Member Since | <date>25 | Recorded Chip Cash Play / Finalized Chip Tournaments | Cash Hands | 1,412 | Cash VPIP / PFR | 32% / 24% | Tourneys | 21 | Titles | 7 | Running Deep In The Sunday Major | 2 | Mutual Friend | s | Scan To Connect | Scan At The Table To Add As Friend",
+  "regions": [
+    "div||Player avatar",
+    "dl||Arena Record",
+    "div|group|Player Actions",
+    "button||Report RiverRat",
+    "div|img|QR Code For RiverRat",
+    "svg|img|"
+  ],
+  "controls": [
+    "button|button|AceHigh|",
+    "button|button|Copy Profile Link|",
+    "button|button|NutFlush|",
+    "button|button|Playing At Kings Main 1|",
+    "button|button|Report RiverRat|",
+    "button|button|Unblock|"
+  ]
+}

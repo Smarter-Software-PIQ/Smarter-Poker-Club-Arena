@@ -234,16 +234,11 @@ describe('no identity surface prints a page hero', () => {
     expect(
       existsSync(resolve(ROOT, 'src/components/account/AccountSurfaceHeader.module.css'))
     ).toBe(false);
-    /* 2026-09-05: this page became a CSS Module (PR #3077). `.action-btn`,
-       `.share-btn`, `.vip-badge`, `.level-badge` and six more of its class
-       names were bare globals that seven other stylesheets also define, and
-       with those chunks loaded the Share button left the grid entirely
-       (`.share-btn { position: absolute }` in the hand replayer). Hashed
-       names make that impossible. The light-mode contract is unchanged, so
-       the assertion follows the file. */
-    expect(read('src/pages/PublicProfilePage.module.css')).toContain(
-      ":global([data-theme='light']) .publicProfilePage"
-    );
+    /* 2026-11-28: Public Profile wears the arena workspace (#SmarterDesign,
+       Dan 2026-11-27), which reads dark in either theme like every other
+       arena page; its brushed-silver mode went with the old obsidian plate. */
+    expect(PUBLIC).toContain('className={`${styles.publicProfilePage} arena-workspace`}');
+    expect(read('src/pages/PublicProfilePage.module.css')).not.toContain("[data-theme='light']");
     /* 2026-11-28: Notifications wears the arena workspace (#SmarterDesign,
        Dan 2026-11-27), which reads dark in either theme like every other
        arena page; its brushed-silver mode went with the Signal Desk dress. */

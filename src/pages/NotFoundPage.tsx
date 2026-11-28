@@ -1,6 +1,8 @@
 import { useNavigate } from 'react-router-dom';
-import { EmptyState } from '../components/common/EmptyState';
+import { ArenaEmptyState } from '../components/common/EmptyStateArena';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
 import { usePageTitle } from '../hooks/usePageTitle';
+import './NotFoundPage.css';
 
 /**
  * A route failure is still part of the product experience.
@@ -8,22 +10,37 @@ import { usePageTitle } from '../hooks/usePageTitle';
  * Keep the invalid path visible in the browser for diagnosis, but provide
  * deterministic exits instead of a generic blue 404 card that visually forks
  * from the rest of Club Arena.
+ *
+ * 2026-11-28 #SmarterDesign (player pages batch P7): wears the arena workspace
+ * with ArenaWorkspaceHeader, a thin chrome case and ArenaEmptyState.
  */
 export default function NotFoundPage() {
   usePageTitle('Page Not Found');
   const navigate = useNavigate();
 
   return (
-    <EmptyState
-      icon="404"
-      eyebrow="Route Not Found"
-      title="This Arena Door Is Closed"
-      /* The path stays in the address bar. Printed here it went through the
-         card's Title Case and read "/clubs/shark-Club/leaderboard", a path
-         that does not exist (2026-10-17). */
-      description="No Current Page Matches This Address. The Destination May Have Moved, Or The Link May Be Incomplete."
-      action={{ label: 'Return To Club Arena', onClick: () => navigate('/', { replace: true }) }}
-      secondaryAction={{ label: 'Go Back', onClick: () => navigate(-1) }}
-    />
+    <main className="arena-workspace not-found-page">
+      <ArenaWorkspaceHeader
+        area="operations"
+        title="Page Not Found"
+        summary="The Address You Opened Does Not Match Any Active Club Arena Page. Return To Club Arena Or Go Back To Your Previous Screen."
+      />
+      <div className="arena-case arena-ops-case not-found-page__case">
+        <ArenaEmptyState
+          icon="404"
+          eyebrow="Route Not Found"
+          title="This Arena Door Is Closed"
+          /* The path stays in the address bar. Printed here it went through the
+             card's Title Case and read "/clubs/shark-Club/leaderboard", a path
+             that does not exist (2026-10-17). */
+          description="No Current Page Matches This Address. The Destination May Have Moved, Or The Link May Be Incomplete."
+          action={{
+            label: 'Return To Club Arena',
+            onClick: () => navigate('/', { replace: true }),
+          }}
+          secondaryAction={{ label: 'Go Back', onClick: () => navigate(-1) }}
+        />
+      </div>
+    </main>
   );
 }

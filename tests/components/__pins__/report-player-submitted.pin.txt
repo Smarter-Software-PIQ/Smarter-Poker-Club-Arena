@@ -1,0 +1,13 @@
+{
+  "money": {
+    "figures": [
+      "Thank You For Helping Keep Our Community Safe. Our Team Will Review Your Report Within 24 Hours."
+    ],
+    "hooks": []
+  },
+  "text": "Player Safety | Report Submitted | Sent | Thank You For Helping Keep Our Community Safe. Our Team Will Review Your Report Within 24 Hours.",
+  "regions": [],
+  "controls": [
+    "button|button|Go Back|"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "money": {
+    "figures": [],
+    "hooks": []
+  },
+  "text": "",
+  "regions": [
+    "div|status|Loading content"
+  ],
+  "controls": []
+}

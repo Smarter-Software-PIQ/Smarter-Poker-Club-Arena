@@ -1,0 +1,16 @@
+{
+  "money": {
+    "figures": [
+      "404"
+    ],
+    "hooks": []
+  },
+  "text": "404 | Route Not Found | This Arena Door Is Closed | No Current Page Matches This Address. The Destination May Have Moved, Or The Link May Be Incomplete.",
+  "regions": [
+    "section|status|"
+  ],
+  "controls": [
+    "button|button|Go Back|",
+    "button|button|Return To Club Arena|"
+  ]
+}

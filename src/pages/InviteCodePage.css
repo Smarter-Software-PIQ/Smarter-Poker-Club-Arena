@@ -1,0 +1,44 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   INVITE CODE PAGE (/i/:code) — #SmarterDesign (batch P7, 2026-11-28)
+
+   Scoped strictly under .invite-code-page.arena-workspace; InvitePage.css
+   remains untouched for InvitePage (the front door). No :hover.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.invite-code-page.arena-workspace {
+  min-height: 100vh;
+  min-height: 100dvh;
+  max-width: 720px;
+  margin-inline: auto;
+  padding-bottom: max(var(--bottom-nav-clearance, 74px), env(safe-area-inset-bottom));
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+.invite-code-page.arena-workspace .invite-code-page__case {
+  max-width: 480px;
+  width: 100%;
+  margin: 18px auto 0;
+  align-items: center;
+  text-align: center;
+}
+
+.invite-code-page.arena-workspace .invite-code-page__title {
+  width: 100%;
+  justify-content: center;
+}
+
+.invite-code-page.arena-workspace .invite-code-page__message {
+  margin: 0;
+  max-width: 38ch;
+  color: #dce5ef;
+  font:
+    14px/1.5 Inter,
+    Arial,
+    sans-serif;
+}
+
+.invite-code-page.arena-workspace .invite-code-page__actions {
+  width: min(100%, 280px);
+  margin: 6px 0 0;
+}

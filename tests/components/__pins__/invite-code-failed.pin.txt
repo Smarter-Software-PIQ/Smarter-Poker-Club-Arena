@@ -1,0 +1,11 @@
+{
+  "money": {
+    "figures": [],
+    "hooks": []
+  },
+  "text": "Club Invite | This Invite Did Not Work | The Link May Be Mistyped Or The Club Is No Longer Available.",
+  "regions": [],
+  "controls": [
+    "button||Browse Clubs|"
+  ]
+}

@@ -1,11 +1,11 @@
 /**
- *  REPORT PLAYER PAGE - on the spade console (#ClubArenaConsole)
+ *  REPORT PLAYER PAGE - on the arena workspace (#SmarterDesign, batch P7)
  *
- *  One flow, one console: the reason as lit words, the description and the
- *  hand id printed on the glass between engraved rules, Cancel and Submit
- *  Report on the two painted plates. The success state closes flat, with
- *  Go Back as a lit word. Every handler, guard and string of the generic
- *  page is kept; only the paint changed.
+ *  One flow, one chrome case: reason buttons in a chrome switch lit by
+ *  aria-pressed, description and hand ID in dark search-well fields, chat-log
+ *  toggle on a chrome ledger row, and Cancel / Submit Report on a chrome
+ *  switch with Submit Report lit. Every handler, guard, ARIA role and string
+ *  is unchanged (tests/components/reportPlayerPageIsPinned.test.tsx).
  */
 
 import { useState } from 'react';
@@ -13,16 +13,11 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { sanitizeInput } from '../utils/sanitizeInput';
-import { SpadeConsole } from '../components/console/SpadeConsole';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import '../components/ops/ArenaOps.css';
 import './ReportPlayerPage.css';
 import { reportError } from '../utils/errorReporter';
-
 import { safeErrorMessage } from '../utils/safeErrorMessage';
-const reportSectionAnimationStyle = (index: number) => ({
-  opacity: 0,
-  transform: 'translateY(8px)',
-  animation: `fadeInUp 0.5s ease-out ${index * 70}ms forwards`,
-});
 
 type ReportReason = 'collusion' | 'abuse' | 'cheating' | 'harassment' | 'other';
 
@@ -90,67 +85,75 @@ export default function ReportPlayerPage() {
 
   if (submitted) {
     return (
-      <div className="report-page">
-        <SpadeConsole
-          className="rpc__console"
-          eyebrow="Player Safety"
+      <main className="report-page arena-workspace">
+        <ArenaWorkspaceHeader
+          area="reports"
           title="Report Submitted"
-          titleId="report-player-title"
-          pill="Sent"
-          pillInk="green"
-          foot="foot"
+          context="Player Safety"
+          summary="Your Private Player Safety Report Has Been Filed For Review By Our Safety Team."
+        />
+        <section
+          className="arena-case arena-ops-case report-page__case"
+          aria-labelledby="report-player-title"
         >
-          <p className="sc-copy sc-copy--center rpc__success-body">
+          <p className="arena-ops-eyebrow">Player Safety</p>
+          <h2 id="report-player-title" className="arena-section-title">
+            Report Submitted
+            <small className="report-page__pill report-page__pill--sent">Sent</small>
+          </h2>
+          <p className="report-page__success-body">
             Thank You For Helping Keep Our Community Safe. Our Team Will Review Your Report Within
             24 Hours.
           </p>
-          <div className="rpc__actions">
-            <button type="button" className="rpc-word sc-ink--white" onClick={() => navigate(-1)}>
+          <div className="arena-switch arena-ops-primary report-page__actions">
+            <button type="button" onClick={() => navigate(-1)}>
               Go Back
             </button>
           </div>
-        </SpadeConsole>
-      </div>
+        </section>
+      </main>
     );
   }
 
   return (
-    <div className="report-page">
-      <SpadeConsole
-        className="rpc__console"
-        eyebrow="Player Safety"
+    <main className="report-page arena-workspace">
+      <ArenaWorkspaceHeader
+        area="reports"
         title="Report Player"
-        titleId="report-player-title"
-        pill="Private"
-        pillInk="muted"
-        plates={{
-          secondary: { label: 'Cancel', onClick: () => navigate(-1) },
-          primary: {
-            label: submitting ? 'Submitting...' : 'Submit Report',
-            ink: 'red',
-            onClick: handleSubmit,
-            disabled: submitting || !form.description.trim(),
-          },
-        }}
+        context="Player Safety"
+        summary="File A Private Player Safety Report With Reason, Details, Optional Hand ID, And Chat Log Review Preference."
+      />
+      <section
+        className="arena-case arena-ops-case report-page__case"
+        aria-labelledby="report-player-title"
       >
+        <p className="arena-ops-eyebrow">Player Safety</p>
+        <h2 id="report-player-title" className="arena-section-title">
+          Report Player
+          <small className="report-page__pill">Private</small>
+        </h2>
+
         {error && (
-          <p className="sc-copy rpc__error sc-ink--red" role="alert">
+          <p className="report-page__error" role="alert">
             {error}
           </p>
         )}
 
-        <p className="sc-copy rpc__warning" style={reportSectionAnimationStyle(0)}>
+        <p className="report-page__warning">
           False Reports May Result In Account Suspension. Please Only Report Genuine Violations.
         </p>
 
-        <section className="rpc__section" style={reportSectionAnimationStyle(1)}>
-          <h3 className="rpc__section-title sc-label sc-ink--blue">Reason For Report</h3>
-          <div className="rpc__reasons" role="group" aria-label="Reason For Report">
+        <div className="report-page__section">
+          <h3 className="report-page__label">Reason For Report</h3>
+          <div
+            className="arena-switch arena-ops-keys report-page__reasons"
+            role="group"
+            aria-label="Reason For Report"
+          >
             {reasonOptions.map((opt) => (
               <button
                 key={opt.value}
                 type="button"
-                className={`rpc-word rpc__reason ${form.reason === opt.value ? 'sc-ink--white is-active' : 'sc-ink--muted'}`}
                 aria-pressed={form.reason === opt.value}
                 onClick={() => setForm((prev) => ({ ...prev, reason: opt.value }))}
               >
@@ -158,52 +161,63 @@ export default function ReportPlayerPage() {
               </button>
             ))}
           </div>
-        </section>
+        </div>
 
-        <section className="rpc__section" style={reportSectionAnimationStyle(2)}>
-          <h3 className="rpc__section-title sc-label sc-ink--blue">
+        <div className="report-page__section">
+          <h3 className="report-page__label">
             <label htmlFor="report-description">Description</label>
           </h3>
           <textarea
             id="report-description"
-            className="rpc__field rpc__field--area"
+            className="report-page__field report-page__field--area"
             placeholder="Please Describe What Happened In Detail..."
             value={form.description}
             onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
             rows={5}
           />
-        </section>
+        </div>
 
-        <section className="rpc__section" style={reportSectionAnimationStyle(3)}>
-          <h3 className="rpc__section-title sc-label sc-ink--blue">
+        <div className="report-page__section">
+          <h3 className="report-page__label">
             <label htmlFor="report-hand-id">Hand ID (Optional)</label>
           </h3>
           <input
             id="report-hand-id"
             type="text"
-            className="rpc__field"
+            className="report-page__field"
             placeholder="Enter Hand ID If Applicable..."
             value={form.hand_id || ''}
             onChange={(e) => setForm((prev) => ({ ...prev, hand_id: e.target.value }))}
           />
-        </section>
+        </div>
 
-        <section
-          className="rpc__section rpc__section--check"
-          style={reportSectionAnimationStyle(4)}
-        >
+        <div className="arena-ledger-row report-page__check-row">
           <input
             type="checkbox"
             id="include-chat"
-            className="rpc__check"
+            className="report-page__check"
             checked={form.include_chat_logs}
             onChange={(e) => setForm((prev) => ({ ...prev, include_chat_logs: e.target.checked }))}
           />
-          <label htmlFor="include-chat" className="sc-copy rpc__check-label">
+          <label htmlFor="include-chat" className="report-page__check-label">
             Include Recent Chat Logs With This Player
           </label>
-        </section>
-      </SpadeConsole>
-    </div>
+        </div>
+
+        <div className="arena-switch arena-ops-primary report-page__actions">
+          <button
+            type="button"
+            className="report-page__submit"
+            onClick={handleSubmit}
+            disabled={submitting || !form.description.trim()}
+          >
+            {submitting ? 'Submitting...' : 'Submit Report'}
+          </button>
+          <button type="button" onClick={() => navigate(-1)}>
+            Cancel
+          </button>
+        </div>
+      </section>
+    </main>
   );
 }
