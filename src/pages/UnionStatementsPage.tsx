@@ -211,6 +211,7 @@ function boardToCsv(rows: BoardClub[], unionName: string | null): string {
     'player_result_excluding_fees',
     'rakeback_paid_to_club',
     'signed_amount_due_positive_union_pays',
+    'charged_by',
   ];
   const union = unionName ?? 'Union';
   // Member clubs first; the union's own house club statement last.
@@ -231,7 +232,7 @@ function boardToCsv(rows: BoardClub[], unionName: string | null): string {
       csvMoney(
         r.status === 'missing'
           ? null
-          : r.credit_notes?.length
+          : r.credit_notes?.length || r.charge_notes?.length
             ? (r.remaining_after_credits ?? null)
             : Math.abs(r.amount)
       ),
@@ -268,6 +269,7 @@ function boardToCsv(rows: BoardClub[], unionName: string | null): string {
       csvMoney(r.player_pnl_net),
       csvMoney(r.status === 'missing' ? null : r.rakeback_due),
       csvMoney(r.stored_outstanding),
+      (r.charge_notes || []).map((note) => note.invoice_number).join(' ') || null,
     ]
       .map(cell)
       .join(',')
@@ -787,7 +789,8 @@ export default function UnionStatementsPage() {
     const square = c.status !== 'missing' && (c.direction === 'square' || c.amount === 0);
     const amountDue = unionStatementAmountDue(c, clubLabel, unionLabel);
     const credited = (c.credit_notes?.length ?? 0) > 0;
-    const remaining = credited ? (c.remaining_after_credits ?? 0) : Math.abs(c.amount);
+    const charged = (c.charge_notes?.length ?? 0) > 0;
+    const remaining = credited || charged ? (c.remaining_after_credits ?? 0) : Math.abs(c.amount);
     const nothingDue = square || remaining === 0;
     const week = unionStatementWeekLabel(c.period_start_at, c.period_end_at);
     const pillClass =
@@ -926,6 +929,17 @@ export default function UnionStatementsPage() {
                           .map((note) => `${note.invoice_number} (${money(note.amount)})`)
                           .join(', ')}{' '}
                         Against An Original {money(Math.abs(c.amount))}
+                      </dd>
+                    </div>
+                  )}
+                  {charged && (
+                    <div className={styles.documentLine}>
+                      <dt>Charge Note</dt>
+                      <dd>
+                        {(c.charge_notes || [])
+                          .map((note) => `${note.invoice_number} (${money(note.amount)})`)
+                          .join(', ')}{' '}
+                        Added To An Original {money(Math.abs(c.amount))}
                       </dd>
                     </div>
                   )}

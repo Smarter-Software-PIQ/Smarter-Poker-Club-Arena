@@ -1,0 +1,49 @@
+name: Union statements carry charge notes
+
+# Qualifies migration 20261115205250 (section 1: charge notes, the debit-note
+# twin of the union credit note) in a throwaway PostgreSQL 17 cluster, never
+# production: the captured production bodies must pass its md5 guards and
+# anchors; then issuing, numbering, delivery on insert, the Charge Note body,
+# the owed amount (statement - credit notes + charge notes) in every reader,
+# paid in full, a refused second charge, refused callers and documents, the
+# statement of account and grants equal to the credit note's. Runs
+# scripts/ci/test-union-charge-notes-postgres.py. No timer (CLAUDE.md 10.85):
+# pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261115205250_a_union_statement_can_carry_a_charge_note.sql
+      - supabase/migrations/20261115011424_union_invoice_views_show_the_week_and_who_pays.sql
+      - scripts/ci/test-union-charge-notes-postgres.py
+      - scripts/ci/fixtures/union-charge-notes/**
+      - .github/workflows/union-charge-notes.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: union-charge-notes-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  union-charge-notes:
+    name: Union statements carry charge notes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: Union statements carry charge notes
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-union-charge-notes-postgres.py --output artifacts/union-charge-notes
+      - name: Retain the regression evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: union-charge-notes-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/union-charge-notes/RESULTS.json
+          retention-days: 7
+          if-no-files-found: warn

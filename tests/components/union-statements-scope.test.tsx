@@ -967,6 +967,26 @@ describe('a credited invoice and an invoice with the cash and tournament split',
     expect(deepRow).toContain('"Credited In Full, Nothing Due",MIDWAY-2026-000099,0.00,');
   });
 
+  it('labels a charge note where credit notes are labelled and adds it to what is due', async () => {
+    await render1((value) => {
+      const kings = value.clubs.find((c: any) => c.invoice_number === 'MIDWAY-2026-000039');
+      kings.charge_notes = [{ invoice_number: 'MIDWAY-2026-000100', amount: 43.86 }];
+      kings.remaining_after_credits = Math.round((Math.abs(kings.amount) + 43.86) * 100) / 100;
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'KINGS CLUB Statement Details' }));
+    expect(amountDue('KINGS CLUB')).toMatch(
+      /^KINGS CLUB Pays Midway Union [\d,]+\.\d\d After Charge$/
+    );
+    expect(screen.getByText('Charge Note', { selector: 'dt' })).toBeVisible();
+    expect(screen.getByText(/MIDWAY-2026-000100 \(43.86\) Added To An Original/)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+    const csv = testState.downloadCsv.mock.calls[0][1] as string;
+    expect(csv.split('\n')[0].split(',').at(-1)).toBe('charged_by');
+    expect(csv.split('\n').find((r) => r.includes('MIDWAY-2026-000039'))).toMatch(
+      /,MIDWAY-2026-000100$/
+    );
+  });
+
   it('subtracts credit notes from the tiles and the remaining unpaid balance', async () => {
     await render1((value) => {
       const deep = value.clubs.find((c: any) => c.invoice_number === 'MIDWAY-2026-000038');
