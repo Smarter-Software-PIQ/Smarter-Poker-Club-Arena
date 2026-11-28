@@ -22,6 +22,7 @@ const SHEETS: Array<[string, RegExp, string | null]> = [
     /^:global\(\.arena-workspace\)\s/,
     '#SmarterDesign (2026-11-28)',
   ],
+  ['src/components/agent/AgentScoreCardArena.css', /^\.arena-workspace\s/, null],
 ];
 
 /* [component, its one host page, the host's arena root] */
@@ -36,6 +37,7 @@ const HOSTS: Array<[string, string, string]> = [
     'src/pages/PromotionsPage.tsx',
     'promotions-page arena-workspace',
   ],
+  ['src/components/agent/AgentScoreCard', 'src/pages/AgentDashboardPage.tsx', 'arena-workspace'],
 ];
 
 function selectors(sheet: string): string[] {
