@@ -15,6 +15,12 @@ import { arenaDisplayText } from '../lib/arenaDisplay/text';
  * with no route to it. The share button reports a clipboard refusal instead
  * of celebrating one. The "Achievement Showcase" that read a field no profile
  * ever carried is gone.
+ *
+ * 2026-11-28 #SmarterDesign (player pages batch P7): wears the arena workspace
+ * (visual twin of ProfilePage): chrome mast with the chrome "?", credential
+ * plate on a thin chrome case, four arena-meter record tiles, chrome-stat
+ * action keys with the primary lit, mutual friends and QR on chrome cases.
+ * Every className stays module-composed (tests/unit/profileCredential.test.ts).
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -29,6 +35,8 @@ import { playerStatusService } from '../services/PlayerStatusService';
 import type { PlayerStatus } from '../services/PlayerStatusService';
 import { useAuthUser } from '../hooks/useAuthUser';
 import PageBar from '../components/help/PageBar';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import '../components/ops/ArenaOps.css';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import { useToast } from '../components/common/Toast';
 import { supabase } from '../lib/supabase';
@@ -44,6 +52,9 @@ import type { ArenaRecord } from '../utils/arenaRecord';
 import { readSeparatedPublicArenaRecord } from '../services/PublicArenaRecordRead';
 import { formatCount, formatPct, formatMemberSince } from '../utils/format';
 import { shareButtonLabel, shareLink } from '../lib/share';
+
+const PUBLIC_PROFILE_SUMMARY =
+  "A Player's Public Credential: Their Arena Name, Record And Where They Are Playing, With Ways To Add Them As A Friend Or Share Their Profile.";
 
 export default function PublicProfilePage() {
   const { userId } = useParams<{ userId: string }>();
@@ -333,8 +344,13 @@ export default function PublicProfilePage() {
 
   if (loading) {
     return (
-      <div className={styles.publicProfilePage}>
-        <div className={styles.publicProfileLoading}>
+      <div className={`${styles.publicProfilePage} arena-workspace`}>
+        <ArenaWorkspaceHeader
+          area="settings"
+          title="Player Profile"
+          summary={PUBLIC_PROFILE_SUMMARY}
+        />
+        <div className={`${styles.publicProfileLoading} arena-case arena-ops-case`}>
           <PageSkeleton variant="default" />
           <p>Loading Profile...</p>
         </div>
@@ -344,15 +360,22 @@ export default function PublicProfilePage() {
 
   if (!profile) {
     return (
-      <div className={styles.publicProfilePage}>
-        <div className={styles.publicProfileEmpty}>
+      <div className={`${styles.publicProfilePage} arena-workspace`}>
+        <ArenaWorkspaceHeader
+          area="settings"
+          title="Player Profile"
+          summary={PUBLIC_PROFILE_SUMMARY}
+        />
+        <div className={`${styles.publicProfileEmpty} arena-case arena-ops-case`}>
           <span className={styles.emptyIcon} aria-hidden="true">
             ◉
           </span>
-          <h2>Player Not Found</h2>
-          <button type="button" className={styles.actionBtn} onClick={() => navigate('/search')}>
-            Find Players
-          </button>
+          <h2 className={`${styles.emptyTitle} arena-section-title`}>Player Not Found</h2>
+          <div className={`${styles.emptyActions} arena-switch arena-ops-primary`}>
+            <button type="button" className={styles.actionBtn} onClick={() => navigate('/search')}>
+              Find Players
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -370,18 +393,24 @@ export default function PublicProfilePage() {
   const profileLink = userId ? playerStatusService.generateProfileLink(userId) : '';
 
   return (
-    <article className={styles.publicProfilePage}>
-      {/* The eyebrow and the hero artwork are gone (Dan 2026-10-17). The
-          player's name and their own bio are identity and stay on the plate;
-          the name is the page's heading, so the bar prints none. */}
+    <article className={`${styles.publicProfilePage} arena-workspace`}>
+      {/* #SmarterDesign (Dan 2026-11-27): the chrome mast carries the page
+          title and the chrome "?" (the description behind it). The player's
+          own name and bio stay on the credential below. */}
+      <ArenaWorkspaceHeader
+        area="settings"
+        title="Player Profile"
+        summary={PUBLIC_PROFILE_SUMMARY}
+      />
       <PageBar
         title="Player Profile"
         titleAs={false}
-        summary="A Player's Public Credential: Their Arena Name, Record And Where They Are Playing, With Ways To Add Them As A Friend Or Share Their Profile."
+        showHelp={false}
+        className={styles.emptyPageBar}
       />
 
       {/* Header with avatar & name */}
-      <header className={styles.publicProfileHeader}>
+      <header className={`${styles.publicProfileHeader} arena-case arena-ops-case`}>
         <div className={styles.profileHero}>
           <PlayerAvatar
             src={profile.avatarUrl || generateDefaultAvatar()}
@@ -420,11 +449,11 @@ export default function PublicProfilePage() {
             Recorded Chip Cash Play / Finalized Chip Tournaments
           </span>
           <dl className={styles.publicProfileRecord} aria-label="Arena Record">
-            <div>
+            <div className={`${styles.recordCell} arena-meter`}>
               <dt>Cash Hands</dt>
               <dd>{record ? formatCount(record.hands) : '-'}</dd>
             </div>
-            <div>
+            <div className={`${styles.recordCell} arena-meter`}>
               <dt>Cash VPIP / PFR</dt>
               <dd>
                 {record && record.hands > 0
@@ -432,11 +461,11 @@ export default function PublicProfilePage() {
                   : '-'}
               </dd>
             </div>
-            <div>
+            <div className={`${styles.recordCell} arena-meter`}>
               <dt>Tourneys</dt>
               <dd>{record ? formatCount(record.tournamentsPlayed) : '-'}</dd>
             </div>
-            <div>
+            <div className={`${styles.recordCell} arena-meter`}>
               <dt>Titles</dt>
               <dd>{record ? formatCount(record.tournamentsWon) : '-'}</dd>
             </div>
@@ -465,7 +494,11 @@ export default function PublicProfilePage() {
       </header>
 
       {/* Action Buttons */}
-      <div className={styles.profileActions} role="group" aria-label="Player Actions">
+      <div
+        className={`${styles.profileActions} arena-switch arena-ops-keys`}
+        role="group"
+        aria-label="Player Actions"
+      >
         {isBlocked ? (
           <button
             type="button"
@@ -553,8 +586,14 @@ export default function PublicProfilePage() {
 
       {/* Mutual Friends */}
       {mutualFriends.length > 0 && (
-        <section className={styles.mutualFriendsSection} aria-labelledby="mutual-friends-heading">
-          <h3 id="mutual-friends-heading">
+        <section
+          className={`${styles.mutualFriendsSection} arena-case arena-ops-case`}
+          aria-labelledby="mutual-friends-heading"
+        >
+          <h3
+            id="mutual-friends-heading"
+            className={`${styles.sectionHeading} arena-section-title`}
+          >
             {mutualFriends.length} Mutual Friend{mutualFriends.length !== 1 ? 's' : ''}
           </h3>
           <div className={styles.mutualFriendsList}>
@@ -583,8 +622,13 @@ export default function PublicProfilePage() {
 
       {/* Q3: Profile QR Code, rendered locally. */}
       {profileLink && (
-        <section className={styles.profileQrSection} aria-labelledby="profile-qr-heading">
-          <h3 id="profile-qr-heading">Scan To Connect</h3>
+        <section
+          className={`${styles.profileQrSection} arena-case arena-ops-case`}
+          aria-labelledby="profile-qr-heading"
+        >
+          <h3 id="profile-qr-heading" className={`${styles.sectionHeading} arena-section-title`}>
+            Scan To Connect
+          </h3>
           <div className={styles.profileQrImage} role="img" aria-label={`QR Code For ${arenaName}`}>
             <QRCodeSVG value={profileLink} size={160} level="M" marginSize={1} />
           </div>

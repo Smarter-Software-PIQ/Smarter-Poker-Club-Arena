@@ -1,183 +1,162 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   REPORT PLAYER - on the spade console (#ClubArenaConsole)
+   REPORT PLAYER - on the arena workspace (#SmarterDesign, batch P7, 2026-11-28)
 
-   PAINT WHAT NEVER CHANGES. PRINT WHAT DOES. The chassis is Dan's approved
-   spade master (components/console/SpadeConsole.css); this file lays the
-   form on the black glass between the rails: the reason as lit words, the
-   two fields printed straight on the glass over an engraved rule, and the
-   two painted plates carry Cancel and Submit Report. Nothing is drawn: no
-   card, no button face, no rounded field. Sizes are cqw against the
-   console. No :hover (tests/no-hover-effects.law.test.ts).
+   Every rule is scoped under .report-page.arena-workspace. Uses the arena
+   workspace's chrome cases, chrome switches, dark search-well fields and
+   chrome ledger rows. No :hover (tests/no-hover-effects.law.test.ts).
    ═══════════════════════════════════════════════════════════════════════════ */
 
-.report-page {
-  --rpc-rule: 1px solid #000;
-  --rpc-rule-lit: inset 0 1px 0 rgb(255 255 255 / 8%);
+.report-page.arena-workspace {
   min-height: 100vh;
-  min-height: 100dvh; /* the visible viewport on a phone; vh above is the toolbar-hidden one */
-  width: 100%;
-  max-width: 100vw;
-  padding: 12px 8px max(70px, env(safe-area-inset-bottom));
-  /* clip, not hidden — see src/styles/design-system.css on body. `hidden` on
-     one axis computes the other to `auto`, which makes this a scroll container,
-     and WebKit then resolves the fixed ClubBottomNav against IT instead of the
-     viewport. The bar leaves the bottom of the screen and rides up the page. */
+  min-height: 100dvh;
+  max-width: 720px;
+  margin-inline: auto;
+  padding-bottom: max(var(--bottom-nav-clearance, 74px), env(safe-area-inset-bottom));
   overflow-x: hidden;
   overflow-x: clip;
-  background: #020305;
-  color: #e6e9ee;
-  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
   color-scheme: dark;
 }
 
-.rpc__console {
-  --sc-max: 640px;
-  filter: drop-shadow(0 18px 34px rgb(0 0 0 / 85%));
+.report-page.arena-workspace .report-page__case {
+  gap: 12px;
 }
 
-.rpc__error,
-.rpc__warning {
+.report-page.arena-workspace .report-page__pill {
+  color: #9fbacc;
+}
+
+.report-page.arena-workspace .report-page__pill--sent {
+  color: #c8ffd2;
+}
+
+.report-page.arena-workspace .report-page__warning {
   margin: 0;
+  padding: 8px 10px;
+  border: 1px solid #476079;
+  border-radius: 0;
+  background: #040d17;
+  color: #ffe98a;
+  font:
+    13px/1.45 Inter,
+    Arial,
+    sans-serif;
 }
 
-/* ── Sections: rows on the glass ────────────────────────────────────────── */
+.report-page.arena-workspace .report-page__error {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid #f02849;
+  border-radius: 0;
+  background: #040d17;
+  color: #ff5b6e;
+  font:
+    700 13px/1.4 Inter,
+    Arial,
+    sans-serif;
+}
 
-.rpc__section {
+.report-page.arena-workspace .report-page__section {
   display: grid;
-  gap: 1.6cqw;
-  margin: 0;
-  padding-top: 2.6cqw;
-  border-top: var(--rpc-rule);
-  box-shadow: var(--rpc-rule-lit);
+  gap: 6px;
 }
 
-.rpc__section-title {
+.report-page.arena-workspace .report-page__label {
   margin: 0;
-  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
-  font-size: 3cqw;
+  color: #74dfff;
+  font:
+    700 12px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
 }
 
-.rpc__section-title label {
+.report-page.arena-workspace .report-page__label label {
   cursor: text;
 }
 
-.rpc__reasons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 2cqw;
-}
-
-/* ── Lit words ──────────────────────────────────────────────────────────── */
-
-.rpc-word {
-  appearance: none;
-  min-height: 44px;
+.report-page.arena-workspace .report-page__reasons {
   margin: 0;
-  padding: 1.6cqw 2.4cqw;
-  border: 0;
-  background: transparent;
-  font:
-    800 3.4cqw/1 'Roboto Condensed',
-    Inter,
-    system-ui,
-    sans-serif;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  cursor: pointer;
-  touch-action: manipulation;
 }
 
-.rpc__reason {
-  padding-inline: 1.2cqw;
-}
-
-.rpc-word:active {
-  filter: brightness(1.25);
-}
-
-.rpc-word:focus-visible {
-  outline: 0.6cqw solid #8fd4ff;
-  outline-offset: 0.4cqw;
-}
-
-/* ── Fields: printed on the glass, closed by an engraved rule ───────────── */
-
-.rpc__field {
+.report-page.arena-workspace .report-page__field {
+  box-sizing: border-box;
   width: 100%;
   min-width: 0;
-  margin: 0;
-  padding: 2cqw 0;
-  border: 0;
-  border-bottom: var(--rpc-rule);
-  box-shadow: 0 1px 0 rgb(255 255 255 / 8%);
-  background: transparent;
-  color: #f4f7fb;
+  min-height: 44px;
+  padding: 10px;
+  border: 1px solid #476079;
+  border-radius: 0;
+  background: #040d17;
+  color: #f1f5fc;
+  color-scheme: dark;
   font:
-    500 16px/1.5 Inter,
-    system-ui,
-    sans-serif; /* under 16px makes iOS zoom the page on focus */
-  text-shadow: 0 0.2cqw 0.3cqw rgb(0 0 0 / 80%);
+    500 16px/1.45 Inter,
+    Arial,
+    sans-serif;
 }
 
-.rpc__field--area {
+.report-page.arena-workspace .report-page__field--area {
+  min-height: 120px;
   resize: vertical;
 }
 
-.rpc__field::placeholder {
-  color: #9aa5b3;
+.report-page.arena-workspace .report-page__field::placeholder {
+  color: #9fbacc;
 }
 
-.rpc__field:focus {
-  outline: 0;
-  border-bottom-color: #45adff;
-  box-shadow: 0 1px 0 rgb(69 173 255 / 45%);
+.report-page.arena-workspace .report-page__field:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 1px;
 }
 
-.rpc__section--check {
-  grid-template-columns: auto minmax(0, 1fr);
+.report-page.arena-workspace .report-page__check-row {
+  display: flex;
   align-items: center;
-  gap: 3cqw;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 10px;
 }
 
-.rpc__check {
-  width: 5cqw;
-  height: 5cqw;
-  min-width: 18px;
-  min-height: 18px;
+.report-page.arena-workspace .report-page__check {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  min-height: 20px;
   margin: 0;
-  accent-color: #1877f2;
-}
-
-.rpc__check-label {
+  accent-color: #087cfa;
   cursor: pointer;
 }
 
-/* ── The success state: one lit word on the glass ───────────────────────── */
-
-.rpc__success-body {
-  margin: 0;
+.report-page.arena-workspace .report-page__check:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
 }
 
-.rpc__actions {
-  display: flex;
-  justify-content: center;
-  padding-top: 2.6cqw;
-  border-top: var(--rpc-rule);
-  box-shadow: var(--rpc-rule-lit);
+.report-page.arena-workspace .report-page__check-label {
+  flex: 1 1 auto;
+  color: #dce5ef;
+  font:
+    13px/1.35 Inter,
+    Arial,
+    sans-serif;
+  cursor: pointer;
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   ANIMATIONS
-   ═══════════════════════════════════════════════════════════════ */
+.report-page.arena-workspace .report-page__success-body {
+  margin: 4px 0;
+  color: #dce5ef;
+  font:
+    14px/1.5 Inter,
+    Arial,
+    sans-serif;
+}
 
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.report-page.arena-workspace .report-page__actions {
+  flex-direction: row-reverse;
+  margin: 4px 0 0;
+}
+
+.report-page.arena-workspace .report-page__submit {
+  font-weight: 800;
 }

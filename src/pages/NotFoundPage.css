@@ -1,0 +1,21 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   NOT FOUND PAGE (404) — #SmarterDesign (batch P7, 2026-11-28)
+
+   Scoped strictly under .not-found-page.arena-workspace. No :hover.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.not-found-page.arena-workspace {
+  min-height: 100vh;
+  min-height: 100dvh;
+  max-width: 720px;
+  margin-inline: auto;
+  padding-bottom: max(var(--bottom-nav-clearance, 74px), env(safe-area-inset-bottom));
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+.not-found-page.arena-workspace .not-found-page__case {
+  max-width: 520px;
+  width: 100%;
+  margin: 18px auto 0;
+}
