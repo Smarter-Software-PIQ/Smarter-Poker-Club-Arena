@@ -1,0 +1,17 @@
+money: {
+  "figures": [],
+  "hooks": []
+}
+text: Rakeback This Week This Week Is Unavailable Right Now. Club Arena Your Chip Statement Unavailable The Statement Could Not Be Loaded Try Again Earlier Movements
+regions: [
+  "section||Rakeback This Week|",
+  "h3|||",
+  "h2|||",
+  "div|alert||",
+  "button||Try Again|",
+  "button||Earlier Movements|"
+]
+controls: [
+  "button|Try Again|Try Again",
+  "button|Earlier Movements|Earlier Movements (disabled)"
+]

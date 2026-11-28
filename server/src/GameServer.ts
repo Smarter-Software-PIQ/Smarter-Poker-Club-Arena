@@ -4898,6 +4898,12 @@ export class GameServer {
       if (error) throw new Error(error.message);
       return data;
     },
+    catchUpIndex: async () => {
+      const { error } = await supabase.rpc('ca_refresh_hand_player_index', {
+        p_max_hands: 60000,
+      });
+      if (error) throw new Error(error.message);
+    },
     raise: (a) => raiseEngineAlert(a),
     resolve: (name, component, note) => resolveEngineAlert(name, component, note),
     paused: () => this.maintenanceBreak.isActive(),

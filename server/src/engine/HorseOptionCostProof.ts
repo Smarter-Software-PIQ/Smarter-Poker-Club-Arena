@@ -59,11 +59,23 @@ export const OPTION_COST_LAWS: Readonly<Record<string, string>> = Object.freeze(
   // the give-up pricing inside the turn facing-bet price (2026-11-27): one more threshold and three more exact
   // counts per river card (the weakest pool), only where the hidden-bets prior prices a heads-up turn bet
   omahaHiddenBetsArePricedAsGiveUps: 'engine/anOmahaHiddenGiveUpPriceIsFast.law.test.ts',
+  // the pot-type river cell (2026-11-27): one preflop history scan and one keyed lookup where the people prior prices a river bet
+  omahaRiverBetPriorIsPotTypeSplit: 'engine/anOmahaRiverPotPriorIsFast.law.test.ts',
   // the priced flop pressure cap: one sampled flop count where the V40 cap prices a weak made hand (2026-11-26)
   omahaFlopPressureCapIsPriced: 'engine/anOmahaFlopPressureCapPriceIsFast.law.test.ts',
+  // the people-priced bare-overpair continuation (2026-11-27): one sampled flop count (the flop pressure cap's own,
+  // 6 rivers per turn card) in place of up to four sampler equities, only in the continuation's heads-up spot
+  omahaBareOverpairContinuationIsPeoplePriced:
+    'engine/anOmahaBareOverpairPeoplePriceIsFast.law.test.ts',
+  // the indifference call inside the give-up price (2026-11-27): one comparison on the verdict already computed
+  omahaGiveUpPricedTurnCallIsAtIndifference:
+    'engine/anOmahaGiveUpIndifferenceCallIsFast.law.test.ts',
   // the line-split turn prior inside the facing-bet price (2026-11-27): one line scan, one cell lookup and, with
   // telemetry on, the second verdict that names omaha_turn_line_prior_changed
   omahaTurnFacingBetPriorIsLineSplit: 'engine/anOmahaTurnLinePriorIsFast.law.test.ts',
+  // the multiway river people cell and own record inside the facing-bet price (2026-11-27): one preflop history scan, two cell lookups and one record read where it prices a multiway river bet
+  omahaMultiwayRiverBetPriorIsPeopleMeasured:
+    'engine/anOmahaMultiwayRiverPeoplePriorIsFast.law.test.ts',
   // the priced multiway value bet (M3): its joint sample keeps the hand's pool by card ids (2026-11-26)
   omahaMultiwayValueBetIsPriced: 'engine/anOmahaMultiwayValueBetIsFast.law.test.ts',
   // the PLO re-raised pot price (id samplers, #12081)
@@ -77,6 +89,9 @@ export const OPTION_COST_LAWS: Readonly<Record<string, string>> = Object.freeze(
   omahaRiverValueBetInPositionIsPriced: 'engine/anOmahaRiverOpeningBetIsFast.law.test.ts',
   omahaRiverBluffIsPricedOnBlockers: 'engine/anOmahaRiverOpeningBetIsFast.law.test.ts',
   omahaRiverBluffIsPricedOnRangeAdvantage: 'engine/anOmahaRiverOpeningBetIsFast.law.test.ts',
+  omahaMultiwayRiverBluffIsPricedOnBlockers: 'engine/anOmahaMultiwayRiverBluffIsFast.law.test.ts',
+  omahaFourWayPlusRiverBluffIsPricedOnBlockers:
+    'engine/anOmahaMultiwayRiverBluffIsFast.law.test.ts',
   omahaTurnBluffIsPricedOnBlockers: 'engine/anOmahaTurnBluffPriceIsFast.law.test.ts',
   omahaTurnBluffIsPricedOnRangeAdvantage: 'engine/anOmahaTurnBluffPriceIsFast.law.test.ts',
   // his check read inside the two river bet rules (river-station, 2026-11-26): on against the river rules alone
@@ -86,6 +101,8 @@ export const OPTION_COST_LAWS: Readonly<Record<string, string>> = Object.freeze(
   holdemOpeningValueBetIsPriced: 'engine/aHoldemOpeningPriceIsFast.law.test.ts',
   holdemOpeningBluffIsPriced: 'engine/aHoldemOpeningPriceIsFast.law.test.ts',
   holdemRiverBluffIsPricedOnPeople: 'engine/aHoldemRiverBluffIsPricedOnPeople.law.test.ts',
+  holdemRiverFacingBetPriorIsPeopleMeasured:
+    'engine/aHoldemRiverFacingBetPriorIsPeopleMeasured.law.test.ts',
   holdemTurnBluffIsPricedOnPeople: 'engine/aHoldemTurnBluffIsPricedOnPeople.law.test.ts',
   holdemTournamentRiverBluffIsPriced: 'engine/aHoldemTournamentBluffPriceIsFast.law.test.ts',
   holdemTournamentTurnBluffIsPriced: 'engine/aHoldemTournamentBluffPriceIsFast.law.test.ts',

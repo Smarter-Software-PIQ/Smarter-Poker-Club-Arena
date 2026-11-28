@@ -37,7 +37,8 @@ import { isDiamondArenaClubKey } from '../lib/constants';
 import DiamondArenaWallet from '../components/arena/DiamondArenaWallet';
 import { masterBus } from '../core/MasterBus';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
-import RewardsSurfaceHeader from '../components/rewards/RewardsSurfaceHeader';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import '../components/ops/ArenaOps.css';
 import ChipStatement from '../components/wallet/ChipStatement';
 import RakebackWeekSoFar from '../components/wallet/RakebackWeekSoFar';
 import './TransactionHistoryPage.css';
@@ -71,15 +72,18 @@ export default function TransactionHistoryPage() {
   }, []);
 
   return (
-    <div className="transaction-history-page">
-      <RewardsSurfaceHeader
+    <div className="transaction-history-page arena-workspace">
+      {/* #SmarterDesign (Dan 2026-11-27): the arena mast carries the title and
+          the chrome "?", whose panel holds what the ledger is. The journal's
+          live state is the statement's own Reconciled / Review word below. */}
+      <ArenaWorkspaceHeader
+        area="finance"
         title="Transaction Ledger"
-        description={
+        summary={
           diamondHistory
             ? 'Your Diamond Movements, Available Balance And Diamonds In The Arena, Read From Your Own Diamond History.'
             : 'Every Chip That Came Into Or Went Out Of Your Wallet, Newest First, Read From The Chip Journal, With The Nightly Check That Your Balance Adds Up.'
         }
-        status={diamondHistory ? 'DIAMOND JOURNAL // LIVE' : 'CHIP JOURNAL // LIVE'}
       />
       <div className="transaction-history-page__statement">
         {diamondHistory ? (
@@ -94,6 +98,7 @@ export default function TransactionHistoryPage() {
               scope="player"
               pageSize={TRANSACTION_PAGE_SIZE}
               title="Your Chip Statement"
+              arena
             />
           </>
         )}

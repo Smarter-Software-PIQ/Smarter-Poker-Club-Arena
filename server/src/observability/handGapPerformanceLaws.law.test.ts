@@ -105,7 +105,7 @@ describe('hand-gap performance & anti-regression laws (1e532243)', () => {
     // also execute in PR CI's server engine shards (no post-merge-only server gate).
     expect(prequalYml).toContain('RetainedHistoricalCheckpointQualification.test.ts');
     expect(ciYml).toContain('RetainedHistoricalCheckpointQualification.test.ts');
-    expect(prequalYml).toContain('--shard="$RELEASE_TEST_SHARD/4"');
+    expect(prequalYml).toContain('--shard="$RELEASE_TEST_SHARD/8"');
     expect(ciYml).toContain('working-directory: server');
 
     // Fake-timer Lightning horse-lane tests must seed Math.random deterministically

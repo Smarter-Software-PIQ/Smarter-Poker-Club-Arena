@@ -19,8 +19,10 @@ DF_PATH="/"
 DAEMON_JSON="/etc/docker/daemon.json"
 MIN_FREE_GIB="15"
 MAX_INODE_PCT="70"
+WARN_INODE_PCT=""
 MAX_CLOCK_SKEW_MS="250"
 MAX_SWAP_USED_PCT="50"
+DOCKER_LOG_ROTATION_MODE="fail"
 REQUIRE_IMAGES=()
 
 usage() {
@@ -34,8 +36,10 @@ Options:
   --daemon-json <path>          Docker daemon.json path (default: /etc/docker/daemon.json)
   --min-free-gib <N>            Minimum free GiB required (default: 15)
   --max-inode-pct <N>           Maximum inode usage percent allowed, strictly < N (default: 70)
+  --warn-inode-pct <N>          Optional inode usage percent warning threshold, warn when >= N and < max
   --max-clock-skew-ms <N>       Maximum clock skew in ms allowed, strictly < N (default: 250)
   --max-swap-used-pct <N>       Maximum swap usage percent allowed, strictly < N (default: 50)
+  --docker-log-rotation <mode>  Severity for daemon.json log rotation: fail (default) or warn
   --require-image <repo:tag>    Repeatable required local Docker image ref
 EOF
 }
@@ -90,12 +94,20 @@ while [[ $# -gt 0 ]]; do
       MAX_INODE_PCT="${2:-}"
       shift 2
       ;;
+    --warn-inode-pct)
+      WARN_INODE_PCT="${2:-}"
+      shift 2
+      ;;
     --max-clock-skew-ms)
       MAX_CLOCK_SKEW_MS="${2:-}"
       shift 2
       ;;
     --max-swap-used-pct)
       MAX_SWAP_USED_PCT="${2:-}"
+      shift 2
+      ;;
+    --docker-log-rotation)
+      DOCKER_LOG_ROTATION_MODE="${2:-}"
       shift 2
       ;;
     --require-image)
@@ -127,12 +139,22 @@ if [[ "$MODE" == "remote" && "$HOST_ALIAS" != "ca-engine" && "$HOST_ALIAS" != "c
   exit 3
 fi
 
+if [[ "$DOCKER_LOG_ROTATION_MODE" != "fail" && "$DOCKER_LOG_ROTATION_MODE" != "warn" ]]; then
+  emit_error_json 3 "$MODE" "${HOST_ALIAS:-local}" "invalid --docker-log-rotation mode: must be fail or warn"
+  exit 3
+fi
+
 # Validate numeric thresholds upfront (fail closed)
-if ! python3 -B - "$MIN_FREE_GIB" "$MAX_INODE_PCT" "$MAX_CLOCK_SKEW_MS" "$MAX_SWAP_USED_PCT" <<'PY' >/dev/null 2>&1
+if ! python3 -B - "$MIN_FREE_GIB" "$MAX_INODE_PCT" "$MAX_CLOCK_SKEW_MS" "$MAX_SWAP_USED_PCT" "$WARN_INODE_PCT" <<'PY' >/dev/null 2>&1
 import math, sys
-vals = [float(x) for x in sys.argv[1:]]
+vals = [float(x) for x in sys.argv[1:5]]
 if any(not math.isfinite(v) or v < 0 for v in vals):
     raise SystemExit(1)
+warn_raw = sys.argv[5]
+if warn_raw != "":
+    w = float(warn_raw)
+    if not math.isfinite(w) or w < 0 or w > vals[1]:
+        raise SystemExit(1)
 PY
 then
   emit_error_json 3 "$MODE" "${HOST_ALIAS:-local}" "invalid numeric threshold argument"
@@ -178,7 +200,7 @@ def check_disk(df_path, min_free_gib):
         "minFreeGiB": min_free_gib,
     }
 
-def check_inodes(df_path, max_inode_pct):
+def check_inodes(df_path, max_inode_pct, warn_inode_pct=None):
     res = run_ro(["df", "-Pi", df_path])
     if isinstance(res, tuple) or res.returncode != 0:
         res = run_ro(["df", "-i", df_path])
@@ -205,13 +227,21 @@ def check_inodes(df_path, max_inode_pct):
             pct_val = float(pct_tokens[-1][:-1])
     if pct_val is None:
         return {"ok": False, "unreadable": True, "error": "could not parse inode percentage"}
-    return {
-        "ok": pct_val < max_inode_pct,
+    ok = pct_val < max_inode_pct
+    warning = bool(ok and warn_inode_pct is not None and pct_val >= warn_inode_pct)
+    out = {
+        "ok": ok,
+        "warning": warning,
         "unreadable": False,
         "path": df_path,
         "inodeUsedPct": pct_val,
         "maxInodePct": max_inode_pct,
     }
+    if warn_inode_pct is not None:
+        out["warnInodePct"] = warn_inode_pct
+    if warning:
+        out["warningMessage"] = f"inode usage {pct_val}% >= warn threshold {warn_inode_pct}% (hard limit < {max_inode_pct}%)"
+    return out
 
 def check_clock_skew(max_skew_ms):
     if shutil.which("chronyc"):
@@ -292,34 +322,67 @@ def check_clock_skew(max_skew_ms):
         "note": "neither chronyc nor timedatectl installed on host",
     }
 
-def check_docker_log_rotation(daemon_json_path):
+def check_docker_log_rotation(daemon_json_path, mode="fail"):
     try:
         with open(daemon_json_path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
     except OSError as exc:
+        msg = f"unable to read daemon.json: {exc.strerror or exc}"
+        if mode == "warn":
+            return {
+                "ok": True,
+                "warning": True,
+                "unreadable": False,
+                "path": daemon_json_path,
+                "warningMessage": msg,
+            }
         return {
             "ok": False,
+            "warning": False,
             "unreadable": False,
             "path": daemon_json_path,
-            "error": f"unable to read daemon.json: {exc.strerror or exc}",
+            "error": msg,
         }
     except json.JSONDecodeError as exc:
         return {
             "ok": False,
+            "warning": False,
             "unreadable": True,
             "path": daemon_json_path,
             "error": f"malformed daemon.json: {exc.msg}",
         }
     if not isinstance(data, dict):
-        return {"ok": False, "unreadable": True, "path": daemon_json_path, "error": "daemon.json is not an object"}
+        return {"ok": False, "warning": False, "unreadable": True, "path": daemon_json_path, "error": "daemon.json is not an object"}
     driver = data.get("log-driver", "json-file")
     log_opts = data.get("log-opts")
     max_size = log_opts.get("max-size") if isinstance(log_opts, dict) else None
     max_file = log_opts.get("max-file") if isinstance(log_opts, dict) else None
     valid_size = isinstance(max_size, str) and bool(re.fullmatch(r"\d+[kmgKMG]?", max_size.strip()))
-    ok = (driver == "json-file") and valid_size
+    compliant = (driver == "json-file") and valid_size
+    if compliant:
+        return {
+            "ok": True,
+            "warning": False,
+            "unreadable": False,
+            "path": daemon_json_path,
+            "logDriver": driver,
+            "maxSize": max_size,
+            "maxFile": max_file,
+        }
+    if mode == "warn":
+        return {
+            "ok": True,
+            "warning": True,
+            "unreadable": False,
+            "path": daemon_json_path,
+            "logDriver": driver,
+            "maxSize": max_size,
+            "maxFile": max_file,
+            "warningMessage": "daemon.json lacks json-file log-opts.max-size (relying on container --log-opt)",
+        }
     return {
-        "ok": ok,
+        "ok": False,
+        "warning": False,
         "unreadable": False,
         "path": daemon_json_path,
         "logDriver": driver,
@@ -429,22 +492,28 @@ def main():
     max_inode_pct = float(sys.argv[6])
     max_clock_skew_ms = float(sys.argv[7])
     max_swap_used_pct = float(sys.argv[8])
-    images = sys.argv[9:]
+    warn_inode_pct = float(sys.argv[9]) if sys.argv[9] != "" else None
+    docker_log_mode = sys.argv[10]
+    images = sys.argv[11:]
 
     checks = {
         "disk": check_disk(df_path, min_free_gib),
-        "inode": check_inodes(df_path, max_inode_pct),
+        "inode": check_inodes(df_path, max_inode_pct, warn_inode_pct),
         "clockSkew": check_clock_skew(max_clock_skew_ms),
-        "dockerLogRotation": check_docker_log_rotation(daemon_json),
+        "dockerLogRotation": check_docker_log_rotation(daemon_json, docker_log_mode),
         "swap": check_swap(max_swap_used_pct),
         "requiredImages": check_images(images),
     }
 
     failures = []
+    warnings = []
     any_unreadable = False
     for name, result in checks.items():
         if result.get("unreadable"):
             any_unreadable = True
+        if result.get("warning"):
+            wmsg = result.get("warningMessage") or f"{name}: posture warning"
+            warnings.append(f"{name}: {wmsg}")
         if not result.get("ok"):
             err = result.get("error")
             if err:
@@ -466,6 +535,7 @@ def main():
         "mode": mode,
         "target": target,
         "checks": checks,
+        "warnings": warnings,
         "failures": failures,
     }
     print(json.dumps(payload, indent=2))
@@ -476,7 +546,7 @@ PYEOF
 
 if [[ "$MODE" == "local" ]]; then
   set +e
-  OUT=$(python3 -B - "local" "local" "$DF_PATH" "$DAEMON_JSON" "$MIN_FREE_GIB" "$MAX_INODE_PCT" "$MAX_CLOCK_SKEW_MS" "$MAX_SWAP_USED_PCT" ${REQUIRE_IMAGES[@]+"${REQUIRE_IMAGES[@]}"} <<< "$PROBE_PY")
+  OUT=$(python3 -B - "local" "local" "$DF_PATH" "$DAEMON_JSON" "$MIN_FREE_GIB" "$MAX_INODE_PCT" "$MAX_CLOCK_SKEW_MS" "$MAX_SWAP_USED_PCT" "$WARN_INODE_PCT" "$DOCKER_LOG_ROTATION_MODE" ${REQUIRE_IMAGES[@]+"${REQUIRE_IMAGES[@]}"} <<< "$PROBE_PY")
   RC=$?
   set -e
   printf '%s\n' "$OUT"
@@ -489,11 +559,11 @@ REMOTE_OUT=""
 set +e
 case "$HOST_ALIAS" in
   ca-engine)
-    REMOTE_OUT=$(ssh ca-engine python3 -B - "remote" "ca-engine" "$DF_PATH" "$DAEMON_JSON" "$MIN_FREE_GIB" "$MAX_INODE_PCT" "$MAX_CLOCK_SKEW_MS" "$MAX_SWAP_USED_PCT" ${REQUIRE_IMAGES[@]+"${REQUIRE_IMAGES[@]}"} <<< "$PROBE_PY")
+    REMOTE_OUT=$(ssh ca-engine python3 -B - "remote" "ca-engine" "$DF_PATH" "$DAEMON_JSON" "$MIN_FREE_GIB" "$MAX_INODE_PCT" "$MAX_CLOCK_SKEW_MS" "$MAX_SWAP_USED_PCT" "$WARN_INODE_PCT" "$DOCKER_LOG_ROTATION_MODE" ${REQUIRE_IMAGES[@]+"${REQUIRE_IMAGES[@]}"} <<< "$PROBE_PY")
     REMOTE_RC=$?
     ;;
   ca-backup)
-    REMOTE_OUT=$(ssh ca-backup python3 -B - "remote" "ca-backup" "$DF_PATH" "$DAEMON_JSON" "$MIN_FREE_GIB" "$MAX_INODE_PCT" "$MAX_CLOCK_SKEW_MS" "$MAX_SWAP_USED_PCT" ${REQUIRE_IMAGES[@]+"${REQUIRE_IMAGES[@]}"} <<< "$PROBE_PY")
+    REMOTE_OUT=$(ssh ca-backup python3 -B - "remote" "ca-backup" "$DF_PATH" "$DAEMON_JSON" "$MIN_FREE_GIB" "$MAX_INODE_PCT" "$MAX_CLOCK_SKEW_MS" "$MAX_SWAP_USED_PCT" "$WARN_INODE_PCT" "$DOCKER_LOG_ROTATION_MODE" ${REQUIRE_IMAGES[@]+"${REQUIRE_IMAGES[@]}"} <<< "$PROBE_PY")
     REMOTE_RC=$?
     ;;
   *)

@@ -41,6 +41,13 @@ import {
   omahaBetReadUseStore,
   type OmahaBetReadStore,
 } from '../engine/HorseOmahaBetRead.js';
+import {
+  holdemBetReadCloneStore,
+  holdemBetReadLearn,
+  holdemBetReadNewStore,
+  holdemBetReadUseStore,
+  type HoldemBetReadStore,
+} from '../engine/HorseHoldemBetRead.js';
 import { exploiterPopulation, exploiterSpotHelpers } from './ExploiterLeague.js';
 import {
   dealMoodClockMs,
@@ -65,6 +72,8 @@ type RecEv = [Street, Players, 'small' | 'big' | 'U', 0 | 1];
 export class GradeWorld {
   sb: HorseMindSandbox = HorseMind.createSandbox();
   store: OmahaBetReadStore = omahaBetReadNewStore();
+  /** the Hold'em river bet read of this world (HorseHoldemBetRead) */
+  holdemStore: HoldemBetReadStore = holdemBetReadNewStore();
   rec = new Map<string, RecEv[]>();
   /** state a scripted seat keeps between hands (cloned with the world) */
   state: Record<string, unknown> = {};
@@ -83,6 +92,7 @@ export class GradeWorld {
     const w = new GradeWorld(tag);
     w.sb = structuredClone(this.sb);
     w.store = omahaBetReadCloneStore(this.store);
+    w.holdemStore = holdemBetReadCloneStore(this.holdemStore);
     w.rec = new Map([...this.rec].map(([k, v]) => [k, v.map((e) => [...e] as RecEv)]));
     w.state = structuredClone(this.state);
     w.learnBetRead = this.learnBetRead;
@@ -92,6 +102,7 @@ export class GradeWorld {
   /** Make this world's stores the ones every decision reads. */
   enter(): void {
     omahaBetReadUseStore(this.store);
+    holdemBetReadUseStore(this.holdemStore);
     const rec = this.rec;
     HorseMind.setOmahaLifetimeStreetRecordProvider({
       unopenedWagerRecord(userId: string, _game: string, street: string, players: string) {
@@ -174,7 +185,8 @@ export class GradeWorld {
         this.street = null;
         const acts = this.acts;
         this.acts = [];
-        if (!this.learnBetRead || !OMAHA_BET_READ_VARIANTS.has(variant)) return;
+        const holdem = variant === 'nlh';
+        if (!this.learnBetRead || !(OMAHA_BET_READ_VARIANTS.has(variant) || holdem)) return;
         const shown = new Map<string, Card[]>();
         const showdown: Array<{ user_id: string; mucked: boolean }> = [];
         if (!e.endedByFolds)
@@ -184,7 +196,12 @@ export class GradeWorld {
               showdown.push({ user_id: uid(i), mucked: false });
             }
           });
-        omahaBetReadLearn({
+        // Hold'em: a seat the caller reports as mucked at the showdown is listed as production lists it (mucked: true,
+        // no cards), so a hidden bet enters the Hold'em read by its public outcome
+        const mucked = (e as { muckedSeats?: readonly number[] }).muckedSeats;
+        if (holdem && !e.endedByFolds && Array.isArray(mucked))
+          for (const i of mucked) showdown.push({ user_id: uid(i), mucked: true });
+        (holdem ? holdemBetReadLearn : omahaBetReadLearn)({
           handKey: `${this.tag}-${++GradeWorld.handNo}`,
           variant,
           mode: 'cash',
@@ -220,9 +237,12 @@ function bracket<T>(fn: () => Promise<T>): Promise<T> {
   const rng = saveFastRandom();
   const before = omahaBetReadUseStore(omahaBetReadNewStore());
   omahaBetReadUseStore(before);
+  const holdemBefore = holdemBetReadUseStore(holdemBetReadNewStore());
+  holdemBetReadUseStore(holdemBefore);
   return fn().finally(() => {
     restoreFastRandom(rng);
     omahaBetReadUseStore(before);
+    holdemBetReadUseStore(holdemBefore);
     HorseMind.setOmahaLifetimeStreetRecordProvider(null);
   });
 }
