@@ -62,7 +62,12 @@ describe('fillHumanSeatFirstGame', () => {
 
   it('is throttled per game so the 5s lane cannot stampede the top-up', () => {
     expect(fill).toContain('lastHumanFillAt');
-    expect(fill).toContain('12_000');
+    // The 12 s floor lives in the one ladder function since 2026-11-24
+    // (spin-ladder-rung-overshoot); the fill pass reads its interval there.
+    expect(fill).toContain('seatFirstLadderBackoffMs(misses)');
+    expect(readFileSync(join(root, 'server', 'src', 'config', 'seatFirstLadder.ts'), 'utf8')).toMatch(
+      /export const SEAT_FIRST_LADDER_BACKOFF_BASE_MS = 12_000;/
+    );
   });
 
   it('every read is error-bound and reported', () => {

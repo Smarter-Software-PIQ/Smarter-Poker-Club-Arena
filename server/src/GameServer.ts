@@ -5,6 +5,7 @@ import {
   feederOpeningMs,
   feederWaitMs,
   nextRungMs,
+  seatFirstLadderBackoffMs,
   spinTwoOfThreeDeferMs,
 } from './config/seatFirstLadder.js';
 import { secureRandomInt } from './engine/CryptoRandom.js';
@@ -695,10 +696,11 @@ const PER_TABLE_LIVENESS_SAMPLE_CAP = 40;
 
 /**
  * Consecutive short fills before a horse-only seat-first board is reported
- * stuck: 12 s, 24 s ... 384 s of backoff, about 12 minutes in all. See the
- * alarm in topUpPartialSeatFirst.
+ * stuck: 12 s, 24 s, 48 s, then once a minute (seatFirstLadderBackoffMs),
+ * about 12 minutes in all - the same span the alarm covered when the backoff
+ * ran to ten minutes and this was 6. See the alarm in topUpPartialSeatFirst.
  */
-export const SEAT_FIRST_STUCK_AFTER_MISSES = 6;
+export const SEAT_FIRST_STUCK_AFTER_MISSES = 14;
 
 /** Who sits at a REGISTERING seat-first game, as the fast lane needs it. */
 interface SeatFirstOccupancy {
@@ -12923,7 +12925,11 @@ export class GameServer {
             'format_contract, id, name, max_players, variant, start_time, created_at, prize_pool_finalized'
           )
           .eq('status', 'REGISTERING')
-          .in('variant', ['spin', 'sng']);
+          .in('variant', ['spin', 'sng'])
+          /* OLDEST WINDOW FIRST (2026-11-19). Each due board's fill is launched
+             in this order, so when the pool frees one horse the board whose
+             rung closed earliest asks for it first. */
+          .order('start_time', { ascending: true, nullsFirst: false });
         if (registeringErr) {
           reportError(
             new Error(
@@ -14129,7 +14135,11 @@ export class GameServer {
       }
     }
     const misses = hasHuman ? 0 : (this.seatFirstFillMisses.get(tournamentId) ?? 0);
-    const interval = Math.min(12_000 * 2 ** Math.min(misses, 6), 10 * 60_000);
+    /* A LATE RUNG IS ASKED AT LEAST ONCE A MINUTE (2026-11-19). The cap was ten
+       minutes, which made the board that had waited longest the one that asked
+       least often, so fresher boards won every horse the pool freed - 2db5ea97
+       dealt 32.5 minutes past its rung. See seatFirstLadderBackoffMs. */
+    const interval = seatFirstLadderBackoffMs(misses);
     // Check and set with no await between, after the read: two passes that
     // both awaited the occupancy answer can never both ask for this board.
     const now = Date.now();

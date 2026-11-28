@@ -358,7 +358,7 @@ describe('CANNOT FILL is said for a person waiting, and a horse-only board says 
   });
 
   it('a horse-only board is reported once, after the whole backoff ladder, and forgotten when it fills', () => {
-    expect(GAME_SERVER).toContain('export const SEAT_FIRST_STUCK_AFTER_MISSES = 6;');
+    expect(GAME_SERVER).toContain('export const SEAT_FIRST_STUCK_AFTER_MISSES = 14;');
     expect(topUp).toContain(
       '(this.seatFirstFillMisses.get(tournamentId) ?? 0) >= SEAT_FIRST_STUCK_AFTER_MISSES'
     );
