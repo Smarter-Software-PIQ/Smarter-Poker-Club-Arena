@@ -37,7 +37,7 @@ The bet-read store (`HorseHoldemBetRead.ts`) keeps, per player, the region of ev
 
 Receipts: `holdem_river_people_prior_call`, `holdem_river_people_prior_fold_stands`, `holdem_river_people_prior_own_record_read`, `holdem_river_people_prior_unpriced`.
 
-Off (absent, false or a truthy non-boolean): nothing here is read; byte-identical (flag-off check below).
+Off (absent, false or a truthy non-boolean): nothing here is read; byte-identical (flag-off 0 differences in 28,000).
 
 ## Prior anchor
 
@@ -77,11 +77,15 @@ Real recorded nodes (304 Horse decisions facing a person's heads-up river first 
 
 Real-hand replay on the two NLH cash audit sets (exact-tier postflop decisions, memory as of each decision, `l8-nlhriver/src/rc.mjs`, scored by the committed scorer). The sets hold no recorded river fold (exact tier needs the Horse's cards), so they cannot judge a fold-to-call option.
 
-REPLAY_ROWS_PLACEHOLDER
+On the 2026-11-24 to 26 set (555 rows) the option changes no decision and the committed scorer refuses to score an arm identical to its base (inert arm: no row written). On the 2026-11-20 to 24 set:
+
+- Replay: fixed 0; newlyWrong 0; changed 0; unchanged 327; unjudged 0; set NLH-cash-hand-audit-2026-11-20-to-24; scorer 5302af2ab3e; source placed verdict-only; arm NLOF2R vs off; replayed 327 of 327
+
+Horse strengths (the audits' correct calls and bets): none of the 882 audited decisions changes.
 
 ## Speed
 
-Relative cost law: an applicable decision with the option on costs 1.41 times the same decision off (0.35 ms against 0.25 ms; `aHoldemRiverFacingBetPriorIsPeopleMeasured.law.test.ts`). Flag-off: FLAGOFF_PLACEHOLDER.
+Relative cost law: an applicable decision with the option on costs 1.41 times the same decision off (0.35 ms against 0.25 ms; `aHoldemRiverFacingBetPriorIsPeopleMeasured.law.test.ts`). Flag-off: `scripts/ops/horse-flag-off-check.sh origin/main HEAD --set full` = 0 differences in 28,000 decisions (same action, amount, full decision JSON and receipts). The compiled-build percentile read was not run.
 
 ## Limits
 
