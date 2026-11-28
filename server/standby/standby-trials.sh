@@ -408,10 +408,17 @@ certified_player_swap() {
 trial_swap() {
   local from="$1" to="$2" t0 frozen_at stop_at live_at thaw_at reasons=""
   valid_sha "$from"; valid_sha "$to"
-  # Skip a redundant stop+reboot when $CONTAINER is already running $from (e.g.
-  # right after cmd_certify's initial boot or after the rollback swap finished
-  # with $serving live and dealing). Matches trial_break and trial_table_kill.
-  if [ "$(docker inspect -f '{{index .Config.Labels "com.smarterpoker.standby.sha"}} {{.State.Running}}' "$CONTAINER" 2>/dev/null)" != "$from true" ]; then
+  # Skip a redundant stop+reboot only when the copy is valid, the exact $from
+  # image is present (needed by start_player_witness), and $CONTAINER is already
+  # running $from cleanly (not paused, not restarting, 0 restarts, not unhealthy).
+  # Matches trial_break and trial_table_kill without bypassing preconditions.
+  local reuse_state=""
+  reuse_state=$(docker inspect -f '{{index .Config.Labels "com.smarterpoker.standby.sha"}} {{.State.Running}} {{.State.Paused}} {{.State.Restarting}} {{.RestartCount}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$CONTAINER" 2>/dev/null || true)
+  if { [ "$reuse_state" = "$from true false false 0 healthy" ] || [ "$reuse_state" = "$from true false false 0 none" ]; } \
+     && assert_valid_copy >/dev/null 2>&1 \
+     && docker image inspect "${IMAGE_REPO:-club-arena-engine-standby}:$from" >/dev/null 2>&1; then
+    :
+  else
     cmd_run "$from" || return 1
   fi
   wait_live 600 >/dev/null || { trial_verdict swap fail ',"reason":"from_never_live"'; return 1; }

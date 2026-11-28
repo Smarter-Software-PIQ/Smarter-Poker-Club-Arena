@@ -20,6 +20,13 @@
  *                   Definitions.
  *   Change History  the audit trail disclosure, its filters and records.
  *
+ * Export All Matching (2026-11-27): with a selection, the primary exports the
+ * selection, and a second chrome-stat button exports every player matching
+ * the current search, filter and sort, whatever is loaded or selected.
+ * Without a selection the primary already does exactly that, so the second
+ * button is not repeated. While an export is preparing, Cancel Export stops
+ * it before any download starts.
+ *
  * Nothing here owns state. The page keeps every guard, ref and handler; this
  * only lays its strings and controls out, so every literal the roster tests
  * pin (Select Loaded, Export CSV, Export Selected (n), the Roster Export
@@ -38,8 +45,11 @@ export function RosterExportCase({
   loadedSelected,
   onToggleLoaded,
   onExport,
+  onExportAll,
+  onCancelExport,
   exportDisabled,
   isExporting,
+  exportingAll = false,
   definitions,
   receipt,
 }: {
@@ -51,15 +61,24 @@ export function RosterExportCase({
   loadedSelected: boolean;
   onToggleLoaded: () => void;
   onExport: () => void;
+  /** Export every matching player, ignoring the selection. */
+  onExportAll?: () => void;
+  /** Stop the export being prepared. No download starts. */
+  onCancelExport?: () => void;
   exportDisabled: boolean;
   isExporting: boolean;
+  /** The export being prepared is Export All Matching. */
+  exportingAll?: boolean;
   /** The Metric Definitions paragraphs. */
   definitions: ReactNode;
   /** The Export Operation status, already worded by the page. */
   receipt?: ReactNode;
 }) {
   return (
-    <section className="arena-case roster-records" aria-label="Roster Export Tools">
+    <section
+      className="arena-case roster-records roster-records--export"
+      aria-label="Roster Export Tools"
+    >
       <h2 className="arena-section-title">
         Roster Export
         {/* The readouts below show the counts; this line keeps the page's
@@ -99,7 +118,7 @@ export function RosterExportCase({
             role="group"
             aria-label="Roster Export"
           >
-            {loadedCount > 0 && (
+            {loadedCount > 0 && !isExporting && (
               <button type="button" aria-pressed={loadedSelected} onClick={onToggleLoaded}>
                 {loadedSelected ? 'Clear Selection' : 'Select Loaded'}
               </button>
@@ -110,12 +129,24 @@ export function RosterExportCase({
               onClick={onExport}
               disabled={exportDisabled}
             >
-              {isExporting
+              {isExporting && !exportingAll
                 ? 'Preparing...'
                 : selectedCount
                   ? `Export Selected (${selectedCount})`
                   : 'Export CSV'}
             </button>
+            {onExportAll && (selectedCount > 0 || exportingAll) && (
+              <button type="button" onClick={onExportAll} disabled={exportDisabled}>
+                {exportingAll
+                  ? 'Preparing...'
+                  : `Export All Matching (${matchingTotal.toLocaleString()})`}
+              </button>
+            )}
+            {onCancelExport && isExporting && (
+              <button type="button" onClick={onCancelExport}>
+                Cancel Export
+              </button>
+            )}
           </div>
           <p className="roster-records__note" role="note" aria-label="Export Scope">
             <strong>Export Scope: </strong>
@@ -123,7 +154,11 @@ export function RosterExportCase({
               {selectedCount
                 ? 'Selected Players Matching The Current Filter And Search'
                 : 'All Matching Players Across Every Page'}
-            </span>{' '}
+            </span>
+            {'. '}
+            {selectedCount > 0 &&
+              onExportAll &&
+              `Export All Matching Ignores The Selection And Reads All ${matchingTotal.toLocaleString()} Matching Players Across Every Page. `}
             Includes Authorized Fields Regardless Of Visible Columns.
           </p>
         </>

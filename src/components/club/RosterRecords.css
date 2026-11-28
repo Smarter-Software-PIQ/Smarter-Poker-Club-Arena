@@ -362,6 +362,98 @@
   width: 100%;
 }
 
+/* ── Desktop (2026-11-27) ──────────────────────────────────────────────
+   On a wide page every piece above stretched to the whole case: three
+   650px readout tiles, two 970px buttons, 1,900px ledger rows and the two
+   history buttons hanging under the date fields with an empty cell beside
+   them. From tablet width the export case puts its readouts and its actions
+   side by side, copy keeps a readable measure, and the history (sized by its
+   own case, so the half-width case on a player's record reads the same way)
+   lays its filters on one line and its records as a title and a time. */
+.arena-workspace .roster-records--history {
+  container: roster-history / inline-size;
+}
+
+@media (min-width: 760px) {
+  .arena-workspace .roster-records--export {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+    align-items: stretch;
+    column-gap: 10px;
+  }
+
+  .arena-workspace .roster-records--export > * {
+    grid-column: 1 / -1;
+  }
+
+  .arena-workspace .roster-records--export > .roster-records__meters {
+    grid-column: 1;
+  }
+
+  .arena-workspace .roster-records--export > .roster-records__actions.arena-switch {
+    grid-column: 2;
+    margin: 0;
+  }
+
+  .arena-workspace .roster-records__note,
+  .arena-workspace .roster-records__definitions p {
+    max-width: 110ch;
+  }
+}
+
+/* A half-width case (a player's record on desktop): Apply Dates takes the
+   cell the phone layout leaves empty, and a record's time sits on its title
+   line. */
+@container roster-history (min-width: 480px) {
+  .arena-workspace .roster-records--history .player-history__controls button:first-of-type {
+    grid-column: 1 / 3;
+  }
+
+  .arena-workspace .roster-records--history .player-history__entries li {
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 12px;
+  }
+
+  .arena-workspace .roster-records--history .player-history__entries li > * {
+    grid-column: 1 / -1;
+  }
+
+  .arena-workspace .roster-records--history .player-history__entries li > strong {
+    grid-column: 1;
+  }
+
+  .arena-workspace .roster-records--history .player-history__entries li > time {
+    grid-column: 2;
+    align-self: center;
+    text-align: right;
+  }
+}
+
+/* A full-width case: the filters on one line, copy at a readable measure,
+   and Show Older Changes a centred control rather than a 1,900px bar. */
+@container roster-history (min-width: 720px) {
+  .arena-workspace .roster-records--history .player-history__controls {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) auto auto;
+  }
+
+  .arena-workspace .roster-records--history .player-history__controls button,
+  .arena-workspace .roster-records--history .player-history__controls button:first-of-type {
+    grid-column: auto;
+    padding-inline: 18px;
+  }
+
+  .arena-workspace .roster-records--history .player-history__body > p {
+    max-width: 110ch;
+  }
+
+  .arena-workspace .roster-records--history .player-history__body > button {
+    align-self: center;
+    width: auto;
+    min-width: 280px;
+    padding-inline: 28px;
+  }
+}
+
 @media (max-width: 480px) {
   .arena-workspace .roster-records--history .player-history__controls {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
