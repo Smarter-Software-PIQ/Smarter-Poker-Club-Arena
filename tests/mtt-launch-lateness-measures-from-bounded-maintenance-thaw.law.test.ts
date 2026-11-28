@@ -17,10 +17,12 @@ import { describe, expect, it } from 'vitest';
 
 const DIR = join(__dirname, '..', 'supabase', 'migrations');
 const ROOT = '20261128075041_mtt_launch_lateness_measures_from_bounded_maintenance_thaw.sql';
+const JITTER = '20261128161915_mtt_launch_lateness_tolerates_maintenance_start_jitter.sql';
 const files = readdirSync(DIR)
   .filter((f) => /^\d{14}_.+\.sql$/.test(f))
   .sort();
 const sql = readFileSync(join(DIR, ROOT), 'utf8');
+const jitterSql = readFileSync(join(DIR, JITTER), 'utf8');
 
 describe('MTT launch lateness measures from a bounded maintenance thaw', () => {
   it('wraps in BEGIN/COMMIT, declares @live-proof, pins live preimage MD5, and preserves definer search_path + service_role grants', () => {
@@ -33,6 +35,26 @@ describe('MTT launch lateness measures from a bounded maintenance thaw', () => {
       'REVOKE ALL ON FUNCTION public.fn_tournament_launch_lateness_metrics(integer, integer, integer, integer) FROM PUBLIC, anon, authenticated;'
     );
     expect(sql).toContain(
+      'GRANT EXECUTE ON FUNCTION public.fn_tournament_launch_lateness_metrics(integer, integer, integer, integer) TO service_role;'
+    );
+  });
+
+  it('tolerates <= 5 seconds of timer jitter on the maintenance freeze start boundary in 20261128161915', () => {
+    expect(jitterSql).toMatch(/^-- @live-proof: /m);
+    expect(jitterSql).toMatch(/^\s*BEGIN\s*;/m);
+    expect(jitterSql.trim()).toMatch(/COMMIT\s*;$/);
+    expect(jitterSql).toContain("md5(v_def) IS DISTINCT FROM '31cdd1ce751effd17cd335d30f60e840'");
+    expect(jitterSql).toContain("l.break_started_at <= t.start_time + interval '5 seconds'");
+    expect(jitterSql).toContain("th.freeze_started_at <= t.start_time + interval '5 seconds'");
+    expect(jitterSql).toContain("l.break_ended_at <= l.break_started_at + interval '12 minutes'");
+    expect(jitterSql).toContain(
+      "th.release_target_at <= th.freeze_started_at + interval '12 minutes'"
+    );
+    expect(jitterSql).toContain("SET search_path TO 'public', 'pg_temp'");
+    expect(jitterSql).toContain(
+      'REVOKE ALL ON FUNCTION public.fn_tournament_launch_lateness_metrics(integer, integer, integer, integer) FROM PUBLIC, anon, authenticated;'
+    );
+    expect(jitterSql).toContain(
       'GRANT EXECUTE ON FUNCTION public.fn_tournament_launch_lateness_metrics(integer, integer, integer, integer) TO service_role;'
     );
   });
@@ -53,8 +75,8 @@ describe('MTT launch lateness measures from a bounded maintenance thaw', () => {
     );
   });
 
-  it('no later migration redefines fn_tournament_launch_lateness_metrics without bounded maintenance thaw awareness', () => {
-    const idx = files.indexOf(ROOT);
+  it('no later migration redefines fn_tournament_launch_lateness_metrics without bounded maintenance thaw and start-jitter awareness', () => {
+    const idx = files.indexOf(JITTER);
     expect(idx).toBeGreaterThanOrEqual(0);
     for (const f of files.slice(idx + 1)) {
       const body = readFileSync(join(DIR, f), 'utf8');
@@ -67,6 +89,9 @@ describe('MTT launch lateness measures from a bounded maintenance thaw', () => {
           'effective_start_time'
         );
         expect(body, `${f} dropped 12-minute thaw cap`).toContain("interval '12 minutes'");
+        expect(body, `${f} dropped 5-second maintenance start jitter tolerance`).toContain(
+          "interval '5 seconds'"
+        );
       }
     }
   });
