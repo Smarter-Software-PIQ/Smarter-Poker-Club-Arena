@@ -38,6 +38,7 @@ import { omahaBetSizeBucket } from './HorseOmahaFacingBetEv.js';
 import { omahaEquilibriumAnchor } from './HorseOmahaEquilibriumAnchor.js';
 import {
   omahaPeoplePriorHiddenCell,
+  omahaPeoplePriorHiddenFraction,
   type OmahaPeoplePriorHiddenKey,
 } from './HorseOmahaPeoplePriorHidden.js';
 
@@ -65,6 +66,8 @@ export interface OmahaPeoplePriorInput {
   /** omahaPeoplePriorCountsHiddenBets: the game and split whose hidden-corrected cell replaces the pooled one (turn
    *  only; null / absent: today's cells, unchanged). The caller then passes a record that counts his hidden bets. */
   hidden?: OmahaPeoplePriorHiddenKey | null;
+  /** omahaHiddenBetsArePricedAsGiveUps (with `hidden`, a turn bet): also return the give-up share (giveUp) */
+  giveUps?: boolean;
 }
 export interface OmahaPeoplePriorShare {
   /** the non-value share priced */
@@ -80,6 +83,10 @@ export interface OmahaPeoplePriorShare {
   shown: number;
   /** river only: the weights on the verdict's three regions (sum 1), null when not measured or on the turn */
   regions: { core: number; middle: number; bottom: number } | null;
+  /** omahaHiddenBetsArePricedAsGiveUps, turn only: the part of `share` that is the give-up class (people's hidden
+   *  bets of the cell, the balanced share behind a thin cell as the river's bottom region takes it, moved by his own
+   *  record with the rest of the share); absent when not asked or not measured */
+  giveUp?: number;
 }
 
 type Cell = { n: number; share: number | null };
@@ -230,7 +237,35 @@ export function omahaPeoplePriorShare(input: OmahaPeoplePriorInput): OmahaPeople
     const mShare = nonCore0 > 0 ? base.middle / nonCore0 : 0;
     regions = { core: 1 - nonCore, middle: nonCore * mShare, bottom: nonCore * (1 - mShare) };
   }
-  return { share, people: cell.share, peopleN: cell.n, balanced, prior, shown, regions };
+  // omahaHiddenBetsArePricedAsGiveUps: the hidden bets of the cell are the give-up class. The balanced pseudo-bets
+  // behind a thin cell give up at the ONE-street balanced share b (a balanced two-street bettor is (1-b)^2 value,
+  // b(1-b) bluffs that bet the river again, b bluffs that stop: only the last are give-ups). His record moves it
+  // with the rest of the share.
+  let giveUp: number | undefined;
+  if (input.giveUps === true && input.hidden && input.street === 'turn' && !input.isRaise) {
+    const hf = omahaPeoplePriorHiddenFraction(
+      'turn',
+      input.multiway,
+      omahaBetSizeBucket(input.potFrac),
+      input.hidden
+    );
+    const one = omahaEquilibriumAnchor(input.paid, input.winnable, input.rake, false);
+    if (hf && one !== null && prior > 0) {
+      const K = OMAHA_PEOPLE_PRIOR_ANCHOR_BETS;
+      const g0 = (hf.n * hf.hidden + K * one) / (hf.n + K);
+      giveUp = Math.min(share, (g0 / prior) * share);
+    }
+  }
+  return {
+    share,
+    people: cell.share,
+    peopleN: cell.n,
+    balanced,
+    prior,
+    shown,
+    regions,
+    ...(giveUp !== undefined ? { giveUp } : {}),
+  };
 }
 
 // ───────────── the flop (omahaFlopPressureCapIsPriced; PLO-OWNER lead-7 2026-11-26) ─────────────

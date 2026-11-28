@@ -1229,6 +1229,7 @@ import { analyzePreflopOrbit, analyzeV38CommittedPopulation } from './HorsePrefl
 import { computeSideGamePotOverlay } from './HorseSideGameOverlay.js';
 import {
   omahaPeoplePriorHiddenKeyOf,
+  omahaPeoplePriorHiddenReraisedCheckedKeyOf,
   omahaPeoplePriorRecordCountsHidden,
 } from './HorseOmahaPeoplePriorHidden.js';
 import { computeActionLinePosterior } from './HorseActionLinePosterior.js';
@@ -3950,6 +3951,14 @@ export interface HorseDecideOpts {
    * own record counts his hidden bets the same way. River untouched (every called river bettor is shown).
    */
   omahaPeoplePriorCountsHiddenBets?: boolean;
+  /**
+   * lead-9 lane HUOOP 2026-11-27 (default OFF, read === true). PLO4/PLO5 cash, heads-up, a turn BET (never a raise,
+   * never a re-raised pot), only where omahaPeoplePriorCountsHiddenBets prices it: the hidden part of the bettor's
+   * non-value share (people's bets that checked and folded later or mucked; the one-street balanced share behind a
+   * thin cell; moved by his own record) is priced as his weakest half of holdings with no realization discount, the
+   * rest of the share as today. A hidden bet is by construction one that did not bet the river and did not win.
+   */
+  omahaHiddenBetsArePricedAsGiveUps?: boolean;
   /**
    * WooWoo audit FLOP-DEFENCE 2026-11-18 (default OFF, read === true): heads-up facing the
    * first flop bet with chips behind, the fold or call is the flop verdict with the call
@@ -14891,6 +14900,10 @@ function omahaFacingBetEvRule(
         if (ev.anchored.shown > 0) noteFire('omaha_people_prior_record_read');
         if (ev.anchored.changed) noteFire('omaha_people_prior_changed');
       }
+      if (ev.verdict.giveUp !== undefined) {
+        noteFire('omaha_hidden_give_up_priced');
+        if (evCall) noteFire('omaha_hidden_give_up_priced_call');
+      }
       if (ev.lineSplit) {
         noteFire('omaha_turn_line_prior_priced');
         if (ev.lineSplit.checked) noteFire('omaha_turn_line_prior_checked_flop');
@@ -15004,6 +15017,8 @@ let omahaFacingBetEvCountMemo: {
   /** omahaTurnFacingBetPriorIsLineSplit (and whether its cell counts hidden bets) */
   turnLineSplit: boolean;
   turnLineHidden: boolean;
+  /** omahaHiddenBetsArePricedAsGiveUps */
+  hiddenGiveUps: boolean;
   /** omahaFacingBetRangeIsMeasuredByLine and its siblings (HorseOmahaFacingBetPriced) */
   pricedKey: string;
   answer: OmahaFacingBetEvAnswer | null;
@@ -15230,6 +15245,12 @@ function omahaFacingBetEvCount(
     opts.omahaTurnFacingBetPriorIsLineSplit === true &&
     !isTournamentMode(gs) &&
     ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
+  // omahaHiddenBetsArePricedAsGiveUps (default off): inside omahaPeoplePriorCountsHiddenBets' heads-up turn bet.
+  const hiddenGiveUps =
+    opts.omahaHiddenBetsArePricedAsGiveUps === true &&
+    opts.omahaPeoplePriorCountsHiddenBets === true &&
+    !isTournamentMode(gs) &&
+    ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
   const turnLineHidden =
     turnLineSplit &&
     (opts as { omahaPeoplePriorCountsHiddenBets?: boolean }).omahaPeoplePriorCountsHiddenBets ===
@@ -15270,6 +15291,7 @@ function omahaFacingBetEvCount(
     memo.multiwayFieldPeople === multiwayFieldPeople &&
     memo.turnLineSplit === turnLineSplit &&
     memo.turnLineHidden === turnLineHidden &&
+    memo.hiddenGiveUps === hiddenGiveUps &&
     memo.pricedKey === pricedKey
   )
     return memo.answer;
@@ -15416,11 +15438,20 @@ function omahaFacingBetEvCount(
           opts.omahaPeoplePriorCountsHiddenBets === true &&
           spot.street === 'turn' &&
           spot.isRaise !== true
-            ? omahaPeoplePriorHiddenKeyOf(variant, 'turn', gs.actionHistory, spot.bettorSeat)
+            ? (omahaPeoplePriorHiddenKeyOf(variant, 'turn', gs.actionHistory, spot.bettorSeat) ??
+              // omahaHiddenBetsArePricedAsGiveUps (default off): a re-raised pot whose flop checked through
+              (hiddenGiveUps
+                ? omahaPeoplePriorHiddenReraisedCheckedKeyOf(
+                    variant,
+                    gs.actionHistory,
+                    spot.bettorSeat
+                  )
+                : null))
             : null;
         if (hiddenKey && telemetryOn(opts)) noteFire('omaha_hidden_bets_prior_read');
         const anchored = omahaPeoplePriorShare({
           hidden: hiddenKey,
+          giveUps: hiddenGiveUps && hiddenKey !== null,
           street: spot.street,
           potFrac: spot.potFrac,
           isRaise: spot.isRaise === true,
@@ -15448,6 +15479,7 @@ function omahaFacingBetEvCount(
             ...OMAHA_EV_UNKNOWN_READ,
             pricedShare: anchored.share,
             pricedRegions: anchored.regions,
+            ...(anchored.giveUp !== undefined ? { pricedGiveUp: anchored.giveUp } : {}),
           };
           equilibriumAnchored = anchored;
         }
@@ -15790,6 +15822,7 @@ function omahaFacingBetEvCount(
     multiwayFieldPeople,
     turnLineSplit,
     turnLineHidden,
+    hiddenGiveUps,
     pricedKey,
     answer,
   };
