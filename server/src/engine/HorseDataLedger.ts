@@ -1377,6 +1377,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaTurnFacingBetPriorIsLineSplit',
+    "lead-8 lane OFB 2026-11-27 (plo-lead7-01TLQer8/l8-ofb/BUILD.md). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a turn first wager (never a raise), heads-up or multiway, is priced on the PEOPLE-ONLY measured non-value share of its flop line (checked through / wagered) and size, the balanced share weighting only a thin cell, moved by his own shown bets; with omahaPeoplePriorCountsHiddenBets on, people's hidden bets count as non-value; Horse play never enters. HorseOmahaTurnLinePeoplePrior.ts, HorseOmahaTurnLinePeoplePrior.data.ts",
+    'V94'
+  ),
+  flag(
     'omahaFacingBetFieldIsJoint',
     "PLO-OWNER lead-6 2026-11-24 (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4; multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a multiway turn or river call is priced with the bettor, the callers, the earlier all-ins and the players behind (at their measured continue rate) dealt on the same cards from measured ranges (default OFF; PLO-OWNER lead-6 2026-11-24). HorseOmahaFacingBetPriced, HorseOmahaPricedJointSample.ts",
     'V94'
@@ -6383,6 +6388,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_turn_line_prior_priced',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaTurnLinePeoplePrior)',
+    'the facing-bet verdict priced a turn first wager on the people-measured cell of its flop line (omahaTurnFacingBetPriorIsLineSplit)',
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_line_prior_checked_flop',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaTurnLinePeoplePrior)',
+    'the line-split turn prior priced a bet after a checked-through flop (omahaTurnFacingBetPriorIsLineSplit)',
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_line_prior_multiway',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaTurnLinePeoplePrior)',
+    'the line-split turn prior priced a multiway turn bet (omahaTurnFacingBetPriorIsLineSplit)',
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_line_prior_record_read',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaTurnLinePeoplePrior)',
+    "the line-split turn prior was moved by the bettor's own shown bets of this street, size and line (omahaTurnFacingBetPriorIsLineSplit)",
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_line_prior_changed',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaTurnLinePeoplePrior)',
+    'the verdict on the line-split turn prior differs from the verdict on the reads before it (omahaTurnFacingBetPriorIsLineSplit)',
+    'V94'
+  ),
+  receipt(
     'omaha_mw_people_field_changed',
     'HorseLogic omahaFacingBetEvRule (HorseOmahaMultiwayPeopleField)',
     'the verdict on the people-measured multiway field differs from the verdict on the stated field constants (omahaMultiwayFieldIsPeopleMeasured)',
@@ -11124,6 +11159,8 @@ export const OPTION_ACTED_RECEIPTS_DECLARED: Readonly<
   // the hidden-bet people cells name their own receipt in its description
   omahaPeoplePriorCountsHiddenBets: { prefixes: ['omaha_hidden_bets_prior_'] },
   omahaFlopPressureCapIsPriced: { prefixes: ['omaha_flop_pressure_cap_priced'] },
+  // the line-split turn prior names its own receipts in their descriptions; declared by prefix
+  omahaTurnFacingBetPriorIsLineSplit: { prefixes: ['omaha_turn_line_prior_'] },
   omahaReraisedPositionVsEveryoneToAct: NO_OWN_RECEIPT(
     'a position weight inside the live re-raised-pot priced call, whose receipts fire by design'
   ),

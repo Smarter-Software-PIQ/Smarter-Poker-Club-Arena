@@ -587,6 +587,10 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         1,
         'omahaFacingBetPriorIsPeopleMeasured: decides whether to re-run the verdict on the old read only to name the changed receipt; the decision is the same either way',
       ],
+      'lineSplitPriced !== null && verdict !== null && telemetryOn(opts)': [
+        1,
+        'omahaTurnFacingBetPriorIsLineSplit: decides whether to re-run the verdict on the reads before the line split only to name the changed receipt; the decision is the same either way',
+      ],
       'peopleFieldPriced && verdict !== null && telemetryOn(opts)': [
         1,
         'omahaMultiwayFieldIsPeopleMeasured: decides whether to re-run the verdict on the stated field constants only to name the changed receipt; the decision is the same either way',
