@@ -1451,6 +1451,8 @@ groups:
           (
             poker_event_loop_delay_p50_ms > 40
             or poker_main_event_loop_governor_sampler_late_ms > 40
+            or poker_event_loop_delay_p99_ms > 150
+            or poker_main_event_loop_governor_scale < 1
           )
           unless on() max_over_time(poker_maintenance_break_active[6m]) == 1
         for: 10m
@@ -1458,14 +1460,17 @@ groups:
           severity: warning
           component: engine
         annotations:
-          summary: 'Engine event loop delay {{ $value | printf "%.0f" }} ms - the core is out of headroom'
+          summary: 'Engine main event loop out of headroom (p50/p99 lag, sampler late, or governor scale < 1)'
           description: |
             The main realtime event loop has been delayed past its first
-            capacity threshold for ten minutes. Human actions, timers, state
-            broadcasts, the cluster controller and discovery share this loop.
-            Check poker_main_event_loop_governor_scale beside it. Horse compute
-            runs on another core; poker_equity_governor_scale reports that
-            worker independently.
+            capacity threshold (p50 > 40 ms, sampler late > 40 ms, p99 > 150 ms,
+            or main-thread governor scale < 1) for ten minutes. Human actions,
+            timers, state broadcasts, the cluster controller and discovery share
+            this loop; tail lag or governor throttling warns before GC or
+            synchronous serialization cascades into fn_ca_hand_gap_watch. Check
+            /health eventLoopDelay, mainEventLoopGovernor, and gcPauseMonitor.
+            Horse compute runs on another core; poker_equity_governor_scale
+            reports that worker independently.
           runbook: 'https://github.com/Smarter-Poker/Smarter-Poker-Club-Arena/blob/main/docs/runbooks/tournament-scheduler-and-engine-saturation.md'
 
       # Both gauges have the same scrape-target labels and no intrinsic

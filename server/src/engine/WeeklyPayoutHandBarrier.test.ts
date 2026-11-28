@@ -359,4 +359,48 @@ describe('the real live hand is retained across the original weekly financial ed
     expect(engine.isParkedForWeeklyPayout('weekly')).toBe(false);
     expect(hand.performAction(before.currentPlayerSeat, 'fold')).toBe(true);
   });
+
+  it('retainOriginalBatch skips JSON.parse when pre-captured controller metadata is supplied and falls back cleanly when omitted (1e532243 Phase 5)', async () => {
+    const { engine, hand } = liveHand(false);
+    vi.spyOn(originalRetention, 'retainHandContinuation').mockResolvedValue(undefined);
+    vi.spyOn(engine, 'getEngineLeaseAuthority').mockReturnValue({
+      scope: 'tournament',
+      verified: true,
+      generation: 'original-writer',
+    });
+
+    const controllerJson = hand.serializeRecoveryState();
+    const meta = hand.capturePublicContinuationMetadata();
+    const parseSpy = vi.spyOn(JSON, 'parse');
+    await engine.retainOriginalBatch(
+      { hand_number: '1' },
+      [],
+      {
+        version: 1,
+        sequence: 0,
+        controller: controllerJson,
+        events: [],
+        engine: {},
+      },
+      meta
+    );
+    expect(parseSpy).not.toHaveBeenCalled();
+    expect(engine.preparedOriginalRetentionUnconfirmed).toBe(true);
+    expect(engine.retainedPublicHandState).toEqual(meta.publicState);
+    expect(engine.retainedPublicHandState.deck).toEqual([]);
+
+    // Legacy caller omitting controllerMeta still falls back to JSON.parse cleanly.
+    engine.preparedOriginalRetentionUnconfirmed = false;
+    engine.retainedPublicHandState = null;
+    await engine.retainOriginalBatch({ hand_number: '1' }, [], {
+      version: 1,
+      sequence: 0,
+      controller: controllerJson,
+      events: [],
+      engine: {},
+    });
+    expect(parseSpy).toHaveBeenCalledTimes(1);
+    expect(engine.preparedOriginalRetentionUnconfirmed).toBe(true);
+    expect(engine.retainedPublicHandState).toEqual(meta.publicState);
+  });
 });
