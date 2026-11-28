@@ -292,6 +292,7 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
   omahaFlopPressureCapIsPriced: FACING_BET_EV,
   omahaBareOverpairContinuationIsPeoplePriced: FACING_BET_EV,
   omahaGiveUpPricedTurnCallIsAtIndifference: FACING_BET_EV,
+  omahaFlopFacingBetEquityIsPeoplePriced: FACING_BET_EV,
   omahaTurnFacingBetPriorIsLineSplit: FACING_BET_EV,
   omahaMultiwayRiverBetPriorIsPeopleMeasured: FACING_BET_EV,
   omahaFacingBetFieldIsJoint: {
@@ -994,6 +995,8 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
   omaha_give_up_indifference_call: FACING_BET_EV,
   omaha_flop_pressure_cap_priced_call: FACING_BET_EV,
   omaha_flop_pressure_cap_priced_fold: FACING_BET_EV,
+  omaha_flop_people_priced_equity: FACING_BET_EV,
+  omaha_flop_people_priced_equity_call: FACING_BET_EV,
   omaha_flop_call_tree_call: FACING_BET_EV,
   omaha_flop_call_tree_fold: FACING_BET_EV,
   omaha_flop_call_tree_changed: FACING_BET_EV,

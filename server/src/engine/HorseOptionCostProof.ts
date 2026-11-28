@@ -70,6 +70,9 @@ export const OPTION_COST_LAWS: Readonly<Record<string, string>> = Object.freeze(
   // the indifference call inside the give-up price (2026-11-27): one comparison on the verdict already computed
   omahaGiveUpPricedTurnCallIsAtIndifference:
     'engine/anOmahaGiveUpIndifferenceCallIsFast.law.test.ts',
+  // the people-priced flop facing-bet equity (2026-11-28): one scope check and a scan of the flop actions on the
+  // number the priced flop pressure cap has already computed
+  omahaFlopFacingBetEquityIsPeoplePriced: 'engine/anOmahaFlopPeoplePricedEquityIsFast.law.test.ts',
   // the line-split turn prior inside the facing-bet price (2026-11-27): one line scan, one cell lookup and, with
   // telemetry on, the second verdict that names omaha_turn_line_prior_changed
   omahaTurnFacingBetPriorIsLineSplit: 'engine/anOmahaTurnLinePriorIsFast.law.test.ts',
