@@ -26,7 +26,10 @@
  * (default 15) bounds each hands statement. --out writes the markdown and, next
  * to it, <name>.json (aggregates only: no hole card and no hand id); with no
  * --previous the newest earlier REPORT-*.json in the same directory is the
- * comparison. Without --out the markdown is printed.
+ * comparison. Without --out the markdown is printed. The previous report and
+ * the one before it in its directory are also what a "repeat day" flag is
+ * confirmed against (the flag rule is declared in
+ * src/benchmark/HorseDailyDecisionGrade.ts and printed in every report).
  *
  * The arithmetic and the owner rule on people's cards live in
  * src/benchmark/HorseDailyDecisionGrade.ts (pure, unit-tested); this file only
@@ -46,6 +49,7 @@ import {
   renderSwitchSql,
   timeSlices,
   utcIso,
+  FLAG_REPEAT_LOOKBACK_REPORTS,
   REPORT_SCHEMA,
   type RawHand,
   type Report,
@@ -106,7 +110,7 @@ async function handsFor(start: string, end: string, split = true): Promise<RawHa
 function previousReport(
   out: string | undefined,
   explicit: string | undefined
-): { report: Report; label: string } | null {
+): { report: Report; label: string; path: string } | null {
   let path = explicit;
   if (!path && out) {
     const dir = dirname(out);
@@ -121,8 +125,30 @@ function previousReport(
   if (report.schema !== REPORT_SCHEMA) throw new Error(`${path} is not a ${REPORT_SCHEMA} report`);
   return {
     report,
+    path,
     label: `${basename(path)} (${chicagoStamp(Date.parse(report.start))} to ${chicagoStamp(Date.parse(report.end))})`,
   };
+}
+
+/**
+ * The reports a repeat-day flag is confirmed against, newest first: the previous report
+ * and the ones before it in its directory, FLAG_REPEAT_LOOKBACK_REPORTS in all. A file
+ * that is not a report of this schema is skipped.
+ */
+function earlierReports(previousPath: string | null): Report[] {
+  if (!previousPath) return [];
+  const dir = dirname(previousPath);
+  const names = readdirSync(dir)
+    .filter((f) => /^REPORT-.*\.json$/.test(f) && f <= basename(previousPath))
+    .sort()
+    .reverse();
+  const out: Report[] = [];
+  for (const f of names) {
+    if (out.length >= FLAG_REPEAT_LOOKBACK_REPORTS) break;
+    const report = JSON.parse(readFileSync(join(dir, f), 'utf8')) as Report;
+    if (report.schema === REPORT_SCHEMA) out.push(report);
+  }
+  return out;
 }
 
 async function main(): Promise<void> {
@@ -184,6 +210,8 @@ async function main(): Promise<void> {
       .slice(2)
       .map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a}'`))
       .join(' ');
+  // read first: a repeat-day flag is confirmed against the earlier reports' stored rows
+  const previous = previousReport(out, arg('--previous'));
   const report = buildReport({
     command,
     startMs,
@@ -195,8 +223,8 @@ async function main(): Promise<void> {
     equity: insuranceEquity,
     rangeGrade: has('--range-grade'),
     rangeDraws: arg('--range-draws') ? Number(arg('--range-draws')) : undefined,
+    previous: earlierReports(previous?.path ?? null),
   });
-  const previous = previousReport(out, arg('--previous'));
   const markdown = renderMarkdown(
     report,
     previous ? compareReports(previous.report, report) : null,
