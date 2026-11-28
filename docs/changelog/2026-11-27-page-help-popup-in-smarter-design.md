@@ -30,3 +30,16 @@ grey browser-style Close, plain Got It and Start Tutorial buttons.
 Renders before and after: `/home/claude/renders/page-help-popup-393.jpg`
 (plain page and inside an arena workspace) and
 `/home/claude/renders/page-help-popup-1440.jpg`.
+
+## Follow-up: the art is a public asset (PR #12275 CI)
+
+The first push referenced the chrome art as module URLs
+(`url('../lobby/console-art/chrome-*.webp')`). Vite resolves those, but the
+CSS e2e fixtures that bundle a page with esbuild have no `.webp` loader, so
+every fixture rendering a page with help failed to build (Diamond playfield,
+Diamond Spins, leaderboard loading layout). The three files are now served
+from `public/assets/club-buttons/arena-chrome-v1/` (byte copies of the
+workspace art) and referenced as `/assets/...`, the convention
+`SpadeConsole.css` and `ActionController.css` use and the fixtures already
+mark external. `tests/unit/arenaTitlesUseTheShippedCondensedFace.test.ts` pins
+it.

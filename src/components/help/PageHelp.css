@@ -219,9 +219,9 @@
 /* ── The tutorial, docked at the bottom ─────────────────────────────── */
 
 .ca-tutorial-popup {
-  --ca-help-frame: url('../lobby/console-art/chrome-case.webp');
-  --ca-help-stat: url('../lobby/console-art/chrome-stat.webp');
-  --ca-help-active: url('../lobby/console-art/chrome-active.webp');
+  --ca-help-frame: url('/assets/club-buttons/arena-chrome-v1/chrome-case.webp');
+  --ca-help-stat: url('/assets/club-buttons/arena-chrome-v1/chrome-stat.webp');
+  --ca-help-active: url('/assets/club-buttons/arena-chrome-v1/chrome-active.webp');
   position: fixed;
   right: max(12px, env(safe-area-inset-right));
   bottom: max(12px, env(safe-area-inset-bottom));

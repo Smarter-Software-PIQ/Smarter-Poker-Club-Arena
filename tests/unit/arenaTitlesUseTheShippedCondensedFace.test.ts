@@ -8,7 +8,7 @@
  * every stack that names 'Arial Narrow' names Roboto Condensed ahead of it,
  * and the shell preloads that face's latin file.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -41,5 +41,20 @@ describe('arena workspace titles use the shipped condensed face', () => {
     );
     expect(read('index.html')).toMatch(/family=Roboto\+Condensed:wght@400;500;600;700;800/);
     for (const sheet of SHEETS) expect(read(sheet)).not.toMatch(/@import|fonts\.googleapis/);
+  });
+
+  it('the page help art is a public asset, never a module url a fixture bundler cannot load', () => {
+    // A relative url('../lobby/console-art/*.webp') failed every esbuild-built
+    // CSS e2e fixture that renders a page with help ("No loader is configured
+    // for .webp"). Public /assets/ urls are what those fixtures mark external.
+    const css = read('src/components/help/PageHelp.css').replace(/\/\*[\s\S]*?\*\//g, '');
+    const urls = [...css.matchAll(/url\(\s*'?([^')]+)'?\s*\)/g)].map((m) => m[1]);
+    expect(urls.length).toBe(3);
+    for (const url of urls) {
+      expect(url).toMatch(
+        /^\/assets\/club-buttons\/arena-chrome-v1\/chrome-(case|stat|active)\.webp$/
+      );
+      expect(existsSync(join(ROOT, 'public', url)), url).toBe(true);
+    }
   });
 });
