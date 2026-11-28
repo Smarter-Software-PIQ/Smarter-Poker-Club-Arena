@@ -49,6 +49,7 @@ const WAVE_A4_FILES = [
   'tests/unit/wireProtocolCompat.test.ts',
   'tests/cutover-control-plane-chaos.law.test.ts',
   'docs/laws.d/tests-cutover-control-plane-chaos.md',
+  '.github/workflows/wire-protocol-compat.yml',
 ];
 
 function makeGhStubDir(rc: number, stdoutText: string, stderrText = ''): string {
