@@ -12,6 +12,7 @@ import {
   newTournamentPlayingLevels,
   SPIN_BLIND_STRUCTURE,
 } from '../config/blindStructures';
+import { parsePrebuiltStructureKey, prebuiltLadder } from '../config/prebuiltStructures';
 import { SPIN_TIERS } from '../config/spinSpec';
 // Type-only: erased at compile time, so this module never boots the Supabase
 // client that TournamentService constructs at import.
@@ -252,9 +253,18 @@ export function buildTournamentConfig(
   // schedules; the service validates that playable blinds never decrease.
   // 2026-08-22: hyper_turbo maps to the REAL hyperTurbo ramp now (2-minute
   // levels, steeper jumps) instead of silently aliasing to turbo.
+  // A prebuilt structure id resolves to its own generated ladder; every other
+  // value keeps the established preset-key contract. config.blindStructure has
+  // always been a KEY, never a ladder, so the six presets join it as keys and
+  // nothing downstream changes shape.
   const preset = isSpins
     ? SPIN_BLIND_STRUCTURE
-    : manualTournamentBlindPreset(config.blindStructure);
+    : (() => {
+        const prebuilt = parsePrebuiltStructureKey(config.blindStructure);
+        return prebuilt
+          ? prebuiltLadder(prebuilt)
+          : manualTournamentBlindPreset(config.blindStructure);
+      })();
   const levelMinutes = Math.max(5, config.blindsUpMinutes);
   const blindStructure = (isSng ? preset : newTournamentPlayingLevels(preset)).map((lvl) =>
     lvl.isBreak ? lvl : { ...lvl, durationMinutes: levelMinutes }

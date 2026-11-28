@@ -201,3 +201,107 @@ export function prebuiltLateRegRows(id: PrebuiltStructureId): number {
   }
   return rows.length;
 }
+
+/**
+ * WHICH PRESETS PRODUCTION ACTUALLY PRESERVES, MEASURED 2026-11-09.
+ *
+ * Not assumed. Each authored duration was pushed through the live database's
+ * own clock functions and the result read back:
+ *
+ *   authored | fn_ca_minimum_tournament_levels | fn_ca_lock_structure_clock
+ *   minutes  | floor 5    floor 8              | unpinned      pinned
+ *   ---------+------------------------------------+-------------------------
+ *      3     |    5          8                 |    5            5
+ *      5     |    5          8                 |    5            5
+ *      8     |    8          8                 |    8            8
+ *     10     |   10         10                 |    8           10
+ *     15     |   15         15                 |    8           10
+ *     30     |   30         30                 |    8           10
+ *
+ * Three triggers enforce this on every write: tournaments_lock_level_clock,
+ * zzzzzzzzzz_tournament_level_clock_floor and
+ * tournament_schedule_level_clock_floor. The cap is in
+ * fn_ca_lock_structure_clock, reached through fn_ca_tournament_lock_level_clock
+ * as LEAST(m, is_pinned ? 10 : 8); the 5 minute floor is in
+ * fn_ca_minimum_tournament_levels.
+ *
+ * So, end to end today:
+ *   Turbo 5 and Regular 8      - preserved exactly. Offered.
+ *   Deep Stack 10              - preserved ONLY on a pinned event; an
+ *                                unpinned one is rewritten to 8. Offered only
+ *                                where the event is pinned.
+ *   Hyper-Turbo 3              - raised to 5 by the floor. NOT offered.
+ *   Super Deep 15, Slow 30     - cut to 8 (or 10 pinned) by the cap. NOT
+ *                                offered.
+ *
+ * A preset is never shown to a creator while production would silently
+ * rewrite its stated duration: a control labelled "30 minute levels" that
+ * produces eight minute levels misstates the game to whoever sits down. The
+ * floor and the cap are database-side and move only through the owning
+ * release operation; when they do, flip the entry here and the picker follows.
+ */
+export type ClockSupport = 'preserved' | 'pinned-only' | 'rewritten';
+
+export const PRESET_CLOCK_SUPPORT: Record<PrebuiltStructureId, ClockSupport> = {
+  hyper_turbo: 'rewritten',
+  turbo: 'preserved',
+  regular: 'preserved',
+  deep_stack: 'pinned-only',
+  super_deep: 'rewritten',
+  slow_regular: 'rewritten',
+};
+
+/** True when production keeps this preset's stated duration for this event. */
+export function presetClockIsPreserved(id: PrebuiltStructureId, isPinned = false): boolean {
+  const support = PRESET_CLOCK_SUPPORT[id];
+  if (support === 'preserved') return true;
+  if (support === 'pinned-only') return isPinned;
+  return false;
+}
+
+/** The presets a creator may choose for this event, in ladder order. */
+export function offerablePrebuiltStructures(isPinned = false): PrebuiltStructure[] {
+  return PREBUILT_STRUCTURES.filter((spec) => presetClockIsPreserved(spec.id, isPinned));
+}
+
+/**
+ * Stored config keys are NAMESPACED, and that is not cosmetic.
+ *
+ * config.blindStructure is a preset KEY by established contract, and the keys
+ * already in use are 'slow' | 'standard' | 'turbo' | 'hyper_turbo'. Three of
+ * the six prebuilt ids (turbo, regular, hyper_turbo) would collide with those,
+ * so storing a bare id would silently re-point every existing table and
+ * schedule holding 'turbo' or 'hyper_turbo' at a DIFFERENT ladder. The prefix
+ * keeps the two sets disjoint: an existing stored value can never be read as a
+ * prebuilt structure, and a prebuilt structure can never be read as a legacy
+ * ramp.
+ */
+export const PREBUILT_KEY_PREFIX = 'prebuilt:';
+
+export function prebuiltStructureKey(id: PrebuiltStructureId): `prebuilt:${string}` {
+  return `${PREBUILT_KEY_PREFIX}${id}` as `prebuilt:${string}`;
+}
+
+/** The prebuilt id a stored config value names, or null for any other value. */
+export function parsePrebuiltStructureKey(value: unknown): PrebuiltStructureId | null {
+  if (typeof value !== 'string' || !value.startsWith(PREBUILT_KEY_PREFIX)) return null;
+  const id = value.slice(PREBUILT_KEY_PREFIX.length);
+  return PREBUILT_STRUCTURES.some((spec) => spec.id === id) ? (id as PrebuiltStructureId) : null;
+}
+
+/**
+ * THE CLIENT CLAMPS THE CLOCK TOO (third enforcement point, found 2026-11-09).
+ *
+ * tournamentFromTableConfig applies `Math.max(5, config.blindsUpMinutes)` to
+ * every playable level before anything reaches the database. So a 3 minute
+ * Hyper-Turbo is already raised to 5 in the browser, independently of the two
+ * database triggers. Any future 3 minute support has to move this clamp as
+ * well as the database floor, or the preset still will not survive creation.
+ *
+ * New MTT authoring also strips break rows (`newTournamentPlayingLevels`, and
+ * `assertNoNewMttBreakRows` refuses them), so a preset's breaks are advisory
+ * for an MTT: the platform's own synchronized hourly breaks are what the event
+ * actually plays. The break cadence in a preset therefore describes the ladder,
+ * it does not add breaks to a created MTT. Sit and Go keeps its preset breaks.
+ */
+export const CLIENT_LEVEL_MINUTES_FLOOR = 5;
