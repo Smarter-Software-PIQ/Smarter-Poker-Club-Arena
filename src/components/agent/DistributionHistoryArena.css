@@ -1,0 +1,202 @@
+/* DISTRIBUTION HISTORY IN #SMARTERDESIGN (batch 7, 2026-11-28)
+
+   The audit of an agent's sends on Agent Team's Players tab. The panel is an
+   `arena-case` under an `arena-section-title`; the 7d / 30d / 90d / All keys
+   are an `arena-switch` (the chosen range lit by `.active`, set beside its
+   existing `dh-range-active`); the four totals are `arena-meter` tiles; the
+   name search is an `arena-ops-well`; each send, and each loading
+   placeholder, is a chrome `arena-ledger-row`. Those come from
+   ArenaWorkspace.css and ArenaOps.css. This sheet lays them out, quiets the
+   old rounded rules underneath and sets the words in the workspace inks.
+   Every rule is scoped under .arena-workspace. No new gradient, radius or
+   shadow; nothing reacts to a resting pointer. No figure, word, handler or
+   hook changes. */
+
+.arena-workspace .dh-container {
+  margin: 7px 0;
+  backdrop-filter: none;
+  color: #dce5ef;
+}
+
+.arena-workspace .dh-container .dh-header {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  margin: 0;
+}
+
+.arena-workspace .dh-container .dh-header > .arena-section-title {
+  margin: 0;
+}
+
+.arena-workspace .dh-container .dh-filters.arena-switch {
+  margin: 8px 0 0;
+}
+
+.arena-workspace .dh-container .dh-filters.arena-switch > .dh-range-btn {
+  cursor: pointer;
+  transition: none;
+}
+
+/* ── The four totals ──────────────────────────────────────────────── */
+.arena-workspace .dh-container .dh-stats {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+}
+
+@media (min-width: 721px) {
+  .arena-workspace .dh-container .dh-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.arena-workspace .dh-container .dh-stat.arena-meter {
+  padding: 6px 4px;
+}
+
+.arena-workspace .dh-container .dh-stat-label {
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.arena-workspace .dh-container .dh-stat-value {
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+  color: #f1f5fc;
+  font:
+    800 18px/1.1 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.arena-workspace .dh-container .dh-stat-value.dh-negative {
+  color: #ff5b6e;
+}
+
+.arena-workspace .dh-container .dh-stat-value.dh-positive {
+  color: #c8ffd2;
+}
+
+/* ── The name search: the workspace's field well ──────────────────── */
+/* Inputs keep 16px so iOS does not zoom on focus. */
+.arena-workspace .dh-container .dh-search.arena-ops-well {
+  margin: 0;
+  padding: 0 8px;
+  background: #040d17;
+  border: 1px solid #476079;
+  border-radius: 0;
+  color: #f1f5fc;
+  color-scheme: dark;
+  font:
+    16px/1.2 Arial,
+    sans-serif;
+}
+
+.arena-workspace .dh-container .dh-search.arena-ops-well::placeholder {
+  color: #9fbacc;
+}
+
+/* ── Each send ────────────────────────────────────────────────────── */
+.arena-workspace .dh-container .dh-list {
+  gap: 4px;
+}
+
+.arena-workspace .dh-container .dh-row.arena-ledger-row {
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 10px;
+  transition: none;
+}
+
+.arena-workspace .dh-container .dh-row-clawedback {
+  opacity: 0.6;
+}
+
+.arena-workspace .dh-container .dh-row-info {
+  min-width: 0;
+}
+
+.arena-workspace .dh-container .dh-row-name {
+  color: #f1f5fc;
+  font:
+    800 14px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  overflow-wrap: anywhere;
+}
+
+.arena-workspace .dh-container .dh-row-date {
+  color: #74dfff;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+}
+
+.arena-workspace .dh-container .dh-row-right {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.arena-workspace .dh-container .dh-row-amount {
+  color: #f1f5fc;
+  font:
+    800 15px/1.1 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.arena-workspace .dh-container .dh-row-amount.dh-strikethrough {
+  color: #9fbacc;
+}
+
+/* A clawback and a promo are words in their inks, not pills. */
+.arena-workspace .dh-container .dh-clawback-badge,
+.arena-workspace .dh-container .dh-promo-badge {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font:
+    700 11px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.arena-workspace .dh-container .dh-clawback-badge {
+  color: #ff5b6e;
+}
+
+.arena-workspace .dh-container .dh-promo-badge {
+  color: #74dfff;
+}
+
+/* ── Loading and empty ───────────────────────────────────────────── */
+.arena-workspace .dh-container .dh-loading {
+  gap: 4px;
+}
+
+.arena-workspace .dh-container .dh-skeleton.arena-ledger-row {
+  height: 44px;
+  box-sizing: border-box;
+}
+
+.arena-workspace .dh-container .dh-empty {
+  padding: 18px 8px;
+  color: #9fbacc;
+  font:
+    13px/1.4 Arial,
+    sans-serif;
+}

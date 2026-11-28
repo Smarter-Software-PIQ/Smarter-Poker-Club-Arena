@@ -1,0 +1,214 @@
+/* PLAYER SEARCH IN #SMARTERDESIGN (batch 7, 2026-11-28)
+
+   The search on Agent Team's Players tab. The card is an `arena-case` under
+   an `arena-section-title`; the Username / Id keys, the search key and each
+   player's two action keys are `arena-switch` chrome keys (the chosen search
+   lit by its existing `.active`); the field is an `arena-ops-well`; each
+   player is a chrome `arena-ledger-row`. Those come from ArenaWorkspace.css
+   and ArenaOps.css. This sheet only lays them out, quiets the old rounded
+   rules underneath and sets the words in the workspace inks. Every rule is
+   scoped under .arena-workspace, so PlayerSearch.css still dresses the
+   component anywhere else. No new gradient, radius or shadow; nothing reacts
+   to a resting pointer. No figure, word, handler or hook changes. */
+
+.arena-workspace .player-search {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  color: #dce5ef;
+}
+
+.arena-workspace .player-search .search-header {
+  margin: 0;
+}
+
+.arena-workspace .player-search .search-header .arena-section-title {
+  margin: 0;
+}
+
+.arena-workspace .player-search .search-controls {
+  gap: 0;
+  margin: 0;
+}
+
+.arena-workspace .player-search .search-type {
+  width: auto;
+  margin: 0 0 6px;
+}
+
+.arena-workspace .player-search .search-type > button {
+  cursor: pointer;
+}
+
+/* The field and its search key share one line. */
+.arena-workspace .player-search .search-input.arena-switch {
+  align-items: stretch;
+  gap: 6px;
+  margin: 0;
+}
+
+/* Inputs keep 16px so iOS does not zoom on focus. */
+.arena-workspace .player-search .search-input > .arena-ops-well {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 8px;
+  background: #040d17;
+  border: 1px solid #476079;
+  border-radius: 0;
+  color: #f1f5fc;
+  color-scheme: dark;
+  font:
+    16px/1.2 Arial,
+    sans-serif;
+}
+
+.arena-workspace .player-search .search-input > .arena-ops-well::placeholder {
+  color: #9fbacc;
+}
+
+.arena-workspace .player-search .search-input > .search-btn {
+  flex: 0 0 48px;
+  color: #74dfff;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+/* ── Results ──────────────────────────────────────────────────────── */
+/* The common Search sheet declares a bare `.search-results` dropdown
+   (absolute, top 100%, a 300px scroll box). In the case, the results are
+   the case's own content: in flow, unclipped, on the case glass. */
+.arena-workspace .player-search .search-results {
+  position: relative;
+  inset: auto;
+  gap: 4px;
+  max-height: none;
+  margin: 0;
+  overflow: visible;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  animation: none;
+}
+
+.arena-workspace .player-search .player-row {
+  gap: 10px;
+  min-height: 56px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.arena-workspace .player-search .player-row:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+
+.arena-workspace .player-search .player-avatar {
+  width: 40px;
+  height: 40px;
+  border: 1px solid #476079;
+  background: #040d17;
+}
+
+.arena-workspace .player-search .player-avatar span {
+  color: #74dfff;
+  font:
+    800 16px/1 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.arena-workspace .player-search .player-name {
+  color: #f1f5fc;
+  font:
+    800 14px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  overflow-wrap: anywhere;
+}
+
+/* Status is a word in its ink, not a pill. */
+.arena-workspace .player-search .status-badge {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  font:
+    700 11px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.arena-workspace .player-search .status-badge.active {
+  color: #c8ffd2;
+}
+
+.arena-workspace .player-search .status-badge.banned {
+  color: #ff5b6e;
+}
+
+.arena-workspace .player-search .status-badge.suspended {
+  color: #ffe98a;
+}
+
+.arena-workspace .player-search .player-email {
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+  overflow-wrap: anywhere;
+}
+
+.arena-workspace .player-search .player-meta {
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.arena-workspace .player-search .player-actions.arena-switch {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.arena-workspace .player-search .player-actions.arena-switch > .action-btn {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  color: #74dfff;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.arena-workspace .player-search .player-actions.arena-switch > .action-btn.ban {
+  color: #ff5b6e;
+}
+
+/* ── Before a search, searching, nothing found, refused ───────────── */
+.arena-workspace .player-search .empty-state {
+  padding: 18px 8px;
+  text-align: center;
+}
+
+.arena-workspace .player-search .empty-state span {
+  margin: 0 0 4px;
+  color: #74dfff;
+  font:
+    700 22px/1 Arial,
+    sans-serif;
+}
+
+.arena-workspace .player-search .empty-state p {
+  margin: 0;
+  color: #9fbacc;
+  font:
+    13px/1.4 Arial,
+    sans-serif;
+}

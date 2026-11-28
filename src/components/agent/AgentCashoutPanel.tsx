@@ -80,9 +80,10 @@ interface AgentCashoutPanelProps {
   /** Present when the panel is opened as a dialog over the cashier. */
   onClose?: () => void;
   /** #SmarterDesign (batch 6, 2026-11-28): a section of an arena workspace
-   *  page (Agent Team's Payouts tab) wears the thin chrome case, chrome keys
-   *  and chrome rows instead of the painted console. The Cashier's dialog and
-   *  the player record leave it off and keep their console. */
+   *  page (Agent Team's Payouts tab and, since batch 7, the player record's
+   *  Cash Out Requested panel) wears the thin chrome case, chrome keys and
+   *  chrome rows instead of the painted console. The Cashier's dialog leaves
+   *  it off and keeps its console. */
   arena?: boolean;
 }
 
