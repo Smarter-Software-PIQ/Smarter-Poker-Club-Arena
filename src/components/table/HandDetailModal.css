@@ -1287,8 +1287,8 @@
   border-radius: 0 !important;
   background: linear-gradient(155deg, #12273b, #07111c 70%) !important;
   box-shadow: none !important;
-  color: #f1f5fc;
-  -webkit-text-fill-color: #f1f5fc;
+  color: var(--sd-ink);
+  -webkit-text-fill-color: var(--sd-ink);
   font:
     700 16px/1.1 'Rajdhani',
     'Roboto Condensed',

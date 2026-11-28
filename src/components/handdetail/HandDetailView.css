@@ -644,8 +644,15 @@
    #9fbacc on the console's lightest navy (#12273b) is 7.5:1, well above 4.5:1.
    Off the skin it is a 0.32 white wash, too faint to read on navy. */
 .sc--sd .hdv__colkey {
-  color: #9fbacc;
+  color: var(--sd-silver-dim);
   font-weight: 600;
+}
+/* The hand's serial number was the 0.4 white wash below: 3.5:1 on the meta
+   strip's navy, under AA for 11px type (rendered ink guard,
+   tests/e2e/css/table-surfaces-wear-smarterdesign.spec.ts). Silver support
+   ink, like the column key. */
+.sc--sd .hdv__meta-sn {
+  color: var(--sd-silver-dim);
 }
 .sc--sd .hdv__pos {
   border: 1px solid rgba(116, 223, 255, 0.42);
@@ -658,7 +665,7 @@
 }
 .sc--sd .hdv__name.is-you,
 .sc--sd .hdv__fact.is-you .hdv__fact-name {
-  color: #74dfff;
+  color: var(--sd-ice-strong);
 }
 /* Passive verbs read silver, money going in reads ice, a raise reads the
    strong cyan with a cyan rim, and all-in is white on cobalt. */
@@ -683,7 +690,7 @@
 }
 .sc--sd .hdv__act--check {
   background: rgba(159, 186, 204, 0.16);
-  color: #f1f5fc;
+  color: var(--sd-ink);
 }
 .sc--sd .hdv__act--call {
   background: rgba(116, 223, 255, 0.12);
@@ -693,10 +700,14 @@
 .sc--sd .hdv__act--raise {
   background: rgba(116, 223, 255, 0.18);
   box-shadow: inset 0 0 0 1px rgba(116, 223, 255, 0.55);
-  color: #74dfff;
+  color: var(--sd-ice-strong);
 }
 .sc--sd .hdv__act--all_in {
-  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
+  background: linear-gradient(
+    var(--sd-cobalt-top),
+    var(--sd-cobalt-mid) 55%,
+    var(--sd-cobalt-deep)
+  );
   color: #fff;
 }
 .sc--sd .hdv__act--show {
@@ -709,12 +720,12 @@
 }
 .sc--sd .hdv__sd.is-badbeat {
   background: rgba(116, 223, 255, 0.08);
-  box-shadow: inset 3px 0 0 #74dfff;
+  box-shadow: inset 3px 0 0 var(--sd-ice-strong);
 }
 .sc--sd .hdv__sd-tag,
 .sc--sd .hdv__private-tag {
   background: rgba(116, 223, 255, 0.16);
-  color: #74dfff;
+  color: var(--sd-ice-strong);
 }
 .sc--sd .hdv__cards .hdv-private {
   outline-color: rgba(116, 223, 255, 0.55);

@@ -299,7 +299,9 @@
 }
 
 .friend-invite-picker__sep {
-  color: #526277;
+  /* Silver support ink. It was #526277, 3.0:1 on the picker's navy, which
+     the rendered ink guard measured below AA (2026-11-28). */
+  color: var(--sd-silver-dim);
 }
 
 .friend-invite-picker__invite-btn {
