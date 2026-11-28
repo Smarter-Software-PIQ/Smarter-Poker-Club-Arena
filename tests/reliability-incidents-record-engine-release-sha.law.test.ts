@@ -78,6 +78,8 @@ describe('reliability incidents record live engine releaseSha on observations an
       'REVOKE ALL ON FUNCTION public.fn_ca_hand_gap_watch(timestamptz) FROM PUBLIC, anon, authenticated;'
     );
     expect(MIG).toContain("RAISE EXCEPTION 'probe-unwind'");
+    expect(MIG).not.toMatch(/INSERT INTO public\.operational_alert_events\b/i);
+    expect(MIG).toContain("'scope_id', v_key");
     expect(MIG).toMatch(/^-- @live-proof: \(SELECT /m);
   });
 
