@@ -69,6 +69,8 @@ The A + B base alone already gives PLO5 bet-flop z 1.76; the corrected option mo
 
 Lane harness, checked-flop big and mid turn cells, no memory (method of `l9-huresid`), zero-equity bluff bb/bet, v1 -> v2: PLO4 big -1.55 +/- 1.17 -> -0.38 +/- 1.20; PLO4 mid -0.69 -> +0.83 +/- 1.23; PLO5 big -10.70 +/- 1.55 -> -6.75 +/- 1.60; PLO5 mid -10.65 -> -7.11 +/- 3.69 (all PASS); sub-cell PLO4 big single-raised +0.87 +/- 0.82 -> +1.72 +/- 0.81 (z 2.1, over).
 
+Fixed harness on the corrected formula (grade worktree = main 13eb7751 + this correction; base = live rows + the two options above; ON minus same-seed no-op, 2 seeds pooled, bb/100; seeds fixed in advance, every no-op 0.00 with 0 divergent deals; 28 of 28 cards, none below its bar): value-only bettor PLO4 +0.35 +/- 0.46, PLO5 +1.09 +/- 0.90 (bars >= -3.0 / -4.0); people-calibrated responder PLO4 +1.41 +/- 0.78, PLO5 -0.29 +/- 0.59 (>= -1 SE); mirror heads-up PLO4 -0.41 +/- 1.95, PLO5 +0.18 +/- 3.25; mirror 6-max PLO4 +0.82 +/- 0.99, PLO5 -0.12 +/- 0.72; over-folder PLO4 +1.18 +/- 0.64, PLO5 +0.14 +/- 0.79; balanced bettor PLO4 +0.54 +/- 0.44, PLO5 -0.51 +/- 0.73 (>= -2 SE); calling station that also bets PLO4 +1.71 +/- 0.83, PLO5 +1.32 +/- 0.99 (>= -1 SE). The bluffer bots were not re-run on the correction.
+
 Next design (not built here): realization by line. A give-up does not bet the river, so against it the caller realizes his showdown equity; the rest of the non-value share should carry the realization of the bettor's betting lines only, measured from people's public river lines after a called turn bet.
 
 ## Watch And Rollback
