@@ -18,15 +18,15 @@
 --                         a beat with a start owed named it at or before the join,
 --                         every beat from that naming to the join still named it,
 --                         the newest beat before the join is under 65 s old
---                         (VARIETY_DRAIN_FRESH_MS), and the first beat after the
---                         join still names it (a beat is written at the END of the
---                         cycle that decided and seated, so a join just before an
---                         un-naming beat was seated by the cycle that ended the
---                         drain). A Horse joining after the drain
+--                         (VARIETY_DRAIN_FRESH_MS). A Horse joining after the drain
 --                         ended (an un-naming beat, or a stale publication) or on a
 --                         break move is not a re-join (review follow-up 2026-11-27;
 --                         the old form counted any join within 10 minutes after a
---                         naming). Catches the 2026-11-26 churn.
+--                         naming). Catches the 2026-11-26 churn. A join seated by
+--                         the cycle that un-names the table (its beat comes after
+--                         the join) IS counted: excusing it hid the 7 PM CST
+--                         2026-11-27 churn, where the drain un-named and refilled
+--                         tables every ~8 minutes for games that cannot start.
 --   named_tables_closed   named tables that are now closed or empty (INFO)
 --   tables_within_cap     occupied counted tables do not exceed the hour's cap now
 --   cap_every_cycle       no heartbeat read more counted tables than its cap
@@ -160,8 +160,6 @@ SELECT 'no_rejoin_while_named',
   JOIN public.profiles p ON p.id = s.user_id AND coalesce(p.is_horse, false) = true
  WHERE s.table_id IN (SELECT table_id FROM named)
    AND s.joined_at < (SELECT max(q.beat_at) FROM hb q WHERE q.beat_at <= s.joined_at) + interval '65 seconds'
-   AND coalesce((SELECT q.named @> to_jsonb(s.table_id::text) FROM hb q
-                  WHERE q.beat_at > s.joined_at ORDER BY q.beat_at LIMIT 1), true)
    AND EXISTS (
      SELECT 1 FROM naming n
       WHERE n.table_id = s.table_id AND n.owed > 0 AND n.beat_at <= s.joined_at

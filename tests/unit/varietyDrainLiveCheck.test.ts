@@ -84,10 +84,12 @@ describe('the variety drain live check', () => {
     expect(body).toContain(
       "s.joined_at < (SELECT max(q.beat_at) FROM hb q WHERE q.beat_at <= s.joined_at) + interval '65 seconds'"
     );
-    /* the beat written at the end of the cycle that seated the Horse still names the table */
-    expect(body).toContain(
-      'coalesce((SELECT q.named @> to_jsonb(s.table_id::text) FROM hb q\n                  WHERE q.beat_at > s.joined_at ORDER BY q.beat_at LIMIT 1), true)'
-    );
+    /* 7 PM CST seal 2026-11-27: a join seated by the cycle that un-names the
+       table is counted. The excuse "the first beat after the join must still
+       name it" hid the drain un-naming and refilling tables every ~8 minutes
+       for games that cannot start (the 11 joins it removed were those re-seats). */
+    expect(body).not.toContain('WHERE q.beat_at > s.joined_at ORDER BY q.beat_at LIMIT 1');
+    expect(body).not.toMatch(/q\.beat_at > s\.joined_at/);
   });
 
   it('review follow-up 2026-11-27: a wait that began before the window is timed from the first-owed time on the heartbeat', () => {

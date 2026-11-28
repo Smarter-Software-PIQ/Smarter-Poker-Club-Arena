@@ -38,6 +38,13 @@ import {
   VARIETY_DRAIN_FRESH_MS,
   VARIETY_DRAIN_NEW_TABLE_MS,
   varietyDrainTable,
+  VarietyStartMemory,
+  VARIETY_START_REST_MS,
+  drainOwedGames,
+  drainWhyForBeat,
+  varietyDrainDecision,
+  varietyFirstPlan,
+  varietyOwedGamesThisCycle,
   type DrainTable,
 } from './HorseVarietyFirst.js';
 import { HorseSessionRotator, type RotatorEngine } from './HorseSessionRotator.js';
@@ -582,7 +589,7 @@ describe('which extra table yields', () => {
     const fleet = read('./HorseFleetManager.ts');
     expect(fleet).toContain('const drainCycle = drainCycleOutcome({');
     expect(fleet).toContain('withheld: !!cycleWithheld,');
-    expect(fleet).toContain('owedInPlan: variety.owedStarts.size,');
+    expect(fleet).toContain('owedInPlan: drainOwedInPlan.length,');
     expect(fleet).not.toContain('const drainDecided =');
   });
 
@@ -645,7 +652,7 @@ describe('the fleet keeps no Horse at the released table', () => {
     expect(reset).toBeGreaterThan(-1);
     // set only after every early return and the catch of the read
     expect(set).toBeGreaterThan(catchAt);
-    const gate = fleet.indexOf('this.humansWaitingReadComplete\n');
+    const gate = fleet.indexOf('this.humansWaitingReadComplete) {');
     /* the decision call (2026-11-27: varietyDrainDecision, which also says why) */
     const decide = fleet.indexOf('const decision = varietyDrainDecision({');
     expect(gate).toBeGreaterThan(-1);
@@ -928,5 +935,219 @@ describe("the released table's Horses go home through the ordinary door", () => 
   it('a stale publication releases nothing', async () => {
     publishVarietyDrain(F, Date.now() - VARIETY_HOLD_FRESH_MS);
     expect((await run(floor())).filter((l) => l.tableId === F)).toEqual([]);
+  });
+});
+
+/* FOUND LIVE ON THE 7 PM SEAL (2026-11-27, fd425990c0b8, 8:05 to 9:47 PM CST).
+   Two 5/10 fixed-limit games (one hi-lo, one Hold'em) were owed a start the
+   whole window and can never start: no Horse holds the 20 buy-ins a 5/10 seat
+   needs. Each heartbeat run: the drain released a table, a slot freed, the
+   walk tried the owed game and seated nobody, the game rested, the owed list
+   went empty, a decided cycle with nothing owed cleared the drain's memory,
+   the released table refilled, the rest ended and a new table was released.
+   11 releases in 102 minutes, every one for a start a freed slot cannot cure. */
+describe('found live on the 7 PM seal: the drain frees slots only for starts the cap blocks', () => {
+  const HILO = 'hi-lo-5-10';
+  const FLH = 'flh-5-10';
+  const Y = 'cap-blocked-game';
+  const T0 = Date.parse('2026-11-28T02:05:00Z');
+
+  it('the walk says why a start failed; an own-reason failure outlives its rest, a cap refusal or a start clears it', () => {
+    const m = new VarietyStartMemory();
+    m.noteCouldNotStart(HILO, T0, 'own_reason');
+    expect(m.resting(T0 + 1_000).has(HILO)).toBe(true);
+    expect(m.cannotStart().has(HILO)).toBe(true);
+    /* the rest ends, the mark does not */
+    expect(m.resting(T0 + VARIETY_START_REST_MS).has(HILO)).toBe(false);
+    expect(m.cannotStart().has(HILO)).toBe(true);
+    /* a start the cap refused rests nothing and marks nothing (the floor's answer) */
+    m.noteCouldNotStart(Y, T0, 'cap_blocked');
+    expect(m.resting(T0 + 1_000).has(Y)).toBe(false);
+    expect(m.cannotStart().has(Y)).toBe(false);
+    /* ...and an attempt the cap alone refused clears an own-reason mark */
+    m.noteCouldNotStart(HILO, T0 + 60_000, 'cap_blocked');
+    expect(m.cannotStart().has(HILO)).toBe(false);
+    /* a start clears both */
+    m.noteCouldNotStart(FLH, T0, 'own_reason');
+    m.noteStarted(FLH);
+    expect(m.cannotStart().has(FLH)).toBe(false);
+    expect(m.resting(T0 + 1_000).has(FLH)).toBe(false);
+    /* a game neither owed nor resting is forgotten */
+    m.noteCouldNotStart(FLH, T0, 'own_reason');
+    m.noteCouldNotStart(HILO, T0, 'own_reason');
+    m.forgetAllBut([HILO]);
+    expect([...m.cannotStart()]).toEqual([HILO]);
+  });
+
+  it('the drain owes only the games the cap blocks, and the beat says owed_cannot_start when there are none', () => {
+    expect(
+      drainOwedGames({ owedGames: [FLH, HILO, Y], cannotStart: new Set([HILO, FLH]) })
+    ).toEqual([Y]);
+    expect(drainOwedGames({ owedGames: [FLH, HILO], cannotStart: new Set([HILO, FLH]) })).toEqual(
+      []
+    );
+    const why = (over: Partial<Parameters<typeof drainWhyForBeat>[0]> = {}) =>
+      drainWhyForBeat({
+        withheld: false,
+        owedThisCycle: 2,
+        owedCapBlocked: 0,
+        decided: true,
+        why: null,
+        room: { cap: 40, counted: 40 },
+        anOwedStartAdmitted: false,
+        ...over,
+      });
+    expect(why()).toBe('owed_cannot_start');
+    expect(why({ decided: false })).toBe('owed_cannot_start');
+    expect(why({ owedThisCycle: 0 })).toBe('nothing_owed');
+    expect(why({ withheld: true })).toBe('withheld');
+    expect(why({ owedCapBlocked: 1, why: 'covered' })).toBe('covered');
+  });
+
+  it('the measured sequence: an owed game fails a start for its own reason, no table is released for it, and the table released for a cap-blocked game survives its rest', () => {
+    /* Game A runs three Horse-only tables, game B two. The owed games each
+       have one empty Main 1. */
+    const floor: T[] = [
+      t('a-m1', 'A', 'main', 1, 9, 0),
+      t('a-m2', 'A', 'main', 2, 9, 15),
+      t('a-f', 'A', 'feeder', null, 3, 40),
+      t('b-m1', 'B', 'main', 1, 6, 0),
+      t('b-f', 'B', 'feeder', null, 3, 50),
+      t('hilo-m1', HILO, 'main', 1, 0, 0),
+      t('flh-m1', FLH, 'main', 1, 0, 0),
+      t('y-m1', Y, 'main', 1, 0, 0),
+    ];
+    const seatedAt = (id: string) => floor.find((x) => x.id === id)?.seated ?? 0;
+    const memory = new VarietyStartMemory();
+    const published = (nowMs: number, games: string[]) =>
+      varietyOwedGamesThisCycle(
+        varietyFirstPlan({
+          tables: floor.filter((x) => ['A', 'B', ...games].includes(String(x.cluster_id))),
+          seatedAt,
+          startGames: new Set([HILO, FLH, Y]),
+          neverHeldGames: new Set(),
+          mayStart: () => true,
+          restingGames: memory.resting(nowMs),
+        }),
+        { withheld: false }
+      );
+    /* One fleet cycle at a full cap (40 of 40), the way the fleet runs it. */
+    const cycle = (nowMs: number, games: string[], remembered: string[]) => {
+      const owed = published(nowMs, games);
+      const drainOwed = drainOwedGames({ owedGames: owed, cannotStart: memory.cannotStart() });
+      const shortfall = drainShortfall({
+        cap: 40,
+        counted: 40,
+        openingFeeders: 0,
+        owedStarts: drainOwed.length,
+        anOwedStartAdmitted: false,
+      });
+      const decision =
+        drainOwed.length > 0
+          ? varietyDrainDecision<T>({
+              tables: floor,
+              seatedAt,
+              personSeatedAt: () => false,
+              personWaitingGames: new Set(),
+              neverHeldGames: new Set(),
+              owedGames: drainOwed,
+              shortfall,
+              current: remembered,
+              mayAddNew: true,
+            })
+          : null;
+      const outcome = drainCycleOutcome({
+        withheld: false,
+        readsComplete: true,
+        owedThisCycle: drainOwed.length,
+        owedInPlan: drainOwed.length,
+        decision: decision?.tables ?? [],
+        remembered,
+        personSeatedAt: () => false,
+      });
+      const why = drainWhyForBeat({
+        withheld: false,
+        owedThisCycle: owed.length,
+        owedCapBlocked: drainOwed.length,
+        decided: outcome.decided,
+        why: decision?.why ?? null,
+        room: { cap: 40, counted: 40 },
+        anOwedStartAdmitted: false,
+      });
+      return { owed, drainOwed, released: outcome.released, memory: outcome.memory, why };
+    };
+    const all = [HILO, FLH, Y];
+    /* a-f is being released for the cap-blocked game Y. A slot freed earlier,
+       and the walk tried both 5/10 games there: the cap admitted them and no
+       Horse could sit (own reason). */
+    memory.noteCouldNotStart(HILO, T0, 'own_reason');
+    memory.noteCouldNotStart(FLH, T0, 'own_reason');
+    /* during their rest: only Y is owed, and a-f stays released */
+    const resting = cycle(T0 + 30_000, all, ['a-f']);
+    expect(resting.owed).toEqual([Y]);
+    expect(resting.memory).toEqual(['a-f']);
+    expect(resting.released).toEqual(['a-f']);
+    /* the rest ends: all three are owed again, but only Y drives the drain.
+       Nothing new is released for the 5/10 games, a-f stays */
+    const after = cycle(T0 + VARIETY_START_REST_MS + 30_000, all, ['a-f']);
+    expect(after.owed).toEqual([FLH, HILO, Y].sort());
+    expect(after.drainOwed).toEqual([Y]);
+    expect(after.released).toEqual(['a-f']);
+    expect(after.memory).toEqual(['a-f']);
+    expect(after.why).toBe('covered');
+    /* (the old rule, every published game owed, released b-f for them) */
+    expect(
+      varietyDrainDecision<T>({
+        tables: floor,
+        seatedAt,
+        personSeatedAt: () => false,
+        personWaitingGames: new Set(),
+        neverHeldGames: new Set(),
+        owedGames: after.owed,
+        shortfall: after.owed.length,
+        current: ['a-f'],
+        mayAddNew: true,
+      })
+    ).toEqual({ tables: ['a-f', 'b-f'], why: 'released' });
+    /* Y starts; only the two 5/10 games are owed: nothing is released at all,
+       and the beat says why (it said nothing_owed and churned before) */
+    const onlyStuck = cycle(T0 + VARIETY_START_REST_MS + 60_000, [HILO, FLH], ['a-f']);
+    expect(onlyStuck.owed).toEqual([FLH, HILO].sort());
+    expect(onlyStuck.released).toEqual([]);
+    expect(onlyStuck.why).toBe('owed_cannot_start');
+    /* and for every later cycle, rest or no rest */
+    for (const dt of [2, 4, 6, 8, 12, 30, 60].map((m) => m * 60_000)) {
+      expect(cycle(T0 + dt, [HILO, FLH], []).released).toEqual([]);
+    }
+    /* the holds still see them: the published list is unchanged */
+    expect(onlyStuck.owed).toHaveLength(2);
+  });
+
+  it('the fleet wires it: the walk reports why, the drain reads only cap-blocked games, the holds keep the published list', () => {
+    const fleet = read('./HorseFleetManager.ts');
+    expect(fleet).toContain("if (reason === 'hourly_cap') varietyCapRefused = true;");
+    expect(fleet).toContain(
+      "this.varietyStarts.noteCouldNotStart(varietyGame, Date.now(), 'cap_blocked');"
+    );
+    expect(fleet).toContain(
+      "this.varietyStarts.noteCouldNotStart(varietyGame, Date.now(), 'own_reason');"
+    );
+    expect(fleet.match(/noteCouldNotStart\(/g)?.length).toBe(2);
+    expect(fleet).toContain('const drainOwed = drainOwedGames({');
+    expect(fleet).toContain(
+      'if (drainOwed.length > 0 && cashPlanLightningGames && this.humansWaitingReadComplete) {'
+    );
+    expect(fleet).toContain('owedStarts: drainOwed.length,');
+    expect(fleet).toContain('owedGames: drainOwed,');
+    expect(fleet).toContain('owedThisCycle: drainOwed.length,');
+    expect(fleet).toContain('owedInPlan: drainOwedInPlan.length,');
+    expect(fleet).toContain('owedCapBlocked: drainOwed.length,');
+    expect(fleet).toContain('variety_cannot_start: beat.varietyCannotStart,');
+    expect(fleet).toContain(
+      'this.varietyStarts.forgetAllBut([...variety.owedStarts.values(), ...varietyResting]);'
+    );
+    /* the holds and the database's feeder opener still read the published list */
+    expect(fleet).toContain('beat.varietyOwedGames = varietyOwedGamesThisCycle(variety, {');
+    expect(fleet).toContain('variety_owed_games: beat.varietyOwedGames,');
   });
 });

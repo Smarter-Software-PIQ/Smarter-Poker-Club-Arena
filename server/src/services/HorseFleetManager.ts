@@ -101,6 +101,7 @@ import {
   drainCycleOutcome,
   varietyOwedSince,
   drainWhyForBeat,
+  drainOwedGames,
   mayAddDrainTable,
   type VarietyDrainBeatWhy,
   type VarietyDrainWhy,
@@ -341,6 +342,10 @@ interface CycleBeat {
    *  census read failed, 'withheld' when seating was
    *  withheld, null before the drain runs. */
   varietyDrainWhy: VarietyDrainBeatWhy | null;
+  /** Owed games the drain releases nothing for: their last start attempt failed
+   *  for a reason of their own (HorseVarietyFirst.drainOwedGames, detail.
+   *  variety_cannot_start, 2026-11-27 7 PM CST seal). */
+  varietyCannotStart: string[];
   /** Horses holding a seat on the open CASH floor this cycle. `horsesSeated`
    *  counts every open seat on the platform, tournament chairs included, so
    *  on a day the tournaments are stuck it reads 654 while the cash floor
@@ -1515,6 +1520,7 @@ export class HorseFleetManager {
       varietyDrainTables: [],
       cashRoom: null,
       varietyDrainWhy: null,
+      varietyCannotStart: [],
       horsesSeatedCash: null,
       gates: null,
       rows: [],
@@ -2908,6 +2914,7 @@ export class HorseFleetManager {
          asked is the walk's own, with nobody at the table. See
          HorseVarietyFirst. */
       const varietyNowMs = Date.now();
+      const varietyResting = this.varietyStarts.resting(varietyNowMs);
       const variety = varietyFirstPlan({
         tables,
         seatedAt: (tableId) => (seatsByTable.get(tableId) ?? []).length,
@@ -2915,7 +2922,7 @@ export class HorseFleetManager {
         /* Every Lightning game: its empty tables are the pool's next ring,
            seeded or started by a person. */
         neverHeldGames: new Set([...LIGHTNING_HORSE_SEEDED, ...(cashPlanLightningGames ?? [])]),
-        restingGames: this.varietyStarts.resting(varietyNowMs),
+        restingGames: varietyResting,
         preferredStarts: new Set(lightningStarters.keys()),
         mayStart: (t) =>
           !surplusTableIds.has(t.id) &&
@@ -2934,6 +2941,9 @@ export class HorseFleetManager {
             ploDemand
           ),
       });
+      /* A game neither owed nor resting now loses its own-reason mark: owed
+         again later, it is asked again (HorseVarietyFirst.VarietyStartMemory). */
+      this.varietyStarts.forgetAllBut([...variety.owedStarts.values(), ...varietyResting]);
       const orderedTables = [...tables, ...diamondTables].sort(
         (a, b) =>
           Number(humanShort(b)) - Number(humanShort(a)) ||
@@ -3200,6 +3210,21 @@ export class HorseFleetManager {
         nowIso: new Date().toISOString(),
       });
       beat.varietyOwedSince = this.varietyOwedSinceByGame;
+      /* THE DRAIN FREES A SLOT ONLY FOR A START THE CAP IS BLOCKING (2026-11-27,
+         7 PM CST seal; HorseVarietyFirst.drainOwedGames). An owed game whose
+         last start failed for a reason of its own (the cap admitted it and no
+         Horse could sit) stays on the published list for the holds, but the
+         drain releases nothing for it: a freed slot cannot cure it. */
+      const varietyCannotStart = this.varietyStarts.cannotStart();
+      const drainOwed = drainOwedGames({
+        owedGames: beat.varietyOwedGames,
+        cannotStart: varietyCannotStart,
+      });
+      const drainOwedInPlan = drainOwedGames({
+        owedGames: [...new Set(variety.owedStarts.values())],
+        cannotStart: varietyCannotStart,
+      });
+      beat.varietyCannotStart = beat.varietyOwedGames.filter((g) => varietyCannotStart.has(g));
       this.varietyHeldStarts = varietyHeld;
       publishVarietyHolds(varietyHeld, horseIdSet, Date.now());
       /* AN EXTRA TABLE YIELDS TO AN OWED MAIN (2026-11-24, HorseVarietyFirst.
@@ -3216,17 +3241,13 @@ export class HorseFleetManager {
       let owedStartAdmitted = false;
       // A table is released only on a fully read waiting list: an unread list
       // must never be taken for "no person waiting" (fail closed).
-      if (
-        beat.varietyOwedGames.length > 0 &&
-        cashPlanLightningGames &&
-        this.humansWaitingReadComplete
-      ) {
+      if (drainOwed.length > 0 && cashPlanLightningGames && this.humansWaitingReadComplete) {
         const room = await readHourlyCashRoom();
         if (!readIsCurrent()) return;
         beat.cashRoom = room;
         drainRoom = room;
-        owedStartAdmitted = [...variety.owedStarts.keys()].some((tableId) =>
-          hourlyAdmissions.has(tableId)
+        owedStartAdmitted = [...variety.owedStarts].some(
+          ([tableId, gameId]) => drainOwed.includes(gameId) && hourlyAdmissions.has(tableId)
         );
         const personWaitingGames = new Set<string>();
         for (const t of tables) {
@@ -3243,7 +3264,7 @@ export class HorseFleetManager {
               t.lifecycle === 'opening' &&
               (seatsByTable.get(t.id) ?? []).length === 0
           ).length,
-          owedStarts: beat.varietyOwedGames.length,
+          owedStarts: drainOwed.length,
           anOwedStartAdmitted: owedStartAdmitted,
         });
         const mayAddNew = mayAddDrainTable(Date.now(), this.varietyDrainNewAtMs);
@@ -3273,7 +3294,7 @@ export class HorseFleetManager {
             (seatsByTable.get(tableId) ?? []).some((x) => !horseIdSet.has(x.user_id)),
           personWaitingGames,
           neverHeldGames: new Set([...LIGHTNING_HORSE_SEEDED, ...cashPlanLightningGames]),
-          owedGames: beat.varietyOwedGames,
+          owedGames: drainOwed,
           shortfall,
           current: this.varietyDrainTableIds,
           mayAddNew,
@@ -3302,8 +3323,8 @@ export class HorseFleetManager {
       const drainCycle = drainCycleOutcome({
         withheld: !!cycleWithheld,
         readsComplete: !!(cashPlanLightningGames && this.humansWaitingReadComplete),
-        owedThisCycle: beat.varietyOwedGames.length,
-        owedInPlan: variety.owedStarts.size,
+        owedThisCycle: drainOwed.length,
+        owedInPlan: drainOwedInPlan.length,
         decision: varietyDrain,
         remembered: this.varietyDrainTableIds,
         personSeatedAt: (tableId) =>
@@ -3318,6 +3339,7 @@ export class HorseFleetManager {
       beat.varietyDrainWhy = drainWhyForBeat({
         withheld: !!cycleWithheld,
         owedThisCycle: beat.varietyOwedGames.length,
+        owedCapBlocked: drainOwed.length,
         decided: drainCycle.decided,
         why: varietyWhy,
         room: drainRoom,
@@ -3328,7 +3350,7 @@ export class HorseFleetManager {
         console.log(
           `[HorseFleet] ${varietyDrain.length} extra table(s) ` +
             `${varietyDrain.map((id) => id.slice(0, 8)).join(',')} released for ` +
-            `${beat.varietyOwedGames.length} owed start(s) - not seating them`
+            `${drainOwed.length} owed start(s) the cap blocks - not seating them`
         );
       }
       publishVarietyDrain(released, Date.now(), horseIdSet);
@@ -3626,6 +3648,7 @@ export class HorseFleetManager {
         const varietyGame = hourly.startsGame ? variety.owedStarts.get(table.id) : undefined;
         const varietyHostCapBefore = hostCapRefused;
         let varietyFloorStop = false;
+        let varietyCapRefused = false;
         let varietyStartedHere = false;
         let diag: OpeningFeederDiag | null = null;
         try {
@@ -4810,6 +4833,8 @@ export class HorseFleetManager {
                 ) {
                   varietyFloorStop = true;
                 }
+                /* Refused by the hourly cap at the door: a start a freed slot cures. */
+                if (reason === 'hourly_cap') varietyCapRefused = true;
                 /* The horse is at the platform's game limit as the DATABASE
                    counts it (seats plus bookings). No later table in this
                    cycle can be different, so it is not offered one. */
@@ -4991,15 +5016,22 @@ export class HorseFleetManager {
           /* A game the walk could not start rests, so depth is not held for
              ever behind a game no Horse can sit in. A floor-wide stop (seat
              budget, cycle clock, the host's seat ceiling) is not the game's
-             own reason and rests nothing. */
+             own reason and rests nothing. The walk says WHY (2026-11-27, 7 PM
+             CST seal): this table was admitted by the hourly projection
+             (varietyGame needs hourly.startsGame), so a start that failed
+             without the door's cap refusal and without a floor-wide stop
+             failed for a reason of its own, and the drain stops freeing slots
+             for it (HorseVarietyFirst.drainOwedGames). */
           if (varietyGame !== undefined) {
             if (varietyStartedHere) this.varietyStarts.noteStarted(varietyGame);
+            else if (varietyCapRefused)
+              this.varietyStarts.noteCouldNotStart(varietyGame, Date.now(), 'cap_blocked');
             else if (
               !varietyFloorStop &&
               hostCapRefused === varietyHostCapBefore &&
               readIsCurrent()
             ) {
-              this.varietyStarts.noteCouldNotStart(varietyGame, Date.now());
+              this.varietyStarts.noteCouldNotStart(varietyGame, Date.now(), 'own_reason');
             }
           }
           /* EXACTLY ONE LINE PER OPENING FEEDER PER CYCLE, whatever path the
@@ -5677,6 +5709,7 @@ export class HorseFleetManager {
             variety_drain_tables: beat.varietyDrainTables,
             cash_room: beat.cashRoom,
             variety_drain_why: beat.varietyDrainWhy,
+            variety_cannot_start: beat.varietyCannotStart,
           },
         },
       });
