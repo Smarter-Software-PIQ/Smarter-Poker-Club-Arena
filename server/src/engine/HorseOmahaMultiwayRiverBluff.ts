@@ -19,8 +19,9 @@
  * the gap was measured with it on, and this rule prices the checks it leaves. Owner order: a late-street bluff is
  * never random; it is math dependent and blocker dependent.
  *
- * EACH OPPONENT'S FOLD. One estimate for every opponent, in the order his own lifetime public multiway river fold
- * record (HorseMind.omahaStrongHandCheckRecordsOf, small and big cells) -> PEOPLE's multiway population
+ * EACH OPPONENT'S FOLD. One estimate for every opponent, in the order his own lifetime public river fold record,
+ * multiway AND heads-up answers, each against its own field's equilibrium (HorseMind.omahaStrongHandCheckRecordsOf,
+ * small and big cells; omahaMultiwayRiverOwnFoldMultiplier) -> PEOPLE's multiway population
  * (HorseOmahaMultiwayRiverFoldTables.json, scripts/ops/omaha-multiway-river-fold-fit.mjs: answers by people only to a
  * river first wager made with two or more opponents live, by game, turn line and size; a Horse's answer never enters
  * a cell) -> equilibrium, each level shrunk to the next by k = 75.9 river answers (the measured between-player prior
@@ -55,7 +56,7 @@ import type { HorseDecision, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import { omahaCardImpactAmounts } from './HorseOmahaCardImpact.js';
 import { omahaNoCategoricalRulesInScope } from './HorseOmahaNoCategoricalRules.js';
-import { omahaFoldMultiplierOnPeople, omahaPeopleFoldSizeCell } from './HorseOmahaPeopleFold.js';
+import { omahaPeopleFoldSizeCell } from './HorseOmahaPeopleFold.js';
 import {
   OMAHA_RIVER_OPENING_EQ_FOLD,
   omahaRiverOpeningBins,
@@ -195,7 +196,47 @@ export interface OmahaMultiwayRiverBluffVerdict {
 export interface OmahaMultiwayRiverBluffOpponent {
   /** his measured river range (bins, strong to weak) */
   hist: readonly number[];
+  /** his lifetime public MULTIWAY river first-wager answers (small / big cells) */
   record: OmahaRiverOpeningFoldRecord | null;
+  /** his lifetime public HEADS-UP river first-wager answers (small / big cells): his own record too */
+  recordHu?: OmahaRiverOpeningFoldRecord | null;
+}
+
+/**
+ * HIS OWN RECORD, BOTH FIELDS (UB3 2026-11-27): his folds over the folds the equilibrium expects of each answer in its
+ * own field: a heads-up answer against B / (P + B) of its size class (1/3 small, 1/2 big), a multiway answer against
+ * the multiway equilibrium of one opponent of N, (B / (P + B)) ^ (1 / N). F / E is his fold multiplier on the
+ * equilibrium, the one quantity the price reads; it is shrunk to people's multiway multiplier by k river answers.
+ * Reading only his multiway answers left a player who calls every heads-up river bet (0 folds in 92) priced at
+ * people's 0.98 multiway fold on a three-way river (grade/v2: PLO5 calling station -2.7 SE).
+ */
+export function omahaMultiwayRiverOwnFoldMultiplier(
+  record: OmahaRiverOpeningFoldRecord | null | undefined,
+  recordHu: OmahaRiverOpeningFoldRecord | null | undefined,
+  opponents: number,
+  mPeople: number,
+  k: number
+): { m: number; n: number } {
+  const N = Math.max(2, opponents);
+  let F = 0;
+  let E = 0;
+  let n = 0;
+  const take = (c: { folds: number; opps: number } | null | undefined, eq: number) => {
+    if (!c || !fin(c.folds) || !fin(c.opps) || !(c.opps > 0) || c.folds < 0) return;
+    F += Math.min(c.folds, c.opps);
+    E += c.opps * eq;
+    n += c.opps;
+  };
+  take(record?.foldSmall, Math.pow(OMAHA_RIVER_OPENING_EQ_FOLD.small, 1 / N));
+  take(record?.foldBig, Math.pow(OMAHA_RIVER_OPENING_EQ_FOLD.big, 1 / N));
+  take(recordHu?.foldSmall, OMAHA_RIVER_OPENING_EQ_FOLD.small);
+  take(recordHu?.foldBig, OMAHA_RIVER_OPENING_EQ_FOLD.big);
+  const base = fin(mPeople) && mPeople >= 0 ? mPeople : 1;
+  if (!(n > 0) || !(E > 0)) return { m: base, n: 0 };
+  // the prior is worth k answers at his own record's mean equilibrium
+  const g = E / n;
+  const m = (F + k * g * base) / (E + k * g);
+  return fin(m) && m >= 0 ? { m, n } : { m: base, n: 0 };
 }
 
 /** The comparison. Pure arithmetic over omahaRiverOpeningPrice, one opponent at a time. */
@@ -226,13 +267,11 @@ export function omahaMultiwayRiverBluffPrice(
     const foldAt = (B: number) => {
       const eqHu = B / (pot + B);
       const eqN = Math.pow(eqHu, 1 / N);
-      const fm = omahaFoldMultiplierOnPeople(
-        [
-          { cell: o.record?.foldSmall, eq: OMAHA_RIVER_OPENING_EQ_FOLD.small },
-          { cell: o.record?.foldBig, eq: OMAHA_RIVER_OPENING_EQ_FOLD.big },
-        ],
+      const fm = omahaMultiwayRiverOwnFoldMultiplier(
+        o.record,
+        o.recordHu,
+        N,
         omahaMultiwayRiverPeopleFold(variant, omahaMultiwayRiverFieldOf(N), line, B / pot).m,
-        OMAHA_RIVER_OPENING_EQ_FOLD.mean,
         k
       );
       return { m: (fm.m * eqN) / eqHu, n: fm.n };
@@ -327,12 +366,18 @@ export function omahaMultiwayRiverBluffRule(
       );
       if (!hist) return same;
       let record: OmahaRiverOpeningFoldRecord | null = null;
+      let recordHu: OmahaRiverOpeningFoldRecord | null = null;
       try {
         record = recordOf(spot.opponents[i], spot.opponents.length);
       } catch {
         record = null;
       }
-      opponents.push({ hist, record });
+      try {
+        recordHu = recordOf(spot.opponents[i], 1);
+      } catch {
+        recordHu = null;
+      }
+      opponents.push({ hist, record, recordHu });
     }
     // the sizes the engine prices, capped by the deepest opponent's stack
     const deepest = spot.opponents.reduce((a, b) => (b.stack > a.stack ? b : a));

@@ -143,6 +143,17 @@ describe('LAW: the multiway river opening bluff is math and blockers, priced on 
     expect(folder).toBeGreaterThan(0);
   });
 
+  it('his own HEADS-UP record counts: a player who never folds a heads-up river bet is never bluffed multiway', () => {
+    const huOnly = (_o: unknown, opponents: number): Rec | null =>
+      opponents <= 1 ? never() : null;
+    let base = 0;
+    for (const x of NODES) {
+      if (run(x, none).changed) base++;
+      expect(run(x, huOnly as never).changed).toBe(false);
+    }
+    expect(base).toBeGreaterThan(0);
+  });
+
   it('each field has its own switch, and a thin four-way cell stays at the equilibrium anchor', () => {
     let three = 0;
     for (const x of NODES) {
