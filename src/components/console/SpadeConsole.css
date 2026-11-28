@@ -787,13 +787,13 @@ input.sc-check__box:disabled {
   place-items: center;
   width: 44px;
   height: 44px;
-  min-width: 44px;
+  min-width: 44px !important;
   margin: 0 0 0 auto;
   padding: 0;
-  border: 4px solid transparent;
-  border-image: var(--sd-stat) 11 / 5px stretch;
-  background: linear-gradient(180deg, #1d344b, #0a1726 60%, #10243a);
-  color: #e9f1fb;
+  border: 4px solid transparent !important;
+  border-image: var(--sd-stat) 11 / 5px stretch !important;
+  background: linear-gradient(180deg, #1d344b, #0a1726 60%, #10243a) !important;
+  color: #e9f1fb !important;
   font-size: 24px;
   font-weight: 500;
   line-height: 1;
@@ -848,14 +848,14 @@ input.sc-check__box:disabled {
   width: auto;
   height: auto;
   min-width: 0;
-  min-height: 48px;
+  min-height: 48px !important;
   margin: 0;
   padding: 6px 10px;
-  border: 5px solid transparent;
-  border-image: var(--sd-stat) 11 / 6px stretch;
-  border-radius: 0;
-  background: linear-gradient(155deg, #12273b, #07111c 70%);
-  color: #f1f5fc;
+  border: 5px solid transparent !important;
+  border-image: var(--sd-stat) 11 / 6px stretch !important;
+  border-radius: 0 !important;
+  background: linear-gradient(155deg, #12273b, #07111c 70%) !important;
+  color: #f1f5fc !important;
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, system-ui, sans-serif;
   font-size: 17px;
   font-weight: 700;
@@ -870,10 +870,10 @@ input.sc-check__box:disabled {
   content: none;
 }
 .sc.sc--sd.sc--sd .sc-sd__plate--primary {
-  border-image-source: var(--sd-active);
-  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
-  background-clip: padding-box;
-  color: #fff;
+  border-image-source: var(--sd-active) !important;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
+  background-clip: padding-box !important;
+  color: #fff !important;
 }
 .sc.sc--sd.sc--sd .sc-sd__plate-text {
   display: block;
@@ -897,9 +897,9 @@ input.sc-check__box:disabled {
   filter: brightness(0.86);
 }
 .sc.sc--sd.sc--sd .sc-sd__plate:disabled {
-  border-image-source: var(--sd-stat);
-  background: #13202c;
-  color: #a7b7c8;
+  border-image-source: var(--sd-stat) !important;
+  background: #13202c !important;
+  color: #a7b7c8 !important;
   cursor: default;
 }
 .sc.sc--sd.sc--sd .sc-sd__plate:disabled .sc-sd__plate-text {
@@ -912,4 +912,19 @@ input.sc-check__box:disabled {
 }
 .sc.sc--sd.sc--sd :where(.sc-label) {
   color: #86daff;
+}
+/* Inside a dialog the shared popup sheet (metallic-popups.css) paints any
+   `__head` as a raised, rounded header bar with !important. The #SmarterDesign
+   head is part of the one chrome case, separated only by its hairline. */
+.sc.sc--sd.sc--sd > .sc__head.sc__head {
+  border: 0 !important;
+  border-bottom: 1px solid rgb(134 218 255 / 18%) !important;
+  border-radius: 0 !important;
+  background: none !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  outline: 0 !important;
+}
+.sc.sc--sd.sc--sd .sc__title.sc__title {
+  text-shadow: none !important;
 }

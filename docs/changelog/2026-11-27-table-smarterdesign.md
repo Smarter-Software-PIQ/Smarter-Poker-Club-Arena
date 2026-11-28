@@ -31,6 +31,11 @@ names, roles, test ids, handlers and labels are unchanged.
 - **Table drawer** (hamburger): an ink-navy panel inside one chrome case, every action a chrome
   ledger row with an ice-blue icon, section titles as live type, the X a 44px chrome key. The
   slide-in animations still play.
+- **Buy-In** (the first popup on any cash table): the painted spade head and deck are replaced by
+  a flow head (eyebrow, title, countdown key), the amount in a chrome readout beside the slider,
+  Min / BB / Max / Balance as four chrome tiles (Min and Max light blue when pressed), and Close
+  or Top Up beside the confirm, lit blue. The measured zones keep their handlers and test hooks;
+  their inline placement is neutralised in CSS.
 - **Leave Table confirm**: one chrome case, a chrome medallion for the exit mark, Stay as a chrome
   key and Leave Table lit red.
 
@@ -41,8 +46,16 @@ zone laws are untouched for every surface off the table.
 
 ## Still painted on the table
 
-The Buy-In deck and the Insurance deck draw their own painted layouts with measured zones
-(`BuyInModal`, `InsuranceModal`); they are the next pass.
+The Insurance deck (`InsuranceModal`) draws its own painted layout; it is the next pass.
+
+## One trap, fixed before it shipped
+
+`SpadeConsole.css` and `metallic-popups.css` reset every plate, close and `__head` inside a
+`role="dialog"` with `!important` (they were written for painted art, where the button paints
+nothing). The first render outside a dialog looked right; inside a real table dialog the chrome
+keys lost their frame and the head became a rounded bar. The skin's keys and head now carry
+`!important` at higher specificity, and the renders were repeated inside `role="dialog"` with
+`metallic-popups.css` loaded.
 
 ## Verified
 

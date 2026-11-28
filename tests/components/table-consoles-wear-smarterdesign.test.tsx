@@ -79,4 +79,21 @@ describe('table consoles wear #SmarterDesign', () => {
     expect(css).toMatch(/\.sc\.sc--sd\.sc--sd \{[\s\S]*?background: var\(--sd-panel\), #030b14;/);
     expect(css).toMatch(/chrome-case\.webp/);
   });
+
+  it('survives the dialog resets: keys and head keep their chrome inside role="dialog"', () => {
+    const css = read('src/components/console/SpadeConsole.css');
+    const plate = css.slice(css.indexOf('.sc.sc--sd.sc--sd .sc-sd__plate {'));
+    expect(plate.slice(0, plate.indexOf('}'))).toMatch(
+      /border-image: var\(--sd-stat\)[^;]*!important;/
+    );
+    const close = css.slice(css.indexOf('.sc.sc--sd.sc--sd .sc__close {'));
+    expect(close.slice(0, close.indexOf('}'))).toMatch(/background:[^;]*!important;/);
+    expect(css).toMatch(
+      /\.sc\.sc--sd\.sc--sd > \.sc__head\.sc__head \{[\s\S]*?box-shadow: none !important;/
+    );
+    const buyIn = read('src/components/table/BuyInModal.css');
+    expect(buyIn).toMatch(
+      /\.buy-in-modal\.buy-in-modal \.buy-in-modal__deck > \.sc-plate \{[\s\S]*?border-image:[^;]*!important;/
+    );
+  });
 });
