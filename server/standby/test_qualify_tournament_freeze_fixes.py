@@ -259,12 +259,19 @@ class QualificationBuildCachingAndParallelProbes(unittest.TestCase):
             '/dist-prerender',
             '/dist-native',
             '/graphify-out',
-            '/server/release-evidence',
         ):
             self.assertIn(excluded, qualification.DOCKERIGNORE_EXCLUDES)
         for entry in qualification.DOCKERIGNORE_EXCLUDES + qualification.NODE_DOCKERIGNORE_EXTRA_EXCLUDES:
             self.assertTrue(entry.startswith('/'), f'must be root-anchored: {entry}')
             self.assertFalse(entry.endswith('/'), f'no trailing slash: {entry}')
+            # NEVER exclude /server or any subdirectory inside /server/ (e.g.
+            # /server/src/benchmark is imported at runtime by HorsePhase13Authority.ts
+            # and /server/release-evidence is read at runtime by HorseQualifiedAuthority.ts;
+            # incident 46135124209, 2026-11-28).
+            self.assertFalse(
+                entry == '/server' or entry.startswith('/server/'),
+                f'must never exclude any path under /server/: {entry}',
+            )
         required_pg_paths = (
             '/server',
             '/server/src',
