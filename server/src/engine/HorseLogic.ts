@@ -36619,18 +36619,6 @@ export class HorseLogic {
     const opp = live[0] as SeatPlayer;
     const tele = telemetryOn(opts);
     const river = gs.stage === 'river';
-    const fire = (what: 'call' | 'fold_stands' | 'own_record_read' | 'unpriced'): void => {
-      if (!tele) return;
-      if (what === 'call')
-        noteFire(river ? 'holdem_turn_plan_river_call' : 'holdem_turn_plan_call');
-      else if (what === 'fold_stands')
-        noteFire(river ? 'holdem_turn_plan_river_fold_stands' : 'holdem_turn_plan_fold_stands');
-      else if (what === 'own_record_read')
-        noteFire(
-          river ? 'holdem_turn_plan_river_own_record_read' : 'holdem_turn_plan_own_record_read'
-        );
-      else noteFire(river ? 'holdem_turn_plan_river_unpriced' : 'holdem_turn_plan_unpriced');
-    };
     try {
       const board = gs.communityCards ?? [];
       if (board.length !== (river ? 5 : 4)) return decision;
@@ -36681,7 +36669,10 @@ export class HorseLogic {
       }
       const record = opts.mind !== false ? holdemBetReadTurnOf(opp.user_id, ratio) : null;
       const turnShares = holdemTurnFacingBetOwnShares(ratio, potType, record);
-      if (turnShares.shown > 0) fire('own_record_read');
+      if (tele && turnShares.shown > 0)
+        noteFire(
+          river ? 'holdem_turn_plan_river_own_record_read' : 'holdem_turn_plan_own_record_read'
+        );
       let call: boolean;
       if (river) {
         const riverRatio = villainIn / (pot - villainIn);
@@ -36701,7 +36692,8 @@ export class HorseLogic {
           rake
         );
         if (price === null) {
-          fire('unpriced');
+          if (tele)
+            noteFire(river ? 'holdem_turn_plan_river_unpriced' : 'holdem_turn_plan_unpriced');
           return decision;
         }
         call = price.call;
@@ -36725,13 +36717,15 @@ export class HorseLogic {
           barrels: opts.mind !== false ? holdemBetReadBarrelOf(opp.user_id) : null,
         });
         if (price === null) {
-          fire('unpriced');
+          if (tele)
+            noteFire(river ? 'holdem_turn_plan_river_unpriced' : 'holdem_turn_plan_unpriced');
           return decision;
         }
         call = price.call;
       }
       if (!call) {
-        fire('fold_stands');
+        if (tele)
+          noteFire(river ? 'holdem_turn_plan_river_fold_stands' : 'holdem_turn_plan_fold_stands');
         return decision;
       }
       const called = this.legalize(
@@ -36741,13 +36735,13 @@ export class HorseLogic {
         vi
       );
       if (called.action !== 'call' && called.action !== 'all_in') {
-        fire('unpriced');
+        if (tele) noteFire(river ? 'holdem_turn_plan_river_unpriced' : 'holdem_turn_plan_unpriced');
         return decision;
       }
-      fire('call');
+      if (tele) noteFire(river ? 'holdem_turn_plan_river_call' : 'holdem_turn_plan_call');
       return called;
     } catch {
-      fire('unpriced');
+      if (tele) noteFire(river ? 'holdem_turn_plan_river_unpriced' : 'holdem_turn_plan_unpriced');
       return decision;
     }
   }

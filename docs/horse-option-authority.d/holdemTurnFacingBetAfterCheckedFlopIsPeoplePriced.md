@@ -64,7 +64,7 @@ Real recorded nodes (150 Horse decisions facing a person's heads-up turn stab af
 
 The NLH cash audit sets hold no recorded turn fold of this line with the Horse's cards (exact tier needs a showdown); not run for this option.
 
-- Replay: not run (no audited turn fold facing a stab after a checked flop in the exact tier).
+- Replay: NOT RUN (the NLH cash audit sets hold no exact-tier turn fold facing a stab after a checked flop)
 
 ## Speed
 
