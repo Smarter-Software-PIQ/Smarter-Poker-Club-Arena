@@ -9275,6 +9275,8 @@ function multiBoardBluffTrimPriced(
  * r2c: each opponent's `canStab` = it acts after the Horse on this street and is live and not all-in,
  * by the dealer-relative seat order of the V17 players-behind count (read here directly, so it does
  * not depend on the street-IQ switch). Seat order unknown (no dealer seat): treated as able to stab.
+ * r3 (2026-11-28): the verdict prices every street left (HorseSlowplayPriced.ts); this function adds
+ * only who bet last on the street before, read from the public action history.
  */
 function horseSlowplayPricedDecision(
   player: SeatPlayer,
@@ -9361,6 +9363,20 @@ function horseSlowplayPricedDecision(
         ? heroBubbleFactor(gs, heroStack / gs.bigBlind, player.user_id, effectiveBet)
         : null;
 
+    // r3: who made the last bet or raise on the street before this one (the case the people's
+    // betting rates are measured in). Public action history only; unknown reads as nobody.
+    const priorStage = street === 'flop' ? 'preflop' : 'flop';
+    let lastBettor: 'hero' | 'opp' | 'none' = 'none';
+    for (const rec of gs.actionHistory ?? []) {
+      if (rec.stage !== priorStage) continue;
+      if (
+        rec.action === 'bet' ||
+        rec.action === 'raise' ||
+        (rec.action === 'all_in' && typeof rec.isFullRaise === 'boolean')
+      )
+        lastBettor = rec.userId === player.user_id ? 'hero' : 'opp';
+    }
+
     const verdict = priceMonsterSlowplay({
       equity,
       pot,
@@ -9374,6 +9390,7 @@ function horseSlowplayPricedDecision(
       flopTexture: street === 'flop' ? classifyHoldemFlopTexture(board, pairedBoard) : undefined,
       heroBubbleFactor: bf,
       opponents: oppInputs,
+      initiative: lastBettor,
     });
 
     if (tele) {
