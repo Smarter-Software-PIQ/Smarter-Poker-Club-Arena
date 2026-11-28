@@ -16,6 +16,13 @@
  *
  * Deliberately not a second statements page. Statements are the billing
  * record and live at /unions/:unionId/statements; this is production.
+ *
+ * #SmarterDesign (batch U1, 2026-11-28): the Club Data layout. The chrome
+ * mast (area data) heads the page, the union and its club count sit on the
+ * chrome meters under it with Statements and Union as chrome keys
+ * (Statements lit), and the shared rake snapshot panel follows on the root
+ * skin's chrome case. Every printed word and control is pinned by
+ * tests/components/unionDataPageIsPinned.test.tsx.
  */
 
 import { useEffect, useLayoutEffect, useState } from 'react';
@@ -25,10 +32,11 @@ import { supabase } from '../lib/supabase';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useCanOperateUnionNetwork } from '../hooks/useCanCreateUnion';
 import { reportError } from '../utils/errorReporter';
-import CasinoSurfaceHeader from '../components/rewards/RewardsSurfaceHeader';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import PageBar from '../components/help/PageBar';
 import RakeSnapshotPanel from '../components/club/RakeSnapshotPanel';
 import { titleCase } from '../utils/titleCase';
-import styles from './UnionDataPage.module.css';
+import './UnionDataPage.css';
 
 export default function UnionDataPage() {
   const { unionId, unionRef } = useUnionRouteId();
@@ -107,29 +115,38 @@ export default function UnionDataPage() {
 
   if (!unionId) {
     return (
-      <main className={styles.page}>
-        <CasinoSurfaceHeader
+      <main className="union-data arena-workspace">
+        <ArenaWorkspaceHeader
+          area="data"
           title="Union Data"
-          description="Choose A Union To Read Its Verified Production Ledger."
-          status="UNION PRODUCTION // CHECKING"
-          pill="No Union"
-          plates={{
-            primary: {
-              label: canOperateUnionNetwork ? 'Return To Unions' : 'Return To Community',
-              onClick: () => navigate(canOperateUnionNetwork ? '/unions' : '/community'),
-            },
-          }}
+          summary="Choose A Union To Read Its Verified Production Ledger."
         />
+        <PageBar titleAs={false} showHelp={false} title="Union Data" status="No Union">
+          <div className="arena-switch arena-ops-keys arena-ops-primary">
+            <button
+              type="button"
+              onClick={() => navigate(canOperateUnionNetwork ? '/unions' : '/community')}
+            >
+              {canOperateUnionNetwork ? 'Return To Unions' : 'Return To Community'}
+            </button>
+          </div>
+        </PageBar>
       </main>
     );
   }
 
   return (
-    <main className={styles.page}>
-      <CasinoSurfaceHeader
+    <main className="union-data arena-workspace">
+      <ArenaWorkspaceHeader
+        area="data"
         title="Union Data"
-        description="What Every Club Beneath This Union Produced In Rake, For The Day, The Week, The Month Or The Year."
-        status="UNION PRODUCTION // LIVE"
+        context={unionName ? titleCase(unionName) : null}
+        summary="What Every Club Beneath This Union Produced In Rake, For The Day, The Week, The Month Or The Year."
+      />
+      <PageBar
+        titleAs={false}
+        showHelp={false}
+        title="Union Data"
         metrics={[
           {
             label: 'Union',
@@ -137,17 +154,16 @@ export default function UnionDataPage() {
           },
           { label: 'Clubs', value: clubCount ?? (clubCountReady ? 'Unavailable' : 'Checking') },
         ]}
-        plates={{
-          secondary: {
-            label: 'Union',
-            onClick: () => navigate(`/unions/${unionRef}`),
-          },
-          primary: {
-            label: 'Statements',
-            onClick: () => navigate(`/unions/${unionRef}/statements`),
-          },
-        }}
-      />
+      >
+        <div className="arena-switch arena-ops-keys arena-ops-primary">
+          <button type="button" onClick={() => navigate(`/unions/${unionRef}/statements`)}>
+            Statements
+          </button>
+          <button type="button" onClick={() => navigate(`/unions/${unionRef}`)}>
+            Union
+          </button>
+        </div>
+      </PageBar>
 
       {/*
         The union, handed over directly. scopes is union alone: the club scope
