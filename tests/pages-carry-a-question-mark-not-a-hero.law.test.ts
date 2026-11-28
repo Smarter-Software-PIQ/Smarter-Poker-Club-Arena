@@ -30,7 +30,6 @@ const read = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8'
 
 /** Every component that used to print a page hero, and now prints the bar. */
 const PAGE_HEADERS = [
-  'src/components/community/CommunitySurfaceHeader.tsx',
   'src/components/club/ClubIntegrityHeader.tsx',
   'src/components/rewards/RewardsSurfaceHeader.tsx',
   'src/components/wallet/CashierWorkspace.tsx',

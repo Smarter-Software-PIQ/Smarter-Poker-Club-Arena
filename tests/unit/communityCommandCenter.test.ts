@@ -139,14 +139,13 @@ describe('Community Command Center interaction contracts', () => {
 describe('#SmarterCasinoRealism community surfaces', () => {
   it('prints a page bar, not a hero, and avoids glassmorphism', () => {
     /* Dan 2026-10-17: "PAGES DON'T NEED TITLES LIKE THIS". The shared
-       community header renders PageBar: no network artwork, no own sheet. */
-    const heroComponent = read('src/components/community/CommunitySurfaceHeader.tsx');
+       community header is gone (2026-11-28): Search and Connections both
+       print the arena mast (#SmarterDesign), so nothing rendered it. */
     const searchCss = read('src/pages/SearchPage.module.css');
     const friendsCss = read('src/pages/FriendsPage.css');
     const modalCss = read('src/components/social/FriendChallengeModal.css');
 
-    expect(heroComponent).toContain("import PageBar from '../help/PageBar'");
-    expect(heroComponent).not.toContain('mediaUrl(');
+    expect(existsSync('src/components/community/CommunitySurfaceHeader.tsx')).toBe(false);
     expect(existsSync('src/components/community/CommunitySurfaceHeader.module.css')).toBe(false);
     expect(searchCss).toContain('border-radius: 3px');
     /* 2026-11-28: Connections wears the arena workspace (#SmarterDesign,

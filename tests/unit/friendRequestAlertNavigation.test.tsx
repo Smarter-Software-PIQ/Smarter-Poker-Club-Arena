@@ -24,7 +24,6 @@ vi.mock('../../src/utils/fetchAllRows', () => ({ fetchAllRows: async () => [] })
 vi.mock('../../src/utils/retryFetch', () => ({
   retryFetch: async (read: () => unknown) => read(),
 }));
-vi.mock('../../src/components/community/CommunitySurfaceHeader', () => ({ default: () => null }));
 vi.mock('../../src/components/social/FriendActivityFeed', () => ({ default: () => null }));
 vi.mock('../../src/components/social/FriendChallengeModal', () => ({ default: () => null }));
 vi.mock('../../src/components/social/FriendChallengesPanel', () => ({ default: () => null }));
