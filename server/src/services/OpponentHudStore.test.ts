@@ -901,7 +901,11 @@ describe('OpponentHudStore: owner requirements (15 seconds on every seat change;
     try {
       const two = [{ user_id: U(1) }, { user_id: U(2) }];
       const three = [...two, { user_id: U(3) }];
-      const at = (stage: string, players: typeof three, extra: Record<string, unknown> = {}) =>
+      const at = (
+        stage: string,
+        players: { user_id: string; is_folded?: boolean }[],
+        extra: Record<string, unknown> = {}
+      ) =>
         opponentHudSnapshotField(
           { gameVariant: 'nlh', gameMode: 'cash', stage, players, bigBlind: 2, ...extra },
           U(1),

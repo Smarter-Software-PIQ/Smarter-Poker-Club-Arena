@@ -5,13 +5,14 @@
  *
  *  1. THE FOLD: equilibrium is the anchor (multiplier 1). People's measured fold to a heads-up turn first bet, by the
  *     bettor's line and the bet's size, moves it (answers by PEOPLE only: the table and its fit never count a Horse's
- *     answer), each cell shrunk by 44.4 pseudo-answers. His own lifetime turn record of THIS bet's size moves it
- *     again and dominates as it grows; his record of the other size is not read. What people's cells say: a barrel
+ *     answer), each cell shrunk by 44.4 pseudo-answers. His own lifetime turn record of THIS bet's size SCALES
+ *     people's cell (it is by size and cannot see the line) and dominates as it grows; the other size is not read. What people's cells say: a barrel
  *     is at or below equilibrium, a small bet after a checked flop is far above it.
- *  2. REAL AUDITED NODES (the deciding Horse's own cards only): off the brain checks; on it bets at one size on every
- *     seed with its receipt where the audit found a missed turn bluff or thin bet against a person; a truthy
- *     non-boolean is off; a tournament copy is never touched; the river and the flop of the same hand are never
- *     touched; a calling station's own turn record turns the same bet back into a check and an over-folder's keeps
+ *  2. REAL AUDITED NODES (the deciding Horse's own cards only): THE OPTION ACTS ONLY AFTER A CHECKED-THROUGH FLOP.
+ *     There, off the brain checks and on it bets at one size on every seed with its receipt where the audit found a
+ *     missed turn bluff against a person; after a flop wager (a barrel, a lead into the flop bettor) nothing is read
+ *     and the brain's own answer stands; a truthy non-boolean is off; a tournament copy is never touched; the river
+ *     and the flop of the same hand are never touched; a calling station's own turn record turns the same bet back into a check and an over-folder's keeps
  *     it; a bet that neither blockers nor the range advantage support stays a check; a turn check the audit judged
  *     correct stays a check.
  *  3. THE RECORD'S ROUTE: the provider the decision worker installs serves his NLH heads-up turn cells by size from
@@ -28,6 +29,7 @@ import {
   holdemPeopleTurnFoldMultiplier,
   holdemPeopleTurnFoldSe,
   holdemPeopleTurnLineOf,
+  holdemPeopleTurnRecordCellMultiplier,
   holdemPeopleTurnRecordEqFold,
   holdemPeopleTurnSizeCell,
   holdemTurnFoldMultiplierOnPeople,
@@ -66,7 +68,9 @@ const prof = replayProfiles('cash')[0];
 const SEEDS = [1, 7, 42];
 const BET = 'holdem_turn_people_bluff_bet';
 const bets = FIX.nodes.filter((n) => n.expect === BET);
-const stays = FIX.nodes.filter((n) => n.expect !== BET);
+/** nodes after a flop wager (a barrel, a lead into the flop bettor): out of the option's line, nothing is read */
+const outOfLine = FIX.nodes.filter((n) => n.expect === 'none');
+const stays = FIX.nodes.filter((n) => n.expect !== BET && n.expect !== 'none');
 const stateOf = (n: FixNode) =>
   stateAt(n.hand, n.hand.actions.find((a) => a.ord === n.ord) as ComplaintAction);
 const T = tables as unknown as {
@@ -151,19 +155,32 @@ describe('the people turn fold: the table and the math', () => {
     const gAll = holdemPeopleTurnRecordEqFold(null);
     expect(gBg).toBeGreaterThan(gAll);
     expect(gAll).toBeGreaterThan(gSm);
-    // the formula: (F + k g m_people) / (E + k g), E = answers x the cell's mean equilibrium fold
+    // the formula: m = m_people x rho, rho = [(F + k g M) / (n g + k g)] / M, M people's multiplier of the record's
+    // own cell over every line (his record is by size and cannot see the line: it scales people's cell)
+    const MSm = holdemPeopleTurnRecordCellMultiplier(false);
+    const MBg = holdemPeopleTurnRecordCellMultiplier(true);
+    const MAll = holdemPeopleTurnRecordCellMultiplier(null);
     expect(holdemTurnFoldMultiplierOnPeople({ folds: 3, opps: 20 }, 0.33, mP).m).toBeCloseTo(
-      (3 + k * gSm * mP) / (20 * gSm + k * gSm),
+      (mP * ((3 + k * gSm * MSm) / (20 * gSm + k * gSm))) / MSm,
       12
     );
     expect(holdemTurnFoldMultiplierOnPeople({ folds: 3, opps: 20 }, 1, mP).m).toBeCloseTo(
-      (3 + k * gBg * mP) / (20 * gBg + k * gBg),
+      (mP * ((3 + k * gBg * MBg) / (20 * gBg + k * gBg))) / MBg,
       12
     );
     expect(holdemTurnFoldMultiplierOnPeople({ folds: 3, opps: 20 }, 0.33, mP, true).m).toBeCloseTo(
-      (3 + k * gAll * mP) / (20 * gAll + k * gAll),
+      (mP * ((3 + k * gAll * MAll) / (20 * gAll + k * gAll))) / MAll,
       12
     );
+    // a player who folds small turn bets exactly as people do overall keeps people's line cell whole, however long
+    // his record: the line split is people's, his record cannot see it
+    const asPeople = holdemTurnFoldMultiplierOnPeople(
+      { folds: 400 * gSm * MSm, opps: 400 },
+      0.33,
+      mP
+    ).m;
+    expect(asPeople).toBeCloseTo(mP, 9);
+    expect(asPeople).toBeGreaterThan(holdemPeopleTurnFoldMultiplier('agg', 0.33).m);
     // a calling station's record takes the small stab below break-even (m below 1), an over-folder's keeps it
     const station40 = holdemTurnFoldMultiplierOnPeople({ folds: 0, opps: 40 }, 0.33, mP).m;
     const station400 = holdemTurnFoldMultiplierOnPeople({ folds: 0, opps: 400 }, 0.33, mP).m;
@@ -226,7 +243,8 @@ describe('the people turn fold: the table and the math', () => {
 
 describe('the turn bluff is priced on people: real audited nodes', () => {
   it('the fixture holds missed turn bets against people, a no-edge check and correct checks', () => {
-    expect(bets.length).toBeGreaterThanOrEqual(4);
+    expect(bets.length).toBeGreaterThanOrEqual(2);
+    expect(outOfLine.length).toBeGreaterThanOrEqual(2);
     expect(new Set(stays.map((n) => n.expect))).toEqual(
       new Set(['holdem_turn_people_bluff_no_edge', 'holdem_turn_people_bluff_below_check'])
     );
@@ -300,6 +318,7 @@ describe('the turn bluff is priced on people: real audited nodes', () => {
         return record;
       },
     });
+    let keptAll = 0;
     try {
       for (const n of bets) {
         const st = stateOf(n);
@@ -315,11 +334,19 @@ describe('the turn bluff is priced on people: real audited nodes', () => {
         expect(station.receipts.holdem_turn_people_bluff_below_check, 'station').toBe(
           unread.receipts[BET]
         );
+        // an over-folder's record never prices the bet below the check: the bet stands, unless at his higher fold
+        // the Horse's cards no longer block his calling part and its range is not the stronger one (no edge)
         record = { folds: 108, opps: 120 };
         const folder = replayAt(st, prof, SEEDS, opts);
-        expect(folder.receipts[BET], 'over-folder').toBe(unread.receipts[BET]);
-        expect(folder.kinds, 'over-folder').toEqual({ raise: SEEDS.length });
+        const kept = folder.receipts[BET] ?? 0;
+        expect(folder.receipts.holdem_turn_people_bluff_below_check ?? 0, 'over-folder').toBe(0);
+        expect(kept + (folder.receipts.holdem_turn_people_bluff_no_edge ?? 0), 'over-folder').toBe(
+          unread.receipts[BET]
+        );
+        if (kept === unread.receipts[BET]) keptAll++;
       }
+      // the over-folder's record keeps the bet on at least one node outright
+      expect(keptAll).toBeGreaterThanOrEqual(1);
       // the record asked for is the NLH heads-up turn record, by size
       expect(new Set(asked)).toEqual(new Set(['nlh|turn|hu|small', 'nlh|turn|hu|big']));
     } finally {
@@ -327,6 +354,23 @@ describe('the turn bluff is priced on people: real audited nodes', () => {
       restoreFastRandom(rng);
     }
   });
+
+  for (const n of outOfLine) {
+    it(`${n.hand.handId}: after a flop wager the option stands aside (no receipt, the brain's own answer)`, () => {
+      const rng = saveFastRandom();
+      try {
+        const st = stateOf(n);
+        const off = replayAt(st, prof, SEEDS, PROD);
+        const on = replayAt(st, prof, SEEDS, { ...PROD, [OPTION]: true });
+        expect(on.kinds).toEqual(off.kinds);
+        expect(on.sizesBb).toEqual(off.sizesBb);
+        for (const k of Object.keys(on.receipts))
+          expect(k.startsWith('holdem_turn_people_bluff')).toBe(false);
+      } finally {
+        restoreFastRandom(rng);
+      }
+    });
+  }
 
   for (const n of stays) {
     it(`${n.hand.handId}: the check stands (${n.expect})`, () => {

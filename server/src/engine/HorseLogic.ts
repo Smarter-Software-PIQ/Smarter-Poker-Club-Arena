@@ -6505,7 +6505,8 @@ export interface HorseDecideOpts {
   /** PLO-OWNER lead-9 2026-11-27 (lane nlzb; daily real-hand audits list missed turn bluffs as a top Hold'em cash
    * leak; measured on people Oct 28 to Nov 27: a heads-up turn barrel is NOT a profitable pure bluff, people fold
    * 34% where break-even is 36%, while a small bet after a checked flop is, 43% where break-even is 22%): opt-in
-   * (`=== true`), default OFF. NLH cash (table and Lightning), one board, heads-up, turn, not facing a wager: the
+   * (`=== true`), default OFF. NLH cash (table and Lightning), one board, heads-up, turn, the flop checked through
+   * (after a flop wager it stands aside: people fold a turn bet at or below equilibrium there), not facing a wager: the
    * brain's check becomes a bluff at the legal priced size of highest EV only when the hand has no value size, the
    * bluff prices above the check by more than the error of his fold, AND the Horse's cards remove more of his
    * calling part than of his folding part (blockers) or the Horse's line range outscores his (range advantage). His
@@ -36409,11 +36410,15 @@ export class HorseLogic {
         if (tele) noteFire('holdem_river_people_bluff_bet');
         return { ...(legal.get(pick.bet.to) as HorseDecision), thinkTime };
       }
-      // holdemTurnBluffIsPricedOnPeople: the turn bluff with his fold read size by size, his own lifetime turn
-      // record of that size -> people's measured turn fold for the Horse's line and that size -> equilibrium
-      if (turnPeopleOn && street === 'turn') {
+      // holdemTurnBluffIsPricedOnPeople: the turn bluff after a checked-through flop (the line where people fold a
+      // turn bet above equilibrium; after a flop wager this option stands aside), his fold read size by size: his
+      // own lifetime turn record of that size -> people's measured turn fold for that line and size -> equilibrium
+      const turnLine =
+        turnPeopleOn && street === 'turn'
+          ? holdemPeopleTurnLineOf(gs.actionHistory, player.seat)
+          : null;
+      if (turnLine === 'chk') {
         if (value) return decision;
-        const line = holdemPeopleTurnLineOf(gs.actionHistory, player.seat);
         const rec =
           opts.mind !== false ? HorseMind.holdemTurnFirstWagerFoldRecordOf(opp.user_id) : null;
         // with no lifetime turn record of either size, his recent record of folds to a bet (unsized) is his record
@@ -36424,7 +36429,7 @@ export class HorseLogic {
             : null;
         const foldRead = (matched: number, into: number): { fold: number; n: number } => {
           const ratio = into > 0 ? matched / into : 0;
-          const ppl = holdemPeopleTurnFoldMultiplier(line, ratio);
+          const ppl = holdemPeopleTurnFoldMultiplier(turnLine, ratio);
           const own = recent
             ? holdemTurnFoldMultiplierOnPeople(recent, ratio, ppl.m, true)
             : holdemTurnFoldMultiplierOnPeople(

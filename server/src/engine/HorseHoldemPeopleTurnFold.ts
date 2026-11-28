@@ -16,14 +16,23 @@
  *     What it measures (746 answers, 2026-10-01 to 2026-11-26): people fold a turn bet at about equilibrium (all
  *     lines and sizes 1.06), below it to a barrel of two thirds pot or more (0.89) and to a lead into the flop
  *     bettor (0.62 to 0.94), and far above it to a SMALL bet after a checked flop (1.72 on 83 answers). So against
- *     people a pure turn barrel is not a profitable bluff and the small stab after a checked flop is.
- *  3. HIS OWN RECORD BY SIZE (his lifetime public first answers to a heads-up turn first wager, OPPONENT-HUD's
- *     t.fb.sm.hu / t.fb.bg.hu cells: at most 0.7 pot / above it): the cell of THIS bet's size moves people's
- *     multiplier the same way, m = (F + k g m_people) / (E + k g), F his folds, E = his answers x the mean
- *     equilibrium fold of that size cell. The other size cell is not read. With no lifetime record of either size his
- *     decayed window record of folds to a bet (unsized, every street) is his record, at the mean equilibrium fold of
- *     a turn bet. With no record at all m = m_people; as his record grows it dominates. (A record of folds on every
- *     street alone does not see a player who gives up flops and never folds a turn: the turn cells do.)
+ *     people a pure turn barrel is not a profitable bluff and the small stab after a checked flop is. THE OPTION ACTS
+ *     ONLY AFTER A CHECKED-THROUGH FLOP (line chk); the other two lines' cells are kept in the table as the measure
+ *     of why it stands aside there and as the parent of nothing it prices.
+ *  3. HIS OWN RECORD BY SIZE SCALES PEOPLE'S CELL (his lifetime public first answers to a heads-up turn first wager,
+ *     OPPONENT-HUD's t.fb.sm.hu / t.fb.bg.hu cells: at most 0.7 pot / above it). His record is by size only: it
+ *     cannot see the line. So it does not replace people's line cell, it scales it:
+ *         rho = [ (F + k g M) / (n g + k g) ] / M      F his folds of n answers in the cell of THIS bet's size,
+ *                                                       g the mean equilibrium fold of that cell's bets, M people's
+ *                                                       multiplier of that same cell over every line
+ *         m   = m_people(line, size) x rho
+ *     With no record rho = 1 and m is people's; a player who never folds drives rho to 0; a player who folds as
+ *     people do overall keeps people's line cell whole. (Replacing the line cell by his size record threw away the
+ *     one thing people's table knows that his record does not: against a people-calibrated responder the gain fell
+ *     from +4.0 to +0.1 bb/100 as his record grew.) The other size cell is not read. With no lifetime turn record of
+ *     either size his decayed window record of folds to a bet (unsized, every street) is read the same way against
+ *     people's all-sizes cell. (A record of folds on every street alone does not see a player who gives up flops and
+ *     never folds a turn: the turn cells do.)
  *
  * k is the measured between-player prior strength of the turn fold (beta-binomial method of moments on people with at
  * least 5 answers, NLH cash and tournaments pooled, the river module's rule: 44.4 for the small cell on 41 people,
@@ -92,10 +101,19 @@ export function holdemPeopleTurnRecordEqFold(big: boolean | null): number {
   return c && c.n > 0 && c.eq > 0 ? c.eq / c.n : big === null ? 0.35 : big ? 0.48 : 0.31;
 }
 
+/** People's multiplier of a record cell over every line (M of step 3), shrunk to the anchor. */
+export function holdemPeopleTurnRecordCellMultiplier(big: boolean | null): number {
+  return shrink(
+    T.cells[big === null ? 'turn|all|all' : big ? 'turn|all|bg' : 'turn|all|sm'],
+    HOLDEM_PEOPLE_TURN_FOLD_PRIOR_OPPS,
+    1
+  );
+}
+
 /**
- * His fold multiplier for a bet of `ratio` x pot: the record cell of that size (folds of opps answers) shrunk to
- * people's multiplier `mPeople` by k pseudo-answers at the cell's equilibrium fold; `unsized` reads the record as
- * counted on every bet. n = his answers read.
+ * His fold multiplier for a bet of `ratio` x pot: people's multiplier `mPeople` (the line and size cell) scaled by
+ * his own ratio rho, his record cell of that size shrunk to people's multiplier of the same cell by k pseudo-answers
+ * and divided by it; `unsized` reads the record as counted on every bet. n = his answers read.
  */
 export function holdemTurnFoldMultiplierOnPeople(
   record: { folds: number; opps: number } | null | undefined,
@@ -106,11 +124,12 @@ export function holdemTurnFoldMultiplierOnPeople(
   const base = fin(mPeople) && mPeople >= 0 ? mPeople : 1;
   if (!record || !fin(record.folds) || !fin(record.opps) || !(record.opps > 0) || record.folds < 0)
     return { m: base, n: 0 };
-  const g = holdemPeopleTurnRecordEqFold(
-    unsized ? null : ratio > HOLDEM_PEOPLE_TURN_RECORD_BIG_ABOVE
-  );
+  const cell = unsized ? null : ratio > HOLDEM_PEOPLE_TURN_RECORD_BIG_ABOVE;
+  const g = holdemPeopleTurnRecordEqFold(cell);
+  const M = holdemPeopleTurnRecordCellMultiplier(cell);
   const k = HOLDEM_PEOPLE_TURN_FOLD_PRIOR_OPPS;
-  const m = (Math.min(record.folds, record.opps) + k * g * base) / (record.opps * g + k * g);
+  const own = (Math.min(record.folds, record.opps) + k * g * M) / (record.opps * g + k * g);
+  const m = M > 0 ? (base * own) / M : base;
   return fin(m) && m >= 0 ? { m, n: record.opps } : { m: base, n: 0 };
 }
 
