@@ -358,6 +358,39 @@ Each record gives why it broke, how it was fixed, what stops it returning (files
 - **What stops it returning:** O37 workflow execution tests in `tests/a-held-migration-does-not-block-the-commit-below-it.law.test.ts` (direct prequal-failed step-down, 2026-11-27 held-migration + failed-prequal chain replay, O10 already-certified hand-back on fallback, no-shippable-below deferral, `unknown`/`pending`/`absent`/`passed` fail-safes, and exemptions) and `tests/the-backup-day-ends-with-only-a-four-am-release.law.test.ts` (`late_retarget` refusal on prequal-failed head, mid-soak `YIELDED_OBSOLETE: prequalification_failed` even with zero waiting push runs, `o1_copy_state` passing `--control ${mainSha}` rather than old `CONTROL_SHA`, and Shard-2 scheduling); plus `tests/unit/retainedOwnerQualificationScheduling.test.ts`, `tests/a-sparse-checkout-holds-what-its-scripts-load.law.test.ts`, `tests/the-pull-request-builds-what-ships.law.test.ts`, and `tests/unit/deployAndPublishAreHonest.test.ts`.
 - **Live proof:** pending merge in the `16:10–16:27 CST` release-control merge window and first live prequal-failed Backup run + Shard-2 prequalification run.
 
+### 2026-11-27: 13:00 Kept Serving, 16:00 Sealed
+
+- **13:00 CST kept serving `3aa21caa9f7d`:** `f81b848fe8cc` was still in its Backup certification at the 12:30 cutoff and 9 newer commits had none. Post-cutover audit OVERALL PASS. Cause: one serial Backup host against a steady stream of merges. Answered by another lane the same afternoon (`#12238` faster certification, O37 `#12246`).
+- **16:00 CST SEALED** `a044fa5660441e56fa6ca9b058109991aa1f4cee`: Receiver `46070790157` success; `#11599` comment `22:02:05Z`; included `#12172`, `#12208`-`#12211`, `#12213`-`#12215`, `#12218`, `#12219`, `#12222`. Post-cutover audit OVERALL PASS at 16:18 CST, `switch_records` PASS (the horse switch-record drift flagged at 10:00 and 13:00 was repaired by `#12232`).
+- **Both readiness posts of the 16:00 cycle said UNKNOWN.** Record below.
+
+### Readiness Reads A Job Log On Every gh (2026-11-27)
+
+- **Why it broke:** O36 reads the applier's job logs with `gh api`. The hosted runner's gh (2.97 or newer) refuses to print a non-JSON body holding terminal colour codes without `--allow-escape-sequences`; the Mac's gh 2.86, where O36 was replayed, prints them. So at T-90m and T-45m of the 16:00 cycle readiness said UNKNOWN for `a044fa566044`, which was fresh and sealed.
+- **Root-cause fix:** `gh_api_get_text` always passes the flag (the log is data, never shown on a terminal) and falls back only on gh's own `unknown flag` answer; `committed_files_in_log` strips colour codes. Any other failure stays UNKNOWN.
+- **Hardening:** `JobLogReaderTests` (4 cases; 33 in total, pinned by `tests/the-three-hourly-readiness-cli-only-reads.law.test.ts`). Changelog `docs/changelog/2026-11-27-readiness-reads-a-job-log-on-every-gh.md`.
+- **Lesson for Step 1:** a live replay of a workflow-run reader is run with the runner's tool versions, or its first run log is read before the fix is called proven.
+- **Live proof:** pending the readiness posts of the 19:00 CST cycle.
+
+### Readiness Sees Every Install (2026-11-27)
+
+An independent review compared `scripts/release/three-hourly-readiness.py` (O36, O36a) with the real selector. Eight findings, all confirmed against the code and against Stage run `45963036602` (created 02:05:43 CST, window installer job `140421831827` done 04:00:30 CST, run closed 04:25:25 CST).
+
+- **Why each broke:**
+  1. Stage runs were listed from one hour before the copy, but a Stage run reserves its cycle up to five hours before it installs. A copy restored between a run's creation and its install read fresh.
+  2. Run lists, jobs reads and certificate archives were read again for every judged certificate (59 calls, about 35 s per stale candidate; the post allows 120 s).
+  3. More than one page of 100 runs was a read error, so a copy older than about 15 h stayed UNKNOWN through a stall.
+  4. An open run was skipped as if it had installed nothing, though the installer job finishes about 25 minutes before its run.
+  5. Only `[apply] APPLIED` counted; the applier is durable from `[apply] committed in <n>ms` and can exit UNKNOWN between the two.
+  6. The engine-inert carve-out judged the file alone, wider than the selector's `inert_versions(control, target)` and `bounded_inert`.
+  7. The certificate was the last artifact by name, not the one of the run's attempt.
+  8. "copy current as of" implied a comparison of contents that readiness never makes.
+- **Root-cause fix:** the Stage list reaches six hours behind the copy and the Apply list 48 hours (a re-run keeps its creation time); lists are read page by page, at most ten; a job is judged by its own state and a running installer or unfinished Apply run is UNKNOWN; the committed line is the applier's own and an UNKNOWN outcome before it is UNKNOWN; the carve-out is the helper's two functions for the exact target; the certificate is `backup-certificate-<sha>-<run_attempt>`, exactly one; every freshness read is made once per report and installs are kept per copy time; fresh says `no install seen in the applier's job logs since the copy was restored`.
+- **Hardening:** in `CopyFreshnessTests` of `tests/operations/three-hourly-readiness.test.py` (49 cases in all, pinned by `tests/the-three-hourly-readiness-cli-only-reads.law.test.ts`): `test_a_stage_run_reserved_hours_before_the_copy_still_shows_its_install`, `test_the_stage_lookback_covers_the_longest_reservation_the_workflow_allows`, `test_a_re_run_of_an_old_apply_run_is_seen_by_its_new_attempt`, `test_a_run_not_touched_since_the_copy_costs_no_further_read`, `test_a_second_certificate_on_the_same_copy_reads_only_its_own_certificate`, `test_three_stale_certificates_on_one_copy_cost_one_read_of_the_installs`, `test_a_stall_long_enough_for_a_second_page_of_runs_is_read_page_by_page`, `test_more_pages_than_the_bound_is_unread`, `test_the_window_install_counts_while_its_run_is_still_open`, `test_an_installer_or_an_apply_run_still_running_is_unread`, `test_a_commit_whose_history_read_back_failed_is_still_committed`, `test_an_unknown_outcome_before_the_commit_is_unread`, `test_the_markers_are_the_strings_the_applier_and_the_installer_print`, `test_the_inert_carve_out_is_the_helpers_for_the_exact_target`, `test_the_certificate_read_is_the_one_named_for_the_runs_attempt`, `test_fresh_says_no_install_was_seen_in_the_job_logs`. All 16 fail against main's tool (21 of the 49 in all, the judge's parameters having changed). Also "no twin is disabled" in `tests/the-pull-request-builds-what-ships.law.test.ts`. Changelog `docs/changelog/2026-11-27-readiness-sees-every-install.md`.
+- **Cost measured:** one fresh candidate at about 17:00 CST on 2026-11-27 took 35 `gh api` calls before and 35 after.
+- **Not read still:** a re-run of an Apply run older than 48 hours before the copy; contents (the selector compares those).
+- **Live proof:** pending the first readiness posts on `#11599` after the merge.
+
 ### Decided Against Or Deferred (2026-11-27)
 
 - **A retest after the window installs:** not built. A push after 04:15 CST refreshes the copy on its own, and a `current` keep-serving result means there is nothing new to certify.

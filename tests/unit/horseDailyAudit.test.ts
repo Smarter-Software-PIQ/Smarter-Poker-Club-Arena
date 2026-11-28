@@ -83,6 +83,7 @@ describe('horse daily audit runner (scripts/ops/horse-daily-audit.mjs)', () => {
       'holdem-audit',
       'omaha-audit',
       'plo-overfold',
+      'overfold-scoreboard',
       'exploit-report-1',
       'exploit-report-2',
       'person-vs-horse-1',
@@ -157,6 +158,13 @@ describe('horse daily audit runner (scripts/ops/horse-daily-audit.mjs)', () => {
           }) + '\nGATE 1',
       },
       'person-vs-horse-results.mjs': { status: 0, stdout: '{}' },
+      'horse-overfold-scoreboard.mjs': {
+        status: 2,
+        stdout: JSON.stringify({
+          cells: [],
+          lines: ['OVER-FOLD SCOREBOARD: no person cell has 20 decisions'],
+        }),
+      },
       'horse-plo-overfold-gate.mjs': {
         status: 0,
         stdout:
@@ -205,6 +213,7 @@ describe('horse daily audit runner (scripts/ops/horse-daily-audit.mjs)', () => {
       'horse-hand-audit-holdem.mjs',
       'horse-hand-audit-omaha.mjs',
       'horse-plo-overfold-gate.mjs',
+      'horse-overfold-scoreboard.mjs',
       'horse-exploit-report.mjs',
       'person-vs-horse-results.mjs',
     ]);

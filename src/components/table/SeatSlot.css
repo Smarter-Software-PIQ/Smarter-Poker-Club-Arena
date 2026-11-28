@@ -1109,7 +1109,7 @@
   position: absolute;
   inset: 0;
   border-radius: 8px;
-  background: rgba(15, 20, 35, 0.92);
+  background: var(--seat-bg, rgba(15, 20, 35, 0.92));
   z-index: -1;
 }
 
@@ -5154,6 +5154,9 @@
     border-color: transparent;
     box-shadow: none;
   }
+  /* Paint the enlarged outer plate at z-index -3 (matching .seat__info's own
+     background/border paint layer) so .seat__timer-ring (-2) sits above it and
+     .seat__info::after (-1) masks only the enlarged interior. */
   .table-page .seat .seat__info[style*='--sp-frame-w']::before {
     content: '';
     position: absolute;
@@ -5167,7 +5170,25 @@
     border-radius: var(--sp-frame-radius);
     box-shadow: var(--sp-frame-shadow);
     pointer-events: none;
-    z-index: -1;
+    z-index: -3;
+  }
+  .table-page .seat--active .seat__info[style*='--sp-frame-w'] > .seat__timer-ring {
+    left: calc(var(--sp-frame-x) + var(--sp-frame-bw, 1.5px) - 3px);
+    top: calc(var(--sp-frame-y) + var(--sp-frame-bw, 1.5px) - 3px);
+    right: auto;
+    bottom: auto;
+    width: calc(var(--sp-frame-w) - 2 * var(--sp-frame-bw, 1.5px) + 6px);
+    height: calc(var(--sp-frame-h) - 2 * var(--sp-frame-bw, 1.5px) + 6px);
+  }
+  .table-page .seat--active .seat__info[style*='--sp-frame-w']::after {
+    left: calc(var(--sp-frame-x) + var(--sp-frame-bw, 1.5px));
+    top: calc(var(--sp-frame-y) + var(--sp-frame-bw, 1.5px));
+    right: auto;
+    bottom: auto;
+    width: calc(var(--sp-frame-w) - 2 * var(--sp-frame-bw, 1.5px));
+    height: calc(var(--sp-frame-h) - 2 * var(--sp-frame-bw, 1.5px));
+    border-radius: calc(var(--sp-frame-radius, 8px) - var(--sp-frame-bw, 1.5px));
+    background: var(--sp-frame-background, var(--seat-bg, rgba(15, 20, 35, 0.92)));
   }
 }
 /* Dan 2026-11-13: "NO AVATAR SHOULD EVER BE AUTO CUT LIKE THAT... HAVE THEM
