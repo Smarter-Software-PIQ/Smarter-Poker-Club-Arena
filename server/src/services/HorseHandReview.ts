@@ -271,6 +271,42 @@ export function boardHasPair(board: Card[]): boolean {
   return false;
 }
 
+/** Cards showing on each street; a commitment preflop saw no board. */
+const BOARD_CARDS_BY_STAGE: Record<string, number> = {
+  preflop: 0,
+  flop: 3,
+  turn: 4,
+  river: 5,
+};
+
+/**
+ * The board as it stood when hero last put chips in voluntarily (a call,
+ * bet, raise or all-in). A tag that judges the board's texture is judging a
+ * decision, and a card dealt after the last chip went in was not part of it.
+ * Null when hero never committed voluntarily (blinds only) or the street is
+ * unknown, so callers keep their final-board behaviour.
+ */
+export function boardAtLastCommitment(
+  heroActions: Array<{ action: string; stage: string }>,
+  board: Card[]
+): Card[] | null {
+  let cardsShown: number | null = null;
+  for (const a of heroActions) {
+    if (
+      a.action !== 'call' &&
+      a.action !== 'bet' &&
+      a.action !== 'raise' &&
+      a.action !== 'all_in'
+    ) {
+      continue;
+    }
+    const n = BOARD_CARDS_BY_STAGE[a.stage];
+    if (n === undefined) continue;
+    cardsShown = cardsShown === null ? n : Math.max(cardsShown, n);
+  }
+  return cardsShown === null ? null : board.slice(0, cardsShown);
+}
+
 /**
  * Omaha: is hero's full house the TOP full house on this board? Enumerates
  * every two-card holding from the cards hero cannot see (52 minus the board
@@ -1115,7 +1151,7 @@ export function detectLeaks(row: {
       } else if (
         ((st.category === 6 && st.higherFlushRanks === 0) ||
           (st.category === 5 && st.straightIsNut && !st.flushPossible)) &&
-        boardHasPair(row.board)
+        boardHasPair(boardAtLastCommitment(row.heroActions, row.board) ?? row.board)
       ) {
         // ── A PAIRED BOARD DEMOTES THE NUTS (2026-09-28) ──
         // V15 demotes a nut flush or nut straight on a paired board: every
@@ -1124,6 +1160,15 @@ export function detectLeaks(row: {
         // sweep: 756309 (nut flush on 4d-Qd-Th-5d-5c, -489bb) and 755841
         // (broadway on Kh-As-Qc-Ad-4s, -534bb). MEASUREMENT ONLY: not in
         // PLO_STACKOFF_TAGS, so no dial reads it.
+        //
+        // ── THE PAIR MUST BE THERE WHEN THE MONEY GOES IN (2026-11-25) ──
+        // The demotion is a fact about the decision, so the pair is read on
+        // the board hero faced at his last voluntary chip, not the final
+        // board. Hand fc9b3b3d (2026-11-24, PLO5) jammed the turn with the
+        // K-high straight and the nut flush draw on 5d-Th-9s-Ks and was
+        // tagged because the river Ts paired the board after the all-in.
+        // Over the seven days to 2026-11-25, 234 of 505 rows carrying this
+        // tag had an unpaired board at hero's last commitment.
         flag('plo_paired_board_nut_stackoff');
       }
     } catch {
