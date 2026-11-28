@@ -135,10 +135,10 @@
   border-bottom: 1px solid #253e57;
 }
 .sc--sd .hand-note__title {
-  color: #f1f5fc;
+  color: var(--sd-ink);
 }
 .sc--sd .hand-note__private {
-  color: #9fbacc;
+  color: var(--sd-silver-dim);
   opacity: 1;
 }
 .sc--sd .hand-note .hand-note__text,
@@ -147,7 +147,7 @@
   border: 1px solid #476079;
   border-radius: 0;
   background: #040d17;
-  color: #f1f5fc;
+  color: var(--sd-ink);
   color-scheme: dark;
   font:
     16px/1.4 Arial,
@@ -160,7 +160,11 @@
   border: 5px solid transparent;
   border-image: var(--sd-active) 11 / 6px stretch;
   border-radius: 0;
-  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
+  background: linear-gradient(
+    var(--sd-cobalt-top),
+    var(--sd-cobalt-mid) 55%,
+    var(--sd-cobalt-deep)
+  );
   background-clip: padding-box;
   color: #fff;
   font:
@@ -174,7 +178,7 @@
   border-image-source: var(--sd-stat);
   background: linear-gradient(155deg, #12273b, #07111c 70%);
   background-clip: padding-box;
-  color: #9fbacc;
+  color: var(--sd-silver-dim);
 }
 .sc--sd .hand-note .hand-note__save:active {
   filter: brightness(0.86);

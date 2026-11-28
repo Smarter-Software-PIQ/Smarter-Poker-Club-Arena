@@ -279,7 +279,7 @@
   border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-row.webp') 13 / 6px
     stretch;
   background: linear-gradient(108deg, rgb(19 37 58 / 94%), rgb(6 14 24 / 94%) 72%);
-  color: #f1f5fc;
+  color: var(--sd-ink);
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
   font-size: 15px;
   font-weight: 700;
@@ -289,7 +289,7 @@
   background: rgb(3 11 20 / 78%);
 }
 .lightning-joining .lightning-joining__text {
-  color: #f4f8ff;
+  color: var(--sd-white);
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
   font-size: 20px;
   font-weight: 700;
@@ -301,7 +301,7 @@
   border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') 11 / 5px
     stretch !important;
   background: linear-gradient(155deg, #12273b, #07111c 70%) !important;
-  color: #f1f5fc !important;
+  color: var(--sd-ink) !important;
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
   font-size: 16px;
   letter-spacing: 0.03em;

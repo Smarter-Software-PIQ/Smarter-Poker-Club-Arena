@@ -208,18 +208,18 @@
   border-color: rgba(116, 223, 255, 0.32);
 }
 .sc--sd .hand-flag__title {
-  color: #f1f5fc;
+  color: var(--sd-ink);
 }
 .sc--sd .hand-flag__private,
 .sc--sd .hand-flag__prompt {
-  color: #9fbacc;
+  color: var(--sd-silver-dim);
   opacity: 1;
 }
 .sc--sd .hand-flag__text {
   border: 1px solid #476079;
   border-radius: 0;
   background: #040d17;
-  color: #f1f5fc;
+  color: var(--sd-ink);
   color-scheme: dark;
   font:
     16px/1.4 Arial,
@@ -235,7 +235,7 @@
   border-radius: 0;
   background: linear-gradient(155deg, #12273b, #07111c 70%);
   background-clip: padding-box;
-  color: #f1f5fc;
+  color: var(--sd-ink);
   font:
     700 16px/1.1 'Rajdhani',
     'Roboto Condensed',
@@ -245,7 +245,11 @@
 }
 .sc--sd .hand-flag__actions .hand-flag__btn {
   border-image-source: var(--sd-active);
-  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
+  background: linear-gradient(
+    var(--sd-cobalt-top),
+    var(--sd-cobalt-mid) 55%,
+    var(--sd-cobalt-deep)
+  );
   background-clip: padding-box;
   color: #fff;
 }
@@ -259,7 +263,7 @@
   outline-offset: 2px;
 }
 .sc--sd .hand-flag__status.is-open {
-  color: #74dfff;
+  color: var(--sd-ice-strong);
   border-color: rgba(116, 223, 255, 0.45);
 }
 .sc--sd .hand-flag__reply {
