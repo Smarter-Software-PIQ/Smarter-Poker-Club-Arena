@@ -5139,6 +5139,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     },
     b: { omahaFacingBetEv: true, omahaFacingBetPriorIsPeopleMeasured: true },
   })),
+  // 2026-11-27 lead-9 lanes MWR + RV + RV2 (default OFF, PLO4/PLO5 cash, 6-max): a multiway river first bet priced on
+  // the bettor's own shown river bets over the people-only multiway river cell.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_multiway_river_bet_prior_is_people_measured`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaMultiwayRiverBetPriorIsPeopleMeasured: true },
+    b: { omahaFacingBetEv: true },
+  })),
   // 2026-11-27 lead-9 lane HUOOP (default OFF, PLO4/PLO5 cash): the hidden part of the heads-up turn bettor's
   // non-value share priced as give-ups (weakest half, full realization), on top of the hidden-bets people prior.
   ...(['plo4', 'plo5'] as const).map((variant) => ({

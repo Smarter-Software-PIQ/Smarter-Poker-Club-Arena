@@ -289,6 +289,7 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
   omahaHiddenBetsArePricedAsGiveUps: FACING_BET_EV,
   omahaFlopPressureCapIsPriced: FACING_BET_EV,
   omahaTurnFacingBetPriorIsLineSplit: FACING_BET_EV,
+  omahaMultiwayRiverBetPriorIsPeopleMeasured: FACING_BET_EV,
   omahaFacingBetFieldIsJoint: {
     kind: 'priced',
     range:
@@ -952,6 +953,9 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
   omaha_turn_line_prior_multiway: FACING_BET_EV,
   omaha_turn_line_prior_record_read: FACING_BET_EV,
   omaha_turn_line_prior_changed: FACING_BET_EV,
+  omaha_mw_river_people_prior_priced: FACING_BET_EV,
+  omaha_mw_river_people_prior_record_read: FACING_BET_EV,
+  omaha_mw_river_people_prior_changed: FACING_BET_EV,
   omaha_mw_people_field_changed: FACING_BET_EV,
   omaha_hidden_bets_prior_read: FACING_BET_EV,
   omaha_hidden_give_up_priced: FACING_BET_EV,
