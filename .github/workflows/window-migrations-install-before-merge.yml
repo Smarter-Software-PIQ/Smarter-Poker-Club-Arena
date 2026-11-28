@@ -120,6 +120,13 @@ jobs:
             /usr/lib/postgresql/17/bin/psql "$DATABASE_URL" -X -Atq \
             -c 'select version from supabase_migrations.schema_migrations order by 1' > "$RUNNER_TEMP/out/installed.txt"
           [ "$(grep -cE '^[0-9]{14}$' "$RUNNER_TEMP/out/installed.txt")" -gt 100 ]
+          # Non-sensitive table cardinality metadata (zero player data) so the
+          # throwaway rehearsal planner sees production row scale.
+          PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=15s' \
+            /usr/lib/postgresql/17/bin/psql "$DATABASE_URL" -X -Atq \
+            -c "SELECT COALESCE(json_agg(row_to_json(t) ORDER BY t.schemaname, t.relname), '[]'::json) FROM (SELECT s.schemaname, s.relname, GREATEST(COALESCE(c.reltuples, 0)::bigint, s.n_live_tup)::bigint AS est_rows, pg_relation_size(s.relid)::bigint AS rel_bytes, GREATEST(COALESCE(c.relpages, 0), 0)::bigint AS rel_pages FROM pg_stat_user_tables s JOIN pg_catalog.pg_class c ON c.oid = s.relid WHERE s.schemaname IN ('public', 'smarter_private')) t" \
+            > "$RUNNER_TEMP/out/table-stats.json"
+          [ -s "$RUNNER_TEMP/out/table-stats.json" ]
           # Same flags and bound as the Backup engine's nightly export.
           PGOPTIONS='-c default_transaction_read_only=on' LD_LIBRARY_PATH="$PG_LIB" timeout 270 "$PG_DUMP" "$DATABASE_URL" \
             --schema-only --no-owner --lock-wait-timeout=2000 -Fc \
@@ -131,6 +138,7 @@ jobs:
           path: |
             ${{ runner.temp }}/out/schema.dump
             ${{ runner.temp }}/out/installed.txt
+            ${{ runner.temp }}/out/table-stats.json
           if-no-files-found: error
           retention-days: 1
 
@@ -228,9 +236,6 @@ jobs:
             [[ "$path" =~ ^supabase/migrations/[0-9]{14}_[a-z0-9_]+\.sql$ ]] || continue
             gh api -H 'Accept: application/vnd.github.raw' "repos/$REPO/contents/$path?ref=$HEAD_SHA" > "$RUNNER_TEMP/mig/${path#supabase/migrations/}"
           done < "$RUNNER_TEMP/in/changed.txt"
-      # Which uninstalled files are pending rather than history: the git half
-      # of window-queue-rehearsal.mjs isPending (a late merge with an old stamp
-      # is pending however old the stamp).
       - name: Which migrations reached main recently
         if: needs.scope.outputs.rehearse == 'true'
         run: bash scripts/ci/migrations-added-recently.sh 14 > "$RUNNER_TEMP/recently-added.txt"
@@ -244,6 +249,7 @@ jobs:
           MIG_DIR: ${{ runner.temp }}/mig
           INSTALLED: ${{ runner.temp }}/in/installed.txt
           CHANGED: ${{ runner.temp }}/in/changed.txt
+          TABLE_STATS: ${{ runner.temp }}/in/table-stats.json
           RECENTLY_ADDED: ${{ runner.temp }}/recently-added.txt
           EVIDENCE: ${{ runner.temp }}/evidence
         run: bash scripts/ci/rehearse-window-queue.sh
@@ -335,6 +341,12 @@ jobs:
             [[ "$path" =~ ^supabase/migrations/[0-9]{14}_[a-z0-9_]+\.sql$ ]] || continue
             gh api -H 'Accept: application/vnd.github.raw' "repos/$REPO/contents/$path?ref=$HEAD_SHA" > "$RUNNER_TEMP/mig/${path#supabase/migrations/}"
           done < "$RUNNER_TEMP/in/changed.txt"
+      - name: Changed migrations preserve N-1 serving-engine compatibility
+        if: needs.scope.outputs.rehearse == 'true'
+        env:
+          MIG_DIR: ${{ runner.temp }}/mig
+          CHANGED: ${{ runner.temp }}/in/changed.txt
+        run: node scripts/ci/check-migration-n-minus-1-compat.mjs --mig-dir "$MIG_DIR" --changed "$CHANGED" --repo .
       # Which uninstalled files are pending rather than history: the git half
       # of window-queue-rehearsal.mjs isPending (a late merge with an old stamp
       # is pending however old the stamp).

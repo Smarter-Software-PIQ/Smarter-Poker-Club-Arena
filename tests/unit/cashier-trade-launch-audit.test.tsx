@@ -1076,7 +1076,7 @@ describe('P-04, P-12, P-15, L-03: the Trade page is reachable and truthful', () 
     expect(screen.queryByRole('listbox', { name: 'Club Cashiers' })).toBeNull();
     expect(trigger).not.toHaveAttribute('aria-controls');
     await act(async () => directory.resolve());
-    const failure = await screen.findByText('Could not load your club cashiers.');
+    const failure = await screen.findByText('Could Not Load Your Club Cashiers.');
     expect(trigger).not.toHaveAttribute('aria-controls');
     fireEvent.click(within(failure).getByRole('button', { name: 'Retry' }));
     const listbox = await screen.findByRole('listbox', { name: 'Club Cashiers' });

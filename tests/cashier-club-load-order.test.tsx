@@ -566,7 +566,7 @@ describe('CashierTradePage club load ordering', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /open another club cashier/i }));
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Could not load your club cashiers.'
+      'Could Not Load Your Club Cashiers.'
     );
     expect(screen.queryByRole('option', { name: /Directory Club/i })).not.toBeInTheDocument();
 
@@ -921,7 +921,7 @@ describe('CashierTradePage club load ordering', () => {
         handler({ source: 'cashout_approved', userId: USER_ID });
     });
     await waitFor(() => expect(headReads).toBeGreaterThan(before), { timeout: 3000 });
-    await within(panel).findByText('Could not load your transaction history.', { exact: false });
+    await within(panel).findByText('Could Not Load Your Transaction History.', { exact: false });
     // The older page answers AFTER the failure. It continues a book that is no
     // longer on screen, so it must not be painted or merged by Retry.
     await act(async () => {

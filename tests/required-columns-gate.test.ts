@@ -121,7 +121,7 @@ describe('the two writes that were broken now supply what they must', () => {
     const src = read('src/pages/AdminDashboardPage.tsx');
     expect(src).toContain('author_id: user!.id');
     // And refuses readably rather than sending a write that cannot land.
-    expect(src).toContain('Your session could not be identified');
+    expect(src).toContain('Your Session Could Not Be Identified');
   });
 
   it('a credit request carries its club', () => {

@@ -145,7 +145,7 @@ export default function InvitePage() {
           clubQuery = clubQuery.eq(column, value);
         } else {
           if (!getIsMounted || getIsMounted()) {
-            setError('Invalid invitation link');
+            setError('Invalid Invitation Link');
             setLoading(false);
           }
           return;
@@ -155,7 +155,7 @@ export default function InvitePage() {
 
         if (getIsMounted && !getIsMounted()) return;
         if (clubError || !clubData) {
-          setError('Club not found or invitation expired');
+          setError('Club Not Found Or Invitation Expired');
           setLoading(false);
           return;
         }
@@ -286,7 +286,7 @@ export default function InvitePage() {
         reportError(err, 'InvitePage.Failed_to_load_club');
         if (!getIsMounted || getIsMounted()) {
           toast.error('Failed to load club information');
-          setError('Failed to load club information');
+          setError('Failed To Load Club Information');
         }
       }
       if (!getIsMounted || getIsMounted()) setLoading(false);

@@ -447,11 +447,11 @@ export function EditGameDialog({
     const trimmedName = name.replace(/\s+/g, ' ').trim();
     const seats = Number(maxPlayers);
     if (!trimmedName) {
-      setValidationError('Enter a game name.');
+      setValidationError('Enter A Game Name.');
       return null;
     }
     if (!entryCapacityLocked && !tableStructureLocked && (!Number.isInteger(seats) || seats < 2)) {
-      setValidationError('Maximum players must be a whole number of at least two.');
+      setValidationError('Maximum Players Must Be A Whole Number Of At Least Two.');
       return null;
     }
     const patch: ManagedGamePatch = { name: trimmedName };
@@ -467,19 +467,19 @@ export function EditGameDialog({
         ) ||
         small <= 0
       ) {
-        setValidationError('Enter positive numeric blinds and buy-in limits.');
+        setValidationError('Enter Positive Numeric Blinds And Buy-In Limits.');
         return null;
       }
       if (big < small) {
-        setValidationError('The big blind cannot be lower than the small blind.');
+        setValidationError('The Big Blind Cannot Be Lower Than The Small Blind.');
         return null;
       }
       if (!unlimitedCash && maximum < minimum) {
-        setValidationError('The maximum buy-in cannot be lower than the minimum buy-in.');
+        setValidationError('The Maximum Buy-In Cannot Be Lower Than The Minimum Buy-In.');
         return null;
       }
       if (seats > 10) {
-        setValidationError('Cash tables support a maximum of ten seats.');
+        setValidationError('Cash Tables Support A Maximum Of Ten Seats.');
         return null;
       }
       patch.smallBlind = small;
@@ -489,7 +489,7 @@ export function EditGameDialog({
     } else if (startTime) {
       const timestamp = new Date(startTime);
       if (!Number.isFinite(timestamp.getTime())) {
-        setValidationError('Enter a valid tournament start time.');
+        setValidationError('Enter A Valid Tournament Start Time.');
         return null;
       }
       patch.startTime = timestamp.toISOString();

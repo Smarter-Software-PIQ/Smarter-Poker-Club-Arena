@@ -355,7 +355,7 @@ export default function AntiCheatPage() {
           setLoadError(
             err instanceof Error
               ? err.message
-              : 'The integrity flags could not be read. This is not the same as a clean club.'
+              : 'The Integrity Flags Could Not Be Read. This Is Not The Same As A Clean Club.'
           );
           setFlags([]);
           setFlagsLoaded(true);
@@ -420,7 +420,7 @@ export default function AntiCheatPage() {
         setLoadError(
           err instanceof Error
             ? err.message
-            : 'The integrity events could not be read. This is not the same as a clean club.'
+            : 'The Integrity Events Could Not Be Read. This Is Not The Same As A Clean Club.'
         );
         setEvents([]);
         setEventsLoaded(true);

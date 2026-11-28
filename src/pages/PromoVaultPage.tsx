@@ -317,7 +317,7 @@ export default function PromoVaultPage() {
       } catch (error) {
         if (live()) {
           reportError(error, 'PromoVaultPage.loadVault');
-          setLoadError('The live vault catalog could not be loaded. No diamonds were spent.');
+          setLoadError('The Live Vault Catalog Could Not Be Loaded. No Diamonds Were Spent.');
           toast.error('Failed To Load The Promo Vault');
         }
       } finally {

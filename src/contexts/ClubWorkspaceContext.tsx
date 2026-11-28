@@ -289,7 +289,7 @@ export function ClubWorkspaceProvider({ children }: { children: ReactNode }) {
           setMembershipStatus(null);
           setIsPlatformStaff(false);
           setUsingCachedAccess(false);
-          setError('Club access could not be verified. Your membership has not been changed.');
+          setError('Club Access Could Not Be Verified. Your Membership Has Not Been Changed.');
           setStatus('error');
           setLoadedRouteClubId(routeClubId);
           setLoadedUserId(user.id);

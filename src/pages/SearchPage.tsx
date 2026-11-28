@@ -584,14 +584,14 @@ export default function SearchPage() {
         setSearchFreshness(cached ? 'cached' : 'partial');
         setSearchError(
           cached
-            ? 'The live index is temporarily unavailable. A recent local snapshot is shown below.'
-            : 'The community index is temporarily unavailable. Your query is safe to retry.'
+            ? 'The Live Index Is Temporarily Unavailable. A Recent Local Snapshot Is Shown Below.'
+            : 'The Community Index Is Temporarily Unavailable. Your Query Is Safe To Retry.'
         );
       } else if (failedCount > 0) {
         setSnapshot(next);
         setSearchFreshness('partial');
         setSearchError(
-          `The ${failures.join(' and ')} index could not be reached. The results below are partial.`
+          `The ${failures.join(' and ')} Index Could Not Be Reached. The Results Below Are Partial.`
         );
         writeSearchCache(normalized, category, next);
       } else {
