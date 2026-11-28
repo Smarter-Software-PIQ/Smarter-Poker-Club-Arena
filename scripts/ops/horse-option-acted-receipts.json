@@ -1246,7 +1246,7 @@
     "omahaFlopPressureCapIsPriced": {
       "releaseDefault": "off",
       "source": "declared",
-      "keys": [],
+      "keys": ["omaha_hidden_bets_prior_read"],
       "prefixes": ["omaha_flop_pressure_cap_priced"],
       "unlessOn": []
     },
@@ -1257,11 +1257,25 @@
       "prefixes": ["omaha_people_prior_"],
       "unlessOn": []
     },
+    "omahaPeoplePriorCountsHiddenBets": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_hidden_bets_prior_"],
+      "unlessOn": []
+    },
     "omahaMultiwayFieldIsPeopleMeasured": {
       "releaseDefault": "off",
       "source": "declared",
       "keys": [],
       "prefixes": ["omaha_mw_people_field_"],
+      "unlessOn": []
+    },
+    "omahaTurnFacingBetPriorIsLineSplit": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_turn_line_prior_"],
       "unlessOn": []
     },
     "omahaFacingBetFieldIsJoint": {
@@ -2499,6 +2513,17 @@
         "holdem_river_people_bluff_below_check",
         "holdem_river_people_bluff_bet",
         "holdem_river_people_bluff_no_edge"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "holdemTurnBluffIsPricedOnPeople": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_turn_people_bluff_below_check",
+        "holdem_turn_people_bluff_bet",
+        "holdem_turn_people_bluff_no_edge"
       ],
       "prefixes": [],
       "unlessOn": []

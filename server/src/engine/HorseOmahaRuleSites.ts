@@ -537,8 +537,14 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaFacingBetPriorIsPeopleMeasured: priced(
     'a heads-up turn or river bettor (a bet or a raise) is priced on the PEOPLE-ONLY measured non-value share for the street and size (river: three measured regions, core / middle / weakest half), the balanced share weighting only a thin cell, moved by his own shown bets; Horse play never enters (default OFF; PLO-OWNER lead-7 2026-11-26)'
   ),
+  omahaPeoplePriorCountsHiddenBets: priced(
+    "the people-only flop (per pot type) and turn (per the bettor's flop line) non-value shares of the facing-bet price, per game, count the bets people never showed although they did not win them uncontested (folded later in the hand, mucked at showdown) as non-value; a thin split cell is blended toward the equilibrium anchor, never the pooled cell; the bettor's own record counts his hidden bets the same way; public events only, no unshown card, Horse play never enters (default OFF; lead-8 lane OFA 2026-11-27)"
+  ),
   omahaMultiwayFieldIsPeopleMeasured: priced(
     "a multiway turn or river call is priced with each caller holding the PEOPLE-measured caller width and each player still to act continuing at the PEOPLE-measured multiway continue rate, both anchored to equilibrium (1 / (1 + s); the field's joint break-even); heads-up untouched; Horse play never enters (default OFF; PLO-OWNER lead-7 2026-11-27)"
+  ),
+  omahaTurnFacingBetPriorIsLineSplit: priced(
+    'a turn first wager (never a raise), heads-up or multiway, is priced on the PEOPLE-ONLY measured non-value share of its flop line (checked through / wagered) and size, the balanced share weighting only a thin cell, moved by his own shown bets; Horse play never enters (default OFF; lead-8 lane OFB 2026-11-27)'
   ),
   omahaFacingBetFieldIsJoint: priced(
     'a multiway turn or river call is priced with the bettor, the callers, the earlier all-ins and the players behind (at their measured continue rate) dealt on the same cards from measured ranges (default OFF; PLO-OWNER lead-6 2026-11-24)'

@@ -698,6 +698,46 @@ describe('the owner note says it plainly, once per cycle', () => {
         refusedCandidates: [{ sha: 'b'.repeat(40), reason: 'Backup Engine refused the candidate' }],
       })
     ).toContain('did not happen: the newest build failed its safety test before the cutoff.');
+    // Real engine-release-installed-migrations.py judge() schema-drift wording & cutoff/control/error refusals
+    for (const driftReason of [
+      "Backup copy does not hold production's definition of migration 20261127172908",
+      'Backup copy lacks the exact candidate migration 20261127172908',
+      'Backup copy holds migration production does not have: 20261127172908',
+      'Backup copy holds a different name for migration 20261127172908',
+    ]) {
+      expect(
+        noteFor('2026-11-27T16', 'false', {
+          reason: NO_EVIDENCE,
+          deferredCandidates: [{ sha: 'c'.repeat(40), reason: driftReason }],
+        }),
+        driftReason
+      ).toContain('did not happen: a database update landed after the new build was tested.');
+    }
+    expect(
+      noteFor('2026-11-27T16', 'false', {
+        reason: NO_EVIDENCE,
+        refusedCandidates: [
+          { sha: 'd'.repeat(40), reason: 'protected release controls differ from head' },
+        ],
+      })
+    ).toContain('did not happen: release controls changed after the newest build was tested.');
+    expect(
+      noteFor('2026-11-27T16', 'false', {
+        reason: NO_EVIDENCE,
+        refusedCandidates: [
+          {
+            sha: 'e'.repeat(40),
+            reason: 'Backup certificate certified after the selection cutoff',
+          },
+        ],
+      })
+    ).toContain('did not happen: the newest build finished its test just after the cutoff.');
+    expect(
+      noteFor('2026-11-27T16', 'false', {
+        reason: NO_EVIDENCE,
+        refusedCandidates: [{ sha: '1'.repeat(40), reason: 'Backup certificate is error' }],
+      })
+    ).toContain('did not happen: the test runner hit an error before finishing the safety test.');
   });
 
   it('says nothing when the cycle had nothing new to ship', () => {

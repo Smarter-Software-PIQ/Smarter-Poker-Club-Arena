@@ -325,6 +325,18 @@ test.describe('Player Stats production experience', () => {
           tournament: data.overall?.tourney_hands,
         });
     });
+    /* The Cash Games read happened in beforeEach, before this listener
+       existed, and a return to Cash Games later in the journey is served from
+       the page's in-memory range memo (src/lib/statsCache.ts) without a new
+       read: #12026 (62a80b3d7) stopped clearing that memo on every background
+       event. Reload so the published cash read is observed on the network. */
+    await page.reload();
+    await expect(page.getByRole('tab', { name: 'Overview' })).toBeVisible({ timeout: 60_000 });
+    await expect
+      .poll(() => receipts.some((r) => r.mode === 'cash' && r.tournament === 0), {
+        timeout: 60_000,
+      })
+      .toBe(true);
     const modes = page.getByRole('group', { name: 'Statistics Game Mode', exact: true });
     await modes.getByRole('button', { name: 'Tournaments', exact: true }).click();
     await expect(page.getByRole('tabpanel', { name: 'Tournaments', exact: true })).toBeVisible();

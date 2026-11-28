@@ -9,10 +9,14 @@ refs/remotes/origin/main since the serving SHA.
 Strictly read-only: zero writes, zero dispatches, zero watchers/crons, and
 zero credential sourcing. Any unreadable API, health, git or projection read
 yields verdict UNKNOWN (exit code 3), never READY or NO_CANDIDATE
-(CLAUDE.md 10.86).
+(CLAUDE.md 10.86). AT_RISK (exit code 0) names a certified candidate that is
+selectable now while an Apply Merged Migration run is installing a non-inert
+file its Backup copy lacks: if that install commits before the cutoff, the
+selector refuses the certificate.
 """
 import argparse
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -60,6 +64,13 @@ PREQUAL_PATH = ".github/workflows/" + PREQUAL_WORKFLOW
 PREQUAL_HELPER_PATH = "scripts/ci/read-engine-prequalification.py"
 APPLY_WORKFLOW = "apply-merged-migration.yml"
 WINDOW_INSTALL_JOB = "Install Queued Daily-Maintenance Migrations"
+# An Apply Merged Migration run names its one file twice: the run-name
+# "Apply Merged Migration <file>[ <intent nonce>]" and the job "Apply <file>"
+# (.github/workflows/apply-merged-migration.yml). Its other job only reports a
+# refusal and never installs.
+APPLY_RUN_NAME_RE = re.compile(r"^Apply Merged Migration (\d{14}_[A-Za-z0-9_.-]+\.sql)(?: [0-9a-f]+)?$")
+APPLY_JOB_NAME_RE = re.compile(r"^Apply (\d{14}_[A-Za-z0-9_.-]+\.sql)$")
+APPLY_REPORT_JOB = "Report a refused install"
 INSTALLED_MIGRATIONS_HELPER_PATH = "server/scripts/engine-release-installed-migrations.py"
 # The applier prints "[apply] <file>" before an attempt and "[apply] APPLIED" when it committed it
 # (scripts/ci/apply-recorded-migration.mjs); ALREADY-APPLIED, QUEUED and refusals commit nothing.
@@ -96,12 +107,14 @@ SHA_RE = re.compile(r"[0-9a-f]{40}")
 RUN_URL_RE = re.compile(r"/actions/runs/([1-9]\d*)(?:$|[/#?])")
 
 VERDICT_READY = "READY"
+VERDICT_AT_RISK = "AT_RISK"
 VERDICT_IN_FLIGHT = "IN_FLIGHT"
 VERDICT_NO_CANDIDATE = "NO_CANDIDATE"
 VERDICT_UNKNOWN = "UNKNOWN"
 
 EXIT_CODES = {
     VERDICT_READY: 0,
+    VERDICT_AT_RISK: 0,
     VERDICT_IN_FLIGHT: 0,
     VERDICT_NO_CANDIDATE: 0,
     VERDICT_UNKNOWN: 3,
@@ -1337,12 +1350,23 @@ def _untouched_since(run, since_utc):
     return bool(updated) and parse_iso_utc(updated) < since_utc - RUN_UNTOUCHED_MARGIN
 
 
+def _apply_run_file(run):
+    """The migration file an Apply Merged Migration run names in its run-name, or None."""
+    for key in ("display_title", "name"):
+        m = APPLY_RUN_NAME_RE.match(str(run.get(key) or ""))
+        if m:
+            return m.group(1)
+    return None
+
+
 def production_installs_after(repo, since_utc, gh_get, gh_text):
     """Migration files production COMMITTED after since_utc, read from the applier's own job logs
-    (Apply Merged Migration runs and the daily-maintenance window installer). Raises ReadError when
-    any log cannot be read or an install may still be running: an unread install is not an absent
-    one (CLAUDE.md 10.86)."""
-    installed = []
+    (Apply Merged Migration runs and the daily-maintenance window installer), and the installs still
+    pending: an Apply run not finished yet is the install of the one file its run-name and its
+    "Apply <file>" job name. Returns (installed, pending). Raises ReadError when any log cannot be
+    read, an unfinished Apply run names no file (or two), or the window installer is still running:
+    an unread install is not an absent one (CLAUDE.md 10.86)."""
+    installed, pending = [], []
 
     def read(run, job):
         done = job.get("completed_at")
@@ -1353,12 +1377,44 @@ def production_installs_after(repo, since_utc, gh_get, gh_text):
 
     for run in _runs_since(repo, APPLY_WORKFLOW, since_utc, gh_get, APPLY_RERUN_LOOKBACK):
         if run.get("status") != "completed":
-            raise ReadError(f"Apply Merged Migration run {run.get('id')} has not finished")
+            # An install in flight (queued up to 900 s behind its concurrency group, or running).
+            # It will commit after now, so after any copy: it is pending, never unread, once its
+            # file is known.
+            named = _apply_run_file(run)
+            apply_job = None
+            for job in _jobs_of(repo, run["id"], gh_get):
+                m = APPLY_JOB_NAME_RE.match(str(job.get("name") or ""))
+                if m:
+                    if apply_job is not None or (named is not None and m.group(1) != named):
+                        raise ReadError(f"Apply Merged Migration run {run['id']} names more than one migration")
+                    named, apply_job = m.group(1), job
+                elif job.get("name") == APPLY_REPORT_JOB:
+                    continue  # reports a refusal; never installs
+                elif job.get("status") not in (None, "completed"):
+                    raise ReadError(f"a job of Apply Merged Migration run {run['id']} has not finished")
+            if named is None:
+                raise ReadError(
+                    f"Apply Merged Migration run {run.get('id')} has not finished and names no migration file"
+                )
+            if apply_job is not None and apply_job.get("status") == "completed":
+                read(run, apply_job)  # done; only the refusal report is left
+            else:
+                pending.append({
+                    "file": named,
+                    "runId": run["id"],
+                    "status": (apply_job or run).get("status") or "queued",
+                })
+            continue
         if _untouched_since(run, since_utc):
             continue
         for job in _jobs_of(repo, run["id"], gh_get):
             if job.get("status") not in (None, "completed"):
                 raise ReadError(f"a job of Apply Merged Migration run {run['id']} has not finished")
+            # The refusal report (since #12251) never installs, and a skipped job ran nothing:
+            # GitHub keeps no log for it (HTTP 404, run 46091917200 job 140816561035), so reading
+            # one made every Apply run after a copy unread.
+            if job.get("name") == APPLY_REPORT_JOB or job.get("conclusion") == "skipped":
+                continue
             read(run, job)
     for run in _runs_since(repo, STAGE_WORKFLOW, since_utc, gh_get, STAGE_RESERVATION_LOOKBACK):
         # The window installer finishes long before its run does (2026-11-27: job done 10:00:30Z,
@@ -1371,12 +1427,15 @@ def production_installs_after(repo, since_utc, gh_get, gh_text):
             status = job.get("status")
             if status in JOB_NOT_STARTED_STATUSES:
                 continue  # nothing sent yet; a later read sees it
+            # Still running: unread. Which files it is sending cannot be read here: GitHub serves a
+            # job's log only once the job has finished, and its queue ("on main and not in
+            # production's schema_migrations") needs a database read this tool does not make.
             if status not in (None, "completed") or job.get("conclusion") is None:
                 raise ReadError(f"the window installer of Stage run {run['id']} has not finished")
             if job.get("conclusion") == "skipped":
                 continue
             read(run, job)
-    return installed
+    return installed, pending
 
 
 def gh_api_get_bytes(path, timeout=60):
@@ -1391,12 +1450,33 @@ def gh_api_get_bytes(path, timeout=60):
     return proc.stdout
 
 
-def certificate_copy_time(repo, sha, backup_info, gh_get, gh_bytes, run_attempts=None):
-    """When the certified copy was restored: database.restoredAt in the run's own certificate.
-    A run that reuses a copy certifies data restored earlier than the run itself. The certificate
-    is the one the selector takes (scripts/ci/select-daily-engine.py): the artifact named for the
-    run's current attempt, exactly one, unexpired. run_attempts ({run id: attempt}) carries the
-    attempts of runs this report already listed; any other run is read."""
+def _bound_schema_evidence(raw, database):
+    """The copy's schema evidence (schema-evidence.json beside the certificate), or ReadError when
+    it is not the evidence the certificate binds: its sha256 is database.schemaEvidenceSha256 and
+    it names the certificate's dump, the same binding the selector checks
+    (server/scripts/engine-release-installed-migrations.py bound_evidence)."""
+    if hashlib.sha256(raw).hexdigest() != database.get("schemaEvidenceSha256"):
+        raise ReadError("the certificate's schema evidence is not the file it binds")
+    evidence = json.loads(raw)
+    if evidence.get("dumpSha256") != database.get("dumpSha256"):
+        raise ReadError("the certificate's schema evidence is bound to a different dump")
+    return evidence
+
+
+def certificate_copy(repo, sha, backup_info, gh_get, gh_bytes, run_attempts=None):
+    """What the certified copy is, from the run's own certificate archive.
+
+    at: when the copy's data was read from production. The certificate's database.restoredAt is
+    when the copy was restored on Backup, AFTER production was dumped; the export's schema evidence
+    (capturedAt, captured after pg_dump and compared equal to the set captured before it) is when
+    production was read, so an install committed between the dump and the restore is after the
+    copy. The copy is dated by the earlier of the two. versions: the installed migration versions
+    the dump was proved to be taken under, or None when the archive carries no evidence (then only
+    the dates are read). The certificate is the one the selector takes
+    (scripts/ci/select-daily-engine.py): the artifact named for the run's current attempt, exactly
+    one, unexpired. run_attempts ({run id: attempt}) carries the attempts of runs this report
+    already listed; any other run is read. A run that reuses a copy certifies data read earlier
+    than the run itself."""
     run_id = backup_info.get("runId")
     if not run_id:
         raise ReadError("certificate names no Backup run")
@@ -1417,9 +1497,30 @@ def certificate_copy_time(repo, sha, backup_info, gh_get, gh_bytes, run_attempts
     try:
         with zipfile.ZipFile(io.BytesIO(archive)) as zf:
             cert = json.loads(zf.read("certificate.json"))
-        return parse_iso_utc(cert["database"]["restoredAt"])
+            names = set(zf.namelist())
+            raw_evidence = zf.read("schema-evidence.json") if "schema-evidence.json" in names else None
+        database = cert["database"]
+        restored = parse_iso_utc(database["restoredAt"])
     except (zipfile.BadZipFile, KeyError, TypeError, ValueError) as exc:
         raise ReadError(f"certificate of run {run_id} names no copy restore time: {exc}") from exc
+    copy = {"at": restored, "restoredAt": restored, "exportedAt": None, "versions": None}
+    if raw_evidence is None:
+        return copy
+    try:
+        evidence = _bound_schema_evidence(raw_evidence, database)
+        exported = parse_iso_utc(evidence["capturedAt"])
+        versions = frozenset(str(row[0]) for row in evidence["migrations"])
+    except ReadError as exc:
+        raise ReadError(f"certificate of run {run_id}: {exc}") from exc
+    except (KeyError, TypeError, ValueError, IndexError) as exc:
+        raise ReadError(f"certificate of run {run_id} carries unreadable schema evidence: {exc}") from exc
+    copy.update(at=min(restored, exported), exportedAt=exported, versions=versions)
+    return copy
+
+
+def certificate_copy_time(repo, sha, backup_info, gh_get, gh_bytes, run_attempts=None):
+    """When the certified copy's data was read from production (certificate_copy's at)."""
+    return certificate_copy(repo, sha, backup_info, gh_get, gh_bytes, run_attempts)["at"]
 
 
 def load_inert_helper(repo_root):
@@ -1457,36 +1558,57 @@ def judge_copy_freshness(
     run_attempts=None,
 ):
     """O36: a certificate is selectable only while its copy holds every non-inert migration
-    production committed. Returns ("fresh"|"stale"|"unread", detail). "fresh" means only that no
-    install was seen in the applier's job logs since the copy: contents are never compared here.
-    install_cache ({copy time: installs}) lets a second certificate of the same copy re-read nothing."""
+    production committed. Returns ("fresh"|"at-risk"|"stale"|"unread", detail). "fresh" means only
+    that no install was seen in the applier's job logs since the copy: contents are compared only
+    against the copy's own schema evidence, when the certificate carries it. "at-risk" means the
+    certificate is selectable now, but an Apply Merged Migration run is installing a non-inert file
+    the copy lacks: if it commits before the cutoff the selector refuses the certificate.
+    install_cache ({copy time: (installs, pending)}) lets a second certificate of the same copy
+    re-read nothing."""
     try:
-        copy_at = certificate_copy_time(
+        copy = certificate_copy(
             repo, candidate["sha"], candidate["backup"], gh_get, gh_bytes or gh_api_get_bytes, run_attempts
         )
+        copy_at = copy["at"]
         key = format_utc(copy_at) + copy_at.strftime(".%f")
         if install_cache is not None and key in install_cache:
-            installs = install_cache[key]
+            installs, pending = install_cache[key]
         else:
-            installs = production_installs_after(repo, copy_at, gh_get, gh_text)
+            installs, pending = production_installs_after(repo, copy_at, gh_get, gh_text)
             if install_cache is not None:
-                install_cache[key] = installs
+                install_cache[key] = (installs, pending)
     except ReadError as exc:
         return ("unread", str(exc))
-    inert = inert_carve_out(inert_helper, repo_root, control_sha, candidate["sha"]) if installs else frozenset()
-    missing = [item for item in installs if item["file"][:14] not in inert]
-    if not missing:
-        left = sorted({item["file"][:14] for item in installs})
-        note = f" (left out as engine-inert: {', '.join(left)})" if left else ""
+    held = copy["versions"] or frozenset()
+    seen = installs + pending
+    inert = inert_carve_out(inert_helper, repo_root, control_sha, candidate["sha"]) if seen else frozenset()
+    how = "read from production" if copy["exportedAt"] is not None else "restored"
+    when = format_chicago(copy_at)
+    missing = [item for item in installs if item["file"][:14] not in inert and item["file"][:14] not in held]
+    if missing:
+        versions = sorted({m["file"][:14] for m in missing})
         return (
-            "fresh",
-            f"no install seen in the applier's job logs since the copy was restored {format_chicago(copy_at)}{note}",
+            "stale",
+            f"Backup copy read {when} lacks migration(s) production installed after it: "
+            f"{', '.join(versions)}; needs a fresh-copy Backup run",
         )
-    versions = sorted({m["file"][:14] for m in missing})
+    risky = [item for item in pending if item["file"][:14] not in inert and item["file"][:14] not in held]
+    if risky:
+        names = "; ".join(f"{item['file']} (Apply Merged Migration run {item['runId']}, {item['status']})" for item in risky)
+        return (
+            "at-risk",
+            f"an install is in flight that the Backup copy {how} {when} lacks: {names}; "
+            "if it commits before the cutoff the selector refuses this certificate and the cycle needs a fresh-copy Backup run",
+        )
+    left = sorted({item["file"][:14] for item in seen if item["file"][:14] in inert})
+    kept = sorted({item["file"][:14] for item in seen if item["file"][:14] in held and item["file"][:14] not in inert})
+    note = f" (left out as engine-inert: {', '.join(left)})" if left else ""
+    note += f" (already in the copy: {', '.join(kept)})" if kept else ""
+    inflight = sorted({item["file"][:14] for item in pending})
+    note += f" (install in flight changes nothing: {', '.join(inflight)})" if inflight else ""
     return (
-        "stale",
-        f"Backup copy read {format_chicago(copy_at)} lacks migration(s) production installed after it: "
-        f"{', '.join(versions)}; needs a fresh-copy Backup run",
+        "fresh",
+        f"no install seen in the applier's job logs since the copy was {how} {when}{note}",
     )
 
 
@@ -1507,6 +1629,12 @@ def determine_verdict(health, candidates, active_backup, git_info):
             None,
             f"{selectable['sha'][:12]} is certified, but whether its Backup copy is current could not be read: "
             f"{selectable.get('copyFreshnessDetail', '')}",
+        )
+    if selectable is not None and selectable.get("copyFreshness") == "at-risk":
+        return (
+            VERDICT_AT_RISK,
+            selectable["sha"],
+            f"{selectable['sha'][:12]} is certified and selectable now, but {selectable.get('copyFreshnessDetail', '')}",
         )
     if selectable is not None:
         idx = candidates.index(selectable)

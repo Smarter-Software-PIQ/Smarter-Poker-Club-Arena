@@ -58,6 +58,7 @@ import MemberCreditEditor from '../components/club/MemberCreditEditor';
 import RoleBadge, { roleColor } from '../components/club/RoleBadge';
 import MemberTransactionHistory from '../components/club/MemberTransactionHistory';
 import PlayerChangeHistory from '../components/club/PlayerChangeHistory';
+import { ChangeHistoryCase } from '../components/club/RosterRecords';
 import ChipTransferModal from '../components/agent/ChipTransferModal';
 import MemberWatchAtTable from '../components/club/MemberWatchAtTable';
 import MemberWinLossCard from '../components/club/MemberWinLossCard';
@@ -1396,7 +1397,7 @@ export default function MemberManagementPage() {
           )}
 
         {resolvedClubId && user?.id && detail!.capabilities.access === 'staff' && (
-          <section className="mm-card">
+          <ChangeHistoryCase>
             <PlayerChangeHistory
               key={`history:${resolvedClubId}:${identity!.user_id}:${user.id}`}
               clubId={resolvedClubId}
@@ -1404,7 +1405,7 @@ export default function MemberManagementPage() {
               viewerId={user.id}
               enabled={true}
             />
-          </section>
+          </ChangeHistoryCase>
         )}
 
         {/* ── Navigation rows ──────────────────────────────────────────────── */}

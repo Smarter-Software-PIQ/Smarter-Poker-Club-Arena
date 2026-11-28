@@ -481,15 +481,16 @@ export const ordinal = (n: unknown): string => {
  * USE WHOLE NUMBERS AND DECIMALS ALWAYS ... FIX THIS LOGIC GLOBALLY FOR THE
  * POKER ARENA."
  *
- * Thousands separators, never a K/M/B suffix, and every real decimal the
- * stored value has is kept (at least two once there are any). A whole value
- * (a count, a tournament stack, a blind) reads whole.
+ * Thousands separators, never a K/M/B suffix, and the stored decimals up to
+ * two places (Dan 2026-11-27: digits past the second are cut, never rounded).
+ * A whole value (a count, a tournament stack, a blind) reads whole.
  *
  * @example exactChips(1512.34) -> "1,512.34"
  * @example exactChips(1000)    -> "1,000"
  * @example exactChips(-136.5)  -> "-136.50"
  * @example exactChips(0.07)    -> "0.07"
- * @example exactChips(1.234)   -> "1.234"
+ * @example exactChips(1.234)   -> "1.23"
+ * @example exactChips(403.3814552027556) -> "403.38"
  */
 /**
  * A figure as the platform stores it: a JSON number, an exact decimal string
@@ -545,22 +546,50 @@ export function figureDigits(
 }
 
 /**
- * The magnitude of a figure, grouped, with every real decimal it carries and at
- * least `minFraction` places. Nothing is rounded: digits are copied, so
- * "123456789012345678.91" stays exactly that.
+ * The magnitude of a figure, grouped, with at least `minFraction` and at most
+ * DISPLAY_PLACES decimals. Nothing is rounded: digits are copied and cut, so
+ * "123456789012345678.919" prints "123,456,789,012,345,678.91".
  */
+/**
+ * NUMBERS STOP AFTER TWO DECIMALS, ANYWHERE AND EVERYWHERE (Dan 2026-11-27,
+ * binding): "NUMERS AFTER A DECIMAL NEED TO STOP AFTER 2 DIGITS ANY WHERE AND
+ * EVERYWHERE." Cash Rake Today printed 403.3814552027556 because the
+ * 2026-11-13 rule copied every stored digit. A figure on screen now carries at
+ * most DISPLAY_PLACES decimals. Digits past the second are CUT, never rounded
+ * (2026-09-04, "ABSOLUTELY ZERO ROUNDING ANYWHERE EVER"): 0.999 prints 0.99.
+ * Stored values, figureDigits, sums and CSV exports stay exact.
+ */
+export const DISPLAY_PLACES = 2;
+
+/** A figure's decimals as they are displayed: at most two, trailing zeros dropped. */
+export const displayFraction = (fraction: string): string =>
+  fraction.slice(0, DISPLAY_PLACES).replace(/0+$/, '');
+
+/** A figure's digits as they are displayed (see DISPLAY_PLACES). Null when it is not a figure. */
+export function displayDigits(
+  value: FigureInput
+): { negative: boolean; whole: string; fraction: string } | null {
+  const d = figureDigits(value);
+  if (!d) return null;
+  const fraction = displayFraction(d.fraction);
+  return { negative: d.negative && /[1-9]/.test(d.whole + fraction), whole: d.whole, fraction };
+}
+
 export function figureMagnitude(
   digits: { whole: string; fraction: string },
   minFraction: number
 ): string {
   const grouped = digits.whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  const fraction = digits.fraction.padEnd(minFraction, '0');
+  const fraction = displayFraction(digits.fraction).padEnd(
+    Math.min(minFraction, DISPLAY_PLACES),
+    '0'
+  );
   return fraction ? `${grouped}.${fraction}` : grouped;
 }
 
-/** True when the figure is exactly zero (or not a figure). */
+/** True when the figure prints as zero (or is not a figure). */
 const isZeroFigure = (d: { whole: string; fraction: string }) =>
-  !/[1-9]/.test(d.whole + d.fraction);
+  !/[1-9]/.test(d.whole + displayFraction(d.fraction));
 
 /**
  * THE ONE CHIP FIGURE (2026-11-14 consolidation). Every chip formatter in this
@@ -580,7 +609,7 @@ function chipFigure(
 ): string {
   const d = figureDigits(value as FigureInput);
   if (!d) return notAFigure;
-  const places = minFraction ?? (d.fraction ? 2 : 0);
+  const places = minFraction ?? (displayFraction(d.fraction) ? 2 : 0);
   const magnitude = figureMagnitude(d, places);
   if (isZeroFigure(d)) return zero ?? magnitude;
   if (d.negative) return `-${magnitude}`;
@@ -618,7 +647,7 @@ export const feeFigure = (value: FigureInput): string =>
 export const countFigure = (value: number | null | undefined): string =>
   value == null ? 'Restricted' : (Number(value) || 0).toLocaleString();
 
-/** Wallet balances always show separators and at least two decimals; every stored decimal is kept (Dan 2026-10-18, 2026-11-13). */
+/** Wallet balances always show separators and exactly two decimals (Dan 2026-10-18, 2026-11-27). */
 export const formatWalletChips = (amount: FigureInput): string =>
   chipFigure(amount, 2, 'unsigned', '-');
 
@@ -630,9 +659,9 @@ export const formatWalletDiamonds = (amount: number | null | undefined): string 
 };
 
 /**
- * A signed win / loss figure for Player Management (Dan 2026-11-13): exact to
- * the stored precision with separators, at least two decimals so it lines up
- * with the fee and wallet figures beside it. "+392.57", "-1,512.34", "0.00",
- * and "+0.125" when the stored value carries three places.
+ * A signed win / loss figure for Player Management (Dan 2026-11-13, 2026-11-27):
+ * separators and two decimals so it lines up with the fee and wallet figures
+ * beside it. "+392.57", "-1,512.34", "0.00", and "+0.12" when the stored value
+ * carries three places (cut, not rounded).
  */
 export const winLossChips = (n: FigureInput): string => chipFigure(n, 2, 'signed', '0.00', '0.00');
