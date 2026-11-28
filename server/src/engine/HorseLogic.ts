@@ -1219,6 +1219,7 @@ import { resolveHorseHybridSolverAdherence } from './HorseHybridProfile.js';
 import { analyzePreflopOrbit, analyzeV38CommittedPopulation } from './HorsePreflopOrbitState.js';
 import { computeSideGamePotOverlay } from './HorseSideGameOverlay.js';
 import {
+  omahaPeoplePriorFlopPotOf,
   omahaPeoplePriorHiddenKeyOf,
   omahaPeoplePriorHiddenReraisedCheckedKeyOf,
   omahaPeoplePriorRecordCountsHidden,
@@ -3950,6 +3951,22 @@ export interface HorseDecideOpts {
    * rest of the share as today. A hidden bet is by construction one that did not bet the river and did not win.
    */
   omahaHiddenBetsArePricedAsGiveUps?: boolean;
+  /**
+   * lead-9 lane HU2 2026-11-27 (default OFF, read === true). PLO4/PLO5 cash, heads-up, the flop, the bare big pair
+   * that checked out of position and faces one bet (omahaBareOverpairOopFlopCheck's continuation), never a re-raised
+   * pot: the continuation's call-or-fold is priced on the Horse's equity against the bettor's PEOPLE-MEASURED flop
+   * range (the flop pressure cap's own price: people's flop bets of this size, hidden bets counted where
+   * omahaPeoplePriorCountsHiddenBets is on, moved by his own record) instead of the sampler's aggressor tiers. The
+   * continuation's realization, rake, margin and "never a raise" are unchanged.
+   */
+  omahaBareOverpairContinuationIsPeoplePriced?: boolean;
+  /**
+   * lead-9 lane HU2 2026-11-27 (default OFF, read === true). PLO4/PLO5 cash, heads-up, a turn BET, only where
+   * omahaHiddenBetsArePricedAsGiveUps priced the give-up share and never in a re-raised pot: the call is made at
+   * EV >= 0 instead of EV > 2% of the final pot. The verdict there is an exact count against a people-measured
+   * range; folding every hand between zero and the margin is the fold a zero-equity bluff is paid by.
+   */
+  omahaGiveUpPricedTurnCallIsAtIndifference?: boolean;
   /**
    * WooWoo audit FLOP-DEFENCE 2026-11-18 (default OFF, read === true): heads-up facing the
    * first flop bet with chips behind, the fold or call is the flop verdict with the call
@@ -13497,8 +13514,65 @@ let omahaBareOverpairContMemo: {
   player: SeatPlayer;
   gs: HorseGameStateV2;
   mind: boolean;
+  /** omahaBareOverpairContinuationIsPeoplePriced, and whether its price counts hidden bets */
+  people: boolean;
+  peopleHidden: boolean;
   verdict: OmahaBareOverpairContVerdict | null;
 } | null = null;
+
+/**
+ * omahaBareOverpairContinuationIsPeoplePriced (default off): the Horse's equity against the bettor's people-measured
+ * flop range in the continuation's spot, or null where the option does not price it (off, a tournament, not PLO4 /
+ * PLO5, outside the flop pressure cap's priced spot, a re-raised pot, or a count that cannot be made): then the
+ * continuation prices on the sampler tiers exactly as before.
+ */
+function omahaBareOverpairPeopleEquity(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): number | null {
+  if (opts.omahaBareOverpairContinuationIsPeoplePriced !== true || isTournamentMode(gs))
+    return null;
+  const n = (player.cards ?? []).length;
+  if (n !== 4 && n !== 5) return null;
+  try {
+    // 3-bet and 4-bet pots are not priced: no call is added there (they are value-heavy; not measured)
+    if (omahaPeoplePriorFlopPotOf(gs.actionHistory) === 'reraised') return null;
+    const spotP = omahaFlopPressureCapPricedSpot(player, gs);
+    if (!spotP) return null;
+    const bettorP = (gs.players ?? []).find((p) => p.seat === spotP.bettorSeat);
+    const hiddenKeyP =
+      opts.omahaPeoplePriorCountsHiddenBets === true
+        ? omahaPeoplePriorHiddenKeyOf(
+            String(gs.gameVariant ?? ''),
+            'flop',
+            gs.actionHistory,
+            spotP.bettorSeat
+          )
+        : null;
+    const priced = omahaFlopPressureCapPricedEquity(
+      spotP,
+      player.cards,
+      gs.communityCards ?? [],
+      player.knownDeadCards ?? [],
+      omahaFacingBetDeduction(player, gs, opts),
+      opts.mind !== false && bettorP
+        ? omahaBetReadOwnCellOf(
+            bettorP.user_id,
+            String(gs.gameVariant ?? '').toLowerCase(),
+            'flop',
+            spotP.potFrac,
+            false,
+            omahaPeoplePriorRecordCountsHidden(hiddenKeyP)
+          )
+        : null,
+      hiddenKeyP
+    );
+    return priced ? priced.equity : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * omahaBareOverpairOopFlopCheck, the continuation (HorseOmahaOopChecks.ts):
@@ -13530,8 +13604,17 @@ export function omahaBareOverpairFlopFacingBetRule(
     if (spot === null) return null;
     const mind = opts.mind !== false;
     const memo = omahaBareOverpairContMemo;
+    const people = opts.omahaBareOverpairContinuationIsPeoplePriced === true;
+    const peopleHidden = people && opts.omahaPeoplePriorCountsHiddenBets === true;
     let verdict: OmahaBareOverpairContVerdict | null;
-    if (memo && memo.player === player && memo.gs === gs && memo.mind === mind)
+    if (
+      memo &&
+      memo.player === player &&
+      memo.gs === gs &&
+      memo.mind === mind &&
+      memo.people === people &&
+      memo.peopleHidden === peopleHidden
+    )
       verdict = memo.verdict;
     else {
       let read: OmahaBareOverpairContRead | null = null;
@@ -13556,11 +13639,18 @@ export function omahaBareOverpairFlopFacingBetRule(
           read = null;
         }
       }
+      // omahaBareOverpairContinuationIsPeoplePriced (default off): null with the option off, and then nothing changes
+      const peopleEquity = people ? omahaBareOverpairPeopleEquity(player, gs, opts) : null;
       verdict = omahaBareOverpairFlopFacingBetVerdict(spot, player, gs, read, {
         rake: isTournamentMode(gs) ? 0 : omahaFacingBetDeduction(player, gs, opts),
         realization: realizationFactor({ street: 'flop', inPosition: false }),
+        ...(peopleEquity !== null ? { peopleEquity } : {}),
       });
-      omahaBareOverpairContMemo = { player, gs, mind, verdict };
+      omahaBareOverpairContMemo = { player, gs, mind, people, peopleHidden, verdict };
+      if (verdict?.peoplePriced === true && telemetryOn(opts)) {
+        noteFire('omaha_bare_overpair_people_priced');
+        if (verdict.call) noteFire('omaha_bare_overpair_people_priced_call');
+      }
     }
     if (verdict === null) return omahaBareOverpairContFailSafe(decision, spot.call, opts);
     const tele = telemetryOn(opts);
@@ -14878,6 +14968,12 @@ function omahaFacingBetEvRule(
         noteFire('omaha_hidden_give_up_priced');
         if (evCall) noteFire('omaha_hidden_give_up_priced_call');
       }
+      if (ev.verdict.indifference === true) {
+        noteFire('omaha_give_up_indifference_priced');
+        // the call the safety margin would have folded
+        if (evCall && !(ev.verdict.ev > ev.verdict.margin))
+          noteFire('omaha_give_up_indifference_call');
+      }
       if (ev.lineSplit) {
         noteFire('omaha_turn_line_prior_priced');
         if (ev.lineSplit.checked) noteFire('omaha_turn_line_prior_checked_flop');
@@ -14993,6 +15089,8 @@ let omahaFacingBetEvCountMemo: {
   turnLineHidden: boolean;
   /** omahaHiddenBetsArePricedAsGiveUps */
   hiddenGiveUps: boolean;
+  /** omahaGiveUpPricedTurnCallIsAtIndifference */
+  giveUpIndifference: boolean;
   /** omahaFacingBetRangeIsMeasuredByLine and its siblings (HorseOmahaFacingBetPriced) */
   pricedKey: string;
   answer: OmahaFacingBetEvAnswer | null;
@@ -15225,6 +15323,9 @@ function omahaFacingBetEvCount(
     opts.omahaPeoplePriorCountsHiddenBets === true &&
     !isTournamentMode(gs) &&
     ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
+  // omahaGiveUpPricedTurnCallIsAtIndifference (default off): inside the give-up price, single-raised and limped pots
+  const giveUpIndifference =
+    hiddenGiveUps && opts.omahaGiveUpPricedTurnCallIsAtIndifference === true;
   const turnLineHidden =
     turnLineSplit &&
     (opts as { omahaPeoplePriorCountsHiddenBets?: boolean }).omahaPeoplePriorCountsHiddenBets ===
@@ -15266,6 +15367,7 @@ function omahaFacingBetEvCount(
     memo.turnLineSplit === turnLineSplit &&
     memo.turnLineHidden === turnLineHidden &&
     memo.hiddenGiveUps === hiddenGiveUps &&
+    memo.giveUpIndifference === giveUpIndifference &&
     memo.pricedKey === pricedKey
   )
     return memo.answer;
@@ -15454,6 +15556,12 @@ function omahaFacingBetEvCount(
             pricedShare: anchored.share,
             pricedRegions: anchored.regions,
             ...(anchored.giveUp !== undefined ? { pricedGiveUp: anchored.giveUp } : {}),
+            // re-raised pots keep the margin: no call is added there that was not measured
+            ...(giveUpIndifference &&
+            anchored.giveUp !== undefined &&
+            omahaPeoplePriorFlopPotOf(gs.actionHistory) !== 'reraised'
+              ? { pricedIndifference: true }
+              : {}),
           };
           equilibriumAnchored = anchored;
         }
@@ -15797,6 +15905,7 @@ function omahaFacingBetEvCount(
     turnLineSplit,
     turnLineHidden,
     hiddenGiveUps,
+    giveUpIndifference,
     pricedKey,
     answer,
   };

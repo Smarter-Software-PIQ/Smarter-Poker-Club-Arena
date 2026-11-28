@@ -1285,6 +1285,20 @@
       "prefixes": ["omaha_hidden_give_up_"],
       "unlessOn": []
     },
+    "omahaBareOverpairContinuationIsPeoplePriced": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_bare_overpair_people_priced"],
+      "unlessOn": []
+    },
+    "omahaGiveUpPricedTurnCallIsAtIndifference": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_give_up_indifference_"],
+      "unlessOn": []
+    },
     "omahaFacingBetFieldIsJoint": {
       "releaseDefault": "off",
       "source": "declared",

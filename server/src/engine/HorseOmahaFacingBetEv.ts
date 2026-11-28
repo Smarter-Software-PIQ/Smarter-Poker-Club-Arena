@@ -208,6 +208,10 @@ export interface OmahaFacingBetEvRead {
    *  (people's hidden bets: he checked and folded later, or mucked). The turn verdict prices it as his weakest
    *  OMAHA_EV_BLUFF_POOL of holdings, with no realization discount (a give-up does not bet the river). */
   pricedGiveUp?: number | null;
+  /** omahaGiveUpPricedTurnCallIsAtIndifference (default off), turn only, with pricedGiveUp: the call is made at
+   *  EV >= 0 instead of EV > the safety margin (2% of the final pot). The price is an exact count on a measured
+   *  range; the hands between zero and the margin are the ones a bluffer's price makes indifferent. */
+  pricedIndifference?: boolean;
 }
 export const OMAHA_EV_UNKNOWN_READ: OmahaFacingBetEvRead = Object.freeze({
   measured: false,
@@ -1586,6 +1590,8 @@ export interface OmahaFacingBetEvVerdict {
   runoutRealization?: number;
   /** omahaHiddenBetsArePricedAsGiveUps: the give-up share priced as the weakest pool at full realization */
   giveUp?: number;
+  /** omahaGiveUpPricedTurnCallIsAtIndifference: the call was decided at EV >= 0 (margin is still reported) */
+  indifference?: true;
   /** pot odds of the call, for the record */
   price: number;
   /** omahaPairedBoardRiverIsPriced: present when call, ev, pWin and pTie were priced on the bettor's
@@ -1950,8 +1956,11 @@ export function omahaFacingBetEvVerdict(
       counts: counted.counts,
     };
   }
+  // omahaGiveUpPricedTurnCallIsAtIndifference (default off): only where the give-up share was priced above
+  const atIndifference = giveUpPriced !== undefined && read?.pricedIndifference === true;
   return {
-    call: ev > margin && !plo6FoldStands,
+    call: (atIndifference ? ev >= 0 : ev > margin) && !plo6FoldStands,
+    ...(atIndifference ? { indifference: true as const } : {}),
     ...(plo6FoldStands ? { plo6FoldStands: true } : {}),
     ev,
     margin,
