@@ -30,7 +30,20 @@ Real-node replay, same decisions, base = `omahaPeoplePriorCountsHiddenBets` + `o
 
 No re-raised pot changes (0 added calls there). Chips of the calls the option adds where the recorded Horse called (natural experiment): -15.2 +/- 21.2 bb (n 9; PLO4 +0.9 +/- 6.4, n 4; PLO5 -28.2 +/- 38.8, n 5): not below -1 SE, thin. Speed (relative-cost law, 40 real turn decisions it decides): on 8.84 ms vs off 8.89 ms per decision telemetry off (ratio 0.99), 9.06 vs 9.01 telemetry on (1.00).
 
-Fixed harness (ON-minus-same-seed-no-op, base = live rows + the three options above): FIXEDHARNESS-PENDING
+Fixed harness (ON-minus-same-seed-no-op, base = live rows + the three options above): value-only bettor PLO4 -0.46 +/- 0.56 (>= -3.0, PASS); value-only bettor PLO5 -0.40 +/- 0.68 (>= -4.0, PASS); people-calibrated responder PLO4 -1.09 +/- 1.10 (>= -1 SE, PASS); people-calibrated responder PLO5 +0.70 +/- 1.06 (>= -1 SE, PASS); bot ftk PLO4 bluffer -4.15 +/- 0.37 bb/line with the option (change -0.59 +/- 0.53; PASS); bot ftk PLO5 bluffer -4.17 +/- 0.45 bb/line with the option (change -0.66 +/- 0.64; PASS); bot bp PLO4 bluffer -8.54 +/- 0.70 bb/line with the option (change -0.13 +/- 0.98; PASS); bot bp PLO5 bluffer -7.94 +/- 0.80 bb/line with the option (change -0.76 +/- 1.12; PASS). Pooled over seeds 211/212 (bots: seed 601, heads-up, 0.8 pot, ftk = flop+turn barrel that gives up the river, bp = production muck rule). Evidence cards (mirrors 311/312 heads-up and 6-max, over-folder, balanced, calling station; bars: not below -2 SE, station >= -1 SE): INCOMPLETE.
+
+| card         | game | pooled ON-minus-noop bb/100 | SE units | bar      | result        | per seed                                                           |
+| ------------ | ---- | --------------------------- | -------- | -------- | ------------- | ------------------------------------------------------------------ |
+| mirror HU    | PLO4 | -0.28 +/- 2.45              | -0.1     | >= -2 SE | PASS          | 311: +0.03 +/- 3.86 (ON div 319); 312: -0.59 +/- 3.02 (ON div 299) |
+| mirror HU    | PLO5 | -2.04 +/- 3.72              | -0.5     | >= -2 SE | PASS          | 311: -1.26 +/- 5.14 (ON div 749); 312: -2.81 +/- 5.38 (ON div 565) |
+| mirror 6-max | PLO4 | -0.99 +/- 1.13              | -0.9     | >= -2 SE | PASS (1 seed) | 311: -0.99 +/- 1.13 (ON div 79)                                    |
+| mirror 6-max | PLO5 | +0.05 +/- 1.44              | +0.0     | >= -2 SE | PASS (1 seed) | 311: +0.05 +/- 1.44 (ON div 123)                                   |
+| over-folder  | PLO4 | +1.55 +/- 1.31              | +1.2     | >= -2 SE | PASS (1 seed) | 211: +1.55 +/- 1.31 (ON div 35)                                    |
+| over-folder  | PLO5 | +2.74 +/- 1.45              | +1.9     | >= -2 SE | PASS (1 seed) | 211: +2.74 +/- 1.45 (ON div 35)                                    |
+| balanced     | PLO4 | +0.30 +/- 0.85              | +0.4     | >= -2 SE | PASS (1 seed) | 211: +0.30 +/- 0.85 (ON div 17)                                    |
+| balanced     | PLO5 | -2.00 +/- 1.27              | -1.6     | >= -2 SE | PASS (1 seed) | 211: -2.00 +/- 1.27 (ON div 17)                                    |
+| caller       | PLO4 | +0.00 +/- 0.00              | +0.0     | >= -1 SE | PASS (1 seed) | 211: +0.00 +/- 0.00 (ON div 0)                                     |
+| caller       | PLO5 | +0.00 +/- 0.00              | +0.0     | >= -1 SE | PASS (1 seed) | 211: +0.00 +/- 0.00 (ON div 0)                                     |
 
 ## Watch And Rollback
 
