@@ -1069,7 +1069,11 @@ describe('LAW: horseSlowplayIsPriced (H4 Monster Slowplay Mix Priced Replacement
     expect(guardAt).toBeGreaterThan(0);
     const between = raw.slice(guardAt, callAt);
     expect(between).not.toContain('} else');
-    expect(raw.slice(callAt, callAt + 1500)).toContain('fastRandom() < params.slowplayFreq &&');
+    const coinAt = raw.indexOf('fastRandom() < params.slowplayFreq &&', callAt);
+    expect(coinAt).toBeGreaterThan(callAt);
+    const toCoin = raw.slice(callAt, coinAt);
+    expect(toCoin.match(/\} else if \(/g)).toHaveLength(1);
+    expect(toCoin).not.toContain('betSize(');
     // r3: who bet last on the street before is read from the public action history and passed on
     const body = raw.slice(fnAt, fnEnd);
     expect(body).toContain("const priorStage = street === 'flop' ? 'preflop' : 'flop';");
