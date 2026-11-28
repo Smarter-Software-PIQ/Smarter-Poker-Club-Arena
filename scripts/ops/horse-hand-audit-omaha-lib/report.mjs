@@ -67,6 +67,7 @@ export const DECISION_COLS = [
   'hero_pf_q',
   'specs',
   'options',
+  'size_band',
 ];
 export const HAND_COLS = [
   'hand_id',

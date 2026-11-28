@@ -4,6 +4,8 @@
  * daily of 2026-11-25T230000Z) where the live rule chain raises: the public snapshot and the deciding Horse's own cards.
  * Off, every node keeps the chain's raise; on, each decides the action kind the graded replay did (EV on the audits'
  * own pricing, shown cards only: 34 fixed / 1 newly wrong, +400 bb over both audits with the size-versus-size rule).
+ * 2026-11-27 (lead-8 W8): the bettor's range is people-only (omahaFlopRaisePeopleRange); the expected kind of 3 of the
+ * 45 nodes was re-read from the engine on that code (5f3efa50 twice, 8a2b3d04, which now calls: the audit's best).
  */
 import { describe, expect, it } from 'vitest';
 import { FLOP_RAISE_FIXTURE, flopRaiseDecide } from './HorseOmahaFlopRaisePriced.test-support.js';

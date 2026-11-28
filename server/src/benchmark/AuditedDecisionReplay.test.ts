@@ -1290,4 +1290,134 @@ describe('audited decision replay: the PLO6 audit set', () => {
     expect([on.changed, on.fixed, on.stillWrong, on.newlyWrong]).toEqual([4, 2, 1, 1]);
     expect(on.fixedNodes.sort()).toEqual(['900201:1:river:0', '900204:1:river:0']);
   });
+
+  it('a placed raise with the audit size band: a resize is judged (fixed, newly wrong, still wrong, ok to ok); without a band it stays unchanged', () => {
+    // Synthetic flop raises (amounts = raise-to, big blinds). Band = the raise-to levels the audit judges CORRECT.
+    const node = (
+      hand: string,
+      cls: string,
+      amount: number,
+      band?: { min: number; max: number } | string
+    ) =>
+      JSON.stringify({
+        hand,
+        seat: 2,
+        street: 'flop',
+        k: 0,
+        recorded: { action: 'raise', amount },
+        verdict: cls === 'bad' ? 'MISTAKE OPPORTUNITY' : 'CORRECT',
+        cls,
+        ...(cls === 'bad' ? { better: ['raise'] } : {}),
+        ...(band !== undefined ? { sizeBand: band } : {}),
+      });
+    const placed = placedDecisions(
+      [
+        node('900301', 'bad', 60, { min: 100, max: 122 }), // under-sized, resized into the band: fixed
+        node('900302', 'ok', 110, { min: 100, max: 122 }), // in the band, resized out of it: newly wrong
+        node('900303', 'bad', 60, { min: 100, max: 122 }), // under-sized, resized but still short: still wrong
+        node('900304', 'ok', 105, { min: 100, max: 122 }), // in the band, resized inside it: ok to ok
+        node('900305', 'bad', 60), // no band: a resize is invisible, as before
+        node('900306', 'bad', 60, { min: 100, max: 122 }), // band, but the arm calls: a kind change, still wrong
+        node('900307', 'bad', 60, { min: 130, max: 122 }), // malformed band: refused, never guessed
+        JSON.stringify({
+          hand: '900308',
+          seat: 2,
+          street: 'flop',
+          k: 0,
+          recorded: { action: 'call', amount: 20 },
+          cls: 'ok',
+          sizeBand: { min: 1, max: 2 },
+        }),
+      ].join('\n')
+    );
+    expect(placed.unplaced.map((u) => u.reason)).toEqual([
+      'sizeBand needs finite min <= max',
+      'sizeBand is for a recorded bet or raise only',
+    ]);
+    expect(placed.decisions.find((d) => d.node.hand === '900301')?.sizeBand).toEqual({
+      min: 100,
+      max: 122,
+    });
+    const row = (hand: string, off: [string, number], on: [string, number | null]) =>
+      JSON.stringify({
+        hand,
+        seat: 2,
+        street: 'flop',
+        k: 0,
+        arms: { off: { action: off[0], amount: off[1] }, on: { action: on[0], amount: on[1] } },
+      });
+    const replay = parseReplayJsonl(
+      [
+        row('900301', ['raise', 60], ['raise', 122]),
+        row('900302', ['raise', 110], ['raise', 70]),
+        row('900303', ['raise', 60], ['raise', 80]),
+        row('900304', ['raise', 105], ['raise', 120]),
+        row('900305', ['raise', 60], ['raise', 122]),
+        row('900306', ['raise', 60], ['call', 20]),
+      ].join('\n')
+    );
+    const rep = scoreReplay([{ source: 'placed', decisions: placed.decisions }], replay);
+    const on = rep.sources[0].arms.find((a) => a.arm === 'on')!;
+    expect(on.resizeJudged).toBe(4);
+    expect(on.resized).toBe(5);
+    expect([on.changed, on.fixed, on.newlyWrong, on.stillWrong, on.okToOk]).toEqual([
+      5, 1, 1, 2, 1,
+    ]);
+    expect(on.unchanged).toBe(1);
+    expect(on.unchangedBad).toBe(1);
+    expect(on.fixedNodes).toEqual(['900301:2:flop:0']);
+    expect(on.newlyWrongNodes).toEqual(['900302:2:flop:0']);
+    const rows = replayBarRows(rep, 'on', { set: 'synthetic size band set', scorer: 'abcdef1' });
+    expect(rows[0]).toContain('size-aware; resizeJudged 4');
+    expect(parseReplayBarRows(rows[0]).rows[0]).toMatchObject({
+      state: 'RUN',
+      fixed: 1,
+      newlyWrong: 1,
+      changed: 5,
+    });
+    expect(replayBarLine(rep, 'on')).toContain("4 resizes judged by the audit's size band");
+  });
+
+  it('a change to an action the audit prices as the recorded one (a raise over an all-in = a call) keeps its verdict', () => {
+    const node = (hand: string, cls: string, equivalent?: unknown) =>
+      JSON.stringify({
+        hand,
+        seat: 3,
+        street: 'flop',
+        k: 0,
+        recorded: { action: 'raise', amount: 50 },
+        cls,
+        ...(cls === 'bad' ? { better: ['call'] } : {}),
+        ...(equivalent !== undefined ? { equivalent } : {}),
+      });
+    const placed = placedDecisions(
+      [
+        node('900401', 'ok', ['call']), // raise over an all-in, judged as the call it is: the arm calls -> ok to ok
+        node('900402', 'ok'), // no equivalence: the same change is newly wrong, as before
+        node('900403', 'bad', ['call']), // judged bad: the equivalent call is still wrong, not a fix
+        node('900404', 'ok', ['shove']), // not a voluntary action kind: refused
+      ].join('\n')
+    );
+    expect(placed.unplaced.map((u) => u.reason)).toEqual([
+      'equivalent names an action kind that is not a voluntary decision',
+    ]);
+    const row = (hand: string) =>
+      JSON.stringify({
+        hand,
+        seat: 3,
+        street: 'flop',
+        k: 0,
+        arms: { off: { action: 'raise', amount: 50 }, on: { action: 'call' } },
+      });
+    const rep = scoreReplay(
+      [{ source: 'placed', decisions: placed.decisions }],
+      parseReplayJsonl(['900401', '900402', '900403'].map(row).join('\n'))
+    );
+    const on = rep.sources[0].arms.find((a) => a.arm === 'on')!;
+    expect([on.changed, on.okToOk, on.newlyWrong, on.stillWrong, on.fixed]).toEqual([
+      3, 1, 1, 1, 0,
+    ]);
+    expect(on.newlyWrongNodes).toEqual(['900402:3:flop:0']);
+    expect(on.fixedNodes).toEqual([]);
+  });
 });
