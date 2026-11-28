@@ -314,7 +314,7 @@ describe('the Stage job', () => {
     expect(steps[wrote].run).toContain(
       'node scripts/ci/dispatch-intent.mjs write --operation backup-after-keep-serving --dir "$RUNNER_TEMP/dispatch-intents"'
     );
-    expect(steps[wrote].run).toContain('--input "after_cycle=$RELEASE_DATE" --input refresh=true');
+    expect(steps[wrote].run).toContain('--input "after_cycle=$RELEASE_DATE" --input refresh=false');
     expect(steps[published].with).toMatchObject({
       name: 'dispatch-intents-${{ github.run_attempt }}',
       path: '${{ runner.temp }}/dispatch-intents',
@@ -323,7 +323,7 @@ describe('the Stage job', () => {
     // The sender checks the body it is about to send against what was
     // decided and against this exact run attempt, and admits no other field.
     expect(sendSteps[sent].run).toContain(
-      '.ref == "main" and .inputs.after_cycle == $cycle and .inputs.refresh == "true" and .inputs.intent_nonce == $nonce'
+      '.ref == "main" and .inputs.after_cycle == $cycle and .inputs.refresh == "false" and .inputs.intent_nonce == $nonce'
     );
     expect(sendSteps[sent].run).toContain(
       'and .inputs.intent_run_id == $run and .inputs.intent_run_attempt == $attempt and ((.inputs | keys | length) == 5) and ((keys | length) == 2)'

@@ -336,7 +336,7 @@ function runSend(
             ref: 'main',
             inputs: {
               after_cycle: '2026-11-27T13',
-              refresh: 'true',
+              refresh: 'false',
               intent_run_id: '46000000000',
               intent_run_attempt: '1',
               intent_nonce: NONCE_HEX,
@@ -490,7 +490,7 @@ describe('the send steps, executed: every failure of the App token leaves the cy
     try {
       const recorded = writeIntent({
         operation: 'backup-after-keep-serving',
-        inputs: { after_cycle: scenario.cycle ?? '2026-11-27T13', refresh: 'true' },
+        inputs: { after_cycle: scenario.cycle ?? '2026-11-27T13', refresh: 'false' },
         dir: join(dir, 'intents'),
         nonce: NONCE_HEX,
         env: STAGE_ENV,
@@ -655,7 +655,7 @@ esac
     try {
       const recorded = writeIntent({
         operation: 'backup-after-keep-serving',
-        inputs: { after_cycle: '2026-11-27T13', refresh: 'true' },
+        inputs: { after_cycle: '2026-11-27T13', refresh: 'false' },
         dir: join(dir, 'intents'),
         nonce: NONCE_HEX,
         env: {
@@ -705,7 +705,7 @@ esac
     const step = job.steps.find((s) => String(s.run ?? '').includes('send "$APP_TOKEN"'));
     const base = {
       after_cycle: '2026-11-27T13',
-      refresh: 'true',
+      refresh: 'false',
       intent_run_id: '46000000000',
       intent_run_attempt: '1',
       intent_nonce: NONCE_HEX,
@@ -713,7 +713,7 @@ esac
     for (const body of [
       { ref: 'other', inputs: base },
       { ref: 'main', inputs: { ...base, sha: 'f'.repeat(40) } },
-      { ref: 'main', inputs: { ...base, refresh: 'false' } },
+      { ref: 'main', inputs: { ...base, refresh: 'true' } },
       { ref: 'main', inputs: { ...base, intent_run_id: '1' } },
       { ref: 'main', inputs: { ...base, after_cycle: '2026-11-27T16' } },
       { ref: 'main', inputs: base, extra: 1 },

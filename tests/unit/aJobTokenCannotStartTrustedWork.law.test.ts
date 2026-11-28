@@ -293,7 +293,8 @@ describe('a job token cannot start trusted work', () => {
     expect(op.inputs.after_cycle.test('2026-11-26T01 x')).toBe(false);
     expect(op.inputs.after_cycle.test('')).toBe(false);
     expect(op.inputs.refresh.test('true')).toBe(true);
-    expect(op.inputs.refresh.test('false')).toBe(false);
+    expect(op.inputs.refresh.test('false')).toBe(true);
+    expect(op.inputs.refresh.test('maybe')).toBe(false);
     const receiver = RECEIVERS['backup-after-keep-serving'];
     expect(receiver.event).toBe('workflow_dispatch');
     expect(receiver.emptyInputs).toEqual(['sha']);
