@@ -17,7 +17,6 @@ const REWARD_PAGES = [
 const PLAY_PAGES = [
   'src/pages/tournament/TournamentLobbyPage.tsx',
   'src/pages/tournament/TournamentResultsPage.tsx',
-  'src/pages/HandHistoryPage.tsx',
   'src/pages/SessionHistoryPage.tsx',
 ];
 
@@ -61,6 +60,17 @@ describe('cinematic retained route families', () => {
     // 2026-10-17: no eyebrow (Dan: "PAGES DON'T NEED TITLES LIKE THIS").
     expect(source).toMatch(/<CashierWorkspace\s+compact\s+title="Wallet"\s+summary="[^"]+"/);
     expect(source).toContain('data-arena-surface="wallet"');
+  });
+
+  it('Hand History wears the arena workspace (#SmarterDesign, Dan 2026-11-27)', () => {
+    // Dan's order of 2026-11-27 supersedes the Play & Review anchor for the
+    // Hand Archive: the chrome mast and the arena case (player pages batch P4).
+    // It left the Play Circuit surface, so it no longer carries its marker.
+    const source = readFileSync('src/pages/HandHistoryPage.tsx', 'utf8');
+    expect(source).toContain('className="hand-history-page arena-workspace"');
+    expect(source).toContain('<ArenaWorkspaceHeader');
+    expect(source).not.toContain('CasinoSurfaceHeader');
+    expect(source).not.toContain('data-arena-surface="play"');
   });
 
   it.each(PLAY_PAGES)('%s uses the Play & Review visual anchor', (path) => {
