@@ -22,16 +22,28 @@ export class HorseRequestCapacityError extends Error {
   }
 }
 
+export interface HorseRequestAllowanceMetrics {
+  readonly bytes: number;
+  readonly nodes: number;
+}
+
 /** Bounded traversal before retaining/copying a request. String escaping and
  * per-property overhead are charged conservatively; no getter is executed.
- * Repeated references are charged on each path; depth/node bounds refuse cycles. */
-export function horseRequestAllowance(value: unknown, maximum = HORSE_REQUEST_MAX_BYTES): number {
-  const pending: Array<{ value: unknown; depth: number }> = [{ value, depth: 0 }];
+ * Repeated references are charged on each path; depth/node bounds refuse cycles.
+ * Parallel value/depth stacks avoid per-node wrapper object allocations on the
+ * hot main-thread dispatch path (incident 1e532243). */
+export function horseRequestAllowanceMetrics(
+  value: unknown,
+  maximum = HORSE_REQUEST_MAX_BYTES
+): HorseRequestAllowanceMetrics {
+  const pendingValues: unknown[] = [value];
+  const pendingDepths: number[] = [0];
   let bytes = 256;
   let nodes = 0;
-  while (pending.length) {
+  while (pendingValues.length) {
     if (++nodes > HORSE_REQUEST_MAX_NODES || bytes > maximum) throw new HorseRequestCapacityError();
-    const { value: item, depth } = pending.pop()!;
+    const item = pendingValues.pop()!;
+    const depth = pendingDepths.pop()!;
     if (depth > 64) throw new HorseRequestCapacityError();
     if (typeof item === 'string') bytes += 6 * item.length + 16;
     else if (item === null || typeof item !== 'object') {
@@ -48,16 +60,38 @@ export function horseRequestAllowance(value: unknown, maximum = HORSE_REQUEST_MA
       for (const key in item) {
         if (!Object.hasOwn(item, key)) continue;
         bytes += 6 * key.length + 32;
-        if (bytes > maximum || pending.length >= HORSE_REQUEST_MAX_NODES)
+        if (bytes > maximum || pendingValues.length >= HORSE_REQUEST_MAX_NODES)
           throw new HorseRequestCapacityError();
         const descriptor = Object.getOwnPropertyDescriptor(item, key);
         if (!descriptor || !('value' in descriptor)) throw new HorseRequestCapacityError();
-        pending.push({ value: descriptor.value, depth: depth + 1 });
+        pendingValues.push(descriptor.value);
+        pendingDepths.push(depth + 1);
       }
     }
   }
   if (bytes > maximum) throw new HorseRequestCapacityError();
-  return bytes;
+  return { bytes, nodes };
+}
+
+/**
+ * Combine allowance metrics for two disjoint top-level plain-object spreads
+ * `{ ...base, ...overlay }` without re-walking the already-validated `base`
+ * tree. Subtracting 320 bytes (256 base + 64 root object) and 1 root node
+ * produces the exact allowance when keys are disjoint, and a conservative
+ * upper bound if any top-level key overlaps (incident 1e532243).
+ */
+export function combineHorseRequestAllowanceMetrics(
+  base: HorseRequestAllowanceMetrics,
+  overlay: HorseRequestAllowanceMetrics
+): HorseRequestAllowanceMetrics {
+  return {
+    bytes: base.bytes + overlay.bytes - 320,
+    nodes: base.nodes + overlay.nodes - 1,
+  };
+}
+
+export function horseRequestAllowance(value: unknown, maximum = HORSE_REQUEST_MAX_BYTES): number {
+  return horseRequestAllowanceMetrics(value, maximum).bytes;
 }
 
 type Plan = { pending: number; admitted: number; terminal: boolean };
@@ -72,11 +106,27 @@ export class HorseRequestRetentionBudget {
   private ordinary = 0;
   private refused = 0;
 
-  reserve(request: HorseDecisionJobRequest): void {
+  reserve(request: HorseDecisionJobRequest, prevalidated?: HorseRequestAllowanceMetrics): void {
     try {
       const effect =
         request.type === 'COMMIT_DECISION_EFFECTS' || request.type === 'RETIRE_DECISION_EFFECTS';
-      const bytes = horseRequestAllowance(request, effect ? EFFECT_BYTES : HORSE_REQUEST_MAX_BYTES);
+      const limit = effect ? EFFECT_BYTES : HORSE_REQUEST_MAX_BYTES;
+      let bytes: number;
+      if (prevalidated !== undefined) {
+        if (
+          !Number.isSafeInteger(prevalidated.bytes) ||
+          !Number.isSafeInteger(prevalidated.nodes) ||
+          prevalidated.bytes < 256 ||
+          prevalidated.bytes > limit ||
+          prevalidated.nodes < 1 ||
+          prevalidated.nodes > HORSE_REQUEST_MAX_NODES
+        ) {
+          throw new HorseRequestCapacityError();
+        }
+        bytes = prevalidated.bytes;
+      } else {
+        bytes = horseRequestAllowance(request, limit);
+      }
       if (this.claims.has(request.requestId)) throw new HorseRequestCapacityError();
       if (effect) {
         const fastId = request.planBinding.fastRequestId;

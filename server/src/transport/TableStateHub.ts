@@ -246,6 +246,14 @@ interface TableRoom {
   subscribers: Set<HubSubscriber>;
   lastSnapshot: GameStateSnapshot | null;
   lastSnapshotJson: string | null;
+  /**
+   * Deferred snapshot builder registered by `publishLazy()` while a table has
+   * zero WebSocket subscribers. Materialized on demand in `subscribe()` or
+   * `resync()` so unwatched tables pay zero projection/clone/diff CPU per
+   * action (incident 1e532243).
+   */
+  lazySnapshotProvider: (() => GameStateSnapshot | null) | null;
+  lazySnapshotOwner?: object;
   lastSeq: number;
   lastPublishedAt: number;
   /** State loss belongs to this room, even on a socket shared by several tables. */
@@ -327,7 +335,14 @@ export class TableStateHub {
   private projections = new Map<string, { owner: object; active: () => boolean }>();
 
   claimPublicProjection(tableId: string, owner: object, active: () => boolean): void {
-    if (this.projections.get(tableId)?.owner !== owner) this.retained.delete(tableId);
+    if (this.projections.get(tableId)?.owner !== owner) {
+      this.retained.delete(tableId);
+      const room = this.rooms.get(tableId);
+      if (room) {
+        room.lazySnapshotProvider = null;
+        room.lazySnapshotOwner = undefined;
+      }
+    }
     this.projections.set(tableId, { owner, active });
   }
 
@@ -359,6 +374,30 @@ export class TableStateHub {
   private replayedEvents = 0;
 
   /**
+   * Lazy publish for high-frequency table broadcasts: when zero subscribers are
+   * watching `tableId`, store `buildState` without invoking it (avoiding full
+   * hand-state projection, `cloneJsonWire`, and structural diffing on ~180
+   * unwatched tables per action, incident 1e532243). When at least one
+   * subscriber is attached, evaluate `buildState` immediately and run the
+   * exact `publish()` SNAPSHOT/DELTA path.
+   */
+  publishLazy(tableId: string, buildState: () => GameStateSnapshot | null, owner?: object): number {
+    if (!this.acceptsPublisher(tableId, owner)) return this.rooms.get(tableId)?.lastSeq ?? 0;
+    const room = this.getOrCreateRoom(tableId);
+    if (room.subscribers.size > 0) {
+      const state = buildState();
+      if (!state) return room.lastSeq;
+      return this.publish(tableId, state, owner);
+    }
+    room.lazySnapshotProvider = buildState;
+    room.lazySnapshotOwner = owner;
+    room.lastSnapshot = null;
+    room.lastSnapshotJson = null;
+    room.lastPublishedAt = Date.now();
+    return room.lastSeq;
+  }
+
+  /**
    * Publish a new authoritative state for the table.
    * First publish for a table → sends SNAPSHOT to all subscribers.
    * Subsequent publishes → computes JSON Patch diff, sends DELTA.
@@ -373,6 +412,8 @@ export class TableStateHub {
     // full JSON.stringify + JSON.parse round trip on every publish.
     const wireState = cloneJsonWire(state) as GameStateSnapshot;
     const room = this.getOrCreateRoom(tableId);
+    room.lazySnapshotProvider = null;
+    room.lazySnapshotOwner = undefined;
     const prev = room.lastSeq;
     const next = prev + 1;
 
@@ -432,6 +473,30 @@ export class TableStateHub {
     return room.lastSnapshotJson;
   }
 
+  private materializeLazySnapshot(room: TableRoom): GameStateSnapshot | null {
+    if (room.lastSnapshot) return room.lastSnapshot;
+    const provider = room.lazySnapshotProvider;
+    if (!provider) return null;
+    if (!this.acceptsPublisher(room.tableId, room.lazySnapshotOwner)) {
+      room.lazySnapshotProvider = null;
+      room.lazySnapshotOwner = undefined;
+      return null;
+    }
+    let raw: GameStateSnapshot | null;
+    try {
+      raw = provider();
+    } catch {
+      return null;
+    }
+    if (!raw) return null;
+    const wireState = cloneJsonWire(raw) as GameStateSnapshot;
+    room.lastSnapshot = wireState;
+    room.lastSnapshotJson = null;
+    room.lastSeq += 1;
+    room.lastPublishedAt = Date.now();
+    return wireState;
+  }
+
   /**
    * Attach a subscriber to a table. The subscriber immediately receives a
    * SNAPSHOT of the current state if one exists. If the table has never
@@ -441,7 +506,7 @@ export class TableStateHub {
     if (this.hardEvicted.has(sub)) return;
     const room = this.getOrCreateRoom(tableId);
     room.subscribers.add(sub);
-    if (room.lastSnapshot) {
+    if (this.materializeLazySnapshot(room)) {
       this.sendSnapshot(room, sub, this.snapshotPayload(room));
     }
     // D3: a client that connects DURING the reveal window still gets the
@@ -571,7 +636,7 @@ export class TableStateHub {
    */
   resync(tableId: string, sub: HubSubscriber): boolean {
     const room = this.rooms.get(tableId);
-    const snapshot = room?.lastSnapshot ?? null;
+    const snapshot = room ? this.materializeLazySnapshot(room) : null;
     if (room && snapshot) {
       this.sendSnapshot(room, sub, this.snapshotPayload(room));
     }
@@ -619,6 +684,8 @@ export class TableStateHub {
     }
     room.lastSnapshot = null;
     room.lastSnapshotJson = null;
+    room.lazySnapshotProvider = null;
+    room.lazySnapshotOwner = undefined;
     room.lastSeq = 0;
     try {
       this.broadcast(room, {
@@ -632,6 +699,10 @@ export class TableStateHub {
   }
 
   // ─── Metrics helpers — used by /health and tests ───────────────────────────
+
+  hasSubscribers(tableId: string): boolean {
+    return (this.rooms.get(tableId)?.subscribers.size ?? 0) > 0;
+  }
 
   subscriberCount(tableId: string): number {
     return this.rooms.get(tableId)?.subscribers.size ?? 0;
@@ -648,7 +719,8 @@ export class TableStateHub {
   }
 
   hasSnapshot(tableId: string): boolean {
-    return !!this.rooms.get(tableId)?.lastSnapshot;
+    const room = this.rooms.get(tableId);
+    return !!(room && (room.lastSnapshot || room.lazySnapshotProvider));
   }
 
   /**
@@ -746,6 +818,7 @@ export class TableStateHub {
         subscribers: new Set(),
         lastSnapshot: null,
         lastSnapshotJson: null,
+        lazySnapshotProvider: null,
         lastSeq: 0,
         lastPublishedAt: 0,
         missingState: new WeakSet(),
@@ -799,7 +872,7 @@ export class TableStateHub {
         message.payload.type === 'turn_change' &&
         room.missingState.has(sub)
       ) {
-        if (!room.lastSnapshot) {
+        if (!this.materializeLazySnapshot(room)) {
           this.canSend(room.tableId, sub);
           continue;
         }

@@ -1,16 +1,19 @@
+import { createHash } from 'node:crypto';
 import { horseDecisionEffectsAreValid } from '../HorseDecisionEffects.js';
 import { describe, expect, it } from 'vitest';
 import {
   HorseRequestRetentionBudget,
   HorseRequestCapacityError,
+  combineHorseRequestAllowanceMetrics,
   horseRequestAllowance,
+  horseRequestAllowanceMetrics,
   HORSE_REQUEST_MAX_BYTES,
   HORSE_REQUEST_MAX_NODES,
   HORSE_REQUEST_MAX_PENDING,
   HORSE_REQUEST_MAX_PLANS,
   HORSE_REQUEST_RETAINED_BYTES,
 } from './requestRetentionBudget.js';
-import type { HorseDecisionJobRequest } from './protocol.js';
+import { buildHorseDecisionKey, type HorseDecisionJobRequest } from './protocol.js';
 
 // These tests exercise allocation ownership only; request semantics remain
 // validated by the real client/worker integration suites.
@@ -171,5 +174,86 @@ describe('Horse request retention ownership', () => {
     const input = { a: part, b: part, ['x'.repeat(200)]: 'é😀' };
     expect(horseRequestAllowance(input)).toBeGreaterThan(Buffer.byteLength(JSON.stringify(input)));
     expect(horseRequestAllowance(input)).toBeGreaterThan(horseRequestAllowance({ a: part }));
+  });
+
+  it('combineHorseRequestAllowanceMetrics matches full walk for disjoint spreads and reserve enforces prevalidated limits (1e532243)', () => {
+    const base = {
+      generation: 1,
+      fence: 't1:h1:0:u1',
+      nested: { arr: [1, 'two', { three: true }], flag: false },
+    };
+    const overlay = {
+      type: 'DECIDE_FAST' as const,
+      requestId: 42,
+      ownPublicHistoryState: 'available' as const,
+    };
+    const combined = combineHorseRequestAllowanceMetrics(
+      horseRequestAllowanceMetrics(base),
+      horseRequestAllowanceMetrics(overlay)
+    );
+    const full = horseRequestAllowanceMetrics({ ...base, ...overlay });
+    expect(combined).toEqual(full);
+
+    // Overlapping top-level keys remain a conservative upper bound (>= full walk).
+    const overlapping = combineHorseRequestAllowanceMetrics(
+      horseRequestAllowanceMetrics({ ...base, type: 'IGNORED' }),
+      horseRequestAllowanceMetrics(overlay)
+    );
+    expect(overlapping.bytes).toBeGreaterThanOrEqual(full.bytes);
+    expect(overlapping.nodes).toBeGreaterThanOrEqual(full.nodes);
+
+    // reserve() with prevalidated metrics still enforces EFFECT_BYTES, MAX_BYTES, MAX_NODES and tracks refusals.
+    const budget = new HorseRequestRetentionBudget();
+    budget.reserve(request(1, 'DECIDE_FAST'));
+    budget.release(1, true);
+    expect(() => budget.reserve(effect(2, 1), { bytes: 256 * 1024 + 1, nodes: 10 })).toThrow(
+      HorseRequestCapacityError
+    );
+    expect(() =>
+      budget.reserve(request(3, 'STATUS'), { bytes: 1024, nodes: HORSE_REQUEST_MAX_NODES + 1 })
+    ).toThrow(HorseRequestCapacityError);
+    expect(budget.status().requestCapacityRefusals).toBe(2);
+  });
+
+  it('chunked buildHorseDecisionKey produces byte-identical SHA-256 across >64 KiB multi-chunk Unicode payloads (1e532243)', () => {
+    const canonical = (value: unknown): unknown => {
+      if (value === null || typeof value !== 'object') return value;
+      if (Array.isArray(value)) return value.map(canonical);
+      const out: Record<string, unknown> = {};
+      for (const k of Object.keys(value as Record<string, unknown>).sort()) {
+        const v = (value as Record<string, unknown>)[k];
+        if (v !== undefined) out[k] = canonical(v);
+      }
+      return out;
+    };
+    const largeNotes = Array.from({ length: 400 }, (_, i) => ({
+      idx: i,
+      label: `seat-${i}-♠♥♦♣-😀-${'x'.repeat(160)}`,
+      amount: i === 0 ? -0 : i * 1.5,
+      skipped: undefined,
+    }));
+    const input = {
+      fence: 'chunk-parity-fence',
+      decisionTimeMs: 1_764_298_000_000,
+      player: { user_id: 'u1', seat: 1, stack: 1000, notes: largeNotes } as any,
+      gameState: { pot: 50, board: ['As', 'Kd', 'Qc'], stage: 'flop' } as any,
+      style: { aggression: 0.7 } as any,
+      mods: { tag: 'parity-test' } as any,
+      opts: { trace: true } as any,
+    };
+    const expectedMaterial = {
+      schemaVersion: 1,
+      fence: input.fence,
+      decisionHour: Math.floor(input.decisionTimeMs / 3_600_000),
+      player: input.player,
+      gameState: input.gameState,
+      style: input.style,
+      mods: input.mods,
+      opts: input.opts,
+    };
+    const canonicalJson = JSON.stringify(canonical(expectedMaterial));
+    expect(canonicalJson.length).toBeGreaterThan(64 * 1024);
+    const expectedKey = `phase5-v1:${createHash('sha256').update(canonicalJson).digest('hex')}`;
+    expect(buildHorseDecisionKey(input)).toBe(expectedKey);
   });
 });

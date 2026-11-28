@@ -432,3 +432,69 @@ it('holds a failed original replay and never persists its queued successor batch
   expect(report).toHaveBeenCalledOnce();
   expect(report).toHaveBeenCalledWith(error);
 });
+
+it('uses captureAccounting and skips redundant structuredClone when engineCaptureDetached is enabled (1e532243)', async () => {
+  let version = 1;
+  const writes: Readonly<HandContinuationBatch>[] = [];
+  const captureEngine = vi.fn(() => ({
+    fields: { currentHandPot: version },
+    timeBankMeta: new Map([['p1', { version }]]),
+    timeBankDebits: new Map([['d1', { version }]]),
+    capturedAt: version * 100,
+    disconnectStates: { p1: 'connected' },
+  }));
+  const captureAccounting = vi.fn(() => ({
+    fields: { currentHandPot: version },
+    timeBankMeta: new Map([['p1', { version }]]),
+    timeBankDebits: new Map([['d1', { version }]]),
+  }));
+  const cloneSpy = vi.spyOn(globalThis, 'structuredClone');
+  try {
+    const lane = new HandContinuationLane(
+      0,
+      () => 'controller-state',
+      captureEngine,
+      async (batch) => {
+        writes.push(batch);
+      },
+      async () => {
+        version = 2;
+      },
+      () => true,
+      () => {},
+      undefined,
+      undefined,
+      undefined,
+      { captureAccounting, engineCaptureDetached: true }
+    );
+    // Queue two batches: batch 1 runs captureEngine once + captureAccounting once;
+    // batch 2 sees version=2 in accounting after batch 1 dispatches.
+    lane.enqueue(action);
+    await lane.join();
+    lane.enqueue(action);
+    await lane.join();
+
+    expect(captureEngine).toHaveBeenCalledTimes(2);
+    expect(captureAccounting).toHaveBeenCalledTimes(2);
+    expect(writes).toHaveLength(2);
+    expect(writes[0].engine).toEqual({
+      fields: { currentHandPot: 1 },
+      timeBankMeta: new Map([['p1', { version: 1 }]]),
+      timeBankDebits: new Map([['d1', { version: 1 }]]),
+      capturedAt: 100,
+      disconnectStates: { p1: 'connected' },
+    });
+    expect(writes[1].engine).toEqual({
+      fields: { currentHandPot: 2 },
+      timeBankMeta: new Map([['p1', { version: 2 }]]),
+      timeBankDebits: new Map([['d1', { version: 2 }]]),
+      capturedAt: 200,
+      disconnectStates: { p1: 'connected' },
+    });
+    // Only event cloning (enqueue + dispatch = 2 per event * 2 events = 4) invokes structuredClone;
+    // zero redundant clones of control, fields, timeBankMeta, or timeBankDebits.
+    expect(cloneSpy).toHaveBeenCalledTimes(4);
+  } finally {
+    cloneSpy.mockRestore();
+  }
+});

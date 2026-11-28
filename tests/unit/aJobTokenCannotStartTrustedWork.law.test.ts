@@ -18,6 +18,15 @@
  * backup-engine.yml a workflow_dispatch carrying after_cycle, and Backup's two
  * secret-holding jobs admit exactly that event and prove it first.
  *
+ * 2026-11-27 (the estate App starts the next cycle): the keep-serving and
+ * post-seal dispatches are sent as the estate GitHub App, because GitHub raises
+ * no workflow_run event for a run the job token started and the next cycle's
+ * election needs that event. The intent is unchanged: the same sender run
+ * records and publishes it first, and every receiver job proves it when the
+ * App's dispatch cites one, exactly as for the job token. The job token stays
+ * the fallback sender when no App token can be minted. Pinned in
+ * tests/the-estate-app-starts-the-next-cycle.law.test.ts.
+ *
  * The same review capped the queue-reachable token in ci.yml, refused fork
  * pull requests at the Money trigger reporter without minting its App token,
  * and bound two workflow_run readers to this repository's own events.
@@ -102,6 +111,9 @@ const ADMITTED: Record<
 // GitHub's id for a workflow file, for a listener whose law forbids naming it.
 const WORKFLOW_IDS: Record<string, number> = { '.github/workflows/ci.yml': 247739539 };
 const PROVE = 'Prove a job-token dispatch is the exact intent its trusted sender recorded';
+// Receivers of the two dispatches sent as the estate App since 2026-11-27
+// (Stage's keep-serving Backup and the receiver's post-seal certification).
+const APP_SENT_RECEIVERS = new Set(['backup-engine.yml', 'post-deploy-e2e.yml']);
 // Owned by the pull-request environment lane, and the deleted one-shot mover.
 // The PR-environment lane's file, the deleted one-shot mover, and the Money
 // trigger reporter (its own guard is pinned below).
@@ -196,6 +208,15 @@ describe('a job token cannot start trusted work', () => {
           expect(String(first.if)).toContain(
             "((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]'))"
           );
+          // And proved for the Autopilot App itself whenever its dispatch
+          // cites an intent (2026-11-27), in the two receivers of the
+          // dispatches now sent as the App: it is not a way round the proof.
+          if (APP_SENT_RECEIVERS.has(f)) {
+            expect(String(first.if)).toContain(
+              "(github.actor == 'smarter-poker-autopilot[bot]' || github.triggering_actor == 'smarter-poker-autopilot[bot]') && "
+            );
+            expect(String(first.if)).toContain("github.event.client_payload.intent_nonce != ''");
+          }
           expect(String(first.run)).toContain(
             'contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA'
           );
@@ -302,10 +323,13 @@ describe('a job token cannot start trusted work', () => {
     expect(readFileSync('scripts/ci/gto-v31-recheck-dispatch.mjs', 'utf8')).toContain(
       "operation: 'gto-recheck'"
     );
-    // O27b: Stage records, publishes, then sends, in that order, in one job.
-    const stage = (parse(read('stage-engine-release.yml')) as { jobs: Record<string, Job> }).jobs[
-      'next-candidate-after-cycle'
-    ];
+    // O27b: Stage records, publishes, then sends, in that order. Since
+    // 2026-11-27 the send is its own job (the App key lives in another
+    // environment than the Messenger note's): it needs the recording job, so
+    // the order is the job graph's, and it sends the body that job printed.
+    const stageJobs = (parse(read('stage-engine-release.yml')) as { jobs: Record<string, Job> })
+      .jobs;
+    const stage = stageJobs['next-candidate-after-cycle'];
     const order = (stage.steps ?? []).map((st) => String(st.run ?? st.uses ?? ''));
     const wrote = order.findIndex((r) =>
       r.includes('dispatch-intent.mjs write --operation backup-after-keep-serving')
@@ -315,15 +339,40 @@ describe('a job token cannot start trusted work', () => {
         String(st.uses ?? '').startsWith('actions/upload-artifact@') &&
         (st.with as Record<string, string>)?.name === 'dispatch-intents-${{ github.run_attempt }}'
     );
-    const sent = order.findIndex((r) =>
+    expect(wrote).toBeGreaterThan(0);
+    expect(published).toBeGreaterThan(wrote);
+    // The recording job sends nothing and can send nothing.
+    expect(order.filter((r) => r.includes('/dispatches')).length).toBe(0);
+    expect(stage.permissions).toEqual({ actions: 'read', contents: 'read' });
+    expect((stage.outputs as Record<string, string>).dispatch_body).toBe(
+      '${{ steps.intent.outputs.dispatch_body }}'
+    );
+    const sender = stageJobs['start-backup-as-estate-app'];
+    expect([sender.needs].flat()).toContain('next-candidate-after-cycle');
+    // Gated on that job's result; its first step reads the published intent
+    // itself, so a job output GitHub drops cannot skip or fail the send.
+    expect(String(sender.if)).toContain("needs.next-candidate-after-cycle.result == 'success'");
+    expect(String(sender.if)).not.toContain('always()');
+    const sends = (sender.steps ?? []).map((st) => String(st.run ?? st.uses ?? ''));
+    const sent = sends.findIndex((r) =>
       r.includes(
         'gh api --method POST "repos/$REPO/actions/workflows/backup-engine.yml/dispatches" --input "$RUNNER_TEMP/keep-serving-dispatch.json"'
       )
     );
-    expect(wrote).toBeGreaterThan(0);
-    expect(published).toBeGreaterThan(wrote);
-    expect(sent).toBeGreaterThan(published);
-    expect(order.filter((r) => r.includes('/dispatches')).length).toBe(1);
+    expect(sent).toBeGreaterThan(-1);
+    expect(sends.filter((r) => r.includes('/dispatches')).length).toBe(1);
+    expect((sender.steps ?? [])[sent].env).toMatchObject({
+      DISPATCH_BODY: '${{ steps.decide.outputs.body }}',
+      INTENT_NONCE: '${{ steps.decide.outputs.nonce }}',
+    });
+    expect(String((sender.steps ?? [])[0].run)).toContain(
+      'actions/runs/$GITHUB_RUN_ID/artifacts?name=$name&per_page=10'
+    );
+    // No other job of the file can dispatch a workflow.
+    for (const [name, job] of Object.entries(stageJobs)) {
+      if (name === 'start-backup-as-estate-app') continue;
+      expect(JSON.stringify(job.steps ?? []), name).not.toContain('backup-engine.yml/dispatches');
+    }
     for (const f of [
       'dispatch-merged-migrations.yml',
       'auto-deploy-hetzner.yml',
