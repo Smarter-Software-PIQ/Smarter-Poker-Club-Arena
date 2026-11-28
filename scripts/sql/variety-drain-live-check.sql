@@ -14,9 +14,19 @@
 --   fresh_releases_in_window  how many times a table was newly named (INFO)
 --   no_person_released    at no heartbeat was a table named while a person had
 --                         been seated there for more than one fleet cycle (35 s)
---   no_rejoin_while_named no Horse sat down at a table within 10 minutes after a
---                         heartbeat that named it while starts were still owed
---                         (catches the 2026-11-26 churn, also after the last naming)
+--   no_rejoin_while_named no Horse sat down at a table while it was still named:
+--                         a beat with a start owed named it at or before the join,
+--                         every beat from that naming to the join still named it,
+--                         the newest beat before the join is under 65 s old
+--                         (VARIETY_DRAIN_FRESH_MS). A Horse joining after the drain
+--                         ended (an un-naming beat, or a stale publication) or on a
+--                         break move is not a re-join (review follow-up 2026-11-27;
+--                         the old form counted any join within 10 minutes after a
+--                         naming). Catches the 2026-11-26 churn. A join seated by
+--                         the cycle that un-names the table (its beat comes after
+--                         the join) IS counted: excusing it hid the 7 PM CST
+--                         2026-11-27 churn, where the drain un-named and refilled
+--                         tables every ~8 minutes for games that cannot start.
 --   named_tables_closed   named tables that are now closed or empty (INFO)
 --   tables_within_cap     occupied counted tables do not exceed the hour's cap now
 --   cap_every_cycle       no heartbeat read more counted tables than its cap
@@ -30,8 +40,12 @@
 --                         An owed beat within 3 minutes after a hand of that game
 --                         is a game that is dealing, not waiting.
 --   owed_waiting_now      owed games still waiting, and the longest wait so far.
---                         Both rows say how many waits began before the window
---                         (already owed at the release): those waits are minimums.
+--                         A wait that began before the window (already owed at the
+--                         release) is timed from the game's first-owed time on the
+--                         heartbeat (detail.variety_owed_since, review follow-up
+--                         2026-11-27), never before the game's last dealt hand.
+--                         Without it (a build that does not write it) both rows
+--                         say how many such waits there are: those are minimums.
 --   drain_why             why the drain released what it did, counted over the
 --                         beats with a start owed, plus the withheld beats
 --                         (detail.variety_drain_why; "not recorded" until a
@@ -52,7 +66,9 @@ hb AS (
          jsonb_array_length(coalesce(h.detail -> 'variety_owed_games', '[]'::jsonb)) AS owed,
          coalesce(h.detail -> 'variety_owed_games', '[]'::jsonb) AS owed_games,
          h.detail -> 'cash_room' AS room,
-         h.detail ->> 'variety_drain_why' AS why
+         h.detail ->> 'variety_drain_why' AS why,
+         CASE WHEN jsonb_typeof(h.detail -> 'variety_owed_since') = 'object'
+              THEN h.detail -> 'variety_owed_since' END AS owed_since
     FROM public.ca_horse_fleet_heartbeat h, rel
    WHERE h.beat_at > rel.at
 ),
@@ -73,7 +89,10 @@ fresh AS (
         AND p.beat_at = (SELECT max(q.beat_at) FROM hb q WHERE q.beat_at < n.beat_at))
 ),
 owing AS (
-  SELECT hb.beat_at, g AS game FROM hb, jsonb_array_elements_text(hb.owed_games) g
+  SELECT hb.beat_at, g AS game,
+         CASE WHEN hb.owed_since ->> g ~ '^\d{4}-\d{2}-\d{2}T'
+              THEN (hb.owed_since ->> g)::timestamptz END AS since
+    FROM hb, jsonb_array_elements_text(hb.owed_games) g
 ),
 dealt AS (
   SELECT t.cluster_id::text AS game, hh.created_at AS at
@@ -82,25 +101,35 @@ dealt AS (
      AND t.cluster_id::text IN (SELECT DISTINCT game FROM owing)
 ),
 ev AS (
-  SELECT game, beat_at AS ts, 0 AS deal FROM owing
-  UNION ALL SELECT game, at, 1 FROM dealt
+  SELECT game, beat_at AS ts, 0 AS deal, since FROM owing
+  UNION ALL SELECT game, at, 1, NULL::timestamptz FROM dealt
 ),
 ep AS (
-  SELECT game, ts, deal,
+  SELECT game, ts, deal, since,
          sum(deal) OVER (PARTITION BY game ORDER BY ts, deal ROWS UNBOUNDED PRECEDING) AS k
     FROM ev
 ),
 deals AS (SELECT game, k, ts FROM ep WHERE deal = 1),
 waiting AS (
-  SELECT o.game, o.k, o.ts
+  SELECT o.game, o.k, o.ts, o.since
     FROM ep o LEFT JOIN deals d ON d.game = o.game AND d.k = o.k
    WHERE o.deal = 0 AND (d.ts IS NULL OR d.ts < o.ts - interval '3 minutes')
 ),
-waits AS (
+wait_runs AS (
   SELECT w.game, w.k, min(w.ts) AS s, max(w.ts) AS last_beat,
+         (array_agg(w.since ORDER BY w.ts))[1] AS since,
+         (SELECT d.ts FROM deals d WHERE d.game = w.game AND d.k = w.k) AS after_deal,
          (SELECT d.ts FROM deals d WHERE d.game = w.game AND d.k = w.k + 1) AS started_at,
          min(w.ts) <= (SELECT min(beat_at) FROM hb) + interval '60 seconds' AS truncated
     FROM waiting w GROUP BY w.game, w.k
+),
+waits AS (
+  SELECT game, k, last_beat, started_at,
+         CASE WHEN truncated AND since IS NOT NULL
+              THEN greatest(least(s, since), coalesce(after_deal, '-infinity'::timestamptz))
+              ELSE s END AS s,
+         truncated AND since IS NULL AS truncated
+    FROM wait_runs
 ),
 cap AS (SELECT table_cap FROM public.fn_cash_hourly_table_range()),
 census AS (SELECT count(*) AS counted FROM public.fn_cash_hourly_table_capacity_census())
@@ -126,14 +155,18 @@ SELECT 'no_person_released',
 UNION ALL
 SELECT 'no_rejoin_while_named',
        CASE WHEN count(*) = 0 THEN 'PASS' ELSE 'FAIL' END,
-       count(*) || ' Horse seat(s) joined a table within 10 min after a heartbeat named it while starts were owed'
+       count(*) || ' Horse seat(s) joined a table while it was still named for an owed start'
   FROM public.table_seats s
   JOIN public.profiles p ON p.id = s.user_id AND coalesce(p.is_horse, false) = true
  WHERE s.table_id IN (SELECT table_id FROM named)
+   AND s.joined_at < (SELECT max(q.beat_at) FROM hb q WHERE q.beat_at <= s.joined_at) + interval '65 seconds'
    AND EXISTS (
      SELECT 1 FROM naming n
-      WHERE n.table_id = s.table_id AND n.owed > 0
-        AND n.beat_at < s.joined_at AND n.beat_at >= s.joined_at - interval '10 minutes')
+      WHERE n.table_id = s.table_id AND n.owed > 0 AND n.beat_at <= s.joined_at
+        AND NOT EXISTS (
+          SELECT 1 FROM hb q
+           WHERE q.beat_at > n.beat_at AND q.beat_at <= s.joined_at
+             AND NOT q.named @> to_jsonb(s.table_id::text)))
 UNION ALL
 SELECT 'named_tables_closed', 'INFO',
        count(*) FILTER (WHERE t.lifecycle = 'closed') || ' closed, ' ||

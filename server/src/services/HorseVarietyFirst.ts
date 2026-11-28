@@ -52,6 +52,9 @@
  * VARIETY_START_REST_MS and depth proceeds. A floor-wide stop (the seat
  * ceiling, the seat budget, the cycle clock) is not the game's own reason and
  * rests nothing.
+ *
+ * A start that failed for a reason of the game's own also stops the DRAIN
+ * asking for a slot for it (2026-11-27, 7 PM CST seal; see drainOwedGames).
  */
 
 export interface VarietyTable {
@@ -193,19 +196,53 @@ export function compareVarietyFirst(
 export const VARIETY_START_REST_MS = 5 * 60_000;
 
 /**
- * Which games rest. Process-local and deliberately forgetful: a restart or a
- * new leader simply asks every game again, which is the safe direction.
+ * WHY THE WALK COULD NOT MAKE AN OWED START (2026-11-27, 7 PM CST seal).
+ *   cap_blocked  the door refused the start for the hourly cap: a freed slot
+ *                cures it. It rests nothing (the floor's answer, as before).
+ *   own_reason   the cap admitted the table and nobody sat for a reason of the
+ *                game's own (no Horse may sit there, the door refused for
+ *                anything but the cap): a freed slot cures nothing. The game
+ *                rests, and the drain stops freeing slots for it.
+ * The call site knows which (HorseFleetManager's walk: the hourly admission
+ * and the door's refusal reason); nothing here guesses it.
+ */
+export type VarietyStartFailure = 'cap_blocked' | 'own_reason';
+
+/**
+ * Which games rest, and which last failed for a reason of their own.
+ * Process-local and deliberately forgetful: a restart or a new leader simply
+ * asks every game again, which is the safe direction.
+ *
+ * The own-reason mark outlives the rest on purpose. The rest (5 min) lets
+ * depth proceed; the mark keeps the drain from emptying a table for the game
+ * every time the rest ends. Measured on the 7 PM CST seal (2026-11-27, 8:05
+ * to 9:47 PM CST): two 5/10 fixed-limit games no Horse can fund were owed the
+ * whole time; each rest emptied the owed list, a decided cycle with nothing
+ * owed cleared the drain's memory, the released tables refilled, and when the
+ * rest ended a new table was released: 11 releases in 102 minutes, every one
+ * for a start that could not be made. The mark goes when the game starts,
+ * when an attempt is refused only by the cap, or when the game is neither
+ * owed nor resting (forgetAllBut). The game still gets its next try: it stays
+ * on the published owed list, so the holds keep the next slot that frees by
+ * itself for the owed games.
  */
 export class VarietyStartMemory {
   private readonly failedAt = new Map<string, number>();
+  private readonly ownReasonAt = new Map<string, number>();
 
-  /** The walk reached this game's admitted start and seated nobody, for a reason of its own. */
-  noteCouldNotStart(gameId: string, nowMs: number): void {
+  /** The walk reached this game's admitted start and seated nobody: why. */
+  noteCouldNotStart(gameId: string, nowMs: number, cause: VarietyStartFailure): void {
+    if (cause === 'cap_blocked') {
+      this.ownReasonAt.delete(gameId);
+      return;
+    }
     this.failedAt.set(gameId, nowMs);
+    this.ownReasonAt.set(gameId, nowMs);
   }
 
   noteStarted(gameId: string): void {
     this.failedAt.delete(gameId);
+    this.ownReasonAt.delete(gameId);
   }
 
   resting(nowMs: number): ReadonlySet<string> {
@@ -216,6 +253,35 @@ export class VarietyStartMemory {
     }
     return out;
   }
+
+  /** Games whose last start attempt failed for a reason of their own. */
+  cannotStart(): ReadonlySet<string> {
+    return new Set(this.ownReasonAt.keys());
+  }
+
+  /** Forget the own-reason mark of every game not in `games` (owed or resting now). */
+  forgetAllBut(games: Iterable<string>): void {
+    const keep = new Set(games);
+    for (const gameId of [...this.ownReasonAt.keys()])
+      if (!keep.has(gameId)) this.ownReasonAt.delete(gameId);
+  }
+}
+
+/**
+ * PURE. THE DRAIN FREES A SLOT ONLY FOR A START THE CAP IS BLOCKING
+ * (2026-11-27, 7 PM CST seal). The owed games the drain may release a table
+ * for: the published owed games minus those whose last start attempt failed
+ * for a reason of their own (VarietyStartMemory.cannotStart). A freed slot
+ * cannot cure such a failure, so emptying a table for it only churns the
+ * floor. The holds are unchanged: the game stays on variety_owed_games, so a
+ * slot that frees by itself still goes to an owed game, which is how it gets
+ * its next try.
+ */
+export function drainOwedGames(input: {
+  owedGames: ReadonlyArray<string>;
+  cannotStart: ReadonlySet<string>;
+}): string[] {
+  return input.owedGames.filter((g) => !input.cannotStart.has(g));
 }
 
 /* ── THE THIRD DOOR ────────────────────────────────────────────────────────
@@ -574,9 +640,9 @@ export function drainCycleOutcome(input: {
   withheld: boolean;
   /** The waiting list and the Lightning set were both read this cycle. */
   readsComplete: boolean;
-  /** Owed games this cycle publishes (0 in a withheld cycle). */
+  /** Owed games this cycle may release for (drainOwedGames over the published list; 0 in a withheld cycle). */
   owedThisCycle: number;
-  /** Owed starts in the plan itself, withheld or not. */
+  /** The same over the plan's own owed games, withheld or not. */
   owedInPlan: number;
   /** varietyDrainDecision's tables; empty when the decision did not run. */
   decision: ReadonlyArray<string>;
@@ -593,6 +659,29 @@ export function drainCycleOutcome(input: {
 }
 
 /**
+ * WHEN EACH OWED GAME WAS FIRST SEEN OWED (review follow-up 2026-11-27). PURE.
+ *
+ * The heartbeat carries it as detail.variety_owed_since ({gameId: ISO time}),
+ * so the live check times a wait that began before the release from its true
+ * start instead of labelling it a minimum. The memory survives across cycles.
+ * A seating (not withheld) cycle keeps the first-seen time of every game it
+ * publishes as owed, stamps `nowIso` on a game newly owed, and forgets a game
+ * it no longer publishes. A withheld cycle publishes no owed games and
+ * forgets nothing (the same rule as drainCycleOutcome).
+ */
+export function varietyOwedSince(input: {
+  withheld: boolean;
+  owedGames: ReadonlyArray<string>;
+  previous: Readonly<Record<string, string>>;
+  nowIso: string;
+}): Record<string, string> {
+  if (input.withheld) return { ...input.previous };
+  const out: Record<string, string> = {};
+  for (const game of input.owedGames) out[game] = input.previous[game] ?? input.nowIso;
+  return out;
+}
+
+/**
  * The reason a beat carries (detail.variety_drain_why): the decision's own
  * reason, plus the cycle states the decision never sees.
  *   withheld        seating withheld this cycle
@@ -602,18 +691,24 @@ export function drainCycleOutcome(input: {
  *   start_admitted  the cap is full but an owed start is already admitted, so
  *                   nothing more is released (review 2026-11-27: this read as
  *                   "room_free" beside cash_room {cap 17, counted 17})
+ *   owed_cannot_start  starts are owed, but every owed game's last start
+ *                   failed for a reason of its own (drainOwedGames): no slot
+ *                   is freed for them (2026-11-27, 7 PM CST seal)
  */
 export type VarietyDrainBeatWhy =
   | VarietyDrainWhy
   | 'withheld'
   | 'undecided'
   | 'room_unknown'
-  | 'start_admitted';
+  | 'start_admitted'
+  | 'owed_cannot_start';
 
 /** PURE. */
 export function drainWhyForBeat(input: {
   withheld: boolean;
   owedThisCycle: number;
+  /** The owed games the drain may release for (drainOwedGames). */
+  owedCapBlocked: number;
   decided: boolean;
   why: VarietyDrainWhy | null;
   room: { cap?: number | null; counted?: number | null } | null;
@@ -621,6 +716,7 @@ export function drainWhyForBeat(input: {
 }): VarietyDrainBeatWhy {
   if (input.withheld) return 'withheld';
   if (input.owedThisCycle === 0) return 'nothing_owed';
+  if (input.owedCapBlocked === 0) return 'owed_cannot_start';
   if (!input.decided || !input.why) return 'undecided';
   if (input.why !== 'room_free') return input.why;
   const cap = input.room?.cap ?? null;
