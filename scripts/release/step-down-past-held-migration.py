@@ -52,6 +52,8 @@ VERSION = re.compile(r'\d{14}')
 MIGRATIONS = 'supabase/migrations'
 HEALTH_URL = 'https://engine.smarter.poker/health'
 PREQUAL_WORKFLOW = 'engine-release-prequalification.yml'
+PREQUAL_WORKFLOW_PATH = '.github/workflows/' + PREQUAL_WORKFLOW
+PREQUAL_TRUSTED_EVENTS = ('push', 'workflow_dispatch')
 BACKUP_STATUS_CONTEXT = 'backup-engine/certified'
 MAX_CANDIDATE_WALK = 60
 
@@ -62,6 +64,10 @@ class Unreadable(Exception):
 
 def prequal_state(repo, commit):
     """Read the latest main Engine release prequalification state for `commit`.
+
+    Matches scripts/ci/read-engine-prequalification.py trust predicates
+    (event in push/workflow_dispatch, head_branch == main, exact path,
+    exact head_sha, and matching repository when present).
 
     Returns (state, run_id, conclusion) where state is one of:
       'passed'  completed with conclusion == 'success'
@@ -85,8 +91,18 @@ def prequal_state(repo, commit):
         if not runs:
             return 'absent', '', ''
         run = runs[0]
-        if run.get('head_sha') != commit:
+        if not isinstance(run, dict) or run.get('head_sha') != commit:
             return 'unknown', '', ''
+        if 'head_branch' in run and run.get('head_branch') != 'main':
+            return 'unknown', '', ''
+        if 'event' in run and run.get('event') not in PREQUAL_TRUSTED_EVENTS:
+            return 'unknown', '', ''
+        if 'path' in run and run.get('path') != PREQUAL_WORKFLOW_PATH:
+            return 'unknown', '', ''
+        for repo_key in ('repository', 'head_repository'):
+            if isinstance(run.get(repo_key), dict) and run[repo_key].get('full_name'):
+                if str(run[repo_key]['full_name']).lower() != repo.lower():
+                    return 'unknown', '', ''
         status = str(run.get('status') or '')
         conclusion = str(run.get('conclusion') or '')
         run_id = str(run.get('id') or '')
@@ -147,7 +163,7 @@ def _decide(sha, control, producer, serving, pending, input_sha, git, projection
         return NONE, 'an explicit sha input is certified exactly as named'
     if not (HEX.fullmatch(sha or '') and HEX.fullmatch(control or '') and HEX.fullmatch(producer or '')):
         return UNKNOWN, 'the target, control or producer commit is not an exact sha'
-    versions = [v for v in (pending or []) if v]
+    versions = [v.strip() for v in (pending or []) if v and v.strip()]
     if not versions and not allow_empty_pending:
         return NONE, 'no pending migration was named'
     if any(not VERSION.fullmatch(v) for v in versions):
@@ -199,12 +215,31 @@ def _decide(sha, control, producer, serving, pending, input_sha, git, projection
         else:
             return NONE, 'the target is not on the line below %s' % first[:12]
         anchor = first[:12]
+        # O37b: when the caller already proved `sha` itself failed prequalification
+        # (`allow_empty_pending=True`), exclude `sha` from the walk even when the
+        # held migration sat above `sha`.
+        if allow_empty_pending and start == sha:
+            parent = out('rev-parse', '--verify', '--quiet', sha + '^1^{commit}')
+            if not HEX.fullmatch(parent):
+                raise Unreadable('the parent of %s could not be read' % sha[:12])
+            if parent == serving or not ancestor(serving, parent):
+                return NONE, ('no server or release-control commit ahead of the serving build %s exists below %s; '
+                              'nothing to ship' % (serving[:12], sha[:12]))
+            start = parent
+            anchor = sha[:12]
     else:
-        # O37: stepping down past a commit whose own prequalification or Backup
-        # certification already failed, so good commits below it still ship.
+        # O37/O37b: stepping down past a commit whose own prequalification already
+        # failed, so start strictly below `sha` (`sha^1`) without re-checking `sha`
+        # or risking a transient API 'unknown' returning `sha` itself.
         if sha == serving or not ancestor(serving, sha):
             return NONE, 'the target %s is not ahead of the serving build %s; nothing to ship' % (sha[:12], serving[:12])
-        start = sha
+        parent = out('rev-parse', '--verify', '--quiet', sha + '^1^{commit}')
+        if not HEX.fullmatch(parent):
+            raise Unreadable('the parent of %s could not be read' % sha[:12])
+        if parent == serving or not ancestor(serving, parent):
+            return NONE, ('no server or release-control commit ahead of the serving build %s exists below %s; '
+                          'nothing to ship' % (serving[:12], sha[:12]))
+        start = parent
         anchor = sha[:12]
     paths = [p for p in control_inputs() if p]
     if not paths:
