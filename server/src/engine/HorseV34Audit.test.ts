@@ -451,6 +451,9 @@ describe('V34 a solver call with a draw still lets the semi-bluff raise roll', (
 
 const fireOf = (f: string): number =>
   Object.fromEntries(drainFires().map((r) => [r.feature, r.fires]))[f] ?? 0;
+/** Every counter of one decision, drained once. */
+const firesOf = (): Record<string, number> =>
+  Object.fromEntries(drainFires().map((r) => [r.feature, r.fires]));
 
 describe('V34 the sb_push chart answers only an SB open-jam', () => {
   beforeEach(() => {
@@ -537,7 +540,30 @@ describe('V34 the sb_push chart answers only an SB open-jam', () => {
     ]);
     (s.gs.actionHistory[1] as { isFullRaise?: boolean }).isFullRaise = true;
     HorseLogic.decide(s.hero, s.gs as never, 'balanced', {}, { telemetry: true, mind: false });
-    expect(fireOf('v27_gto_bb_defend')).toBe(1);
+    const fired = firesOf();
+    expect(fired.v27_gto_bb_defend).toBe(1);
+    // A cash table, not a Spin: the eligibility the ledger judges the chart
+    // against counts every format that reaches the spot.
+    expect(fired.v27_gto_bb_defend_eligible).toBe(1);
+  });
+
+  it('an SB open-jam deeper than the chart is not an eligible spot', () => {
+    const s = bbState([
+      { seat: 3, userId: 'utg', action: 'fold', amount: 0 },
+      { seat: 1, userId: 'sb', action: 'all_in', amount: 20 },
+    ]);
+    (s.gs.actionHistory[1] as { isFullRaise?: boolean }).isFullRaise = true;
+    // 30bb behind each: the effective call-off is past GTO_BB_DEFEND_MAX_BB.
+    s.gs.currentBet = 60;
+    s.gs.pot = 62;
+    s.gs.players[0].bet = 60;
+    s.gs.players[0].totalInvested = 60;
+    s.gs.actionHistory[1].amount = 60;
+    s.hero.stack = 58;
+    HorseLogic.decide(s.hero, s.gs as never, 'balanced', {}, { telemetry: true, mind: false });
+    const fired = firesOf();
+    expect(fired.v27_gto_bb_defend_eligible ?? 0).toBe(0);
+    expect(fired.v27_gto_bb_defend ?? 0).toBe(0);
   });
 
   it('an SB 3-bet jam over an open does NOT (a reshove is not an open-jam)', () => {
@@ -548,7 +574,9 @@ describe('V34 the sb_push chart answers only an SB open-jam', () => {
     ]);
     (s.gs.actionHistory[1] as { isFullRaise?: boolean }).isFullRaise = true;
     HorseLogic.decide(s.hero, s.gs as never, 'balanced', {}, { telemetry: true, mind: false });
-    expect(fireOf('v27_gto_bb_defend')).toBe(0);
+    const fired = firesOf();
+    expect(fired.v27_gto_bb_defend ?? 0).toBe(0);
+    expect(fired.v27_gto_bb_defend_eligible ?? 0).toBe(0);
   });
 });
 
