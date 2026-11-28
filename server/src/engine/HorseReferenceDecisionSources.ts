@@ -233,6 +233,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the default-off people-measured Hold'em river fold (lead-8 2026-11-27, holdemRiverBluffIsPricedOnPeople): his fold to a heads-up NLH cash river first bet read size by size, his own lifetime river record of that size shrunk to people's measured fold for the Horse's line and that size, shrunk to equilibrium; off never runs",
     'src/engine/HorseHoldemPeopleRiverFoldTables.json':
       'the people-only river fold table behind HorseHoldemPeopleRiverFold.ts (answers by people only; scripts/ops/holdem-people-river-fold-fit.mjs)',
+    'src/engine/HorseHoldemPeopleTurnFold.ts':
+      "the default-off people-measured Hold'em turn fold (lead-9 2026-11-27, holdemTurnBluffIsPricedOnPeople): his fold to a heads-up NLH cash turn first bet read size by size, his own lifetime turn record of that size shrunk to people's measured fold for the Horse's line and that size, shrunk to equilibrium; off never runs it and the reference decision does not consume it",
+    'src/engine/HorseHoldemPeopleTurnFoldTables.json':
+      'the people-only turn fold table behind HorseHoldemPeopleTurnFold.ts (answers by people only; scripts/ops/holdem-people-turn-fold-fit.mjs)',
     'src/engine/HorseHoldemTournamentLateIsPriced.ts':
       "the default-off priced Hold'em tournament bluff after the flop (plo-lead7 tourney-postflop 2026-11-26, holdemTournamentRiverBluffIsPriced and holdemTournamentTurnBluffIsPriced): NLH tournaments heads-up in the pot, not facing a wager, a check becomes a blocker / range-advantage bluff only when it prices above the check with its losses weighted by the pay-jump bubble factor; a pay jump the context cannot price stands it down; off never runs",
     'src/engine/HorseHoldemValueAndCallsArePriced.ts':

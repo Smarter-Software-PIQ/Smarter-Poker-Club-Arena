@@ -47,6 +47,14 @@ import {
   holdemRiverFoldMultiplierOnPeople,
 } from './HorseHoldemPeopleRiverFold.js';
 import {
+  HOLDEM_PEOPLE_TURN_RECORD_BIG_ABOVE,
+  holdemPeopleTurnFold,
+  holdemPeopleTurnFoldMultiplier,
+  holdemPeopleTurnFoldSe,
+  holdemPeopleTurnLineOf,
+  holdemTurnFoldMultiplierOnPeople,
+} from './HorseHoldemPeopleTurnFold.js';
+import {
   holdemTournamentBestBluff,
   holdemTournamentWagerParts,
 } from './HorseHoldemTournamentLateIsPriced.js';
@@ -6522,6 +6530,17 @@ export interface HorseDecideOpts {
    * fold is read size by size: his own lifetime river record of that size, shrunk to PEOPLE's measured river fold
    * for the Horse's line and that size, shrunk to equilibrium (HorseHoldemPeopleRiverFold). Off: byte-identical. */
   holdemRiverBluffIsPricedOnPeople?: boolean;
+  /** PLO-OWNER lead-9 2026-11-27 (lane nlzb; daily real-hand audits list missed turn bluffs as a top Hold'em cash
+   * leak; measured on people Oct 28 to Nov 27: a heads-up turn barrel is NOT a profitable pure bluff, people fold
+   * 34% where break-even is 36%, while a small bet after a checked flop is, 43% where break-even is 22%): opt-in
+   * (`=== true`), default OFF. NLH cash (table and Lightning), one board, heads-up, turn, the flop checked through
+   * (after a flop wager it stands aside: people fold a turn bet at or below equilibrium there), not facing a wager: the
+   * brain's check becomes a bluff at the legal priced size of highest EV only when the hand has no value size, the
+   * bluff prices above the check by more than the error of his fold, AND the Horse's cards remove more of his
+   * calling part than of his folding part (blockers) or the Horse's line range outscores his (range advantage). His
+   * fold is read size by size: his own lifetime turn record of that size, shrunk to PEOPLE's measured turn fold for
+   * the Horse's line and that size, shrunk to equilibrium (HorseHoldemPeopleTurnFold). Off: byte-identical. */
+  holdemTurnBluffIsPricedOnPeople?: boolean;
   /** plo-lead7 tourney-postflop 2026-11-26 (real-hand audit, NLH tournaments against people: missed river bluffs, the
    * top tournament leak after the flop): opt-in (`=== true`), default OFF. NLH tournaments (MTT, SNG, Spin,
    * heads-up), one board, heads-up in the pot, river, not facing a wager: the brain's check becomes a bluff at the
@@ -19424,7 +19443,8 @@ export class HorseLogic {
         if (
           opts.holdemOpeningValueBetIsPriced === true ||
           opts.holdemOpeningBluffIsPriced === true ||
-          opts.holdemRiverBluffIsPricedOnPeople === true
+          opts.holdemRiverBluffIsPricedOnPeople === true ||
+          opts.holdemTurnBluffIsPricedOnPeople === true
         )
           decision = this.holdemOpeningPriced(decision, player, gs, vi, opts);
         // holdemMultiwayOpeningBluffIsPriced / holdemMultiwayOpeningValueBetIsPriced (default off): the first bet of
@@ -36337,10 +36357,18 @@ export class HorseLogic {
     const bluffOn = opts.holdemOpeningBluffIsPriced === true;
     // holdemRiverBluffIsPricedOnPeople (lead-8 2026-11-27, default off): the river bluff priced on people's fold
     const peopleOn = opts.holdemRiverBluffIsPricedOnPeople === true;
-    if (!valueOn && !bluffOn && !peopleOn) return decision;
+    // holdemTurnBluffIsPricedOnPeople (lead-9 2026-11-27, default off): the turn bluff priced on people's fold
+    const turnPeopleOn = opts.holdemTurnBluffIsPricedOnPeople === true;
+    if (!valueOn && !bluffOn && !peopleOn && !turnPeopleOn) return decision;
     const street = gs.stage;
     if (street !== 'flop' && street !== 'turn' && street !== 'river') return decision;
-    if (!valueOn && !bluffOn && street !== 'river') return decision;
+    if (
+      !valueOn &&
+      !bluffOn &&
+      !(peopleOn && street === 'river') &&
+      !(turnPeopleOn && street === 'turn')
+    )
+      return decision;
     if (
       String(gs.gameVariant ?? '').toLowerCase() !== 'nlh' ||
       vi.isOmaha ||
@@ -36522,6 +36550,79 @@ export class HorseLogic {
           return decision;
         }
         if (tele) noteFire('holdem_river_people_bluff_bet');
+        return { ...(legal.get(pick.bet.to) as HorseDecision), thinkTime };
+      }
+      // holdemTurnBluffIsPricedOnPeople: the turn bluff after a checked-through flop (the line where people fold a
+      // turn bet above equilibrium; after a flop wager this option stands aside), his fold read size by size: his
+      // own lifetime turn record of that size -> people's measured turn fold for that line and size -> equilibrium
+      const turnLine =
+        turnPeopleOn && street === 'turn'
+          ? holdemPeopleTurnLineOf(gs.actionHistory, player.seat)
+          : null;
+      if (turnLine === 'chk') {
+        if (value) return decision;
+        const rec =
+          opts.mind !== false ? HorseMind.holdemTurnFirstWagerFoldRecordOf(opp.user_id) : null;
+        // with no lifetime turn record of either size, his recent record of folds to a bet (unsized) is his record
+        const betOpps = counters?.foldToBetOpp ?? 0;
+        const recent =
+          !rec?.foldSmall && !rec?.foldBig && betOpps > 0
+            ? { folds: Math.max(0, counters?.foldToBet ?? 0), opps: betOpps }
+            : null;
+        const foldRead = (matched: number, into: number): { fold: number; n: number } => {
+          const ratio = into > 0 ? matched / into : 0;
+          const ppl = holdemPeopleTurnFoldMultiplier(turnLine, ratio);
+          const own = recent
+            ? holdemTurnFoldMultiplierOnPeople(recent, ratio, ppl.m, true)
+            : holdemTurnFoldMultiplierOnPeople(
+                ratio > HOLDEM_PEOPLE_TURN_RECORD_BIG_ABOVE ? rec?.foldBig : rec?.foldSmall,
+                ratio,
+                ppl.m
+              );
+          return { fold: holdemPeopleTurnFold(own.m, matched, into), n: ppl.n + own.n };
+        };
+        const onPeople = holdemOpeningPrice(
+          { pot, heroIn, villainIn, heroStack, villainStack, foldRef, r },
+          range,
+          base,
+          [...legal.keys()].sort((x, y) => x - y),
+          (matched, into) => foldRead(matched, into).fold
+        );
+        // a hand with a value size on this read is not a bluff either
+        if (holdemOpeningBest(onPeople.bets, true)) return decision;
+        // the bet must clear the check by the error of his fold: se(fold) x dEV/dfold, size by size
+        let pick: { bet: (typeof onPeople.bets)[number]; score: number } | null = null;
+        for (const bet of onPeople.bets) {
+          const add = Math.max(0, Math.min(bet.to - heroIn, heroStack));
+          const his = Math.max(0, Math.min(bet.to - villainIn, villainStack));
+          const matched = Math.max(0, Math.min(add, villainIn + his - heroIn));
+          const se = holdemPeopleTurnFoldSe(bet.foldBase, foldRead(matched, pot).n);
+          const slope = Math.max(0, pot + matched - bet.callEquity * (pot + matched + his));
+          const score = bet.ev - se * slope;
+          if (score > onPeople.check + 1e-9 && (!pick || score > pick.score + 1e-9))
+            pick = { bet, score };
+        }
+        if (!pick) {
+          if (tele) noteFire('holdem_turn_people_bluff_below_check');
+          return decision;
+        }
+        let edge = pick.bet.fold > pick.bet.foldBase + 1e-9;
+        if (!edge) {
+          const { range: mine } = this.holdemPricedLineRead(
+            player,
+            opp,
+            [],
+            gs,
+            HOLDEM_OPENING_FOLD_ANCHOR,
+            HOLDEM_OPENING_BET_SHARE_ANCHOR
+          );
+          edge = mine.total > 0 && holdemRangeAdvantage(mine, base, board) > 0.5;
+        }
+        if (!edge) {
+          if (tele) noteFire('holdem_turn_people_bluff_no_edge');
+          return decision;
+        }
+        if (tele) noteFire('holdem_turn_people_bluff_bet');
         return { ...(legal.get(pick.bet.to) as HorseDecision), thinkTime };
       }
       // a bluff is a hand with no value size at all (a hand that has one is the value option's, bet or not)
