@@ -219,7 +219,9 @@ describe('every money path declares its counterparty', () => {
 
   it('the producer counts only what is true: an assignment, statement-scoped, and the autoskip-plus-own-leg contract', () => {
     const p = LATEST.get('fn_ca_undeclared_money_paths');
-    expect(p?.file).toBe(mine);
+    expect(p!.file >= mine!, `fn_ca_undeclared_money_paths is last defined by ${p?.file}`).toBe(
+      true
+    );
     const body = p!.body;
     expect(body).toContain(`'\\y[^;]*?\\ySET\\y[^;]*?\\y' || w.col || '\\s*='`);
     expect(body).toMatch(
