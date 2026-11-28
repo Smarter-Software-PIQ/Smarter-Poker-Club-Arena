@@ -193,10 +193,11 @@ _FORBIDDEN_SQL_RE = re.compile(
     r'(?:^DO\b|\bDO\s+(?:LANGUAGE\b|__STR__))'
     r'|\b(?:FUNCTION|PROCEDURE|TRIGGER|RULE|EXTENSION|PUBLICATION|SUBSCRIPTION|'
     r'DROP|TRUNCATE|GRANT|REVOKE|COPY|EXECUTE|PREPARE|DEALLOCATE|LISTEN|NOTIFY|'
-    r'UNLISTEN|LOCK|VACUUM|REINDEX|CLUSTER|PERFORM|CALL)\b'
+    r'UNLISTEN|LOCK|VACUUM|REINDEX|CLUSTER|PERFORM|CALL|'
+    r'RENAME|INHERIT|INHERITS|LIKE|ATTACH|DETACH|PARTITION)\b'
     r'|\bALTER\s+(?:SYSTEM|DATABASE|ROLE|USER|SCHEMA|DEFAULT\s+PRIVILEGES)\b'
     r'|\bCREATE\s+(?:ROLE|USER|SCHEMA|TYPE|DOMAIN|SEQUENCE|OPERATOR|AGGREGATE|CAST|FOREIGN)\b'
-    r'|\bSET\s+(?:ROLE|SESSION|SEARCH_PATH)\b'
+    r'|\bSET\s+(?:ROLE|SESSION|SEARCH_PATH|SCHEMA)\b'
     r'|\bSECURITY\s+DEFINER\b',
     re.IGNORECASE,
 )
@@ -230,15 +231,77 @@ _NON_ENGINE_STMT_PATTERNS = (
 )
 _QUALIFIED_REF_RE = re.compile(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)\b')
 _TABLE_CLAUSE_RE = re.compile(r'\b(?:FROM|JOIN|REFERENCES|INTO)\s+([a-zA-Z_][a-zA-Z0-9_.]*)', re.IGNORECASE)
-_CUSTOM_FN_CALL_RE = re.compile(r'\b(?:fn|ca|sp|rpc)_[a-zA-Z0-9_]*\s*\(', re.IGNORECASE)
+_PAREN_TABLE_CLAUSE_RE = re.compile(r'\b(?:FROM|JOIN|REFERENCES|INTO)\s*\(', re.IGNORECASE)
+_FROM_KW_RE = re.compile(r'\bFROM\b', re.IGNORECASE)
+_FROM_END_RE = re.compile(
+    r'\)|\b(?:WHERE|GROUP|HAVING|ORDER|LIMIT|OFFSET|FETCH|UNION|INTERSECT|EXCEPT|'
+    r'RETURNING|WINDOW|FOR|ON|JOIN|INNER|LEFT|RIGHT|FULL|CROSS|NATURAL|SET|VALUES)\b',
+    re.IGNORECASE,
+)
+_USING_RE = re.compile(r'\bUSING\b', re.IGNORECASE)
+_POLICY_USING_RE = re.compile(r'\bUSING\s*\(', re.IGNORECASE)
+_INDEX_USING_RE = re.compile(r'\bUSING\s+(?:btree|gin|gist|hash|brin|spgist)\s*\(', re.IGNORECASE)
+_CALL_RE = re.compile(r'(?:\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\.\s*)?\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(')
+_STRUCTURAL_TABLE_CALL_PREFIX_RE = re.compile(
+    r'(?:^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?'
+    r'|^INSERT\s+INTO\s+'
+    r'|^CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?[a-z_][a-z0-9_]*\s+ON\s+'
+    r'|\bREFERENCES\s+)$',
+    re.IGNORECASE,
+)
+_ALLOWED_UNQUALIFIED_PARENS = frozenset({
+    # SQL clause / DDL / DML grammar keywords that may legally precede '('
+    'values', 'key', 'unique', 'check', 'using', 'conflict', 'where',
+    'and', 'or', 'not', 'in', 'exists', 'any', 'all', 'some', 'filter',
+    'over', 'when', 'then', 'else', 'case', 'as', 'default', 'include',
+    'with', 'set', 'select', 'distinct', 'returning', 'having', 'on',
+    'between', 'btree', 'gin', 'gist', 'hash', 'brin', 'spgist',
+    # Parameterized SQL data types
+    'varchar', 'character', 'varying', 'char', 'bpchar', 'numeric',
+    'decimal', 'timestamp', 'timestamptz', 'time', 'timetz', 'interval',
+    'bit', 'varbit', 'float', 'vector',
+    # Pure built-in SQL / PostgreSQL functions (zero admin, I/O, lock, or state side effects)
+    'now', 'current_timestamp', 'clock_timestamp', 'statement_timestamp',
+    'transaction_timestamp', 'gen_random_uuid', 'uuid_generate_v4',
+    'timezone', 'date_trunc', 'date_part', 'extract', 'make_date',
+    'make_timestamp', 'make_timestamptz', 'make_interval', 'to_timestamp', 'age',
+    'coalesce', 'nullif', 'greatest', 'least', 'cast', 'to_char',
+    'to_number', 'to_date',
+    'lower', 'upper', 'initcap', 'trim', 'btrim', 'ltrim', 'rtrim',
+    'length', 'char_length', 'character_length', 'octet_length', 'bit_length',
+    'substr', 'substring', 'left', 'right', 'concat', 'concat_ws',
+    'replace', 'translate', 'split_part', 'strpos', 'position', 'overlay',
+    'lpad', 'rpad', 'repeat', 'reverse', 'md5', 'encode', 'decode', 'format',
+    'regexp_replace', 'regexp_match', 'regexp_matches',
+    'to_tsvector', 'to_tsquery', 'plainto_tsquery', 'websearch_to_tsquery', 'ts_rank',
+    'abs', 'ceil', 'ceiling', 'floor', 'round', 'trunc', 'mod', 'power',
+    'sqrt', 'sign', 'ln', 'log', 'exp', 'div', 'width_bucket',
+    'json_build_object', 'jsonb_build_object', 'json_build_array',
+    'jsonb_build_array', 'json_object', 'jsonb_object', 'json_typeof',
+    'jsonb_typeof', 'json_array_length', 'jsonb_array_length', 'jsonb_set',
+    'jsonb_strip_nulls', 'to_json', 'to_jsonb', 'jsonb_extract_path',
+    'jsonb_extract_path_text', 'json_extract_path', 'json_extract_path_text',
+    'jsonb_object_keys', 'json_object_keys', 'jsonb_array_elements',
+    'jsonb_array_elements_text',
+    'array_length', 'array_dims', 'array_lower', 'array_upper',
+    'array_position', 'array_positions', 'array_append', 'array_prepend',
+    'array_cat', 'array_remove', 'array_replace', 'array_to_string',
+    'string_to_array', 'cardinality', 'unnest',
+    'count', 'sum', 'avg', 'min', 'max', 'bool_and', 'bool_or', 'every',
+    'array_agg', 'string_agg', 'json_agg', 'jsonb_agg', 'json_object_agg',
+    'jsonb_object_agg', 'row_number', 'rank', 'dense_rank', 'lag', 'lead',
+    'first_value', 'last_value',
+})
 _LOCK_TIMEOUT_RE = re.compile(r"^SET\s+LOCAL\s+lock_timeout\s*=\s*'[0-9]{1,3}s'$", re.IGNORECASE)
 
 
 def _strip_sql_and_split(text):
     """Strip -- line comments, mask single-quoted strings as __STR__, and split
     into (raw_stmt, masked_stmt) pairs on top-level semicolons. Returns None on
-    any block comment, dollar-quote, unterminated string, or trailing junk."""
-    if '/*' in text or '*/' in text or '$' in text:
+    any block comment, dollar-quote, double-quoted identifier, escape-string
+    literal (E'...' / U&'...' / backslash in string), unterminated string, or
+    trailing junk."""
+    if '/*' in text or '*/' in text or '$' in text or '"' in text:
         return None
     raw_buf = []
     masked_buf = []
@@ -249,6 +312,8 @@ def _strip_sql_and_split(text):
     while i < n:
         ch = text[i]
         if in_str:
+            if ch == '\\':
+                return None
             raw_buf.append(ch)
             if ch == "'":
                 if i + 1 < n and text[i + 1] == "'":
@@ -263,6 +328,10 @@ def _strip_sql_and_split(text):
                 i += 1
             continue
         if ch == "'":
+            # Reject prefixed/escape string literals (E'...', e'...', U&'...', etc.)
+            # where an identifier character or '&' directly precedes an opening quote.
+            if i > 0 and (text[i - 1].isalnum() or text[i - 1] in '_&'):
+                return None
             in_str = True
             raw_buf.append(ch)
             masked_buf.append('__STR__')
@@ -284,6 +353,35 @@ def _strip_sql_and_split(text):
     if in_str or ''.join(masked_buf).strip():
         return None
     return stmts
+
+
+def _calls_are_allowlisted(masked_s):
+    """Every `ident(` or `schema.ident(` occurrence must be either a structural
+    table-column-list position, an allowlisted auth.* helper, an allowlisted SQL
+    keyword/parameterized type, or a pure built-in SQL/Postgres function."""
+    for m in _CALL_RE.finditer(masked_s):
+        schema = m.group(1).lower() if m.group(1) else None
+        name = m.group(2).lower()
+        prefix = masked_s[:m.start()]
+        if schema == 'auth':
+            if name in ('uid', 'role', 'jwt'):
+                continue
+            if name == 'users' and re.search(r'\bREFERENCES\s+$', prefix, re.IGNORECASE):
+                continue
+            return False
+        if schema == 'public':
+            if (
+                _NON_ENGINE_TABLE_RE.fullmatch(name)
+                and not _ENGINE_DOMAIN_TOKEN_RE.search(name)
+                and _STRUCTURAL_TABLE_CALL_PREFIX_RE.search(prefix)
+            ):
+                continue
+            return False
+        if schema is not None:
+            return False
+        if name not in _ALLOWED_UNQUALIFIED_PARENS:
+            return False
+    return True
 
 
 def _is_horse_option_register_inert(text):
@@ -335,7 +433,30 @@ def _is_non_engine_table_inert(text):
             continue
         if _FORBIDDEN_SQL_RE.search(masked_s):
             return False
-        if _CUSTOM_FN_CALL_RE.search(masked_s):
+        # USING is permitted ONLY in CREATE POLICY ... USING (...) and
+        # CREATE [UNIQUE] INDEX ... USING (btree|gin|gist|hash|brin|spgist) (...).
+        if _USING_RE.search(masked_s):
+            if len(_USING_RE.findall(masked_s)) != 1:
+                return False
+            if upper.startswith('CREATE POLICY '):
+                if not _POLICY_USING_RE.search(masked_s):
+                    return False
+            elif upper.startswith('CREATE INDEX ') or upper.startswith('CREATE UNIQUE INDEX '):
+                if not _INDEX_USING_RE.search(masked_s):
+                    return False
+            else:
+                return False
+        # Reject parenthesized FROM/JOIN/REFERENCES/INTO and comma-separated FROM lists.
+        if _PAREN_TABLE_CLAUSE_RE.search(masked_s):
+            return False
+        for fm in _FROM_KW_RE.finditer(masked_s):
+            tail = masked_s[fm.end():]
+            end = _FROM_END_RE.search(tail)
+            seg = tail[:end.start()] if end else tail
+            if ',' in seg:
+                return False
+        # Strict allowlist for every ident( / schema.ident( call or parameterized type.
+        if not _calls_are_allowlisted(masked_s):
             return False
         matched_table = None
         for pat in _NON_ENGINE_STMT_PATTERNS:

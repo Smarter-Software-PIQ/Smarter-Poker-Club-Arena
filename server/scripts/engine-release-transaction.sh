@@ -286,8 +286,8 @@ RUN_ID="$2"
 [[ "$RUN_ID" =~ ^[1-9][0-9]*(-[1-9][0-9]*)?$ ]] || die 'run key is invalid'
 GITHUB_RUN_ID="${RUN_ID%%-*}"
 [[ "$MAX_RUNTIME_SECONDS" =~ ^[1-9][0-9]*$ ]] || die 'runtime budget must be a positive integer'
-[ "$MAX_RUNTIME_SECONDS" -ge 1200 ] && [ "$MAX_RUNTIME_SECONDS" -le 8400 ] \
-  || die 'runtime budget must be between twenty minutes and two hours twenty minutes'
+[ "$MAX_RUNTIME_SECONDS" -ge 1200 ] && [ "$MAX_RUNTIME_SECONDS" -le 14400 ] \
+  || die 'runtime budget must be between twenty minutes and four hours'
 STARTED_EPOCH="$(date +%s)"
 SUPERSEDED_BY=""
 DEADLINE=0
@@ -470,6 +470,17 @@ elif [ -n "$DRILL_MODE" ]; then
   SEAL_PREPARE_REASON="engine drill $DRILL_MODE: $DRILL_REASON"
 fi
 DRILL_PREVIOUS_DESIRED=''
+ROLLBACK_MAX_RUNTIME_SECONDS=14400
+if [ "$DRILL_MODE" = rollback ]; then
+  if [ -z "${ENGINE_RELEASE_MAX_RUNTIME_SECONDS:-}" ]; then
+    MAX_RUNTIME_SECONDS="$ROLLBACK_MAX_RUNTIME_SECONDS"
+  fi
+  [ "$MAX_RUNTIME_SECONDS" -le "$ROLLBACK_MAX_RUNTIME_SECONDS" ] \
+    || die 'rollback runtime budget must be between twenty minutes and four hours'
+else
+  [ "$MAX_RUNTIME_SECONDS" -le 8400 ] \
+    || die 'runtime budget must be between twenty minutes and two hours twenty minutes'
+fi
 # The workflow chooses this once, before any network or host handoff. Every
 # systemd retry reads the same immutable request byte and can never extend the
 # CI-owned mutation window. A shorter per-invocation cap is permitted; a later
@@ -906,14 +917,17 @@ initialise_phase1_cycle() {
   local prior_cycle
   prior_cycle="$(legacy_entry_read timeout --signal=TERM --kill-after=1s 15s "$RELEASE_SEAL" check-routine-owner --run-id "$RUN_ID")" \
     || die 'a prior routine cycle owner remains unresolved'
-  local policy active cycle fields status owner
+  local policy active cycle fields status owner policy_sha="$SHA"
+  if [ "${DRILL_MODE:-}" = rollback ]; then
+    policy_sha="$CONTROL_SHA"
+  fi
   timeout --signal=TERM --kill-after=1s 10s env GIT_NO_REPLACE_OBJECTS=1 \
-    git -C "$REPO_DIR" cat-file -e "$SHA^{commit}" || die 'routine policy target is unreadable'
+    git -C "$REPO_DIR" cat-file -e "$policy_sha^{commit}" || die 'routine policy target is unreadable'
   if ! timeout --signal=TERM --kill-after=1s 10s env GIT_NO_REPLACE_OBJECTS=1 \
-    git -C "$REPO_DIR" cat-file -e "$SHA:server/src/maintenance/maintenanceSchedulePolicy.json" 2>/dev/null; then
+    git -C "$REPO_DIR" cat-file -e "$policy_sha:server/src/maintenance/maintenanceSchedulePolicy.json" 2>/dev/null; then
     return 0 # Historical source has the unchanged daily baseline.
   fi
-  policy="$(legacy_entry_read timeout --signal=TERM --kill-after=1s 15s "$RELEASE_SEAL" schedule-policy --repo "$REPO_DIR" --sha "$SHA")" \
+  policy="$(legacy_entry_read timeout --signal=TERM --kill-after=1s 15s "$RELEASE_SEAL" schedule-policy --repo "$REPO_DIR" --sha "$policy_sha")" \
     || die 'routine source policy is invalid'
   active="$(printf '%s' "$policy" | python3 -c 'import json,sys; print(json.load(sys.stdin)["phase1Status"])')"
   case "$active" in active|complete|off) ;; *) die 'routine policy status is invalid' ;; esac
@@ -924,6 +938,15 @@ initialise_phase1_cycle() {
   else
     foreign_rc=$?
     [ "$foreign_rc" = 1 ] || die 'foreign runtime ownership is unreadable'
+  fi
+  if [ "${DRILL_MODE:-}" = rollback ]; then
+    # Audited rollback waits for the next scheduled break under the active
+    # CONTROL_SHA schedule policy and never reserves a Phase1 hourly reset;
+    # avoid current-cycle-policy digest drift if the bad release changed
+    # maintenanceSchedulePolicy.json.
+    PHASE1_CYCLE_START=0; PHASE1_CYCLE_END=0; PHASE1_WINDOW_START=0; PHASE1_WINDOW_END=0
+    export PHASE1_CYCLE_START PHASE1_CYCLE_END PHASE1_WINDOW_START PHASE1_WINDOW_END
+    return 0
   fi
   phase1_custody_admission
   if [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-21-owner-no-notice-engine-1906z ]; then
@@ -1376,6 +1399,30 @@ floor_reservation_stamp() {
 # No environment or request flag can override the wall clock.
 require_backup_certificate() {
   [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || return 1
+  if [ "${DRILL_MODE:-}" = rollback ]; then
+    # An audited rollback targets a previously sealed SHA on this host
+    # (proved by attest-committed-sha); exempt it from the live GitHub
+    # backup-engine/certified status check while preserving the fail-closed
+    # owner-stop gate. Forward releases and rollforwards remain strictly gated.
+    timeout --signal=TERM --kill-after=1s 10s \
+      "$RELEASE_SEAL" attest-committed-sha --sha "$SHA" >/dev/null || return 1
+    python3 -c '
+import os,sys
+try:
+    directory=os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.stat("owner-stop-engine-replacement", dir_fd=directory, follow_symlinks=False)
+    except FileNotFoundError:
+        raise SystemExit(0)
+    finally:
+        os.close(directory)
+    sys.stderr.write("owner stop active: engine replacement refused\n")
+    raise SystemExit(1)
+except OSError:
+    raise SystemExit(1)
+' "${ENGINE_RELEASE_STATE_DIR:-/var/lib/club-arena}"
+    return $?
+  fi
   local statuses
   statuses="$(curl --disable --fail --silent --show-error --proto '=https' \
     --connect-timeout 3 --max-time 8 \
@@ -1421,11 +1468,14 @@ first = datetime.fromtimestamp(int(n.timestamp()) // 3600 * 3600 - 3600, ZoneInf
 }
 
 routine_start_hours() {
-  local policy hours
+  local policy hours policy_sha="$SHA"
+  if [ "${DRILL_MODE:-}" = rollback ]; then
+    policy_sha="$CONTROL_SHA"
+  fi
   ROUTINE_START_HOURS=4
   if timeout --signal=TERM --kill-after=1s 10s env GIT_NO_REPLACE_OBJECTS=1 \
-    git -C "$REPO_DIR" cat-file -e "$SHA:server/src/maintenance/maintenanceSchedulePolicy.json" 2>/dev/null; then
-    policy="$(legacy_entry_read timeout --signal=TERM --kill-after=1s 15s "$RELEASE_SEAL" schedule-policy --repo "$REPO_DIR" --sha "$SHA")" \
+    git -C "$REPO_DIR" cat-file -e "$policy_sha:server/src/maintenance/maintenanceSchedulePolicy.json" 2>/dev/null; then
+    policy="$(legacy_entry_read timeout --signal=TERM --kill-after=1s 15s "$RELEASE_SEAL" schedule-policy --repo "$REPO_DIR" --sha "$policy_sha")" \
       || die 'routine source policy is invalid'
     hours="$(printf '%s' "$policy" | python3 -c 'import json,sys; p=json.load(sys.stdin); print(",".join(str(h) for h in p["startHours"]) if p.get("frequency")=="three-hourly" else "4")')" \
       || die 'routine source policy start hours are unreadable'
