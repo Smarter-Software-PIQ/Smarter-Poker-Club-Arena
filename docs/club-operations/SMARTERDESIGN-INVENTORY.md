@@ -21,16 +21,16 @@ The batch history (what each PR converted, and why) is in [SMARTERDESIGN-HISTORY
 
 ## Summary
 
-- Not converted: 48
+- Not converted: 43
 - Partial: 11
 - UNKNOWN: 2
-- Converted: 36
+- Converted: 41
 - Excluded on purpose: 29
 - Renders no page of its own: 3
 
 `src/App.tsx` provides `<ConsoleSkinProvider value="smarterdesign">`, so every `SpadeConsole` renders as a thin chrome case instead of the painted master. That is a skin, not a conversion: a page built from console sections still has no arena-workspace root, mast, readouts or chrome keys, and is graded on what its own source carries.
 
-## Not converted (48)
+## Not converted (43)
 
 - **AgentPortalPage**, `src/pages/AgentPortalPage.tsx`: painted console sections in `src/pages/AgentPortalPage.tsx` (3), `src/components/agent/AgentInvoicesPanel.tsx` (1); the root smarterdesign skin dresses them, but there is no arena shell. Routes: `/agent-portal`.
 - **ClubAdvertisePage**, `src/pages/ClubAdvertisePage.tsx`: painted console sections in `src/pages/ClubAdvertisePage.tsx` (8); the root smarterdesign skin dresses them, but there is no arena shell. Routes: `/advertise`, `/clubs/:clubId/advertise`.
@@ -45,13 +45,8 @@ The batch history (what each PR converted, and why) is in [SMARTERDESIGN-HISTORY
 - **FlashPoolPage**, `src/pages/FlashPoolPage.tsx`: a plain flat sheet, no frames. Routes: `/flash-pool`.
 - **FriendsPage**, `src/pages/FriendsPage.tsx`: its own module dress (19 painted radii, 6 gradients). Routes: `/friends`.
 - **HandHistoryPage**, `src/pages/HandHistoryPage.tsx`: its own module dress (16 painted radii, 10 gradients). Routes: `/hand-history`.
-- **HelpPage**, `src/pages/HelpPage.tsx`: a plain flat sheet, no frames. Routes: `/help`.
 - **HomePage**, `src/pages/HomePage.tsx`: painted console sections in `src/pages/HomePage.tsx` (3); the root smarterdesign skin dresses them, but there is no arena shell. Routes: `/`.
 - **InviteCodePage**, `src/pages/InviteCodePage.tsx`: its own module dress (11 painted radii, 19 gradients). Routes: `/i/:code`.
-- **FairGamingPage**, `src/pages/legal/FairGamingPage.tsx`: a plain flat sheet, no frames. Routes: `/legal/fair-gaming`.
-- **PrivacyPolicyPage**, `src/pages/legal/PrivacyPolicyPage.tsx`: a plain flat sheet, no frames. Routes: `/legal/privacy`.
-- **ClubPromotionRulesPage**, `src/pages/legal/PromotionsPage.tsx`: a plain flat sheet, no frames. Routes: `/legal/promotions`.
-- **TermsOfServicePage**, `src/pages/legal/TermsOfServicePage.tsx`: a plain flat sheet, no frames. Routes: `/legal/tos`.
 - **LightningEntryPage**, `src/pages/LightningEntryPage.tsx`: a plain flat sheet, no frames. Routes: `/lightning/:clusterId`.
 - **MarketplacePage**, `src/pages/MarketplacePage.tsx`: its own module dress (26 painted radii, 0 gradients). Routes: `/marketplace`.
 - **PokerArenaLandingPage**, `src/pages/PokerArenaLandingPage.tsx`: painted console sections in `src/pages/PokerArenaLandingPage.tsx` (5); the root smarterdesign skin dresses them, but there is no arena shell. Routes: `/`.
@@ -100,7 +95,7 @@ The batch history (what each PR converted, and why) is in [SMARTERDESIGN-HISTORY
 - **MarketplaceRoute**, `src/pages/MarketplaceRoute.tsx`: no markup of its own and nothing this scan could follow; read the source. Routes: `/marketplace`.
 - **NotFoundPage**, `src/pages/NotFoundPage.tsx`: no markup of its own and nothing this scan could follow; read the source. Routes: `/*`.
 
-## Converted (36)
+## Converted (41)
 
 - **CashierEntrance**, `src/components/navigation/CashierEntrance.tsx`: arena-workspace root and mast. Routes: `/cashier`, `/clubs/:clubId/cashier-classic`.
 - **AgentManagementPage**, `src/pages/AgentManagementPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/agents`.
@@ -124,6 +119,11 @@ The batch history (what each PR converted, and why) is in [SMARTERDESIGN-HISTORY
 - **ClubPlayersDoor**, `src/pages/ClubPlayersDoor.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/members`.
 - **ClubRulesPage**, `src/pages/ClubRulesPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/rules`.
 - **DisputeManagementPage**, `src/pages/DisputeManagementPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/disputes`, `/disputes`.
+- **HelpPage**, `src/pages/HelpPage.tsx`: arena-workspace root and mast. Routes: `/help`.
+- **FairGamingPage**, `src/pages/legal/FairGamingPage.tsx`: arena-workspace root and mast. Routes: `/legal/fair-gaming`.
+- **PrivacyPolicyPage**, `src/pages/legal/PrivacyPolicyPage.tsx`: arena-workspace root and mast. Routes: `/legal/privacy`.
+- **ClubPromotionRulesPage**, `src/pages/legal/PromotionsPage.tsx`: arena-workspace root and mast. Routes: `/legal/promotions`.
+- **TermsOfServicePage**, `src/pages/legal/TermsOfServicePage.tsx`: arena-workspace root and mast. Routes: `/legal/tos`.
 - **NotificationsPage**, `src/pages/NotificationsPage.tsx`: arena-workspace root and mast. Routes: `/notifications`.
 - **PlayerStatisticsPage**, `src/pages/PlayerStatisticsPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/members/:userId/statistics`.
 - **PlayerStatsPage**, `src/pages/PlayerStatsPage.tsx`: arena-workspace root and mast. Routes: `/stats`, `/stats/:userId`.
