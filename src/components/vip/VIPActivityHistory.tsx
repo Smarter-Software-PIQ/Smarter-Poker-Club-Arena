@@ -23,13 +23,20 @@ interface VIPActivityHistoryProps {
   activities: DiamondActivity[];
   state?: ActivityState;
   onRetry?: () => void;
+  /** The /vip page's arena workspace (#SmarterDesign, player pages batch P6):
+   *  an arena case with a section title, the summaries on chrome tiles, the
+   *  filters on a chrome switch and every movement a chrome ledger row. Off by
+   *  default, so any other host keeps the painted master surfaces. */
+  arena?: boolean;
 }
 
 export const VIPActivityHistory: React.FC<VIPActivityHistoryProps> = ({
   activities,
   state = 'ready',
   onRetry,
+  arena = false,
 }) => {
+  const kit = (base: string, arenaClass: string) => (arena ? `${base} ${arenaClass}` : base);
   const [activeFilter, setActiveFilter] = usePlayerPreference<ActivityFilter>(
     'vipActivity.filter',
     'all',
@@ -69,9 +76,14 @@ export const VIPActivityHistory: React.FC<VIPActivityHistoryProps> = ({
     .reduce((sum, activity) => sum + activity.diamonds, 0);
 
   return (
-    <section className="vip-activity-history" aria-labelledby="diamond-activity-title">
+    <section
+      className={kit('vip-activity-history', 'arena-case arena-ops-case')}
+      aria-labelledby="diamond-activity-title"
+    >
       <div className="activity-header">
-        <h3 id="diamond-activity-title">Diamond Activity</h3>
+        <h3 id="diamond-activity-title" className={arena ? 'arena-section-title' : undefined}>
+          Diamond Activity
+        </h3>
         <p>Showing Up To 10 Recent Diamond Transactions</p>
       </div>
 
@@ -91,21 +103,25 @@ export const VIPActivityHistory: React.FC<VIPActivityHistoryProps> = ({
       ) : (
         <>
           <div className="activity-summary">
-            <div className="summary-card earned">
+            <div className={kit('summary-card earned', 'arena-meter')}>
               <span className="summary-label">Recent Diamonds Earned</span>
               <span className="summary-value">{recentEarned.toLocaleString()}</span>
             </div>
-            <div className="summary-card spent">
+            <div className={kit('summary-card spent', 'arena-meter')}>
               <span className="summary-label">Recent Diamonds Spent</span>
               <span className="summary-value">{recentSpent.toLocaleString()}</span>
             </div>
-            <div className="summary-card count">
+            <div className={kit('summary-card count', 'arena-meter')}>
               <span className="summary-label">Transactions Shown</span>
               <span className="summary-value">{activities.length}</span>
             </div>
           </div>
 
-          <div className="activity-filters" role="group" aria-label="Filter Diamond Activity">
+          <div
+            className={kit('activity-filters', 'arena-switch arena-ops-keys')}
+            role="group"
+            aria-label="Filter Diamond Activity"
+          >
             {(['all', 'earned', 'spent'] as ActivityFilter[]).map((filter) => (
               <button
                 type="button"
@@ -135,7 +151,7 @@ export const VIPActivityHistory: React.FC<VIPActivityHistoryProps> = ({
               filteredActivities.map((activity, index) => (
                 <article
                   key={activity.id}
-                  className={`timeline-item ${activity.action}`}
+                  className={kit(`timeline-item ${activity.action}`, 'arena-ledger-row')}
                   style={{ '--reveal-delay': `${index * 0.03}s` } as React.CSSProperties}
                 >
                   <div className="timeline-marker" aria-hidden="true">
@@ -187,7 +203,7 @@ export const VIPActivityHistory: React.FC<VIPActivityHistoryProps> = ({
                 {Object.entries(monthlySummaries).map(([month, summary], index) => (
                   <div
                     key={month}
-                    className="month-card"
+                    className={kit('month-card', 'arena-meter')}
                     style={{ '--reveal-delay': `${index * 0.05}s` } as React.CSSProperties}
                   >
                     <span className="month-label">{month}</span>
