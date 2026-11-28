@@ -53,6 +53,31 @@ class Evidence(unittest.TestCase):
     def test_complete_exact_candidate(self):
         self.assertEqual(self.verify()["rollbackImageId"], "sha256:"+"2"*64)
 
+    def test_retire_job_allows_success_neutral_skipped_while_qualify_and_prestage_require_success(self):
+        retire_idx = next(
+            i for i, j in enumerate(self.jobs) if j["name"] == "Retire superseded prequalification runs"
+        )
+        for allowed in ("success", "neutral", "skipped"):
+            with self.subTest(retire_conclusion=allowed):
+                self.jobs[retire_idx]["conclusion"] = allowed
+                self.assertEqual(self.verify()["rollbackImageId"], "sha256:" + "2" * 64)
+        for denied in ("failure", "cancelled", "timed_out"):
+            with self.subTest(retire_denied=denied):
+                self.jobs[retire_idx]["conclusion"] = denied
+                with self.assertRaises(reader.Unqualified):
+                    self.verify()
+        self.jobs[retire_idx]["conclusion"] = "success"
+        # Every qualify shard and prestage MUST stay strictly "success".
+        for idx, job in enumerate(self.jobs):
+            if idx == retire_idx:
+                continue
+            for non_success in ("neutral", "skipped", "failure"):
+                with self.subTest(job=job["name"], conclusion=non_success):
+                    job["conclusion"] = non_success
+                    with self.assertRaises(reader.Unqualified):
+                        self.verify()
+            job["conclusion"] = "success"
+
     def test_late_or_superseded_evidence_refuses(self):
         with self.assertRaises(reader.Unqualified):
             self.verify({**self.run_row, "run_attempt":2})

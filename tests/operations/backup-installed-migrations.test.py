@@ -1057,6 +1057,106 @@ class EngineInertMigration(unittest.TestCase):
         self.assertFalse(ok_eng)
         self.assertIn(engine_v, why_eng)
 
+    def test_inert_classifier_fails_closed_on_all_five_audit_attack_classes(self):
+        attacks = {
+            # Class 1: E'...' / e'...' / U&'...' / backslash escape-string lexer desync
+            'escape string E-quote injection':
+                "INSERT INTO public.ui_notes VALUES (E'a\\''); DROP TABLE public.hands; -- ');",
+            'escape string lowercase e-quote injection':
+                "INSERT INTO public.ui_notes VALUES (e'a\\''); DROP TABLE public.hands; -- ');",
+            'backslash inside single-quoted string':
+                "INSERT INTO public.ui_notes VALUES ('a\\''); DROP TABLE public.hands; -- ');",
+            'unicode escape string':
+                "INSERT INTO public.ui_notes VALUES (U&'a\\0027');",
+            # Class 2: Double-quoted identifiers evading schema/table checks
+            'double-quoted schema and table in ALTER':
+                'ALTER TABLE "public"."tables" ADD COLUMN x TEXT;',
+            'double-quoted unqualified table in VIEW':
+                'CREATE VIEW public.ui_v AS SELECT * FROM "hands";',
+            'double-quoted REFERENCES target':
+                'CREATE TABLE public.ui_notes (id INT REFERENCES "public"."hands"(id));',
+            'double-quoted policy identifier':
+                'CREATE POLICY "p_ui" ON public.ui_notes FOR SELECT USING (true);',
+            # Class 3: Comma-separated FROM, USING outside policy/index, parenthesized FROM/JOIN
+            'comma-join unqualified table':
+                'CREATE VIEW public.ui_v AS SELECT * FROM public.ui_a, hands;',
+            'comma-join with AS alias':
+                'CREATE VIEW public.ui_v AS SELECT * FROM public.ui_a AS x, hands;',
+            'comma-join in UPDATE FROM':
+                "UPDATE public.ui_notes SET note = 'x' FROM public.ui_other, hands;",
+            'parenthesized FROM table':
+                'CREATE VIEW public.ui_v AS SELECT * FROM (hands);',
+            'parenthesized FROM subquery':
+                'CREATE VIEW public.ui_v AS SELECT * FROM (SELECT id FROM public.ui_a) AS sub;',
+            'parenthesized JOIN':
+                'CREATE VIEW public.ui_v AS SELECT * FROM public.ui_a JOIN (hands) ON true;',
+            'DELETE USING engine table':
+                'DELETE FROM public.ui_notes USING hands;',
+            'ALTER COLUMN USING expression':
+                'ALTER TABLE public.ui_notes ALTER COLUMN note TYPE INT USING 1;',
+            'CREATE INDEX USING unknown access method':
+                'CREATE INDEX idx_ui_bad ON public.ui_notes USING custom_am (id);',
+            # Class 4: Table-linking / renaming / schema-moving / partitioning DDL
+            'ALTER TABLE RENAME TO':
+                'ALTER TABLE public.ui_notes RENAME TO hands;',
+            'ALTER TABLE SET SCHEMA':
+                'ALTER TABLE public.ui_notes SET SCHEMA smarter_private;',
+            'ALTER TABLE INHERIT':
+                'ALTER TABLE public.ui_notes INHERIT public.hands;',
+            'CREATE TABLE INHERITS':
+                'CREATE TABLE public.ui_notes (id INT) INHERITS (public.hands);',
+            'CREATE TABLE LIKE':
+                'CREATE TABLE public.ui_notes (LIKE public.hands);',
+            'ALTER TABLE ATTACH PARTITION':
+                'ALTER TABLE public.ui_notes ATTACH PARTITION public.ui_child FOR VALUES FROM (1) TO (2);',
+            'ALTER TABLE DETACH PARTITION':
+                'ALTER TABLE public.ui_notes DETACH PARTITION public.ui_child;',
+            'CREATE TABLE PARTITION BY':
+                'CREATE TABLE public.ui_notes (id INT) PARTITION BY RANGE (id);',
+            # Class 5: Non-prefixed / arbitrary / dangerous Postgres function calls
+            'credit_chips call in INSERT':
+                'INSERT INTO public.ui_notes (note) VALUES (credit_chips(1));',
+            'pg_terminate_backend call in VIEW':
+                'CREATE VIEW public.ui_v AS SELECT pg_terminate_backend(1);',
+            'settle_hand call in UPDATE':
+                'UPDATE public.ui_notes SET note = settle_hand(id);',
+            'settle_tournament call in INSERT':
+                'INSERT INTO public.ui_notes (note) VALUES (settle_tournament());',
+            'pg_sleep call in POLICY':
+                'CREATE POLICY p_ui ON public.ui_notes FOR SELECT USING (pg_sleep(10) IS NULL);',
+            'set_config call in DEFAULT':
+                "CREATE TABLE public.ui_notes (id INT DEFAULT set_config('search_path', 'pg_catalog', false));",
+            'table-named function call':
+                'INSERT INTO public.ui_notes (note) VALUES (public.ui_notes(1));',
+        }
+        for label, sql in attacks.items():
+            with self.subTest(attack=label):
+                self.assertFalse(im.engine_inert(sql), f'MUST fail closed for attack: {label}')
+
+        legitimate = {
+            'CREATE INDEX USING gin and btree': (
+                'CREATE INDEX IF NOT EXISTS idx_ui_tags ON public.ui_notes USING gin (tags);\n'
+                'CREATE INDEX IF NOT EXISTS idx_ui_id ON public.ui_notes USING btree (id);\n'
+            ),
+            'CREATE POLICY USING auth.uid and auth.role': (
+                'CREATE POLICY p_ui_own ON public.ui_notes FOR SELECT '
+                "USING (auth.uid() = user_id AND auth.role() = 'authenticated');\n"
+            ),
+            'parameterized types and pure built-ins': (
+                'CREATE TABLE IF NOT EXISTS public.training_drills (\n'
+                '  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n'
+                '  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,\n'
+                '  slug VARCHAR(64) NOT NULL,\n'
+                '  score NUMERIC(10, 2) NOT NULL DEFAULT 0,\n'
+                '  label TEXT NOT NULL DEFAULT COALESCE(lower(\'A\'), \'a\'),\n'
+                '  created_at TIMESTAMPTZ NOT NULL DEFAULT now()\n'
+                ');\n'
+            ),
+        }
+        for label, sql in legitimate.items():
+            with self.subTest(legitimate=label):
+                self.assertTrue(im.engine_inert(sql), f'MUST remain inert for: {label}')
+
 
 if __name__ == '__main__':
     unittest.main()

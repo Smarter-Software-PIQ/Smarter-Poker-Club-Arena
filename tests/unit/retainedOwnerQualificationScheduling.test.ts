@@ -63,17 +63,18 @@ it('executes the declared CI and receiver commands with exact-once historical co
         .trim()
         .split('\n')
         .filter((line) => line.startsWith('test '));
-      const expected = [
-        `test -- --exclude ${wrapper} --shard=1/8`,
-        `test -- ${wrapper}`,
-        ...[2, 3, 4, 5, 6, 7, 8].map((shard) => `test -- --exclude ${wrapper} --shard=${shard}/8`),
-      ];
+      const retainedShard = mode === 'ci' ? 2 : 7;
+      const expected = [1, 2, 3, 4, 5, 6, 7, 8].flatMap((shard) =>
+        shard === retainedShard
+          ? [`test -- ${wrapper}`, `test -- --exclude ${wrapper} --shard=${shard}/8`]
+          : [`test -- --exclude ${wrapper} --shard=${shard}/8`]
+      );
       expect(calls).toEqual(expected);
     }
     writeFileSync(log, '');
-    // Both PR CI and engine release prequalification run the retained historical qualification
-    // on shard 2 (O37: balances critical-path shard 1 wall-clock time).
-    expect(run(release.run, 2, true).status).toBe(73);
+    // PR CI runs retained historical qualification on shard 2; engine release prequalification
+    // runs it on shard 7 (fastest shard ~7m54s) to trim ~2.8m off critical-path prequalification.
+    expect(run(release.run, 7, true).status).toBe(73);
     expect(readFileSync(log, 'utf8')).not.toContain('--exclude');
     expect(run(preparation.run, 2, true).status).toBe(73);
     expect(ci.jobs.server.needs).toContain('server_shards');

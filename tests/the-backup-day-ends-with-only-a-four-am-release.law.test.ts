@@ -3083,14 +3083,15 @@ gh() {
         }
       });
 
-      it('O37: engine-release-prequalification.yml schedules RetainedHistoricalCheckpointQualification on shard 2 (balancing shard 1) and keeps npm run build on all shards', () => {
+      it('O37: engine-release-prequalification.yml schedules RetainedHistoricalCheckpointQualification on shard 7 (fastest shard) and keeps npm run build on all shards', () => {
         const prequalWf = parse(read('.github/workflows/engine-release-prequalification.yml'));
         const steps = prequalWf.jobs.qualify.steps as any[];
         const compileStep = steps.find((s) => s.name === 'Compile and test the exact server tree');
         expect(compileStep).toBeTruthy();
         expect(compileStep.run).toContain('npm run build');
-        expect(compileStep.run).toContain('if [ "$RELEASE_TEST_SHARD" = 2 ]; then');
+        expect(compileStep.run).toContain('if [ "$RELEASE_TEST_SHARD" = 7 ]; then');
         expect(compileStep.run).not.toContain('if [ "$RELEASE_TEST_SHARD" = 1 ]; then');
+        expect(compileStep.run).not.toContain('if [ "$RELEASE_TEST_SHARD" = 2 ]; then');
         expect(compileStep.run).toContain(
           'src/engine/RetainedHistoricalCheckpointQualification.test.ts'
         );

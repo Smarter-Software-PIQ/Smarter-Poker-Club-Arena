@@ -354,4 +354,143 @@ CREATE POLICY training_bad ON public.training_x FOR SELECT USING (EXISTS (SELECT
     }
     expect(hits).toEqual([]);
   });
+
+  it('6. canary rollback deadline exceeds the 3h inter-break gap while forward releases stay capped at 8400s', () => {
+    const tx = read('server/scripts/engine-release-transaction.sh');
+    // Ordinary release default stays 8400s
+    expect(tx).toContain('MAX_RUNTIME_SECONDS="${ENGINE_RELEASE_MAX_RUNTIME_SECONDS:-8400}"');
+    // Rollback drill raises max runtime to 14400s (4h) so CERTIFICATE_DEADLINE (14400 - 720 = 13680s) > 10800s (3h)
+    const rollbackCapMatch = tx.match(/ROLLBACK_MAX_RUNTIME_SECONDS=(\d+)/);
+    expect(rollbackCapMatch, 'ROLLBACK_MAX_RUNTIME_SECONDS must be defined').not.toBeNull();
+    const rollbackCap = Number(rollbackCapMatch![1]);
+    const certReserve = Number(tx.match(/CERTIFICATE_RESERVE_SECONDS=(\d+)/)![1]);
+    expect(rollbackCap).toBeGreaterThanOrEqual(14400);
+    expect(rollbackCap - certReserve).toBeGreaterThan(3 * 3600);
+    expect(tx).toMatch(
+      /if \[ "\$DRILL_MODE" = rollback \]; then[\s\S]*?MAX_RUNTIME_SECONDS="\$ROLLBACK_MAX_RUNTIME_SECONDS"/
+    );
+    // Non-rollback releases remain capped at 8400s
+    expect(tx).toContain('[ "$MAX_RUNTIME_SECONDS" -le 8400 ]');
+    // Rollback reads active schedule policy from CONTROL_SHA instead of failing on current-cycle-policy drift
+    expect(tx).toMatch(
+      /routine_start_hours\(\) \{[\s\S]*?\[ "\$\{DRILL_MODE:-\}" = rollback \][\s\S]*?policy_sha="\$CONTROL_SHA"/
+    );
+    expect(tx).toMatch(
+      /initialise_phase1_cycle\(\) \{[\s\S]*?\[ "\$\{DRILL_MODE:-\}" = rollback \][\s\S]*?PHASE1_CYCLE_START=0/
+    );
+    // auto-deploy-hetzner.yml cleans up RB_STAGE on failure or after intake handoff
+    const deployDoc = parse(DEPLOY_WF) as {
+      jobs: { deploy: { steps: Array<{ id?: string; run?: string }> } };
+    };
+    const canaryRun = String(deployDoc.jobs.deploy.steps.find((s) => s.id === 'canary')?.run ?? '');
+    expect(canaryRun).toMatch(/trap[\s\S]*rm -rf -- "\$RB_STAGE"/);
+  });
+
+  it('7. require_backup_certificate exempts DRILL_MODE=rollback via attest-committed-sha without weakening forward custody or owner-stop', () => {
+    const tx = read('server/scripts/engine-release-transaction.sh');
+    const hostGate = tx.slice(
+      tx.indexOf('require_backup_certificate() {'),
+      tx.indexOf('\ndaily_cutover_clock() {')
+    );
+    const SHA = 'a'.repeat(40);
+    mkdirSync(TMP_BASE, { recursive: true });
+    const dir = mkdtempSync(join(TMP_BASE, 'rb-cert-gate-'));
+    try {
+      const runGate = (opts: {
+        drillMode: string;
+        curlRc: number;
+        attestRc: number;
+        ownerStop?: boolean;
+      }) => {
+        const sub = mkdtempSync(join(dir, 'case-'));
+        if (opts.ownerStop) writeFileSync(join(sub, 'owner-stop-engine-replacement'), '');
+        writeFileSync(join(sub, 'curl'), `#!/usr/bin/env bash\necho '[]'\nexit ${opts.curlRc}\n`, {
+          mode: 0o755,
+        });
+        writeFileSync(
+          join(sub, 'fake-seal'),
+          `#!/usr/bin/env bash\n[ "$1" = "attest-committed-sha" ] && exit ${opts.attestRc}\nexit 1\n`,
+          { mode: 0o755 }
+        );
+        return spawnSync('bash', ['-c', `${hostGate}\nrequire_backup_certificate`], {
+          encoding: 'utf8',
+          env: {
+            PATH: `${sub}:${process.env.PATH}`,
+            SHA,
+            DRILL_MODE: opts.drillMode,
+            RELEASE_SEAL: join(sub, 'fake-seal'),
+            ENGINE_RELEASE_STATE_DIR: sub,
+          },
+        });
+      };
+
+      // Rollback with attested SHA succeeds even when GitHub statuses curl fails
+      expect(runGate({ drillMode: 'rollback', curlRc: 22, attestRc: 0 }).status).toBe(0);
+      // Rollback STILL refuses when attest-committed-sha fails
+      expect(runGate({ drillMode: 'rollback', curlRc: 0, attestRc: 1 }).status).not.toBe(0);
+      // Rollback STILL refuses when owner-stop-engine-replacement is present
+      const stopped = runGate({ drillMode: 'rollback', curlRc: 22, attestRc: 0, ownerStop: true });
+      expect(stopped.status).not.toBe(0);
+      expect(stopped.stderr).toContain('owner stop active');
+      // Forward release and rollforward NEVER bypass backup-engine/certified
+      expect(runGate({ drillMode: '', curlRc: 22, attestRc: 0 }).status).not.toBe(0);
+      expect(runGate({ drillMode: 'rollforward', curlRc: 22, attestRc: 0 }).status).not.toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('8. record-receipt logs canary failure reason (never sealed/verified) and host_posture always exits non-zero when .ok != true', () => {
+    const deployDoc = parse(DEPLOY_WF) as {
+      jobs: {
+        deploy: {
+          outputs: Record<string, string>;
+          steps: Array<{ id?: string; run?: string }>;
+        };
+        'record-receipt': {
+          steps: Array<{ name?: string; env?: Record<string, string>; run?: string }>;
+        };
+      };
+    };
+
+    // deploy exports canary_passed
+    expect(deployDoc.jobs.deploy.outputs.canary_passed).toBe(
+      "${{ steps.canary.outputs.passed || '' }}"
+    );
+
+    // record-receipt checks canary_passed == 'false' BEFORE the sealed && verified branch
+    const receiptStep = deployDoc.jobs['record-receipt'].steps.find(
+      (s) => s.name === 'Record append-only deployment receipt'
+    );
+    const reason = String(receiptStep?.env?.REASON ?? '');
+    const canaryIdx = reason.indexOf("needs.deploy.outputs.canary_passed == 'false'");
+    const sealedIdx = reason.indexOf('Hetzner transaction sealed and independently verified');
+    expect(canaryIdx).toBeGreaterThan(-1);
+    expect(sealedIdx).toBeGreaterThan(-1);
+    expect(canaryIdx).toBeLessThan(sealedIdx);
+    expect(reason).toContain('post-swap canary failed; deterministic rollback requested');
+
+    // host_posture exits non-zero even when POSTURE_RC=0 and .ok != true
+    const postureStep = deployDoc.jobs.deploy.steps.find((s) => s.id === 'host_posture');
+    const postureRun = String(postureStep?.run ?? '');
+    expect(postureRun).toContain(
+      'exit "$([ "$POSTURE_RC" -ne 0 ] && echo "$POSTURE_RC" || echo 1)"'
+    );
+    expect(postureRun).not.toContain('exit "${POSTURE_RC:-1}"');
+
+    // Execute the exact bash guard with POSTURE_RC=0 and {"ok": false}
+    const guardMatch = postureRun.match(
+      /if \[ "\$POSTURE_RC" -ne 0 \] \|\| ! jq -e '\.ok == true' "\$POSTURE_OUT"[\s\S]*?\nfi/
+    );
+    expect(guardMatch).not.toBeNull();
+    const res = spawnSync(
+      'bash',
+      [
+        '-c',
+        `set -euo pipefail; POSTURE_RC=0; POSTURE_OUT="$(mktemp)"; trap 'rm -f "$POSTURE_OUT"' EXIT; printf '{"ok":false}\\n' > "$POSTURE_OUT"; ${guardMatch![0]}`,
+      ],
+      { encoding: 'utf8' }
+    );
+    expect(res.status).toBe(1);
+  });
 });
