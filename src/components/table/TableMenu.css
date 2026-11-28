@@ -516,8 +516,10 @@
   padding: calc(14px * var(--menu-scale)) calc(16px * var(--menu-scale)) 0;
 }
 .table-menu__dropdown .table-menu__close {
-  min-width: 44px;
-  min-height: 44px;
+  /* The drawer scales with the table layer (--menu-scale), so the 44px floor
+     scales with it (tests/e2e/mobile-lobby-chrome.spec.ts). */
+  min-width: calc(44px * var(--menu-scale));
+  min-height: calc(44px * var(--menu-scale));
   border: 4px solid transparent;
   border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') 11 / 5px
     stretch;
