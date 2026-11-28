@@ -48,7 +48,7 @@ import { ClubsService } from '../services/ClubsService';
 import { ClubJoinService } from '../services/ClubJoinService';
 import { unionService } from '../services/UnionService';
 import type { Union } from '../services/UnionService';
-import { NoClubsEmpty } from '../components/common/EmptyState';
+import { ArenaEmptyState } from '../components/common/EmptyStateArena';
 import PageSkeleton from '../components/common/PageSkeleton';
 import CreateClubModal from '../components/modals/CreateClubModal';
 import JoinClubModal from '../components/modals/JoinClubModal';
@@ -57,8 +57,8 @@ import IntroVideo from '../components/IntroVideo';
 import haptic from '../services/HapticService';
 import ClubDiscovery from '../components/clubs/ClubDiscovery';
 import StandardContentLayout from '../components/layouts/StandardContentLayout';
-import { SpadeConsole } from '../components/console/SpadeConsole';
-import PageBar from '../components/help/PageBar';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import '../components/ops/ArenaOps.css';
 import { getClubLevel } from '../utils/clubLevels';
 import { compactChips } from '../utils/format';
 import styles from './ClubsPage.module.css';
@@ -108,6 +108,18 @@ const rowAnimationStyle = (shown: boolean) => ({
 
 /** Singular and plural, because "1 Clubs" in the pill slot reads unfinished. */
 const countPill = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+function NoClubsArenaEmpty({ onCreate }: { onCreate: () => void }) {
+  return (
+    <ArenaEmptyState
+      icon="CLUB"
+      eyebrow="Club Network"
+      title="No Clubs Yet"
+      description="Create Your First Club Or Join An Existing One To Start Playing."
+      action={{ label: 'Create Club', onClick: onCreate }}
+    />
+  );
+}
 
 // Local aliases for centralized storage keys
 
@@ -359,12 +371,11 @@ export default function ClubsPage() {
       )}
 
       <StandardContentLayout className="clubs-page">
-        <div className={styles.page}>
-          {/* Dan, 2026-10-17: the eyebrow and the intro line moved behind the
-              painted "?"; the head keeps its title, its count and its doors. */}
-          <PageBar
+        <div className={`${styles.page} arena-workspace`}>
+          <ArenaWorkspaceHeader
+            area="operations"
             title="Clubs"
-            titleAs={false}
+            context={clubsPill}
             summary="Join Private Poker Communities Or Create Your Own."
             steps={[
               {
@@ -382,35 +393,14 @@ export default function ClubsPage() {
               },
             ]}
           />
-          {/* ── The header console: the two doors on the painted plates ─── */}
-          <SpadeConsole
-            className={styles.console}
-            aria-busy={isLoading || undefined}
-            title="Clubs"
-            pill={clubsPill}
-            pillInk={myClubs.length === 0 ? 'muted' : 'blue'}
-            foot="plates"
-            plates={{
-              secondary: {
-                label: 'Join With Code',
-                onClick: () => {
-                  haptic.selection();
-                  setShowJoinModal(true);
-                },
-              },
-              primary: {
-                label: 'Create Club',
-                ink: 'white',
-                onClick: () => {
-                  haptic.selection();
-                  setShowCreateModal(true);
-                },
-              },
-            }}
-          >
-            {/* The two views are lit words cut into the glass, not drawn tabs:
-                the art paints no tab, so nothing here draws one either. */}
-            <div className={styles.viewRail} role="tablist" aria-label="Club Views">
+
+          {/* ── Workspace navigation and primary club actions ─── */}
+          <section className="arena-case arena-ops-case" aria-busy={isLoading || undefined}>
+            <div
+              className={`${styles.viewRail} arena-switch arena-ops-keys`}
+              role="tablist"
+              aria-label="Club Views"
+            >
               <button
                 type="button"
                 role="tab"
@@ -420,9 +410,6 @@ export default function ClubsPage() {
                    document. The panel names its tab instead, which always
                    resolves. */
                 aria-selected={activeTab === 'discover'}
-                className={`${styles.viewWord} ${
-                  activeTab === 'discover' ? 'sc-ink--silver' : 'sc-ink--muted'
-                }`}
                 onClick={() => {
                   haptic.selection();
                   setActiveTab('discover');
@@ -435,9 +422,6 @@ export default function ClubsPage() {
                 role="tab"
                 id="clubs-tab-my-clubs"
                 aria-selected={activeTab === 'my-clubs'}
-                className={`${styles.viewWord} ${
-                  activeTab === 'my-clubs' ? 'sc-ink--silver' : 'sc-ink--muted'
-                }`}
                 onClick={() => {
                   haptic.selection();
                   setActiveTab('my-clubs');
@@ -446,9 +430,34 @@ export default function ClubsPage() {
                 My Clubs
               </button>
             </div>
-          </SpadeConsole>
 
-          {/* ── Discover: ClubDiscovery keeps its own art, outside the frame ── */}
+            <div className={styles.actionBar}>
+              <div className="arena-switch arena-ops-keys">
+                <button
+                  type="button"
+                  onClick={() => {
+                    haptic.selection();
+                    setShowJoinModal(true);
+                  }}
+                >
+                  Join With Code
+                </button>
+              </div>
+              <div className="arena-switch arena-ops-keys arena-ops-primary">
+                <button
+                  type="button"
+                  onClick={() => {
+                    haptic.selection();
+                    setShowCreateModal(true);
+                  }}
+                >
+                  Create Club
+                </button>
+              </div>
+            </div>
+          </section>
+
+          {/* ── Discover ── */}
           {activeTab === 'discover' && (
             <div
               id="clubs-panel-discover"
@@ -480,7 +489,7 @@ export default function ClubsPage() {
             </div>
           )}
 
-          {/* ── My Clubs: rows on the glass ──────────────────────────────── */}
+          {/* ── My Clubs ─────────────────────────────────────────────────── */}
           {activeTab === 'my-clubs' && (
             <div
               id="clubs-panel-my-clubs"
@@ -489,23 +498,19 @@ export default function ClubsPage() {
               className={styles.panel}
             >
               {isLoading ? (
-                <SpadeConsole
-                  className={styles.console}
-                  eyebrow="Clubs"
-                  title="My Clubs"
-                  foot="foot"
-                >
+                <section className="arena-case arena-ops-case">
+                  <div className="arena-section-title">
+                    <h2>My Clubs</h2>
+                  </div>
                   <div className="loading-state">
                     <PageSkeleton variant="list" />
                   </div>
-                </SpadeConsole>
+                </section>
               ) : myClubs.length > 0 ? (
-                <SpadeConsole
-                  className={styles.console}
-                  eyebrow="Clubs"
-                  title="My Clubs"
-                  foot="foot"
-                >
+                <section className="arena-case arena-ops-case">
+                  <div className="arena-section-title">
+                    <h2>My Clubs</h2>
+                  </div>
                   <ol className={styles.list}>
                     {myClubs.map((membership, index) => {
                       const levelInfo = getClubLevel({
@@ -525,96 +530,75 @@ export default function ClubsPage() {
                           style={rowAnimationStyle(visibleClubCards.has(index))}
                         >
                           <div className={styles.rowHead}>
-                            <h3 className={`${styles.rowName} sc-ink--silver`}>
-                              {membership.club.name}
-                            </h3>
+                            <h3 className={styles.rowName}>{membership.club.name}</h3>
                             {membership.role === 'owner' && (
-                              <span className={`${styles.rowFlag} sc-label sc-ink--gold`}>
-                                Owner
-                              </span>
+                              <span className={`${styles.rowFlag} ${styles.flagGold}`}>Owner</span>
                             )}
                           </div>
 
                           <dl className={styles.facts}>
                             <div className={styles.fact}>
-                              <dt className={`${styles.factLabel} sc-label sc-ink--blue`}>
-                                Members
-                              </dt>
-                              <dd className={`${styles.factValue} sc-ink--silver`}>
+                              <dt className={styles.factLabel}>Members</dt>
+                              <dd className={styles.factValue}>
                                 {Number(membership.club.club_id) === SHARK_CLUB_ID
                                   ? (kingsMembers?.toLocaleString() ?? '…')
                                   : compactChips(membership.club.member_count || 0)}
                               </dd>
                             </div>
                             <div className={styles.fact}>
-                              {/* Seven roles, seven names. This used to be a
-                                  crown / cog / lozenge / grid glyph stuck on
-                                  top of the label; roleLabel already
-                                  distinguishes all seven in words. */}
-                              <dt className={`${styles.factLabel} sc-label sc-ink--blue`}>Role</dt>
-                              <dd className={`${styles.factValue} sc-ink--silver`}>
-                                {roleLabel(membership.role)}
-                              </dd>
+                              {/* Seven roles, seven names. */}
+                              <dt className={styles.factLabel}>Role</dt>
+                              <dd className={styles.factValue}>{roleLabel(membership.role)}</dd>
                             </div>
                             <div className={styles.fact}>
-                              <dt className={`${styles.factLabel} sc-label sc-ink--blue`}>Level</dt>
-                              <dd className={`${styles.factValue} sc-ink--silver`}>
+                              <dt className={styles.factLabel}>Level</dt>
+                              <dd className={styles.factValue}>
                                 {`Lv.${levelInfo.level} ${levelInfo.tierLabel}`}
                               </dd>
                             </div>
                             <div className={styles.fact}>
-                              <dt className={`${styles.factLabel} sc-label sc-ink--blue`}>
-                                Club ID
-                              </dt>
-                              <dd className={`${styles.factValue} sc-ink--silver`}>
-                                {membership.club.club_id}
-                              </dd>
+                              <dt className={styles.factLabel}>Club ID</dt>
+                              <dd className={styles.factValue}>{membership.club.club_id}</dd>
                             </div>
                           </dl>
 
-                          {/* One action, so it is a lit word on the glass: the
-                              foot paints BOTH plates, and a single plate would
-                              leave the other painted and empty. */}
-                          <button
-                            type="button"
-                            className={`${styles.rowWord} sc-ink--blue`}
-                            aria-label={`Enter ${membership.club.name}`}
-                            onClick={() => {
-                              haptic.success();
-                              navigate(`/clubs/${membership.club.slug || membership.club.id}`);
-                            }}
+                          <div
+                            className={`${styles.rowAction} arena-switch arena-ops-keys arena-ops-primary`}
                           >
-                            Enter Club
-                          </button>
+                            <button
+                              type="button"
+                              aria-label={`Enter ${membership.club.name}`}
+                              onClick={() => {
+                                haptic.success();
+                                navigate(`/clubs/${membership.club.slug || membership.club.id}`);
+                              }}
+                            >
+                              Enter Club
+                            </button>
+                          </div>
                         </li>
                       );
                     })}
                   </ol>
-                </SpadeConsole>
+                </section>
               ) : myUnions.length === 0 ? (
-                <NoClubsEmpty onCreate={() => setShowCreateModal(true)} />
+                <NoClubsArenaEmpty onCreate={() => setShowCreateModal(true)} />
               ) : (
-                <SpadeConsole
-                  className={styles.console}
-                  eyebrow="Clubs"
-                  title="My Clubs"
-                  foot="foot"
-                >
-                  <p className="sc-copy sc-copy--center">
-                    Your Clubs Are Nested Under Your Unions Below.
-                  </p>
-                </SpadeConsole>
+                <section className="arena-case arena-ops-case">
+                  <div className="arena-section-title">
+                    <h2>My Clubs</h2>
+                  </div>
+                  <p className={styles.emptyCopy}>Your Clubs Are Nested Under Your Unions Below.</p>
+                </section>
               )}
 
               {/* ── Unions ─────────────────────────────────────────────── */}
               {myUnions.length > 0 && (
-                <SpadeConsole
-                  className={styles.console}
-                  eyebrow="Clubs"
-                  title="Unions"
-                  pill={countPill(myUnions.length, 'Union', 'Unions')}
-                  foot="foot"
-                >
+                <section className="arena-case arena-ops-case">
+                  <div className="arena-section-title">
+                    <h2>Unions</h2>
+                    <small>{countPill(myUnions.length, 'Union', 'Unions')}</small>
+                  </div>
                   <ol className={styles.list}>
                     {myUnions.map((union, index) => (
                       <li
@@ -623,11 +607,11 @@ export default function ClubsPage() {
                         style={rowAnimationStyle(visibleClubCards.has(myClubs.length + index))}
                       >
                         <div className={styles.rowHead}>
-                          <h3 className={`${styles.rowName} sc-ink--silver`}>{union.name}</h3>
-                          <span className={`${styles.rowFlag} sc-label sc-ink--blue`}>Union</span>
+                          <h3 className={styles.rowName}>{union.name}</h3>
+                          <span className={`${styles.rowFlag} ${styles.flagBlue}`}>Union</span>
                           <span
-                            className={`${styles.rowFlag} sc-label ${
-                              union.ownerId === currentUserId ? 'sc-ink--gold' : 'sc-ink--muted'
+                            className={`${styles.rowFlag} ${
+                              union.ownerId === currentUserId ? styles.flagGold : styles.flagMuted
                             }`}
                           >
                             {union.ownerId === currentUserId ? 'Owner' : 'Member'}
@@ -636,22 +620,20 @@ export default function ClubsPage() {
 
                         <dl className={styles.facts}>
                           <div className={styles.fact}>
-                            <dt className={`${styles.factLabel} sc-label sc-ink--blue`}>Clubs</dt>
-                            <dd className={`${styles.factValue} sc-ink--silver`}>
+                            <dt className={styles.factLabel}>Clubs</dt>
+                            <dd className={styles.factValue}>
                               {compactChips(union.clubCount || 0)}
                             </dd>
                           </div>
                           <div className={styles.fact}>
-                            <dt className={`${styles.factLabel} sc-label sc-ink--blue`}>Members</dt>
-                            <dd className={`${styles.factValue} sc-ink--silver`}>
+                            <dt className={styles.factLabel}>Members</dt>
+                            <dd className={styles.factValue}>
                               {compactChips(union.memberCount || 0)}
                             </dd>
                           </div>
                           <div className={styles.fact}>
-                            <dt className={`${styles.factLabel} sc-label sc-ink--blue`}>
-                              Total Rake
-                            </dt>
-                            <dd className={`${styles.factValue} sc-ink--silver`}>
+                            <dt className={styles.factLabel}>Total Rake</dt>
+                            <dd className={styles.factValue}>
                               {/* The dash, not a zero: a union with no rake
                                   figure yet has no figure, and printing 0
                                   would be inventing one. */}
@@ -660,21 +642,22 @@ export default function ClubsPage() {
                           </div>
                         </dl>
 
-                        <button
-                          type="button"
-                          className={`${styles.rowWord} sc-ink--blue`}
-                          aria-label={`Manage ${union.name}`}
-                          onClick={() => {
-                            haptic.success();
-                            navigate(`/unions/${union.slug || union.id}`);
-                          }}
-                        >
-                          Manage Union
-                        </button>
+                        <div className={`${styles.rowAction} arena-switch arena-ops-keys`}>
+                          <button
+                            type="button"
+                            aria-label={`Manage ${union.name}`}
+                            onClick={() => {
+                              haptic.success();
+                              navigate(`/unions/${union.slug || union.id}`);
+                            }}
+                          >
+                            Manage Union
+                          </button>
+                        </div>
                       </li>
                     ))}
                   </ol>
-                </SpadeConsole>
+                </section>
               )}
             </div>
           )}

@@ -1,32 +1,51 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   POKER ARENA LANDING - on the spade console family (2026-09-22)
+   POKER ARENA LANDING - on the #SmarterDesign arena workspace (Batch H1)
 
-   The frames, the crests, the action plates and the closing caps come from
-   SpadeConsole.css and Dan's approved masters. This sheet only types the
-   rows, the step numerals and the resource links on the black glass between
-   the rails, in the master's own inks.
-
-   Sizes are cqw against the console (SpadeConsole sets container-type on
-   .sc), so a 320px phone and a 430px one get the same picture. Nothing here
-   is drawn: no corner radii, no gradients, no fills, no borders around
-   content. The one rule between rows is ENGRAVED - a black top edge with an
-   8% inner light, the same cut the kit uses everywhere else - not a drawn
-   divider. No :hover; phones do not hover.
+   All chrome frames, mast, section titles, and anchor buttons come from
+   ArenaWorkspace.css and ArenaOps.css. This sheet only lays out the public
+   landing column, feature/step lists, engraved rules, and resource links.
+   Zero custom gradients, zero drawn corner radii, zero :hover states.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .page {
-  display: grid;
-  gap: clamp(18px, 4vw, 40px);
   min-height: 100dvh;
-  padding: clamp(14px, 3.5vw, 36px) clamp(10px, 3vw, 28px) clamp(36px, 7vw, 72px);
-  background: #000;
+  background: #050d17;
+  padding: clamp(8px, 2vw, 24px) clamp(8px, 2.5vw, 24px) clamp(32px, 6vw, 64px);
 }
 
-.console {
+.workspace.workspace {
+  display: grid;
+  gap: 14px;
+  width: 100%;
+  max-width: 820px;
   margin: 0 auto;
+  padding: 0;
+  background: transparent;
 }
 
-/* ── Feature rows: a lit blue label, the copy under it, engraved between ── */
+.copy {
+  margin: 0;
+  color: #c8d6e4;
+  font:
+    400 14px/1.55 Inter,
+    system-ui,
+    sans-serif;
+}
+
+.copyCenter {
+  text-align: center;
+}
+
+/* Side-by-side chrome switches keep DOM/tab order matching visual order
+   (Sign In left, lit Create Account primary right). */
+.ctaRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 4px;
+}
+
+/* ── Feature rows and steps ───────────────────────────────────────────── */
 
 .rows,
 .steps {
@@ -38,19 +57,29 @@
 
 .row {
   display: grid;
-  gap: 1.4cqw;
-  padding: 3.4cqw 0;
+  gap: 5px;
+  padding: 12px 0;
+}
+
+.row:first-child,
+.step:first-child {
+  padding-top: 4px;
+}
+
+.row:last-child,
+.step:last-child {
+  padding-bottom: 4px;
 }
 
 .step {
   display: grid;
-  grid-template-columns: 7.4cqw minmax(0, 1fr);
-  gap: 3cqw;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 12px;
   align-items: start;
-  padding: 3.4cqw 0;
+  padding: 12px 0;
 }
 
-/* The engraved rule: cut into the glass, never a line drawn on top of it. */
+/* Engraved hairline rule between rows, steps, and links. */
 .row + .row,
 .step + .step,
 .link + .link {
@@ -60,49 +89,68 @@
 
 .rowTitle {
   margin: 0;
+  color: #74dfff;
   font:
-    800 3.5cqw/1.25 'Roboto Condensed',
+    800 15px/1.25 'Roboto Condensed',
+    'Arial Narrow',
     Inter,
     system-ui,
     sans-serif;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.stepTitle {
+  margin: 0;
+  color: #f1f5fc;
+  font:
+    800 15px/1.25 'Roboto Condensed',
+    'Arial Narrow',
+    Inter,
+    system-ui,
+    sans-serif;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .stepBody {
   display: grid;
-  gap: 1.4cqw;
+  gap: 5px;
   min-width: 0;
 }
 
-/* The numeral is the number, lit. The disc it used to sit on was a drawn
-   control, and the art paints no disc. */
 .stepNumber {
-  font-size: 6cqw;
-  font-weight: 800;
-  line-height: 1.1;
+  color: #74dfff;
+  font:
+    800 22px/1.1 'Roboto Condensed',
+    'Arial Narrow',
+    Inter,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   text-align: right;
 }
 
-/* ── The resource links: lit words cut into the glass ─────────────────── */
+/* ── Resource links ───────────────────────────────────────────────────── */
 
 .links {
   display: grid;
-  margin-top: 1cqw;
+  margin-top: 4px;
 }
 
 .link {
   display: flex;
   align-items: center;
   min-height: 44px;
-  padding: 2.2cqw 0;
+  padding: 8px 0;
+  color: #74dfff;
   font:
-    800 3.3cqw/1.2 'Roboto Condensed',
+    800 13px/1.2 'Roboto Condensed',
+    'Arial Narrow',
     Inter,
     system-ui,
     sans-serif;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   text-decoration: none;
 }

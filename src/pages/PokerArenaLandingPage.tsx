@@ -1,12 +1,9 @@
 /**
- * Poker Arena public landing page, on the #ClubArenaConsole master art.
+ * Poker Arena public landing page, on the #SmarterDesign arena workspace
+ * (Batch H1, 2026-11-28).
  *
  * Until 2026-09-16 an anonymous visit to /hub/club-arena was a JavaScript
  * redirect to the World Hub login, and index.html said `noindex, nofollow`.
- * Google therefore had nothing to index for Poker Arena at all: a crawler
- * that rendered the page saw a login form, and one that did not was told to
- * go away.
- *
  * This page is what a signed-out visitor (and Googlebot) now gets at the
  * arena root: a real, static description of the product with its own title,
  * description, canonical and JSON-LD (see src/lib/seo.ts), and two ways in.
@@ -14,48 +11,23 @@
  * as before. Nothing here fetches, so it renders identically for a crawler
  * and a person.
  *
- * THE FRONT DOOR IS PAINTED, NOT STYLED (2026-09-22). Until today this was
- * the last page in the arena still drawing its own chrome: rounded cards, a
- * blue gradient pill for the call to action, a coloured disc behind each step
- * number. It is now five SpadeConsole frames cut from Dan's approved masters,
- * one per section, wearing a different crest each (spade, club, diamond, vip,
- * flat) so no two frames are the same picture. Nothing on this page is drawn:
- * the frames, the plates and the closing caps are the art, and every word is
- * live DOM text printed into a zone measured on it.
- *
- * WHAT IS DIFFERENT HERE FROM EVERY OTHER CONSOLE SURFACE. This route is
- * PRERENDERED (src/prerender/entry-server.tsx maps '/' to this component, and
- * scripts/prerender-public-routes.mjs writes the result into dist/index.html),
- * so the markup below is also the static HTML that reaches a crawler which
- * never runs the bundle. Two consequences:
- *
- *   1. the heading has to survive without JavaScript, so the hero console
- *      prints its title as the document's h1 (`titleAs="h1"`). The prerender
- *      refuses to publish a page with no h1;
- *   2. both ways in are real anchors, on painted plates (PlateButton with an
- *      href), never buttons that call location. A crawler follows an href;
- *      it does not click.
- *
- * useFitText runs in a layout effect, so the static HTML ships each label at
- * its designed size and the browser fits it on mount. Nothing here reads
- * layout, `window` or a browser API while rendering.
- *
- * EVERY CONSOLE HERE CARRIES A PILL, AND THAT IS NOT DECORATION. The master
- * head PAINTS the pill slot whether or not a word is printed into it, so an
- * empty one reads as a frame with a piece missing, and a title rendered
- * without one runs into its rim: "HOW POKER ARENA WORKS" had its last letter
- * sitting on the chrome, which is the defect SPADE_CONSOLE_ZONES.
- * titleBesidePill exists for and which the console selects the moment a pill
- * is present. Each word is a fact the section already states: the account is
- * free, there are six things a club gets, there are three steps, the rules
- * are public.
+ * PRERENDER CONTRACT (src/prerender/entry-server.tsx -> dist/index.html):
+ *   1. `<main className={styles.page} id="main-content" tabIndex={-1}>` stays
+ *      the root landmark so prerender and runtime share one landmark;
+ *   2. `<ArenaWorkspaceHeader>` prints the document's `<h1>Poker Arena</h1>`
+ *      during SSR without reading browser APIs;
+ *   3. both ways in remain real `<a href=...>` anchors so crawlers follow
+ *      them without executing JavaScript;
+ *   4. all four literal `trackCta(...)` calls and `signInUrl(returnPathAfterSignIn())`
+ *      remain verbatim for the activation funnel and welcome-back laws.
  *
  * Copy is Title Case (repo rule, scripts/ci/check-title-case.mjs).
  */
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import '../components/ops/ArenaOps.css';
 import styles from './PokerArenaLandingPage.module.css';
-import { SpadeConsole, type PlateButtonProps } from '../components/console/SpadeConsole';
 import { signInUrl } from '../lib/signIn';
 import { WEB_ORIGIN } from '../lib/appBase';
 import { capture } from '../lib/analytics';
@@ -112,16 +84,6 @@ const RESOURCES = [
   { label: 'Promotion Rules', to: '/legal/promotions' },
 ];
 
-/**
- * DISCOVERABILITY PHASE 5 (2026-09-17). The landing page is the top of the
- * activation funnel (signup -> first_login -> first_table_seat ..., see
- * src/lib/analytics.ts), and until now nothing recorded that a visitor saw
- * it or which button took them out of it. Two events, through the same
- * consent-gated PostHog path as every other event in the arena: a view on
- * mount, and a click on each way in, named by placement so the hero and the
- * closing call to action can be compared. The page itself still fetches
- * nothing; capture() is a no-op until the visitor has consented.
- */
 const LANDING_VIEWED = 'landing_viewed';
 const LANDING_CTA_CLICKED = 'landing_cta_clicked';
 
@@ -130,37 +92,15 @@ function trackCta(cta: 'sign_up' | 'sign_in', placement: 'hero' | 'closing'): vo
 }
 
 /**
- * The two ways in, as the painted plates of a console foot: the steel plate
- * on the left for a player who already has an account, the lit blue glass on
- * the right for a new one.
- *
- * Each caller passes its own handler rather than a placement string, so the
- * four `trackCta(...)` calls stay LITERAL in this file. The law that keeps
- * the activation funnel honest reads this source for them by name
- * (tests/the-public-arena-is-indexable-and-the-private-arena-is-not.law), and
- * a helper that assembles the arguments is exactly the clever indirection the
- * console standard's trap 7.6 warns about: it reads better and it makes the
- * pin unreadable.
- */
-function signInPlate(onClick: () => void): PlateButtonProps {
-  return { label: 'Sign In', ink: 'silver', href: signInUrl(returnPathAfterSignIn()), onClick };
-}
-
-/**
  * Where Sign In brings the player back. The welcome-back chips email, the
  * join-a-club nudge and the play nudge land a signed-out player here with
  * ?join=<code>&ref=<referral> or ?welcome=chips (Dan 2026-11-04); the query
  * is what the home page acts on, so it travels through the login and back.
- * Without it the landing page returned everyone to a bare '/'.
  */
 function returnPathAfterSignIn(): string {
   if (typeof window === 'undefined') return '/';
   const search = window.location.search || '';
   return search.length > 1 ? `/${search}` : '/';
-}
-
-function createAccountPlate(onClick: () => void): PlateButtonProps {
-  return { label: 'Create Account', ink: 'white', href: SIGN_UP_URL, onClick };
 }
 
 export default function PokerArenaLandingPage() {
@@ -169,121 +109,120 @@ export default function PokerArenaLandingPage() {
     capture(LANDING_VIEWED, { product: 'poker_arena', referrer: document.referrer || null });
   }, []);
 
+  const signInHref = signInUrl(returnPathAfterSignIn());
+
   return (
     <main className={styles.page} id="main-content" tabIndex={-1}>
-      <SpadeConsole
-        className={styles.console}
-        crest="spade"
-        eyebrow="Smarter.Poker"
-        title="Poker Arena"
-        titleAs="h1"
-        subtitle="Private Online Poker Clubs"
-        pill="Free"
-        foot="plates"
-        plates={{
-          secondary: signInPlate(() => trackCta('sign_in', 'hero')),
-          primary: createAccountPlate(() => trackCta('sign_up', 'hero')),
-        }}
-      >
-        <p className="sc-copy">
-          Create Or Join A Private Poker Club, Play Real Time Cash Games And Tournaments With Your
-          Own Players, And Run The Whole Club From One Dashboard.
-        </p>
-        <p className="sc-copy">
-          A Free Smarter.Poker Account Opens Every Club, Table And Tournament In The Arena.
-        </p>
-      </SpadeConsole>
+      <div className={`${styles.workspace} arena-workspace`}>
+        <ArenaWorkspaceHeader
+          area="dashboard"
+          context="Smarter.Poker"
+          title="Poker Arena"
+          subtitle="Private Online Poker Clubs"
+          summary="Create Or Join A Private Poker Club, Play Real Time Cash Games And Tournaments With Your Own Players, And Run The Whole Club From One Dashboard."
+        />
 
-      <SpadeConsole
-        className={styles.console}
-        crest="club"
-        eyebrow="What You Get"
-        title="Everything A Club Needs"
-        pill="Six"
-        titleId="features-heading"
-        aria-labelledby="features-heading"
-        foot="foot"
-      >
-        <ul className={styles.rows}>
-          {FEATURES.map((feature) => (
-            <li key={feature.title} className={styles.row}>
-              <h3 className={`${styles.rowTitle} sc-ink--blue`}>{feature.title}</h3>
-              <p className="sc-copy">{feature.body}</p>
-            </li>
-          ))}
-        </ul>
-      </SpadeConsole>
+        <section className="arena-case arena-ops-case">
+          <p className={styles.copy}>
+            Create Or Join A Private Poker Club, Play Real Time Cash Games And Tournaments With Your
+            Own Players, And Run The Whole Club From One Dashboard.
+          </p>
+          <p className={styles.copy}>
+            A Free Smarter.Poker Account Opens Every Club, Table And Tournament In The Arena.
+          </p>
+          <div className={styles.ctaRow}>
+            <div className="arena-switch arena-ops-keys">
+              <a href={signInHref} onClick={() => trackCta('sign_in', 'hero')}>
+                Sign In
+              </a>
+            </div>
+            <div className="arena-switch arena-ops-keys arena-ops-primary">
+              <a href={SIGN_UP_URL} onClick={() => trackCta('sign_up', 'hero')}>
+                Create Account
+              </a>
+            </div>
+          </div>
+        </section>
 
-      <SpadeConsole
-        className={styles.console}
-        crest="diamond"
-        eyebrow="Getting Started"
-        title="How Poker Arena Works"
-        pill="Three"
-        titleId="steps-heading"
-        aria-labelledby="steps-heading"
-        foot="foot"
-      >
-        <ol className={styles.steps}>
-          {STEPS.map((step, index) => (
-            <li key={step.title} className={styles.step}>
-              <span className={`${styles.stepNumber} sc-ink--blue`} aria-hidden="true">
-                {index + 1}
-              </span>
-              <div className={styles.stepBody}>
-                <h3 className={`${styles.rowTitle} sc-ink--silver`}>{step.title}</h3>
-                <p className="sc-copy">{step.body}</p>
-              </div>
-            </li>
-          ))}
-        </ol>
-      </SpadeConsole>
+        <section className="arena-case arena-ops-case" aria-labelledby="features-heading">
+          <div className="arena-section-title">
+            <h2 id="features-heading">Everything A Club Needs</h2>
+            <small>Six</small>
+          </div>
+          <ul className={styles.rows}>
+            {FEATURES.map((feature) => (
+              <li key={feature.title} className={styles.row}>
+                <h3 className={styles.rowTitle}>{feature.title}</h3>
+                <p className={styles.copy}>{feature.body}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
 
-      <SpadeConsole
-        className={styles.console}
-        crest="vip"
-        eyebrow="Fair Gaming"
-        title="Fair Play, In Writing"
-        pill="Public"
-        titleId="trust-heading"
-        aria-labelledby="trust-heading"
-        foot="foot"
-      >
-        <p className="sc-copy">
-          Every Table Runs On A Server Side Shuffle With Collusion Detection And Anti Cheat
-          Monitoring. The Rules Are Public: Read The Fair Gaming Standards, The Terms Of Service And
-          The Privacy Policy Before You Sit Down.
-        </p>
-        <nav className={styles.links} aria-label="Poker Arena Resources">
-          {RESOURCES.map((resource) => (
-            <Link key={resource.to} className={`${styles.link} sc-ink--blue`} to={resource.to}>
-              {resource.label}
-            </Link>
-          ))}
-          <a className={`${styles.link} sc-ink--blue`} href={`${WEB_ORIGIN}/hub`}>
-            Smarter.Poker World Hub
-          </a>
-        </nav>
-      </SpadeConsole>
+        <section className="arena-case arena-ops-case" aria-labelledby="steps-heading">
+          <div className="arena-section-title">
+            <h2 id="steps-heading">How Poker Arena Works</h2>
+            <small>Three</small>
+          </div>
+          <ol className={styles.steps}>
+            {STEPS.map((step, index) => (
+              <li key={step.title} className={styles.step}>
+                <span className={styles.stepNumber} aria-hidden="true">
+                  {index + 1}
+                </span>
+                <div className={styles.stepBody}>
+                  <h3 className={styles.stepTitle}>{step.title}</h3>
+                  <p className={styles.copy}>{step.body}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </section>
 
-      <SpadeConsole
-        className={styles.console}
-        crest="flat"
-        eyebrow="Poker Arena"
-        title="Ready To Deal?"
-        pill="Free"
-        titleId="closing-heading"
-        aria-labelledby="closing-heading"
-        foot="plates"
-        plates={{
-          secondary: signInPlate(() => trackCta('sign_in', 'closing')),
-          primary: createAccountPlate(() => trackCta('sign_up', 'closing')),
-        }}
-      >
-        <p className="sc-copy sc-copy--center">
-          Sign In To Poker Arena, Or Create A Free Account And Open Your First Club In Minutes.
-        </p>
-      </SpadeConsole>
+        <section className="arena-case arena-ops-case" aria-labelledby="trust-heading">
+          <div className="arena-section-title">
+            <h2 id="trust-heading">Fair Play, In Writing</h2>
+            <small>Public</small>
+          </div>
+          <p className={styles.copy}>
+            Every Table Runs On A Server Side Shuffle With Collusion Detection And Anti Cheat
+            Monitoring. The Rules Are Public: Read The Fair Gaming Standards, The Terms Of Service
+            And The Privacy Policy Before You Sit Down.
+          </p>
+          <nav className={styles.links} aria-label="Poker Arena Resources">
+            {RESOURCES.map((resource) => (
+              <Link key={resource.to} className={styles.link} to={resource.to}>
+                {resource.label}
+              </Link>
+            ))}
+            <a className={styles.link} href={`${WEB_ORIGIN}/hub`}>
+              Smarter.Poker World Hub
+            </a>
+          </nav>
+        </section>
+
+        <section className="arena-case arena-ops-case" aria-labelledby="closing-heading">
+          <div className="arena-section-title">
+            <h2 id="closing-heading">Ready To Deal?</h2>
+            <small>Free</small>
+          </div>
+          <p className={`${styles.copy} ${styles.copyCenter}`}>
+            Sign In To Poker Arena, Or Create A Free Account And Open Your First Club In Minutes.
+          </p>
+          <div className={styles.ctaRow}>
+            <div className="arena-switch arena-ops-keys">
+              <a href={signInHref} onClick={() => trackCta('sign_in', 'closing')}>
+                Sign In
+              </a>
+            </div>
+            <div className="arena-switch arena-ops-keys arena-ops-primary">
+              <a href={SIGN_UP_URL} onClick={() => trackCta('sign_up', 'closing')}>
+                Create Account
+              </a>
+            </div>
+          </div>
+        </section>
+      </div>
     </main>
   );
 }
