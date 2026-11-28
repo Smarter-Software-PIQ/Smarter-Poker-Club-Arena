@@ -1,0 +1,285 @@
+/**
+ * FORGE A UNION (/unions/create), #SmarterDesign (batch U1, 2026-11-28)
+ *
+ * The arena workspace language (src/components/lobby/ArenaWorkspace.css,
+ * src/components/ops/ArenaOps.css): the three steps on chrome tiles with the
+ * open step lit, each step a thin chrome case, the fields in dark wells, the
+ * switches on chrome rows, the review on readout tiles and the navigation
+ * chrome keys with the forward action lit. Every rule is scoped under the
+ * page's arena root. No hover state; focus rings only.
+ */
+
+.create-union.arena-workspace {
+  min-height: 100dvh;
+  padding-bottom: max(92px, env(safe-area-inset-bottom));
+  overflow-x: clip;
+}
+.create-union.arena-workspace .create-union__body {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+/* ── Steps ─────────────────────────────────────────────────────────── */
+.create-union.arena-workspace .create-union__steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin: 7px 0 4px;
+}
+.create-union.arena-workspace .create-union__step {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  box-sizing: border-box;
+}
+.create-union.arena-workspace .create-union__step--open {
+  border-image-source: var(--arena-active);
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
+}
+.create-union.arena-workspace .create-union__step-dot {
+  color: #74dfff;
+  font:
+    800 16px/1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.create-union.arena-workspace .create-union__step-dot:empty::before {
+  content: '';
+  display: block;
+  width: 7px;
+  height: 12px;
+  margin-top: -3px;
+  border: solid #35d95a;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.create-union.arena-workspace .create-union__step-label {
+  color: #dce5ef;
+  font:
+    700 12px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.create-union.arena-workspace
+  .create-union__step--open
+  :is(.create-union__step-dot, .create-union__step-label) {
+  color: white;
+}
+.create-union.arena-workspace .create-union__track {
+  height: 4px;
+  overflow: hidden;
+  background: #040d17;
+  border: 1px solid #253e57;
+}
+.create-union.arena-workspace .create-union__track-fill {
+  height: 100%;
+  background: #74dfff;
+  transition: width 0.4s ease-out;
+}
+
+/* The step on show; its entrance motion is the page's inline transition. */
+.create-union.arena-workspace .create-union__stage {
+  min-width: 0;
+}
+
+/* ── A step ────────────────────────────────────────────────────────── */
+.create-union.arena-workspace .create-union__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.create-union.arena-workspace .create-union__field > label {
+  color: #9fbacc;
+  font:
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+}
+.create-union.arena-workspace .create-union__input {
+  color-scheme: dark;
+  font-size: 16px;
+}
+.create-union.arena-workspace textarea.create-union__input {
+  resize: vertical;
+}
+.create-union.arena-workspace .create-union__unit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.create-union.arena-workspace .create-union__unit > span {
+  color: #9fbacc;
+  font:
+    700 13px/1 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.create-union.arena-workspace .create-union__hint {
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+}
+.create-union.arena-workspace .create-union__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 8px;
+}
+.create-union.arena-workspace .create-union__switches {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.create-union.arena-workspace .create-union__switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 6px 10px;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+.create-union.arena-workspace .create-union__switch input {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  accent-color: #087cfa;
+}
+.create-union.arena-workspace .create-union__switch input:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+.create-union.arena-workspace .create-union__mark {
+  display: none;
+}
+.create-union.arena-workspace .create-union__switch strong {
+  color: #f1f5fc;
+  font:
+    700 14px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.create-union.arena-workspace .create-union__switch p {
+  margin: 2px 0 0;
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+}
+
+/* ── Review ────────────────────────────────────────────────────────── */
+.create-union.arena-workspace .create-union__preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.create-union.arena-workspace .create-union__preview-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.create-union.arena-workspace .create-union__preview-head h3 {
+  margin: 0;
+  color: #f1f5fc;
+  font:
+    800 18px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  overflow-wrap: anywhere;
+}
+.create-union.arena-workspace .create-union__preview-head p {
+  margin: 2px 0 0;
+  color: #74dfff;
+  font:
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.create-union.arena-workspace .create-union__avatar {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  box-sizing: border-box;
+  color: #74dfff;
+  background: var(--arena-tile);
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  font:
+    800 20px/1 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.create-union.arena-workspace .create-union__readings {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+.create-union.arena-workspace .create-union__readings > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.create-union.arena-workspace .create-union__readings strong {
+  color: #f1f5fc;
+  font:
+    800 18px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.create-union.arena-workspace .create-union__readings span {
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+}
+.create-union.arena-workspace .create-union__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.create-union.arena-workspace .create-union__tags > span {
+  padding: 4px 8px;
+  color: #74dfff;
+  background: var(--arena-tile);
+  border: 4px solid transparent;
+  border-image: var(--arena-row) 13 / 6px stretch;
+  font:
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+/* ── Error and navigation ──────────────────────────────────────────── */
+.create-union.arena-workspace .create-union__error {
+  margin: 4px 0;
+  padding: 8px 10px;
+  color: #ff5b6e;
+  background: #040d17;
+  border-left: 3px solid #f02849;
+  font:
+    12px/1.4 Arial,
+    sans-serif;
+}
+.create-union.arena-workspace .create-union__nav {
+  margin: 7px 0;
+}
+.create-union.arena-workspace .create-union__nav > .create-union__forward {
+  color: white;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
+}
+.create-union.arena-workspace .create-union__nav > .create-union__forward::after {
+  border-image-source: var(--arena-active);
+}
