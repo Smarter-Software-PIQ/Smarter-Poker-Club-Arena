@@ -1510,10 +1510,11 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
           E2E_REQUIRE_AUTH: '1'
+          CERT_RELEASE_SHA: ${{ steps.live.outputs.sha }}
           PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/lightning-operator.json
         run: |
           set +e
-          mkdir -p release-bracket
+          mkdir -p release-bracket e2e-report
           read_release () {
             curl -fsS --max-time 20 -H 'Cache-Control: no-cache' \
               "https://smarter.poker/hub/club-arena/build-info.json?bracket=$RANDOM" > "$1" 2>/dev/null \
@@ -1531,6 +1532,13 @@ jobs:
             --project=chromium --reporter=line,json --workers=1 --retries=0
           rc=$?
           read_release release-bracket/lightning-after.json
+          if [ "$rc" -ne 0 ]; then
+            node scripts/ci/classify-superseded-failure.mjs "$CERT_RELEASE_SHA" release-bracket/lightning-after.json
+            if [ $? -eq 3 ]; then
+              echo 'lightning-operator.json' >> e2e-report/superseded-non-verdicts.txt
+              exit 0
+            fi
+          fi
           exit $rc
 
       - name: Classify the release the Lightning operator certificate ran against
@@ -1591,10 +1599,22 @@ jobs:
           # a green run that verified almost nothing - see global-setup.ts.
           E2E_CASHIER_STAFF_ROLE: Admin
           E2E_REQUIRE_AUTH: '1'
+          EXPECTED_LIVE_SHA: ${{ steps.live.outputs.sha }}
           PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/cashier.json
-        run: >-
-          npx playwright test tests/e2e/production-cashier.spec.ts
-          --project=chromium --reporter=line,json --workers=1 --retries=0
+        run: |
+          set +e
+          mkdir -p e2e-report
+          npx playwright test tests/e2e/production-cashier.spec.ts \
+            --project=chromium --reporter=line,json --workers=1 --retries=0
+          rc=$?
+          if [ "$rc" -ne 0 ]; then
+            node scripts/ci/classify-superseded-failure.mjs "$EXPECTED_LIVE_SHA"
+            if [ $? -eq 3 ]; then
+              echo 'cashier.json' >> e2e-report/superseded-non-verdicts.txt
+              exit 0
+            fi
+          fi
+          exit $rc
 
       # Preserve the Cashier result even if the later shared sweep exhausts the job budget.
       - name: Retain the authenticated Cashier result
@@ -1621,10 +1641,22 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
           E2E_REQUIRE_AUTH: '1'
+          EXPECTED_LIVE_SHA: ${{ steps.live.outputs.sha }}
           PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/cashier-statements.json
-        run: >-
-          npx playwright test tests/e2e/production-cashier-statements.spec.ts
-          --project=chromium --reporter=line,json --workers=1 --retries=0
+        run: |
+          set +e
+          mkdir -p e2e-report
+          npx playwright test tests/e2e/production-cashier-statements.spec.ts \
+            --project=chromium --reporter=line,json --workers=1 --retries=0
+          rc=$?
+          if [ "$rc" -ne 0 ]; then
+            node scripts/ci/classify-superseded-failure.mjs "$EXPECTED_LIVE_SHA"
+            if [ $? -eq 3 ]; then
+              echo 'cashier-statements.json' >> e2e-report/superseded-non-verdicts.txt
+              exit 0
+            fi
+          fi
+          exit $rc
 
       - name: Certify the authenticated Club Data workspace
         id: club_data
@@ -1635,6 +1667,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
           E2E_REQUIRE_AUTH: '1'
+          EXPECTED_LIVE_SHA: ${{ steps.live.outputs.sha }}
           PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/club-data.json
         run: |
           if [ '${{ needs.publication-gate.outputs.club_data }}' = true ]; then
@@ -1653,6 +1686,12 @@ jobs:
             e2e-report/club-data.json > e2e-report/club-data-result.json
           if [ '${{ needs.publication-gate.outputs.club_data }}' = true ]; then
             node "$RUNNER_TEMP/client-navigation-certificate.mjs" club-data-report e2e-report/club-data.json
+          elif [ "$status" -ne 0 ]; then
+            node scripts/ci/classify-superseded-failure.mjs "$EXPECTED_LIVE_SHA"
+            if [ $? -eq 3 ]; then
+              echo 'club-data.json' >> e2e-report/superseded-non-verdicts.txt
+              status=0
+            fi
           fi
           exit "$status"
 
@@ -1786,6 +1825,16 @@ jobs:
               if [ $? -eq 3 ]; then
                 echo "$json" >> e2e-report/fixture-non-verdicts.txt
                 return 0
+              fi
+              # If production already advanced to a forward protected-main
+              # commit mid-run, failures from $LIVE_SHA specs against the newer
+              # site are version-skew non-verdicts, not defects on $LIVE_SHA.
+              if [ -n "${LIVE_SHA:-}" ]; then
+                node scripts/ci/classify-superseded-failure.mjs "$LIVE_SHA"
+                if [ $? -eq 3 ]; then
+                  echo "$json" >> e2e-report/superseded-non-verdicts.txt
+                  return 0
+                fi
               fi
             fi
             return "$suite_rc"
@@ -2185,6 +2234,7 @@ jobs:
         run: |
           set -uo pipefail
           echo 'certified=false' >> "$GITHUB_OUTPUT"
+          echo 'superseded=false' >> "$GITHUB_OUTPUT"
           if [ -s e2e-report/fixture-non-verdicts.txt ]; then
             echo "NON-VERDICT: production lacked a fixture these suites need ($(tr '\n' ' ' < e2e-report/fixture-non-verdicts.txt)); this run does not certify a release." >> "$GITHUB_STEP_SUMMARY"
             exit 0
@@ -2212,10 +2262,15 @@ jobs:
             | node scripts/ci/production-e2e-provenance.mjs release-window "$EXPECTED_LIVE_SHA")" || STATUS=$?
           case "$STATUS" in
             0)
-              echo 'certified=true' >> "$GITHUB_OUTPUT"
-              echo "Production stayed on \`$EXPECTED_LIVE_SHA\` for the complete browser certificate." >> "$GITHUB_STEP_SUMMARY"
+              if [ -s e2e-report/superseded-non-verdicts.txt ]; then
+                echo "NON-VERDICT: production superseded \`$EXPECTED_LIVE_SHA\` mid-run ($(tr '\n' ' ' < e2e-report/superseded-non-verdicts.txt)); this run does not certify a release." >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo 'certified=true' >> "$GITHUB_OUTPUT"
+                echo "Production stayed on \`$EXPECTED_LIVE_SHA\` for the complete browser certificate." >> "$GITHUB_STEP_SUMMARY"
+              fi
               ;;
             3)
+              echo 'superseded=true' >> "$GITHUB_OUTPUT"
               echo "::warning::UNKNOWN: production advanced during certification ($WINDOW). This run could not certify one exact release; it is not a report of a defect."
               {
                 echo "NON-VERDICT: production advanced from \`$EXPECTED_LIVE_SHA\` during certification ($WINDOW)."
