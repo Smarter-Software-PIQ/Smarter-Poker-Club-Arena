@@ -292,6 +292,15 @@ class QualificationBuildCachingAndParallelProbes(unittest.TestCase):
                     required == excluded or required.startswith(excluded + '/'),
                     f'required path {required} excluded by {excluded}',
                 )
+        # Bidirectional protection (incidents 46135124209 & 46148552900, 2026-11-28):
+        # NEVER carve sub-exclusions inside /server, /supabase, /scripts/ci, or /tests
+        # in DOCKERIGNORE_EXCLUDES because native PG probes dynamically load fixtures.
+        for protected_root in ('/server', '/supabase', '/scripts/ci', '/tests'):
+            for excluded in qualification.DOCKERIGNORE_EXCLUDES:
+                self.assertFalse(
+                    excluded == protected_root or excluded.startswith(protected_root + '/'),
+                    f'must never exclude any path under {protected_root}: {excluded}',
+                )
         for extra in ('/scripts', '/supabase', '/tests'):
             self.assertIn(extra, qualification.NODE_DOCKERIGNORE_EXTRA_EXCLUDES)
         for required_node in ('/server', '/server/src', '/server/package.json', '/server/native'):
