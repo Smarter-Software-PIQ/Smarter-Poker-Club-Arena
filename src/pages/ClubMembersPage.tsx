@@ -211,7 +211,11 @@ type SummaryFreshness = 'loading' | 'fresh' | 'stale' | 'failed';
 type RosterLoadOptions = { forceSummary?: boolean; preserveWindow?: boolean };
 type ExportOperation = {
   owner: object;
-  state: 'preparing' | 'success' | 'empty' | 'error';
+  state: 'preparing' | 'success' | 'empty' | 'error' | 'cancelled';
+  /** 'all' is Export All Matching: every matching player, ignoring a selection. */
+  mode: 'auto' | 'all';
+  /** The matching total the page showed when the export was requested. */
+  matchingTotal: number;
   filter: RosterFilter;
   sort: RosterSort;
   selectedCount: number;
@@ -359,6 +363,7 @@ export default function ClubMembersPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [exportingAll, setExportingAll] = useState(false);
   const [loadSlow, setLoadSlow] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [notFound, setNotFound] = useState(false);
@@ -539,6 +544,7 @@ export default function ClubMembersPage() {
     exportAbortRef.current = null;
     setIsExporting(false);
     setExportOperation(null);
+    setExportingAll(false);
     abortRef.current?.abort();
     moreAbortRef.current?.abort();
     summaryAbortRef.current?.abort();
@@ -762,6 +768,7 @@ export default function ClubMembersPage() {
             exportAbortRef.current = null;
             setIsExporting(false);
             setExportOperation(null);
+            setExportingAll(false);
             setSelected(new Set());
           }
           if (!nextSummary) {
@@ -1526,117 +1533,149 @@ export default function ClubMembersPage() {
     ]
   );
 
-  const handleExport = useCallback(async () => {
-    if (
-      !resolvedClubId ||
-      !summary.capabilities.can_export ||
-      isExporting ||
-      exportAbortRef.current !== null ||
-      (selectedIds.size > 0 && selected.size === 0) ||
-      searchQuery.trim() !== debouncedSearch.trim()
-    )
-      return;
-    const controller = new AbortController();
-    const scope = exportScopeRef.current;
-    exportAbortRef.current = controller;
-    const ownsExport = () =>
-      !controller.signal.aborted &&
-      exportScopeRef.current === scope &&
-      exportAbortRef.current === controller;
-    // These describe this request, even if the viewer changes controls while
-    // the authorized export is being prepared. They are not a snapshot time.
-    const exportQuery = { search: debouncedSearch.trim().slice(0, 120), filter, sort: sortKey };
-    const exportSelection = selected.size ? [...selected] : null;
-    const requestedAt = new Date().toISOString();
-    const operation = {
-      owner: scope,
-      state: 'preparing' as const,
-      filter: exportQuery.filter,
-      sort: exportQuery.sort,
-      selectedCount: exportSelection?.length ?? 0,
-      searchApplied: exportQuery.search.length > 0,
-    };
-    setExportOperation(operation);
-    setIsExporting(true);
-    try {
-      const result = await ClubRosterService.exportRoster(
-        resolvedClubId,
-        exportQuery,
-        exportSelection,
-        controller.signal
-      );
-      if (!ownsExport()) return;
-      /* AN EMPTY ROSTER PRODUCES NO FILE. `exportToCSV` returns early when the
+  /* EXPORT ALL MATCHING (2026-11-27). 'auto' is the original control: the
+     selection when there is one, otherwise every matching player. 'all' always
+     reads every player matching the current search, filter and sort, whatever
+     is selected and however many pages are loaded. Both go through the same
+     authorized, audited server read (ca_club_members_export with no user ids),
+     which already returns every match in one response, so nothing is paged on
+     the client and the CSV row count is the server's matching count. */
+  const handleExport = useCallback(
+    async (mode: 'auto' | 'all' = 'auto') => {
+      if (
+        !resolvedClubId ||
+        !summary.capabilities.can_export ||
+        isExporting ||
+        exportAbortRef.current !== null ||
+        (mode === 'auto' && selectedIds.size > 0 && selected.size === 0) ||
+        searchQuery.trim() !== debouncedSearch.trim()
+      )
+        return;
+      const controller = new AbortController();
+      const scope = exportScopeRef.current;
+      exportAbortRef.current = controller;
+      const ownsExport = () =>
+        !controller.signal.aborted &&
+        exportScopeRef.current === scope &&
+        exportAbortRef.current === controller;
+      // These describe this request, even if the viewer changes controls while
+      // the authorized export is being prepared. They are not a snapshot time.
+      const exportQuery = { search: debouncedSearch.trim().slice(0, 120), filter, sort: sortKey };
+      const exportSelection = mode === 'auto' && selected.size ? [...selected] : null;
+      const requestedAt = new Date().toISOString();
+      const operation = {
+        owner: scope,
+        state: 'preparing' as const,
+        mode,
+        matchingTotal: filteredTotal,
+        filter: exportQuery.filter,
+        sort: exportQuery.sort,
+        selectedCount: exportSelection?.length ?? 0,
+        searchApplied: exportQuery.search.length > 0,
+      };
+      setExportOperation(operation);
+      setIsExporting(true);
+      setExportingAll(mode === 'all');
+      try {
+        const result = await ClubRosterService.exportRoster(
+          resolvedClubId,
+          exportQuery,
+          exportSelection,
+          controller.signal
+        );
+        if (!ownsExport()) return;
+        /* AN EMPTY ROSTER PRODUCES NO FILE. `exportToCSV` returns early when the
          row array is empty (src/lib/export.ts), so "0 Players Exported" was a
          success message for a download that never started. ClubFinancialsPage
          already checks its export's return value; this one now says which of
          the two happened. */
-      if (result.rows.length === 0) {
+        if (result.rows.length === 0) {
+          setExportOperation({
+            ...operation,
+            state: 'empty',
+            auditId: result.audit_id,
+            rowCount: result.row_count,
+          });
+          toast.error('There Are No Players To Export For That Filter.');
+          return;
+        }
+        const completedAt = new Date().toISOString();
+        exportToCSV(
+          result.rows.map((row) => ({
+            ...row,
+            role: roleLabel(row.role as any),
+            export_club_id: resolvedClubId,
+            export_scope: exportSelection ? 'selected_matching' : 'all_matching',
+            export_filter: exportQuery.filter,
+            export_sort: exportQuery.sort,
+            export_search: exportQuery.search,
+            export_selected_count: exportSelection?.length ?? 0,
+            export_row_count: result.row_count,
+            export_requested_at_utc: requestedAt,
+            export_completed_at_utc: completedAt,
+            export_audit_id: result.audit_id,
+            export_activity_period: 'All Recorded Activity',
+            export_units: 'Club Chips',
+          })),
+          `club-roster-${new Date().toISOString().slice(0, 10)}.csv`
+        );
+        toast.success(`${result.row_count.toLocaleString()} Players Exported`);
         setExportOperation({
           ...operation,
-          state: 'empty',
+          state: 'success',
           auditId: result.audit_id,
           rowCount: result.row_count,
         });
-        toast.error('There Are No Players To Export For That Filter.');
-        return;
+      } catch (error) {
+        if (!ownsExport()) return;
+        reportError(error, 'ClubMembersPage.export');
+        // The RPC's own refusal (the 5,000-selection cap, for one) is the
+        // useful part of the message.
+        toast.error(safeErrorMessage(error, 'Could Not Export The Roster'));
+        setExportOperation({
+          ...operation,
+          state: 'error',
+          message: safeErrorMessage(error, 'Could Not Export The Roster'),
+        });
+      } finally {
+        if (ownsExport()) {
+          exportAbortRef.current = null;
+          setIsExporting(false);
+          setExportingAll(false);
+        }
       }
-      const completedAt = new Date().toISOString();
-      exportToCSV(
-        result.rows.map((row) => ({
-          ...row,
-          role: roleLabel(row.role as any),
-          export_club_id: resolvedClubId,
-          export_scope: exportSelection ? 'selected_matching' : 'all_matching',
-          export_filter: exportQuery.filter,
-          export_sort: exportQuery.sort,
-          export_search: exportQuery.search,
-          export_selected_count: exportSelection?.length ?? 0,
-          export_row_count: result.row_count,
-          export_requested_at_utc: requestedAt,
-          export_completed_at_utc: completedAt,
-          export_audit_id: result.audit_id,
-          export_activity_period: 'All Recorded Activity',
-          export_units: 'Club Chips',
-        })),
-        `club-roster-${new Date().toISOString().slice(0, 10)}.csv`
-      );
-      toast.success(`${result.row_count.toLocaleString()} Players Exported`);
-      setExportOperation({
-        ...operation,
-        state: 'success',
-        auditId: result.audit_id,
-        rowCount: result.row_count,
-      });
-    } catch (error) {
-      if (!ownsExport()) return;
-      reportError(error, 'ClubMembersPage.export');
-      // The RPC's own refusal (the 5,000-selection cap, for one) is the
-      // useful part of the message.
-      toast.error(safeErrorMessage(error, 'Could Not Export The Roster'));
-      setExportOperation({
-        ...operation,
-        state: 'error',
-        message: safeErrorMessage(error, 'Could Not Export The Roster'),
-      });
-    } finally {
-      if (ownsExport()) {
-        exportAbortRef.current = null;
-        setIsExporting(false);
-      }
-    }
-  }, [
-    debouncedSearch,
-    filter,
-    isExporting,
-    resolvedClubId,
-    searchQuery,
-    selected,
-    selectedIds,
-    sortKey,
-    summary.capabilities.can_export,
-    toast,
-  ]);
+    },
+    [
+      debouncedSearch,
+      filter,
+      filteredTotal,
+      isExporting,
+      resolvedClubId,
+      searchQuery,
+      selected,
+      selectedIds,
+      sortKey,
+      summary.capabilities.can_export,
+      toast,
+    ]
+  );
+
+  /* Cancel stops the read and starts no download. The server may already
+     have recorded the request in the audit trail; the receipt says only what
+     this page knows: no CSV was started. */
+  const cancelExport = useCallback(() => {
+    const controller = exportAbortRef.current;
+    if (!controller) return;
+    controller.abort();
+    exportAbortRef.current = null;
+    setIsExporting(false);
+    setExportingAll(false);
+    setExportOperation((current) =>
+      current && current.owner === exportScopeRef.current && current.state === 'preparing'
+        ? { ...current, state: 'cancelled' }
+        : current
+    );
+  }, []);
 
   const hasVerifiedDirectory = directoryAvailable;
   const searchIsSettling = searchQuery.trim() !== debouncedSearch.trim();
@@ -2011,8 +2050,11 @@ export default function ClubMembersPage() {
             setSelected(loadedSelected ? new Set() : selectLoadedRoster(loadedMemberIds))
           }
           onExport={() => void handleExport()}
+          onExportAll={() => void handleExport('all')}
+          onCancelExport={cancelExport}
           exportDisabled={loading || isRefreshing || isExporting || searchIsSettling}
           isExporting={isExporting}
+          exportingAll={exportingAll}
           definitions={
             <>
               <p>Downlines: Players In The Recursive Downline, Excluding This Player.</p>
@@ -2037,7 +2079,8 @@ export default function ClubMembersPage() {
               <p>
                 Select Loaded Selects Only Players Already Loaded. Export Without A Selection Reads
                 All Authorized Matches Across Every Page. A Selection Is Further Limited By The
-                Current Filter And Search.
+                Current Filter And Search. Export All Matching Ignores The Selection And Reads Every
+                Authorized Match Across Every Page.
               </p>
             </>
           }
@@ -2052,15 +2095,21 @@ export default function ClubMembersPage() {
                 data-operation-state={exportOperation.state}
               >
                 {exportOperation.state === 'preparing'
-                  ? 'Preparing Export.'
+                  ? exportOperation.selectedCount
+                    ? 'Preparing Export.'
+                    : `Preparing Export Of All ${exportOperation.matchingTotal.toLocaleString()} Matching Players.`
                   : exportOperation.state === 'success'
                     ? `${exportOperation.rowCount?.toLocaleString()} Players Exported. CSV Prepared. Download Requested.`
                     : exportOperation.state === 'empty'
                       ? 'No Matching Players. No CSV Download Started.'
-                      : `Export Failed. ${titleCase(exportOperation.message ?? 'Could Not Export The Roster')}`}{' '}
+                      : exportOperation.state === 'cancelled'
+                        ? 'Export Cancelled. No CSV Download Started.'
+                        : `Export Failed. ${titleCase(exportOperation.message ?? 'Could Not Export The Roster')}`}{' '}
                 {exportOperation.selectedCount
                   ? `${exportOperation.selectedCount.toLocaleString()} Selected Loaded Players.`
-                  : 'All Matching Players Across Every Page.'}{' '}
+                  : exportOperation.mode === 'all'
+                    ? 'Export All Matching: Every Matching Player Across Every Page, Ignoring Any Selection.'
+                    : 'All Matching Players Across Every Page.'}{' '}
                 Filter: {FILTER_LABEL[exportOperation.filter]}. Sort:{' '}
                 {exportOperation.searchApplied
                   ? 'Player Name Matches'
