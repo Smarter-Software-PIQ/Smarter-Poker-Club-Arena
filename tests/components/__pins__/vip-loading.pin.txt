@@ -1,0 +1,14 @@
+{
+  "money": {
+    "figures": [],
+    "hooks": [
+      "data-tone=attention"
+    ]
+  },
+  "text": "SYNCING",
+  "regions": [
+    "span|status|",
+    "div|status|Loading content"
+  ],
+  "controls": []
+}
