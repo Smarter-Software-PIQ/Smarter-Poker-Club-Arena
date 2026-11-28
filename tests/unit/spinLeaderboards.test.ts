@@ -45,6 +45,10 @@ const PAGE = readFileSync(
   join(root, 'src', 'pages', 'tournament', 'TournamentResultsPage.tsx'),
   'utf8'
 );
+const PAGE_CSS = readFileSync(
+  join(root, 'src', 'pages', 'tournament', 'TournamentResultsPage.css'),
+  'utf8'
+);
 /**
  * ONE migration, and it is the read-only one.
  *
@@ -240,12 +244,17 @@ describe('the boards belong to the Spin view only', () => {
 describe('the boards are usable on a phone', () => {
   it('the two tab controls meet the 32px touch minimum', () => {
     const button = sliceEnclosingBlock(CODE, 'setSpinBoardTab(tab)', 0, 2);
-    expect(button).toMatch(/minHeight: 32/);
-    expect(button).toContain("touchAction: 'manipulation'");
+    expect(button).toContain('setSpinBoardTab(tab)');
+    const tabRule = PAGE_CSS.match(/\.tr-spin-tabs button\s*\{([^}]*)\}/)?.[1] ?? '';
+    const minHeight = tabRule.match(/min-height:\s*(\d+)px/);
+    expect(minHeight).not.toBeNull();
+    expect(Number(minHeight![1])).toBeGreaterThanOrEqual(32);
+    expect(tabRule).toContain('touch-action: manipulation');
   });
 
   it('long usernames truncate rather than breaking the row', () => {
-    expect(CODE).toContain("textOverflow: 'ellipsis'");
+    const nameRule = PAGE_CSS.match(/\.tr-leader-row__name\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(nameRule).toContain('text-overflow: ellipsis');
   });
 
   it('counts are thousands-separated, never padded', () => {

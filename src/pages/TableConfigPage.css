@@ -166,7 +166,7 @@
   color: #f4f7fb;
   font: 600 0.78rem/1.48 var(--font-body, sans-serif);
   letter-spacing: 0.015em;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.62);
+  box-shadow: none;
   pointer-events: none;
 }
 
@@ -808,5 +808,108 @@
 
 .table-config-page :is(button, input, select, textarea):focus-visible {
   outline: 3px solid #8fd4ff;
+  outline-offset: 2px;
+}
+
+/* ── #SmarterDesign arena workspace dress (Batch G1, 2026-11-28) ─────────── */
+.arena-workspace.table-config-page__standalone {
+  min-height: 100dvh;
+  padding: 7px 6px calc(var(--bottom-nav-clearance, 96px) + env(safe-area-inset-bottom, 0px));
+  background: #050d17;
+  color: #f1f5fc;
+}
+
+.arena-workspace.table-config-page__standalone > * {
+  box-sizing: border-box;
+  width: min(1000px, 100%);
+  margin-inline: auto;
+}
+
+.arena-workspace.table-config-page__standalone > .table-config-page__case {
+  margin: 7px auto 0;
+}
+
+.arena-workspace .table-config-page__case {
+  margin-top: 7px;
+}
+
+.arena-workspace .table-config-page__case > .table-config-page {
+  min-height: 0;
+  padding-bottom: 0;
+}
+
+.arena-workspace .table-config-page .mode-tabs.arena-switch {
+  padding: 0;
+  margin: 0 0 6px;
+}
+
+.arena-workspace .table-config-page .mode-tabs.arena-switch > .mode-tab {
+  border: 0;
+  color: #dce5ef;
+  font:
+    700 13px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+  text-shadow: none;
+}
+
+.arena-workspace .table-config-page .mode-tabs.arena-switch > .mode-tab.active {
+  color: #f4f7fb;
+  border: 0;
+  text-shadow: none;
+}
+
+.arena-workspace
+  .table-config-page
+  :is(
+    .config-name input,
+    .config-select,
+    .config-textarea-input,
+    .config-datetime,
+    .template-dropdown
+  ) {
+  min-height: 44px;
+  background: #040d17;
+  border: 1px solid #476079;
+  color: #f1f5fc;
+}
+
+.arena-workspace .table-config-page .config-toggle,
+.arena-workspace .table-config-page .config-slider,
+.arena-workspace .table-config-page .config-radio-group,
+.arena-workspace .table-config-page .config-textarea,
+.arena-workspace .table-config-page .template-selector,
+.arena-workspace .table-config-page .config-free-buy {
+  border-bottom-color: #253e57;
+}
+
+.arena-workspace .table-config-page .config-footer.arena-switch {
+  background: #020305;
+  border-top: 1px solid #253e57;
+  box-shadow: none;
+  padding: 8px 4px;
+  gap: 6px;
+}
+
+.arena-workspace .table-config-page .config-footer.arena-switch > button {
+  border: 0;
+  color: #dce5ef;
+  font:
+    700 13px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+  text-shadow: none;
+}
+
+.arena-workspace .table-config-page .config-footer.arena-switch > .btn-start {
+  color: #f4f7fb;
+}
+
+.arena-workspace .table-config-page :is(button, input, select, textarea):focus-visible {
+  outline: 2px solid #8fd4ff;
   outline-offset: 2px;
 }

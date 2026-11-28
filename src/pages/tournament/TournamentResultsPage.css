@@ -1,0 +1,544 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   TOURNAMENT RESULTS PAGE IN #SMARTERDESIGN (Batch G1, 2026-11-28)
+   Every rule is scoped under .tournament-results-page.arena-workspace, with
+   zero gradients, zero painted radii, zero painted shadows and zero :hover.
+   Chrome cases, switches, meters and ledger rows come from ArenaWorkspace.css
+   and ArenaOps.css.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.tournament-results-page.arena-workspace {
+  width: 100%;
+  min-height: 100dvh;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-x: clip;
+  padding: 7px 6px calc(var(--bottom-nav-clearance, 96px) + env(safe-area-inset-bottom, 0px));
+  background: #050d17;
+  color: #f1f5fc;
+  font-family: 'Roboto Condensed', 'Arial Narrow', Arial, sans-serif;
+}
+
+.tournament-results-page.arena-workspace > * {
+  box-sizing: border-box;
+  width: min(1000px, 100%);
+  margin-inline: auto;
+}
+
+.tournament-results-page.arena-workspace .tr-nav {
+  justify-content: flex-start;
+  margin: 0 auto 6px;
+}
+
+.tournament-results-page.arena-workspace .tr-nav > button {
+  flex: 0 0 auto;
+  min-width: 48px;
+  padding: 0 12px;
+  font-size: 16px;
+}
+
+.tournament-results-page.arena-workspace .arena-switch > button {
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.tournament-results-page.arena-workspace .arena-switch > button:active {
+  filter: brightness(0.86);
+}
+
+.tournament-results-page.arena-workspace .arena-switch > button:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+
+/* ── Filters ───────────────────────────────────────────────────────────── */
+.tournament-results-page.arena-workspace .tr-filters-case {
+  margin: 7px auto;
+}
+
+.tournament-results-page.arena-workspace .tr-scope-switch {
+  margin: 0;
+}
+
+.tournament-results-page.arena-workspace .tr-type-switch {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+}
+
+@media (min-width: 721px) {
+  .tournament-results-page.arena-workspace .tr-type-switch {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+}
+
+/* ── Spin Biggest Hits ─────────────────────────────────────────────────── */
+.tournament-results-page.arena-workspace .tr-hits-case,
+.tournament-results-page.arena-workspace .tr-leaders-case,
+.tournament-results-page.arena-workspace .tr-state-case,
+.tournament-results-page.arena-workspace .tr-list-case {
+  margin: 7px auto;
+}
+
+.tournament-results-page.arena-workspace .tr-hits-rail {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.tournament-results-page.arena-workspace .tr-hit-card {
+  min-width: 140px;
+  flex-shrink: 0;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tournament-results-page.arena-workspace .tr-hit-card__mult {
+  color: #ffd700;
+  font:
+    800 20px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.tournament-results-page.arena-workspace .tr-hit-card__winner {
+  max-width: 130px;
+  color: #f1f5fc;
+  font:
+    700 13px/1.25 'Arial Narrow',
+    Arial,
+    sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tournament-results-page.arena-workspace .tr-hit-card__prize {
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Spin Leaders ──────────────────────────────────────────────────────── */
+.tournament-results-page.arena-workspace .tr-spin-tabs {
+  margin: 0;
+}
+
+.tournament-results-page.arena-workspace .tr-spin-tabs button {
+  min-height: 44px;
+  touch-action: manipulation;
+}
+
+.tournament-results-page.arena-workspace .tr-leaders-list {
+  display: grid;
+  gap: 4px;
+}
+
+.tournament-results-page.arena-workspace .tr-leader-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 10px;
+  font:
+    13px/1.25 Arial,
+    sans-serif;
+}
+
+.tournament-results-page.arena-workspace .tr-leader-row__rank {
+  width: 22px;
+  color: #9fbacc;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.tournament-results-page.arena-workspace .tr-leader-row__rank--top {
+  color: #ffd700;
+}
+
+.tournament-results-page.arena-workspace .tr-leader-row__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #f1f5fc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tournament-results-page.arena-workspace .tr-leader-row__spins {
+  color: #9fbacc;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tournament-results-page.arena-workspace .tr-leader-row__net {
+  color: #35d95a;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.tournament-results-page.arena-workspace .tr-leader-row__vol {
+  color: #74dfff;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Loading / Error / Empty states ────────────────────────────────────── */
+.tournament-results-page.arena-workspace .tr-state-copy {
+  padding: 20px 10px;
+  color: #9fbacc;
+  font:
+    13px/1.4 Arial,
+    sans-serif;
+  text-align: center;
+}
+
+.tournament-results-page.arena-workspace .tr-status-line {
+  margin: 4px 0;
+  color: #9fbacc;
+  font:
+    12px/1.4 Arial,
+    sans-serif;
+}
+
+.tournament-results-page.arena-workspace .tr-alert {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: #040d17;
+  border: 1px solid #f02849;
+  color: #ff5b6e;
+  font:
+    600 12px/1.4 Arial,
+    sans-serif;
+}
+
+/* ── Completed Tournament Rows ─────────────────────────────────────────── */
+.tournament-results-page.arena-workspace .tr-events-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tournament-results-page.arena-workspace .tr-event {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  cursor: pointer;
+}
+
+.tournament-results-page.arena-workspace .tr-event--open {
+  border-image-source: var(--arena-active);
+}
+
+.tournament-results-page.arena-workspace .tr-event__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.tournament-results-page.arena-workspace .tr-event__identity {
+  min-width: 0;
+}
+
+.tournament-results-page.arena-workspace .tr-event__name {
+  display: block;
+  color: #f1f5fc;
+  font:
+    800 16px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+  overflow-wrap: anywhere;
+}
+
+.tournament-results-page.arena-workspace .tr-event__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.tournament-results-page.arena-workspace .tr-tag {
+  padding: 1px 6px;
+  background: #040d17;
+  border: 1px solid #476079;
+  border-radius: 0;
+  color: #dce5ef;
+  font:
+    700 10px/1.3 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.tournament-results-page.arena-workspace .tr-tag--variant {
+  color: #35d95a;
+}
+
+.tournament-results-page.arena-workspace .tr-tag--game {
+  color: #74dfff;
+}
+
+.tournament-results-page.arena-workspace .tr-tag--mult {
+  color: #ffd700;
+  border-color: #ffd700;
+}
+
+.tournament-results-page.arena-workspace .tr-event__pool-col {
+  flex: 0 0 auto;
+  text-align: right;
+}
+
+.tournament-results-page.arena-workspace .tr-event__pool {
+  color: #35d95a;
+  font:
+    800 15px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.tournament-results-page.arena-workspace .tr-event__sub,
+.tournament-results-page.arena-workspace .tr-event__meta {
+  color: #9fbacc;
+  font:
+    11px/1.35 Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Expanded Detail ───────────────────────────────────────────────────── */
+.tournament-results-page.arena-workspace .tr-event__detail {
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid #253e57;
+  cursor: default;
+}
+
+.tournament-results-page.arena-workspace .tr-detail-tabs {
+  margin: 0 0 10px;
+}
+
+.tournament-results-page.arena-workspace .tr-standings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.tournament-results-page.arena-workspace .tr-standings-head__label {
+  color: #dce5ef;
+  font:
+    800 13px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.tournament-results-page.arena-workspace .tr-sort-tabs {
+  margin: 0;
+  flex: 0 1 auto;
+}
+
+.tournament-results-page.arena-workspace .tr-callout {
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  background: #040d17;
+  border: 1px solid #476079;
+  border-left: 3px solid #74dfff;
+  color: #74dfff;
+  font:
+    600 11px/1.35 Arial,
+    sans-serif;
+}
+
+.tournament-results-page.arena-workspace .tr-standings-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 62px 46px 62px 68px;
+  gap: 6px;
+  padding: 0 8px 4px;
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tournament-results-page.arena-workspace .tr-col-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.tournament-results-page.arena-workspace .tr-standings-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tournament-results-page.arena-workspace .tr-standing-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 62px 46px 62px 68px;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 8px;
+  background: #040d17;
+  border: 1px solid #253e57;
+  border-radius: 0;
+  font-size: 12px;
+}
+
+.tournament-results-page.arena-workspace .tr-standing-row--me {
+  border-color: #35d95a;
+}
+
+.tournament-results-page.arena-workspace .tr-standing-row--top {
+  border-color: #74dfff;
+}
+
+.tournament-results-page.arena-workspace .tr-standing-row--pending {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.tournament-results-page.arena-workspace .tr-standing-row--visible {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity 0.25s ease-out,
+    transform 0.25s ease-out;
+}
+
+.tournament-results-page.arena-workspace .tr-standing__player {
+  min-width: 0;
+}
+
+.tournament-results-page.arena-workspace .tr-standing__player-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tournament-results-page.arena-workspace .tr-standing__pos {
+  min-width: 28px;
+  color: #9fbacc;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.tournament-results-page.arena-workspace .tr-standing__pos--first {
+  color: #74dfff;
+}
+
+.tournament-results-page.arena-workspace .tr-standing__pos--second {
+  color: #dce5ef;
+}
+
+.tournament-results-page.arena-workspace .tr-standing__pos--third {
+  color: #ffd700;
+}
+
+.tournament-results-page.arena-workspace .tr-standing__name {
+  min-width: 0;
+  color: #f1f5fc;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.tournament-results-page.arena-workspace .tr-standing__name--me,
+.tournament-results-page.arena-workspace .tr-standing__you {
+  color: #35d95a;
+}
+
+.tournament-results-page.arena-workspace .tr-standing__you {
+  font-size: 10px;
+  margin-left: 4px;
+}
+
+.tournament-results-page.arena-workspace .tr-standing__mystery {
+  margin-top: 2px;
+  color: #74dfff;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.tournament-results-page.arena-workspace .tr-standing__prize--paid {
+  color: #35d95a;
+  font-weight: 600;
+}
+
+.tournament-results-page.arena-workspace .tr-standing__kos {
+  color: #dce5ef;
+}
+
+.tournament-results-page.arena-workspace .tr-standing__bounty--paid {
+  color: #74dfff;
+  font-weight: 600;
+}
+
+.tournament-results-page.arena-workspace .tr-standing__total--paid {
+  color: #35d95a;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.tournament-results-page.arena-workspace .tr-standing__zero {
+  color: #9fbacc;
+}
+
+/* ── Hand History rows ─────────────────────────────────────────────────── */
+.tournament-results-page.arena-workspace .tr-hands-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.tournament-results-page.arena-workspace .tr-hand-row {
+  padding: 8px 10px;
+  font:
+    11px/1.35 Arial,
+    sans-serif;
+}
+
+.tournament-results-page.arena-workspace .tr-hand-row__head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.tournament-results-page.arena-workspace .tr-hand-row__num {
+  color: #74dfff;
+  font-weight: 700;
+}
+
+.tournament-results-page.arena-workspace .tr-hand-row__time {
+  color: #9fbacc;
+}
+
+.tournament-results-page.arena-workspace .tr-hand-row__meta {
+  color: #dce5ef;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tournament-results-page.arena-workspace .tr-hand-row__winners {
+  margin-top: 4px;
+  color: #35d95a;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}

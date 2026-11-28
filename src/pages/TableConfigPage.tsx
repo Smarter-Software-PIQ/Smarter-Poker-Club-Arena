@@ -22,7 +22,6 @@ import { useVisibleRead } from '../hooks/useVisibleRead';
 import { useUserStore } from '../stores/useUserStore';
 import { useToast } from '../components/common/Toast';
 import { resolveClubUUID } from '../utils/clubIdResolver';
-import './TableConfigPage.css';
 import { reportError } from '../utils/errorReporter';
 import { RAKE_INHERIT } from '../config/RakeConfig';
 import {
@@ -96,8 +95,9 @@ import {
   type CreatedTournamentStageIntent,
 } from '../utils/createdTournamentStageIntent';
 import CashGameCreateFlow from '../components/cash/CashGameCreateFlow';
-import { SpadeConsole } from '../components/console/SpadeConsole';
-import PageBar from '../components/help/PageBar';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import '../components/ops/ArenaOps.css';
+import './TableConfigPage.css';
 import { MttCreationStructurePreview } from '../components/tournament/MttCreationStructurePreview';
 import { MttPayoutDepthOptions } from '../components/tournament/MttPayoutDepthOptions';
 import { MttCreationProfileSelect } from '../components/tournament/MttCreationProfileSelect';
@@ -1388,7 +1388,7 @@ export default function TableConfigPage({
           can actually deal. HandController maps an unknown variant to 2 cards
           and a full deck, so offering a Limit Hold'em or Mixed tournament would
           silently run No Limit Hold'em instead. */}
-      <div className="mode-tabs" role="group" aria-label="Game Format">
+      <div className="mode-tabs arena-switch" role="group" aria-label="Game Format">
         <button
           type="button"
           aria-pressed={config.gameMode === 'regular'}
@@ -2317,14 +2317,14 @@ export default function TableConfigPage({
 
       {/* Footer Buttons (tournaments; the cash flow carries its own) */}
       {config.gameMode !== 'regular' && (
-        <footer className="config-footer">
+        <footer className="config-footer arena-switch arena-ops-keys">
           <button className="btn-template" onClick={handleSaveAsTemplate} disabled={savingTemplate}>
             {savingTemplate ? 'Saving...' : 'Save As Template'}
           </button>
           <button className="btn-save" onClick={handleSave} disabled={saving}>
             {saving ? 'Saving...' : 'Save'}
           </button>
-          <button className="btn-start" onClick={handleStart} disabled={starting}>
+          <button className="btn-start active" onClick={handleStart} disabled={starting}>
             {starting ? 'Starting...' : 'Start'}
           </button>
         </footer>
@@ -2332,35 +2332,30 @@ export default function TableConfigPage({
     </div>
   );
 
-  /* ITS OWN FRAME (Dan 2026-09-20: "DO NOT ATTACH EVERYTHING TOGETHER WITH
-     THE SAME DISPLAY WINDOWS"). The form never prints inside another surface's
-     console: embedded in Table Management, where it replaces the Game Board,
-     or on its own route, it draws its own spade-family frame with the flat
-     head. It carries no plates - the form's own footer holds Save and Start -
-     so the frame closes on the flat cap. */
+  /* ITS OWN CHROME CASE (#SmarterDesign, Dan 2026-11-27). Embedded in Table
+     Management, where it replaces the Game Board, or on its own route, the
+     form prints inside one arena workspace chrome case without duplicating
+     Table Management's mast. */
   const frame = (
-    <SpadeConsole
-      title={`${gameInfo.name} Setup`}
-      titleId="table-config-title"
-      pill="Creator"
-      crest="flat"
-      foot="foot"
+    <section
+      className="arena-case arena-ops-case table-config-page__case"
       aria-labelledby="table-config-title"
     >
+      <h2 id="table-config-title" className="arena-section-title">
+        {`${gameInfo.name} Setup`}
+        <small>Creator</small>
+      </h2>
       {content}
-    </SpadeConsole>
+    </section>
   );
 
   if (embedded) return frame;
 
-  /* Dan, 2026-10-17: the eyebrow and the subtitle moved behind the painted
-     "?". Embedded in Table Management the form is a panel of that page, whose
-     own bar carries the "?", so only the standalone route prints one. */
   return (
-    <main className="table-config-page__standalone">
-      <PageBar
+    <main className="arena-workspace table-config-page__standalone">
+      <ArenaWorkspaceHeader
+        area="dashboard"
         title={`${gameInfo.name} Setup`}
-        titleAs={false}
         summary="Configure, Validate, Then Publish. Set The Game, The Stakes And The Seats, Then Save The Table Or Start It."
       />
       {frame}

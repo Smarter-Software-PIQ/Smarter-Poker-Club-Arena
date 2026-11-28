@@ -14,7 +14,6 @@ const REWARD_PAGES = [
 
 const PLAY_PAGES = [
   'src/pages/tournament/TournamentLobbyPage.tsx',
-  'src/pages/tournament/TournamentResultsPage.tsx',
   'src/pages/SessionHistoryPage.tsx',
 ];
 
@@ -180,8 +179,17 @@ describe('cinematic retained route families', () => {
 
   it('separates tournament results from the fixed tournament-details shell', () => {
     const results = readFileSync('src/pages/tournament/TournamentResultsPage.tsx', 'utf8');
-    expect(results).toContain('className="tournament-results-page"');
+    expect(results).toContain('className="tournament-results-page arena-workspace"');
     expect(results).not.toContain('className="tournament-details"');
+  });
+
+  it('Tournament Archive wears the arena workspace (#SmarterDesign batch G1, 2026-11-28)', () => {
+    const source = readFileSync('src/pages/tournament/TournamentResultsPage.tsx', 'utf8');
+    expect(source).toContain('className="tournament-results-page arena-workspace"');
+    expect(source).toContain('<ArenaWorkspaceHeader');
+    expect(source).not.toContain('CasinoSurfaceHeader');
+    expect(source).not.toContain('RewardsSurfaceHeader');
+    expect(source).not.toContain('data-arena-surface="play"');
   });
 
   it('Union Command wears the arena workspace (#SmarterDesign batch U1, 2026-11-28)', () => {
