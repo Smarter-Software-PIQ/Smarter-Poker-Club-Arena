@@ -263,6 +263,107 @@ class DraftRevertBadCommitTest(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 3)
 
+    def test_validates_run_ids_min_failures_redacts_modern_tokens_and_quotes_pr_title(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo_dir = Path(td) / "repo"
+            repo_dir.mkdir()
+            shas = init_test_repo(repo_dir)
+
+            # Add a commit whose subject contains shell-injection characters
+            (repo_dir / "server" / "src" / "inject.ts").write_text("export const x = 1;\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=str(repo_dir), check=True, capture_output=True)
+            subprocess.run(
+                ["git", "commit", "-m", 'fix: handle "quoted" $(whoami) `id`'],
+                cwd=str(repo_dir),
+                check=True,
+                capture_output=True,
+            )
+            inject_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=str(repo_dir),
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+
+            # 1) Non-integer / bool run id fails closed with UnreadableError (exit 3 JSON) before sorting
+            for bad_id in ("not-an-int", True, 0, -5, None):
+                bad_runs = {
+                    "workflow_runs": [
+                        {
+                            "id": bad_id,
+                            "head_sha": shas["bad"],
+                            "head_branch": "main",
+                            "event": "push",
+                            "path": ".github/workflows/engine-release-prequalification.yml",
+                            "status": "completed",
+                            "conclusion": "failure",
+                            "updated_at": "2026-11-28T08:00:00Z",
+                        }
+                    ]
+                }
+                with self.subTest(bad_id=bad_id):
+                    with self.assertRaises(MOD.UnreadableError):
+                        MOD.build_draft_revert_plan(
+                            repo_root=repo_dir,
+                            sha=shas["bad"],
+                            base_ref="main",
+                            prequal_runs=bad_runs,
+                            failure_log_text="",
+                        )
+
+            # 2) min_failures < 1 fails closed with UnreadableError (no IndexError)
+            for bad_min in (0, -1):
+                with self.subTest(bad_min=bad_min):
+                    with self.assertRaises(MOD.UnreadableError):
+                        MOD.build_draft_revert_plan(
+                            repo_root=repo_dir,
+                            sha=shas["bad"],
+                            base_ref="main",
+                            prequal_runs={"workflow_runs": []},
+                            min_failures=bad_min,
+                            failure_log_text="",
+                        )
+
+            # 3) Fine-grained GitHub PAT, Supabase PAT, and Supabase secret keys are redacted,
+            #    and PR title is shell-quoted via shlex.quote
+            valid_runs = {
+                "workflow_runs": [
+                    {
+                        "id": 777888,
+                        "head_sha": inject_sha,
+                        "head_branch": "main",
+                        "event": "push",
+                        "path": ".github/workflows/engine-release-prequalification.yml",
+                        "status": "completed",
+                        "conclusion": "failure",
+                        "updated_at": "2026-11-28T09:00:00Z",
+                    }
+                ]
+            }
+            leaked_log = "\n".join([
+                "ERR github_pat_11ABCDEFGH0123456789_xyz9876543210",
+                "ERR sbp_abcdef0123456789abcdef0123456789",
+                "ERR sb_secret_aBcDeFgHiJkLmNoP_12345",
+            ])
+            code, plan = MOD.build_draft_revert_plan(
+                repo_root=repo_dir,
+                sha=inject_sha,
+                base_ref="main",
+                prequal_runs=valid_runs,
+                failure_log_text=leaked_log,
+            )
+            self.assertEqual(code, 0)
+            self.assertNotIn("github_pat_11ABCDEFGH0123456789_xyz9876543210", plan["prBody"])
+            self.assertNotIn("sbp_abcdef0123456789abcdef0123456789", plan["prBody"])
+            self.assertNotIn("sb_secret_aBcDeFgHiJkLmNoP_12345", plan["prBody"])
+            gh_cmd = next(c for c in plan["commands"] if c.startswith("gh pr create"))
+            import shlex
+            tokens = shlex.split(gh_cmd)
+            title_idx = tokens.index("--title") + 1
+            self.assertEqual(tokens[title_idx], plan["prTitle"])
+            self.assertNotIn(f'--title "{plan["prTitle"]}"', gh_cmd)
+
 
 if __name__ == "__main__":
     unittest.main()

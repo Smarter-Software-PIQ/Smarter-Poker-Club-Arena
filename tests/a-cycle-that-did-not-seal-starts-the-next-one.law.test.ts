@@ -757,6 +757,17 @@ describe('the owner note says it plainly, once per cycle', () => {
         refusedCandidates: [{ sha: '1'.repeat(40), reason: 'Backup certificate is error' }],
       })
     ).toContain('did not happen: the test runner hit an error before finishing the safety test.');
+    // FM6: an older orphaned pending candidate must NEVER hijack a newer candidate's failure reason.
+    const newestFailedOlderPending = noteFor('2026-11-28T13', 'false', {
+      reason: NO_EVIDENCE,
+      deferredCandidates: [],
+      refusedCandidates: [
+        { sha: '9'.repeat(40), reason: 'Backup certificate is failure' },
+        { sha: '8'.repeat(40), reason: 'Backup certificate is pending' },
+      ],
+    });
+    expect(newestFailedOlderPending).toContain('failed its safety test');
+    expect(newestFailedOlderPending).not.toContain('still finishing its test');
   });
 
   it('says nothing when the cycle had nothing new to ship', () => {

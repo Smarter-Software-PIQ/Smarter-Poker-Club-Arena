@@ -253,4 +253,214 @@ describe('scripts/release/check-host-posture.sh', () => {
     expect(badMode.status).toBe(3);
     expect(badMode.parsed.ok).toBe(false);
   });
+
+  it('quotes remote SSH arguments via sh -c "$*" so omitted --warn-inode-pct and spaces in paths work safely', () => {
+    mkdirSync(TMP_BASE, { recursive: true });
+    const dir = mkdtempSync(join(TMP_BASE, 'host-posture-ssh-'));
+    const binDir = join(dir, 'bin');
+    const spacedDir = join(dir, 'path with spaces');
+    const daemonPath = join(spacedDir, 'daemon config.json');
+    try {
+      mkdirSync(binDir, { recursive: true });
+      mkdirSync(spacedDir, { recursive: true });
+      writeFileSync(
+        daemonPath,
+        JSON.stringify({
+          'log-driver': 'json-file',
+          'log-opts': { 'max-size': '50m', 'max-file': '5' },
+        }),
+        'utf8'
+      );
+
+      // Stub ssh that mimics OpenSSH joining all remote args with spaces and passing to sh -c
+      writeFileSync(
+        join(binDir, 'ssh'),
+        `#!/usr/bin/env bash
+shift # drop host alias (ca-engine / ca-backup)
+exec sh -c "$*"
+`,
+        'utf8'
+      );
+      chmodSync(join(binDir, 'ssh'), 0o755);
+
+      writeFileSync(
+        join(binDir, 'df'),
+        `#!/usr/bin/env bash
+if [[ "$1" == "-Pi" || "$1" == "-i" ]]; then
+  echo "Filesystem Inodes IUsed IFree IUse% Mounted on"
+  echo "/dev/sda1 1000000 220000 780000 22% /"
+else
+  echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
+  echo "/dev/sda1 100000000 50000000 $((40 * 1024 * 1024)) 50% /"
+fi
+`,
+        'utf8'
+      );
+      chmodSync(join(binDir, 'df'), 0o755);
+
+      writeFileSync(
+        join(binDir, 'chronyc'),
+        `#!/usr/bin/env bash
+echo "System time     : 0.001000 seconds fast of NTP time"
+echo "Leap status     : Normal"
+`,
+        'utf8'
+      );
+      chmodSync(join(binDir, 'chronyc'), 0o755);
+
+      writeFileSync(
+        join(binDir, 'free'),
+        `#!/usr/bin/env bash
+echo "              total        used        free"
+echo "Swap:    2000000000  100000000  1900000000"
+`,
+        'utf8'
+      );
+      chmodSync(join(binDir, 'free'), 0o755);
+
+      writeFileSync(
+        join(binDir, 'docker'),
+        `#!/usr/bin/env bash
+echo "sha256:abcd"
+`,
+        'utf8'
+      );
+      chmodSync(join(binDir, 'docker'), 0o755);
+
+      // Remote SSH with default omitted --warn-inode-pct + paths containing spaces + --require-image
+      const res = spawnSync(
+        'bash',
+        [
+          SCRIPT,
+          '--host',
+          'ca-engine',
+          '--df-path',
+          spacedDir,
+          '--daemon-json',
+          daemonPath,
+          '--require-image',
+          'ghcr.io/smarter/engine:cand',
+        ],
+        {
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            PATH: `${binDir}:${process.env.PATH ?? '/usr/bin:/bin'}`,
+          },
+        }
+      );
+      expect(res.status, res.stderr + res.stdout).toBe(0);
+      const parsed = JSON.parse(res.stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.mode).toBe('remote');
+      expect(parsed.target).toBe('ca-engine');
+      expect(parsed.checks.disk.path).toBe(spacedDir);
+      expect(parsed.checks.dockerLogRotation.path).toBe(daemonPath);
+      expect(parsed.checks.requiredImages.present).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    '--df-path',
+    '--daemon-json',
+    '--min-free-gib',
+    '--max-inode-pct',
+    '--warn-inode-pct',
+    '--max-clock-skew-ms',
+    '--max-swap-used-pct',
+    '--docker-log-rotation',
+  ])('fails closed with exit 3 JSON when %s is missing its value', (flag) => {
+    const res = spawnSync('bash', [SCRIPT, '--local', flag], { encoding: 'utf8' });
+    expect(res.status).toBe(3);
+    const parsed = JSON.parse(res.stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.exitCode).toBe(3);
+    expect(parsed.failures[0]).toContain(flag);
+  });
+
+  it('parses systemd multi-unit Offset timespans (>=60s) and fails closed on unparseable Offset lines', () => {
+    mkdirSync(TMP_BASE, { recursive: true });
+    const dir = mkdtempSync(join(TMP_BASE, 'host-posture-td-'));
+    const binDir = join(dir, 'bin');
+    const daemonPath = join(dir, 'daemon.json');
+    try {
+      mkdirSync(binDir, { recursive: true });
+      writeFileSync(
+        daemonPath,
+        JSON.stringify({
+          'log-driver': 'json-file',
+          'log-opts': { 'max-size': '50m', 'max-file': '5' },
+        }),
+        'utf8'
+      );
+      writeFileSync(
+        join(binDir, 'df'),
+        `#!/usr/bin/env bash
+if [[ "$1" == "-Pi" || "$1" == "-i" ]]; then
+  echo "Filesystem Inodes IUsed IFree IUse% Mounted on"
+  echo "/dev/sda1 1000000 220000 780000 22% /"
+else
+  echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
+  echo "/dev/sda1 100000000 50000000 $((40 * 1024 * 1024)) 50% /"
+fi
+`,
+        'utf8'
+      );
+      chmodSync(join(binDir, 'df'), 0o755);
+      writeFileSync(
+        join(binDir, 'free'),
+        `#!/usr/bin/env bash
+echo "              total        used        free"
+echo "Swap:    2000000000  100000000  1900000000"
+`,
+        'utf8'
+      );
+      chmodSync(join(binDir, 'free'), 0o755);
+
+      const runWithTimesync = (offsetLine: string) => {
+        writeFileSync(
+          join(binDir, 'timedatectl'),
+          `#!/usr/bin/env bash
+if [[ "$1" == "show" ]]; then
+  echo "yes"
+  exit 0
+fi
+echo "Server: 169.254.169.123"
+echo "${offsetLine}"
+exit 0
+`,
+          'utf8'
+        );
+        chmodSync(join(binDir, 'timedatectl'), 0o755);
+        const res = spawnSync('bash', [SCRIPT, '--local', '--daemon-json', daemonPath], {
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            PATH: `${binDir}:/usr/bin:/bin:/opt/homebrew/bin`,
+          },
+        });
+        return { status: res.status, parsed: JSON.parse(res.stdout) };
+      };
+
+      const minSkew = runWithTimesync('Offset: 1min 2.345s');
+      expect(minSkew.status).toBe(1);
+      expect(minSkew.parsed.checks.clockSkew.ok).toBe(false);
+      expect(minSkew.parsed.checks.clockSkew.unreadable).toBe(false);
+      expect(minSkew.parsed.checks.clockSkew.skewMs).toBe(62345);
+
+      const hourSkew = runWithTimesync('Offset: -1h 2min 3s');
+      expect(hourSkew.status).toBe(1);
+      expect(hourSkew.parsed.checks.clockSkew.ok).toBe(false);
+      expect(hourSkew.parsed.checks.clockSkew.skewMs).toBe(3723000);
+
+      const unparseable = runWithTimesync('Offset: 2days 5s');
+      expect(unparseable.status).toBe(3);
+      expect(unparseable.parsed.checks.clockSkew.ok).toBe(false);
+      expect(unparseable.parsed.checks.clockSkew.unreadable).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
