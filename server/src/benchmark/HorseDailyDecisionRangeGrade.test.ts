@@ -9,6 +9,7 @@ import {
   rangeGradeHand,
   rangeSection,
   renderMarkdown,
+  renderRangeSection,
   validateRangeGrade,
   type GradedDecision,
   type RangeGradedDecision,
@@ -240,6 +241,23 @@ describe('range grade: the declared validation bar', () => {
     expect(validateRangeGrade(reals.slice(0, 20).map((x, i) => dec(i, x, x)))[0].verdict).toBe(
       'INCONCLUSIVE'
     );
+  });
+  it('a group that fails is NOT GRADED: the miss is stated and none of its rows is flagged', () => {
+    // 2026-11-27: G2 failed V2 with WooWoo excluded and its roll-up still printed FLAGGED marks
+    const g2 = reals.map((x, i) => ({ ...dec(i, x + 8, x), family: 'preflop_r1' as const }));
+    const s = rangeSection(g2);
+    expect(s.validation[1].verdict).toBe('FAIL');
+    const md = renderRangeSection(s).join('\n');
+    expect(md).toContain('**G2 preflop_r1 is NOT GRADED in this report (FAIL).** 90 of its');
+    expect(md).toMatch(
+      /all validation decisions: the range grade's mean is \+8\.00 bb per decision off/
+    );
+    expect(md).toContain('The bar is unchanged.');
+    expect(md).not.toContain('FLAGGED');
+    expect(md).toContain('| ALL G2 (preflop_r1) | 90 |');
+    expect(md).toMatch(/\| ALL G2 \(preflop_r1\) \| 90 \|.*\| not graded \|/);
+    // G1 here is inconclusive (no decisions), stated as such
+    expect(md).toContain('only 0 validation decisions, below the declared 60');
   });
   it('counts coverage against the daily grade rows', () => {
     const s = rangeSection([
