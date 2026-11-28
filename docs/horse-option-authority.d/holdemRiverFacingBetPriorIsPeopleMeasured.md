@@ -1,6 +1,6 @@
 # holdemRiverFacingBetPriorIsPeopleMeasured: Authority For The Live Switch
 
-**Evidence NOT MET (2026-11-27, interim): the grades are running; this file does not authorize switching the option on.** Built 2026-11-27 by PLO-OWNER lead-9 lane nlof (session 01UxDLnJ) on the owner's orders of 2026-11-27 4:48 PM and 4:50 PM Chicago ("#1 priority ... the over folding bugs ... not just multiway, but also heads up"; "all overfolding fixes for PLO4, PLO5, and No Limit"). Default OFF (read `=== true`), switchable `off / shadow / on_shadow / on`.
+**Evidence NOT MET (2026-11-27): the option FAILS two of its bars and must stay off.** Against a people-like river bettor its added calls lose 0.6 to 1.1 bb/100 (-1.1 to -1.4 standard errors; bar -1), and in the 6-max league mirror the ON seats lose 5.85 +/- 0.98 bb/100 per seat to the OFF seats (four seeds). It passes the value-only cost cap (-0.70 +/- 0.41 against -3.0), the heads-up mirror (+0.44 +/- 2.56) and every bluffer card (a barrel bot loses 4 to 8 bb per line more). This file does not authorize switching the option on. Built 2026-11-27 by PLO-OWNER lead-9 lane nlof (session 01UxDLnJ) on the owner's orders of 2026-11-27 4:48 PM and 4:50 PM Chicago ("#1 priority ... the over folding bugs ... not just multiway, but also heads up"; "all overfolding fixes for PLO4, PLO5, and No Limit"). Default OFF (read `=== true`), switchable `off / shadow / on_shadow / on`.
 
 **State: OFF** (release default: no switch row; never switched).
 
@@ -62,21 +62,49 @@ Staged in `HorseOptionShadowStage.OPTION_SHADOW_STAGE` (`holdemStage(['nlh_cash'
 
 ## Grades (chips), 2026-11-27
 
-Pending (the grade queue of the lane is running; bars in the lane's BUILD.md).
+Fixed harness (`server/src/benchmark/HorseGradeHarness.ts`, forked worlds, own stores, built-in same-seed no-op; every no-op arm read 0.00 with 0 divergent deals), base = the live switch rows of 2026-11-27 17:10Z in both arms. Lane probes in the lane's scratch folder (`plo-lead7-01TLQer8/l9-nlof/src`: `grade-nlh.mts`, `ofe.mts`, `ofe-ft.mts`). Bars were written before the first grade. All figures ON minus the same-seed no-op, bb/100, 100 bb stacks.
+
+| card                                                                                                                 | seeds      | result                                                                                          | bar            | verdict |
+| -------------------------------------------------------------------------------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------- | -------------- | ------- |
+| value-only river bettor (bets 0.8 pot only with a hand that beats 88% of holdings), heads-up, 8,000 deals a seed     | 211, 212   | -0.86 +/- 0.61, -0.56 +/- 0.56; pooled -0.70 +/- 0.41                                           | at least -3.0  | pass    |
+| people-calibrated river bettor as run (realized bets 66 / 15 / 19% top / mid / bottom), heads-up, 8,000 deals a seed | 211, 212   | -0.38 +/- 1.01, -0.72 +/- 0.69; pooled -0.61 +/- 0.57 (-1.07 SE)                                | at least -1 SE | FAIL    |
+| the same card re-solved to people's 63 / 13 / 24% at a 0.305 bet rate                                                | 211, 212   | -0.89 +/- 1.06, -1.41 +/- 1.18; pooled -1.12 +/- 0.79 (-1.4 SE)                                 | at least -1 SE | FAIL    |
+| league mirror heads-up, 8,000 pairs a seed                                                                           | 311, 312   | +1.30 +/- 3.64, -0.40 +/- 3.60; pooled +0.44 +/- 2.56                                           | at least -1 SE | pass    |
+| league mirror 6-max, 4,000 pairs a seed                                                                              | 311 to 314 | +0.36 +/- 2.26, -3.92 +/- 1.92, -7.78 +/- 2.04, -9.75 +/- 1.75; pooled -5.85 +/- 0.98 (-5.9 SE) | at least -1 SE | FAIL    |
+
+Bluffer cards (seat 0 bets 0.8 pot on every street it can with every holding, heads-up; the bot's own zero-equity result per line; two seeds pooled except the last):
+
+| card                                                              | lines | bot, bb per line, option off | option on       | river: every Horse folds, off to on (break-even 44%) | Horses' net, ON minus no-op |
+| ----------------------------------------------------------------- | ----- | ---------------------------- | --------------- | ---------------------------------------------------- | --------------------------- |
+| production muck rule, Horse memory on                             | 5,433 | -5.37 +/- 0.31               | -11.09 +/- 0.33 | 34.9% to 4.1%                                        | +55.97 +/- 9.52             |
+| Horse memory off (the world's lifetime river record still served) | 6,052 | -0.39 +/- 0.26               | -8.66 +/- 0.31  | 51.2% to 2.7%                                        | +150.90 +/- 12.44           |
+| first encounter: no memory and no record of any kind              | 6,052 | -0.39 +/- 0.26               | -4.65 +/- 0.29  | 51.2% to 27.7%                                       | +103.28 +/- 9.47            |
+| flop and turn barrel, gives up the river                          | 2,663 | -2.61 +/- 0.25               | -2.61 +/- 0.25  | no river bet                                         | 0 deals changed             |
+
+Why it fails. "He bets the river more often than people, so his extra bets are not top" is true of a bluffer and false of the Horse field: the Horses make the first wager on 38.2% of unopened heads-up rivers (people 31.8%) and their extra bets are thin value, so the frequency record prices them as bluffing a little more than people and the added calls lose. Against a bettor with people's composition and people's rate the population price alone overrules the brain's own read and loses a little. The first version (the pooled all-street counter as the only record) failed the value-only cap at -14.50 +/- 2.57 and is not this code.
+
+What a passing build needs: the bettor's own SHOWN river record first (what his called river bets were, by region), the frequency record second; then the same bars.
+
+Real recorded nodes (304 Horse decisions facing a person's heads-up river first bet, 2026-10-28 to 2026-11-27, the deciding Horse's own cards, opponent memory and the river record as of each decision): fold 62.2% to 52.2%; the zero-equity value of the recorded bets +9.35 +/- 1.39 to +3.11 +/- 1.28 bb per bet; 0.4 to 0.7 pot +10.90 to -0.65; 0.7 to 1.1 pot +13.62 to +6.94 +/- 2.45 (not closed); after his own turn bet +10.38 to -3.75; after a checked turn +8.16 to +6.55 (not closed). The six added calls whose recorded action was a call realized -6.38 +/- 6.01 bb per call. No decision folds more; none of the 123 multiway or facing-a-raise river nodes changes.
 
 ## Replay
 
-- Replay: NOT RUN (the audited replay of the lane is queued behind its grades)
+Real-hand replay on the two NLH cash audit sets (every exact-tier postflop decision; opponent memory as of each decision; lane harness `l8-nlhriver/src/rc.mjs` on this branch, scored by the committed scorer). The sets hold no recorded river fold (the exact tier needs the Horse's cards, so only showdown hands are in it): they cannot judge an option that only turns folds into calls. One decision changes (a recorded correct river call the memory-on brain folds; the option calls it), unjudged by the verdict-only source.
+
+- Replay: fixed 0; newlyWrong 0; changed 1; unchanged 554; unjudged 1; set NLH-cash-hand-audit-2026-11-24-to-26; scorer 5302af2ab3e; source placed verdict-only; arm NLOF vs off; replayed 555 of 555
+- Replay: fixed 0; newlyWrong 0; changed 0; unchanged 327; unjudged 0; set NLH-cash-hand-audit-2026-11-20-to-24; scorer 5302af2ab3e; source placed verdict-only; arm NLOF vs off; replayed 327 of 327
+
+Horse strengths (the audits' correct calls and bets): 0 of the other 881 decisions change.
 
 ## Speed
 
-Relative cost law: an applicable decision with the option on costs 1.36 times the same decision off (0.38 ms against 0.28 ms per decision; `aHoldemRiverFacingBetPriorIsPeopleMeasured.law.test.ts`).
+Relative cost law: an applicable decision with the option on costs 1.36 times the same decision off (0.38 ms against 0.28 ms per decision; `aHoldemRiverFacingBetPriorIsPeopleMeasured.law.test.ts`). The compiled-build percentile read and the 28,000-decision flag-off check were not run: the grade stopped at the failed bars.
 
 ## Limits
 
 - River only, heads-up only, first bet only, fold to call only. The measured flop cell (+104 bb per week) and the turn cell after a checked flop (+67) are not in it; multiway river after a checked turn (+32, 27 bets) is not in it.
 - After a checked turn the Horse's own range holds many hands that lose even to his bottom region; the price cannot call those, so that line stays above break-even against a bettor with no record (real-node replay below). Closing it needs the Horse's turn play, not its river call.
-- A bettor seen for the first time is priced as the population, which is value heavy: a first-encounter bluffer profits until his river record exists.
+- It fails its bars against a people-like bettor and against the Horse field (Grades): the frequency record cannot tell a bluffer from a thin-value bettor.
 - The people table is 356 shown bets; every cell is shrunk, and the call must clear the error of the cell it was priced on.
 
 ## Rollback
