@@ -1306,6 +1306,20 @@
       "prefixes": ["omaha_priced_facing_bet_"],
       "unlessOn": ["omahaFacingBetIndifferenceCalls", "omahaFacingBetRangeIsMeasuredByLine"]
     },
+    "omahaBareOverpairContinuationIsPeoplePriced": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_bare_overpair_people_priced"],
+      "unlessOn": []
+    },
+    "omahaGiveUpPricedTurnCallIsAtIndifference": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_give_up_indifference_"],
+      "unlessOn": []
+    },
     "omahaMultiwayCallNeedsNutShare": {
       "releaseDefault": "off",
       "source": "declared",
@@ -2560,6 +2574,18 @@
         "holdem_river_people_bluff_below_check",
         "holdem_river_people_bluff_bet",
         "holdem_river_people_bluff_no_edge"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "holdemRiverFacingBetPriorIsPeopleMeasured": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_river_people_prior_call",
+        "holdem_river_people_prior_fold_stands",
+        "holdem_river_people_prior_own_record_read",
+        "holdem_river_people_prior_unpriced"
       ],
       "prefixes": [],
       "unlessOn": []

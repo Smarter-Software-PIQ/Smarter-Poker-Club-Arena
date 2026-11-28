@@ -55,7 +55,7 @@ it('executes the declared CI and receiver commands with exact-once historical co
     expect(release['continue-on-error']).toBeUndefined();
     for (const mode of ['ci', 'receiver']) {
       writeFileSync(log, '');
-      for (const shard of [1, 2, 3, 4]) {
+      for (const shard of [1, 2, 3, 4, 5, 6, 7, 8]) {
         if (mode === 'ci' && shard === 2) expect(run(preparation.run, shard).status).toBe(0);
         expect(run(mode === 'ci' ? full.run : release.run, shard).status).toBe(0);
       }
@@ -64,9 +64,9 @@ it('executes the declared CI and receiver commands with exact-once historical co
         .split('\n')
         .filter((line) => line.startsWith('test '));
       const expected = [
-        `test -- --exclude ${wrapper} --shard=1/4`,
+        `test -- --exclude ${wrapper} --shard=1/8`,
         `test -- ${wrapper}`,
-        ...[2, 3, 4].map((shard) => `test -- --exclude ${wrapper} --shard=${shard}/4`),
+        ...[2, 3, 4, 5, 6, 7, 8].map((shard) => `test -- --exclude ${wrapper} --shard=${shard}/8`),
       ];
       expect(calls).toEqual(expected);
     }

@@ -206,6 +206,14 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['flop', 'turn', 'river']),
   }),
+  omahaBareOverpairContinuationIsPeoplePriced: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop']),
+  }),
+  omahaGiveUpPricedTurnCallIsAtIndifference: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['turn']),
+  }),
   omahaTurnFacingBetPriorIsLineSplit: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['turn']),
@@ -330,6 +338,8 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
   ),
   // lead-8 2026-11-27: the NLH cash heads-up river bluff priced on people's river fold (river only)
   holdemRiverBluffIsPricedOnPeople: holdemStage(['nlh_cash', 'nlh_lightning'], ['river']),
+  // lead-9 2026-11-27: a fold facing the first bet of a heads-up NLH cash river re-priced on people's river bets
+  holdemRiverFacingBetPriorIsPeopleMeasured: holdemStage(['nlh_cash', 'nlh_lightning'], ['river']),
   // lead-9 2026-11-27: the NLH cash heads-up turn bluff after a checked flop priced on people's turn fold (turn only)
   holdemTurnBluffIsPricedOnPeople: holdemStage(['nlh_cash', 'nlh_lightning'], ['turn']),
 });

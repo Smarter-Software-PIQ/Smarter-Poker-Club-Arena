@@ -1007,6 +1007,56 @@ class EngineInertMigration(unittest.TestCase):
         self.assertEqual(status(self.production, digest).returncode, im.REFUSED)
         self.assertEqual(status(self.production, digest, '--control', 'e' * 40).returncode, im.REFUSED)
 
+    def test_strictly_non_engine_training_and_social_migrations_are_inert_end_to_end(self):
+        mig = self.repo / 'supabase' / 'migrations'
+        training_v = '20261128010000'
+        social_v = '20261128020000'
+        engine_v = '20261128030000'
+        (mig / f'{training_v}_training_bookmarks.sql').write_text(
+            'BEGIN;\n'
+            "SET LOCAL lock_timeout = '3s';\n"
+            'CREATE TABLE IF NOT EXISTS public.training_bookmarks (\n'
+            '  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,\n'
+            '  spot_id TEXT NOT NULL,\n'
+            '  PRIMARY KEY (user_id, spot_id)\n'
+            ');\n'
+            'CREATE INDEX IF NOT EXISTS idx_training_bookmarks_u ON public.training_bookmarks (user_id);\n'
+            'ALTER TABLE public.training_bookmarks ENABLE ROW LEVEL SECURITY;\n'
+            'COMMIT;\n'
+        )
+        (mig / f'{social_v}_social_prefs.sql').write_text(
+            'ALTER TABLE public.social_feed_prefs ADD COLUMN IF NOT EXISTS compact BOOLEAN NOT NULL DEFAULT false;\n'
+        )
+        (mig / f'{engine_v}_engine_table_change.sql').write_text(
+            'ALTER TABLE public.hand_history ADD COLUMN IF NOT EXISTS note TEXT;\n'
+        )
+        self.git('add', '.')
+        self.git('commit', '-qm', 'add non-engine training/social and one engine migration')
+        newer = self.git('rev-parse', 'HEAD')
+
+        inert = im.inert_versions(str(self.repo), newer, self.target)
+        self.assertIn(training_v, inert)
+        self.assertIn(social_v, inert)
+        self.assertNotIn(engine_v, inert)
+
+        # Copy lacking ONLY the inert training + social migrations (plus O33) is accepted.
+        prod_non_engine = {
+            **self.production,
+            training_v: 'training_bookmarks',
+            social_v: 'social_prefs',
+        }
+        tree = im.tree_versions(str(self.repo), self.target, newer)
+        ok, why = self.judge(self.copy, prod_non_engine, inert, tree=tree)
+        self.assertTrue(ok, why)
+        self.assertIn(training_v, why)
+        self.assertIn(social_v, why)
+
+        # Adding the engine table migration to production MUST refuse the same copy.
+        prod_with_engine = {**prod_non_engine, engine_v: 'engine_table_change'}
+        ok_eng, why_eng = self.judge(self.copy, prod_with_engine, inert, tree=tree)
+        self.assertFalse(ok_eng)
+        self.assertIn(engine_v, why_eng)
+
 
 if __name__ == '__main__':
     unittest.main()

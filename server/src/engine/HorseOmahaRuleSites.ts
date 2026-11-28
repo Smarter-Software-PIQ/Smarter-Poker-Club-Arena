@@ -558,6 +558,12 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaFacingBetFieldIsJoint: priced(
     'a multiway turn or river call is priced with the bettor, the callers, the earlier all-ins and the players behind (at their measured continue rate) dealt on the same cards from measured ranges (default OFF; PLO-OWNER lead-6 2026-11-24)'
   ),
+  omahaBareOverpairContinuationIsPeoplePriced: priced(
+    "heads-up on the flop, the bare big pair that checked out of position and faces one bet (never a re-raised pot) is called or folded on its equity against the bettor's PEOPLE-ONLY measured flop range (people's flop bets of this size, hidden bets counted with the hidden-bets prior, the balanced share behind a thin cell, moved by his own flop record) instead of the sampler's aggressor tiers; realization, rake and margin are the continuation's own, and it never raises"
+  ),
+  omahaGiveUpPricedTurnCallIsAtIndifference: priced(
+    "inside the give-up price's heads-up turn bet (never a raise, never a re-raised pot), the call is made when the expected value of the call, counted exactly against the people-measured range with the give-up share priced, is zero or more, instead of more than 2% of the final pot; expected value is still computed per hand and it only turns a fold into a call"
+  ),
   omahaMultiwayCallNeedsNutShare: priced(
     'inside the joint field price, the field holds flush draws at the measured share of callers and a better same-category hand of the field is priced into the call (an input to the price, never a rule; default OFF; PLO-OWNER lead-6 2026-11-24)'
   ),
