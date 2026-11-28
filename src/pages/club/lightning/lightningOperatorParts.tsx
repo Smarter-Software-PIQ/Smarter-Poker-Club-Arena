@@ -122,9 +122,11 @@ export function AnswerState({
     return (
       <div className={styles.words} role="alert">
         <p className={`sc-copy sc-copy--center ${styles.state} sc-ink--red`}>{answer.message}</p>
-        <button type="button" className={`${styles.word} sc-ink--white`} onClick={onRetry}>
-          Retry
-        </button>
+        <span className="arena-switch arena-ops-keys arena-ops-primary">
+          <button type="button" className={`${styles.word} sc-ink--white`} onClick={onRetry}>
+            Retry
+          </button>
+        </span>
       </div>
     );
   }

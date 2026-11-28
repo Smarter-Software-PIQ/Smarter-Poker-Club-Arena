@@ -37,7 +37,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { SpadeConsole } from '../../components/console/SpadeConsole';
+/* #SmarterDesign (Dan 2026-11-27): the painted console is the old style for a
+   page section; Lightning prints in the thin chrome case with chrome keys. */
+import { ClubPageSection as SpadeConsole } from '../../components/club/ClubPageSection';
+import '../../components/console/SpadeConsole.css';
+import '../../components/lobby/ArenaWorkspace.css';
 import { compactChips } from '../../utils/format';
 import { titleCase } from '../../utils/titleCase';
 import { formatStakes } from '../../lib/utils';
@@ -126,7 +130,7 @@ export function ClusterRecord({
   const notices = clusterNotices(c);
   const meta = clusterMeta(c);
   return (
-    <li className={styles.record} data-cluster-id={c.clusterId}>
+    <li className={`arena-ledger-row ${styles.record}`} data-cluster-id={c.clusterId}>
       <div className={styles.recordHead}>
         <span className={`${styles.recordName} sc-ink--silver`}>
           {c.name ? titleCase(c.name) : 'Unnamed Cluster'}
@@ -216,7 +220,7 @@ export function ClusterRecord({
       ) : (
         <span className={`${styles.recordMeta} sc-ink--muted`}>No Latency Windows Yet</span>
       )}
-      <div className={styles.words}>
+      <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.words}`}>
         <button
           type="button"
           className={`${styles.word} sc-ink--white`}
@@ -307,26 +311,21 @@ export default function ClubLightningOperationsPage() {
 
   if (resolution.key === clubId && resolution.status === 'not_found') {
     return (
-      <div className={styles.page}>
+      <div className={`${styles.page} arena-workspace`}>
         <SpadeConsole
+          arena
           className={styles.console}
-          family="spade"
           eyebrow="Lightning"
           title="Club Not Found"
           titleId="lightning-operations-title"
           pill="Missing"
           pillInk="muted"
-          foot="foot"
         >
           <p className={`sc-copy sc-copy--center ${styles.state}`}>
             No Club Answers To That Address.
           </p>
-          <div className={styles.words}>
-            <button
-              type="button"
-              className={`${styles.word} sc-ink--white`}
-              onClick={() => navigate('/clubs')}
-            >
+          <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.words}`}>
+            <button type="button" className={styles.word} onClick={() => navigate('/clubs')}>
               Back To Clubs
             </button>
           </div>
@@ -337,7 +336,7 @@ export default function ClubLightningOperationsPage() {
 
   if (clubUUID && clusterId) {
     return (
-      <div className={styles.page}>
+      <div className={`${styles.page} arena-workspace`}>
         <LightningClusterDetail
           key={clusterId}
           clusterId={clusterId}
@@ -355,10 +354,10 @@ export default function ClubLightningOperationsPage() {
       : 'Operator';
 
   return (
-    <div className={styles.page}>
+    <div className={`${styles.page} arena-workspace`}>
       <SpadeConsole
+        arena
         className={styles.console}
-        family="spade"
         eyebrow="Club Operations"
         title="Lightning"
         titleId="lightning-operations-title"

@@ -261,3 +261,54 @@
     animation: none;
   }
 }
+
+/* ── #SmarterDesign (Dan 2026-11-27) ──────────────────────────────────────
+   The painted Rewards Circuit console was the old style for a page section.
+   The offers now print in the arena workspace's thin chrome case
+   (RewardsSurfaceHeader `arena`): the views one chrome switch lit by
+   aria-pressed, each offer a chrome ledger row, Claim a lit chrome key, and
+   Invite Friends / Daily Bonus the case's chrome keys with the primary lit. */
+.promotions-page.arena-workspace.arena-workspace {
+  padding-bottom: calc(var(--bottom-nav-clearance, 74px) + 24px);
+}
+
+.arena-workspace .promo-views.arena-switch {
+  justify-content: stretch;
+  gap: 4px;
+  padding: 0;
+  border-top: 0;
+  box-shadow: none;
+}
+
+.arena-workspace .arena-switch > .promo-views__word,
+.arena-workspace .arena-switch > .promo-word {
+  padding: 6px 12px;
+  font:
+    700 12px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+}
+
+.arena-workspace .promo-list {
+  gap: 4px;
+}
+
+.arena-workspace .promo-row.arena-ledger-row,
+.arena-workspace .promo-row.arena-ledger-row:first-child {
+  padding: 10px;
+  border-top-width: 4px;
+}
+
+.arena-workspace .promo-row__action.arena-switch {
+  margin: 0;
+  padding: 0;
+}
+
+.arena-workspace .promo-row__action > .promo-word {
+  min-width: 76px;
+}
+
+.arena-workspace .promo-keys {
+  min-width: 160px;
+}
