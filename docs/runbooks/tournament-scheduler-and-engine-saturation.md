@@ -10,6 +10,7 @@ Use this runbook when any of these alerts fires:
 - `TournamentBountyOutboxBacklogStuck`
 - `EngineCoreOutOfHeadroom`
 - `EngineCoreSaturated`
+- `EngineMainEventLoopLagHigh`
 
 The first two rules are diagnostic: do not restart the engine simply because
 its queue is non-empty or a tournament promise is slow. Correctness work is
@@ -137,3 +138,17 @@ work on the same Node event loop.
    not Supabase Realtime.
 5. Do not solve sustained saturation by increasing action or health timeouts.
    Reduce work on the process or add real engine capacity.
+
+## Engine Main Event Loop Lag High (Early Warning)
+
+`EngineMainEventLoopLagHigh` fires after three minutes whenever
+`poker_event_loop_delay_p99_ms > 150` or `poker_main_event_loop_governor_scale < 1`
+outside an hourly maintenance break. It warns before main-thread V8 GC pauses or
+synchronous JSON/serialization spikes cascade into `fn_ca_hand_gap_watch` or
+`EngineCoreOutOfHeadroom`.
+
+1. Inspect `/health` fields `eventLoopDelay`, `mainEventLoopGovernor`, `gcPauseMonitor`,
+   and `horseDecisionWorker.mainHistoryCache` to separate V8 GC pressure from synchronous
+   hot-path work.
+2. Check whether `nextHandGap.over` or `poker_tournament_gap_balance_park_dwell_ms` is
+   climbing concurrently.

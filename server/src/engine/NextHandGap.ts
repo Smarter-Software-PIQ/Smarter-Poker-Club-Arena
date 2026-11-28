@@ -28,6 +28,8 @@ export interface NextHandGapSample {
   readonly phases: Readonly<Record<string, number>>;
   /** True when the gap contained a rebuy pause; such samples are kept but reported separately. */
   readonly rebuyPaused: boolean;
+  /** True when the gap contained intentional cluster/Lightning dealing halt dwell. */
+  readonly clusterHalted?: boolean;
   readonly at: number;
 }
 
@@ -37,15 +39,17 @@ export interface NextHandGapSnapshot {
   p50Ms: number | null;
   p90Ms: number | null;
   maxMs: number | null;
-  /** Samples (without a rebuy pause) whose gap exceeded restMs + slackMs. */
+  /** Samples (without a rebuy pause or cluster halt) whose gap exceeded restMs + slackMs. */
   over: number;
   slackMs: number;
   withRebuyPause: number;
+  /** Samples containing intentional cluster/Lightning halt dwell, excluded from live over/maxMs. */
+  withClusterHalt: number;
   /** p50 of each phase's share, over the samples that visited it. */
   phaseP50Ms: Record<string, number>;
   /** p90 by phase; percentiles from different samples must not be added. */
   phaseP90Ms: Record<string, number>;
-  /** Five slowest non-rebuy gaps over the threshold, with their own phase timings. */
+  /** Five slowest live (non-rebuy, non-cluster-halt) gaps over the threshold, with their own phase timings. */
   slowest: NextHandGapSample[];
   windowMs: number;
 }
@@ -54,6 +58,19 @@ const WINDOW_MS = 10 * 60_000;
 const MAX_SAMPLES = 2000;
 /** How far past the rest a gap may run before it counts as over. */
 export const NEXT_HAND_GAP_SLACK_MS = 500;
+/** Loop phases representing intentional cluster/Lightning dealing halts, not live hand-gap lag. */
+export const CLUSTER_HALT_GAP_PHASES: ReadonlySet<string> = new Set([
+  'cluster_dealing_halted',
+  'recover_busted_horses_halted',
+]);
+
+function isClusterHaltedSample(sample: NextHandGapSample): boolean {
+  if (sample.clusterHalted === true) return true;
+  for (const phase of Object.keys(sample.phases)) {
+    if (CLUSTER_HALT_GAP_PHASES.has(phase)) return true;
+  }
+  return false;
+}
 
 function percentile(sorted: number[], p: number): number | null {
   if (sorted.length === 0) return null;
@@ -75,7 +92,18 @@ export class NextHandGapRecorder {
   snapshot(now: number = Date.now()): NextHandGapSnapshot {
     const cutoff = now - WINDOW_MS;
     this.samples = this.samples.filter((s) => s.at >= cutoff);
-    const plain = this.samples.filter((s) => !s.rebuyPaused);
+    let withClusterHalt = 0;
+    let withRebuyPause = 0;
+    const plain: NextHandGapSample[] = [];
+    for (const s of this.samples) {
+      if (isClusterHaltedSample(s)) {
+        withClusterHalt++;
+      } else if (s.rebuyPaused) {
+        withRebuyPause++;
+      } else {
+        plain.push(s);
+      }
+    }
     const gaps = plain.map((s) => s.gapMs).sort((a, b) => a - b);
     const phaseValues = new Map<string, number[]>();
     for (const s of plain) {
@@ -100,7 +128,8 @@ export class NextHandGapRecorder {
       maxMs: gaps.length ? gaps[gaps.length - 1] : null,
       over: gaps.filter((g) => g > this.restMs + NEXT_HAND_GAP_SLACK_MS).length,
       slackMs: NEXT_HAND_GAP_SLACK_MS,
-      withRebuyPause: this.samples.length - plain.length,
+      withRebuyPause,
+      withClusterHalt,
       phaseP50Ms,
       phaseP90Ms,
       slowest: plain
