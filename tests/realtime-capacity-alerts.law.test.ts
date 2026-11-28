@@ -95,6 +95,8 @@ describe('realtime capacity alerts', () => {
     const warning = alert('EngineCoreOutOfHeadroom');
     expect(warning).toContain('poker_event_loop_delay_p50_ms > 40');
     expect(warning).toContain('poker_main_event_loop_governor_sampler_late_ms > 40');
+    expect(warning).toContain('poker_event_loop_delay_p99_ms > 150');
+    expect(warning).toContain('poker_main_event_loop_governor_scale < 1');
     expect(warning).toMatch(/for:\s*10m/);
     expect(warning).toContain('max_over_time(poker_maintenance_break_active[6m])');
     expect(warning).toContain('tournament-scheduler-and-engine-saturation.md');
@@ -111,13 +113,6 @@ describe('realtime capacity alerts', () => {
     expect(rule).toContain('horse compute is isolated on a');
     expect(governor).toMatch(/if \(p50Ms < 1000\) return 0\.2;\s+return 0\.08;/);
     expect(runbook).toContain('1,000 ms or more should be 0.08');
-
-    const earlyLag = alert('EngineMainEventLoopLagHigh');
-    expect(earlyLag).toContain('poker_event_loop_delay_p99_ms > 150');
-    expect(earlyLag).toContain('poker_main_event_loop_governor_scale < 1');
-    expect(earlyLag).toMatch(/for:\s*3m/);
-    expect(earlyLag).toContain('max_over_time(poker_maintenance_break_active[6m])');
-    expect(earlyLag).toContain('tournament-scheduler-and-engine-saturation.md');
   });
 
   it('links every new alert to a checked-in runbook', () => {

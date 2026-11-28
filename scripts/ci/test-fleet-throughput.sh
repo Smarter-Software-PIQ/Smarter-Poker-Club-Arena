@@ -67,7 +67,7 @@ route --verify.receivers=codex-inbox \
 route --verify.receivers=codex-inbox \
   alertname=EventDbBulkheadOpen severity=warning component=database
 route --verify.receivers=codex-inbox \
-  alertname=EngineMainEventLoopLagHigh severity=warning component=engine
+  alertname=EngineCoreOutOfHeadroom severity=warning component=engine
 
 # The Reliability Controller's own critical health alerts must reach email
 # (2026-11-09): that route is the signal that does not pass through the

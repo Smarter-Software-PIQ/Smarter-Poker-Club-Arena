@@ -1,43 +1,52 @@
-# EngineMainEventLoopLagHigh (incident 1e532243 Phase 5).
-# Proves: healthy main loop stays quiet, brief <3m p99 spikes stay quiet,
-# sustained p99 > 150ms fires after 3m, sustained governor scale < 1 fires
-# after 3m, hourly maintenance breaks suppress the alert, and recovery clears it.
+# EngineCoreOutOfHeadroom p99 / governor-scale early-warning coverage (1e532243 Phase 5).
+# Proves: healthy main loop & brief <10m spikes stay quiet, sustained p99 > 150ms
+# fires EngineCoreOutOfHeadroom even when p50 stays < 40ms, sustained
+# poker_main_event_loop_governor_scale < 1 fires even when p50/p99 are below
+# threshold, hourly maintenance breaks suppress the alert, and recovery clears it.
 rule_files:
   - ../../infra/monitoring/alert-rules.yml
-evaluation_interval: 15s
+evaluation_interval: 1m
 tests:
-  - name: healthy main event loop and brief spike never fire
-    interval: 15s
+  - name: healthy main event loop and brief p99 spike never fire
+    interval: 1m
     input_series:
+      - series: 'poker_event_loop_delay_p50_ms{job="engine_game_server",instance="engine"}'
+        values: '15x25'
+      - series: 'poker_main_event_loop_governor_sampler_late_ms{job="engine_game_server",instance="engine"}'
+        values: '5x25'
       - series: 'poker_event_loop_delay_p99_ms{job="engine_game_server",instance="engine"}'
-        values: '25x8 180x6 25x20'
+        values: '25x5 180x5 25x15'
       - series: 'poker_main_event_loop_governor_scale{job="engine_game_server",instance="engine"}'
-        values: '1x34'
+        values: '1x25'
       - series: 'poker_maintenance_break_active{job="engine_game_server",instance="engine"}'
-        values: '0x34'
+        values: '0x25'
     alert_rule_test:
-      - alertname: EngineMainEventLoopLagHigh
-        eval_time: 3m
+      - alertname: EngineCoreOutOfHeadroom
+        eval_time: 10m
         exp_alerts: []
-      - alertname: EngineMainEventLoopLagHigh
-        eval_time: 6m
+      - alertname: EngineCoreOutOfHeadroom
+        eval_time: 18m
         exp_alerts: []
 
-  - name: sustained p99 lag above 150ms fires early warning after 3m and clears on recovery
-    interval: 15s
+  - name: sustained p99 lag above 150ms fires EngineCoreOutOfHeadroom even when p50 stays low and clears on recovery
+    interval: 1m
     input_series:
+      - series: 'poker_event_loop_delay_p50_ms{job="engine_game_server",instance="engine"}'
+        values: '15x30'
+      - series: 'poker_main_event_loop_governor_sampler_late_ms{job="engine_game_server",instance="engine"}'
+        values: '5x30'
       - series: 'poker_event_loop_delay_p99_ms{job="engine_game_server",instance="engine"}'
-        values: '20x4 195x16 25x12'
+        values: '20x2 195x12 25x15'
       - series: 'poker_main_event_loop_governor_scale{job="engine_game_server",instance="engine"}'
-        values: '1x32'
+        values: '1x30'
       - series: 'poker_maintenance_break_active{job="engine_game_server",instance="engine"}'
-        values: '0x32'
+        values: '0x30'
     alert_rule_test:
-      - alertname: EngineMainEventLoopLagHigh
-        eval_time: 3m30s
+      - alertname: EngineCoreOutOfHeadroom
+        eval_time: 12m
         exp_alerts: []
-      - alertname: EngineMainEventLoopLagHigh
-        eval_time: 4m15s
+      - alertname: EngineCoreOutOfHeadroom
+        eval_time: 13m
         exp_alerts:
           - exp_labels:
               job: engine_game_server
@@ -45,31 +54,41 @@ tests:
               severity: warning
               component: engine
             exp_annotations:
-              summary: 'Engine main event loop tail lag or governor throttling detected'
+              summary: 'Engine main event loop out of headroom (p50/p99 lag, sampler late, or governor scale < 1)'
               description: |
-                The main realtime event loop has either p99 delay above 150 ms
-                (poker_event_loop_delay_p99_ms) or its main-thread governor scale
-                below 1 (poker_main_event_loop_governor_scale) for three minutes.
-                This is an early warning before main-thread GC or synchronous
-                serialization cascades into fn_ca_hand_gap_watch. Check /health
-                eventLoopDelay, mainEventLoopGovernor, and gcPauseMonitor.
+                The main realtime event loop has been delayed past its first
+                capacity threshold (p50 > 40 ms, sampler late > 40 ms, p99 > 150 ms,
+                or main-thread governor scale < 1) for ten minutes. Human actions,
+                timers, state broadcasts, the cluster controller and discovery share
+                this loop; tail lag or governor throttling warns before GC or
+                synchronous serialization cascades into fn_ca_hand_gap_watch. Check
+                /health eventLoopDelay, mainEventLoopGovernor, and gcPauseMonitor.
+                Horse compute runs on another core; poker_equity_governor_scale
+                reports that worker independently.
               runbook: 'https://github.com/Smarter-Poker/Smarter-Poker-Club-Arena/blob/main/docs/runbooks/tournament-scheduler-and-engine-saturation.md'
-      - alertname: EngineMainEventLoopLagHigh
-        eval_time: 6m
+      - alertname: EngineCoreOutOfHeadroom
+        eval_time: 18m
         exp_alerts: []
 
-  - name: sustained mainEventLoopGovernor scale below 1 fires early warning even when p99 is absent or low
-    interval: 15s
+  - name: sustained mainEventLoopGovernor scale below 1 fires EngineCoreOutOfHeadroom even when p50 and p99 are below threshold
+    interval: 1m
     input_series:
+      - series: 'poker_event_loop_delay_p50_ms{job="engine_game_server",instance="engine"}'
+        values: '15x20'
+      - series: 'poker_main_event_loop_governor_sampler_late_ms{job="engine_game_server",instance="engine"}'
+        values: '5x20'
       - series: 'poker_event_loop_delay_p99_ms{job="engine_game_server",instance="engine"}'
-        values: '80x24'
+        values: '80x20'
       - series: 'poker_main_event_loop_governor_scale{job="engine_game_server",instance="engine"}'
-        values: '1x4 0.6x20'
+        values: '1x2 0.6x15'
       - series: 'poker_maintenance_break_active{job="engine_game_server",instance="engine"}'
-        values: '0x24'
+        values: '0x20'
     alert_rule_test:
-      - alertname: EngineMainEventLoopLagHigh
-        eval_time: 4m15s
+      - alertname: EngineCoreOutOfHeadroom
+        eval_time: 12m
+        exp_alerts: []
+      - alertname: EngineCoreOutOfHeadroom
+        eval_time: 13m
         exp_alerts:
           - exp_labels:
               job: engine_game_server
@@ -77,26 +96,33 @@ tests:
               severity: warning
               component: engine
             exp_annotations:
-              summary: 'Engine main event loop tail lag or governor throttling detected'
+              summary: 'Engine main event loop out of headroom (p50/p99 lag, sampler late, or governor scale < 1)'
               description: |
-                The main realtime event loop has either p99 delay above 150 ms
-                (poker_event_loop_delay_p99_ms) or its main-thread governor scale
-                below 1 (poker_main_event_loop_governor_scale) for three minutes.
-                This is an early warning before main-thread GC or synchronous
-                serialization cascades into fn_ca_hand_gap_watch. Check /health
-                eventLoopDelay, mainEventLoopGovernor, and gcPauseMonitor.
+                The main realtime event loop has been delayed past its first
+                capacity threshold (p50 > 40 ms, sampler late > 40 ms, p99 > 150 ms,
+                or main-thread governor scale < 1) for ten minutes. Human actions,
+                timers, state broadcasts, the cluster controller and discovery share
+                this loop; tail lag or governor throttling warns before GC or
+                synchronous serialization cascades into fn_ca_hand_gap_watch. Check
+                /health eventLoopDelay, mainEventLoopGovernor, and gcPauseMonitor.
+                Horse compute runs on another core; poker_equity_governor_scale
+                reports that worker independently.
               runbook: 'https://github.com/Smarter-Poker/Smarter-Poker-Club-Arena/blob/main/docs/runbooks/tournament-scheduler-and-engine-saturation.md'
 
-  - name: hourly maintenance break suppresses EngineMainEventLoopLagHigh
-    interval: 15s
+  - name: hourly maintenance break suppresses EngineCoreOutOfHeadroom
+    interval: 1m
     input_series:
+      - series: 'poker_event_loop_delay_p50_ms{job="engine_game_server",instance="engine"}'
+        values: '15x18'
+      - series: 'poker_main_event_loop_governor_sampler_late_ms{job="engine_game_server",instance="engine"}'
+        values: '5x18'
       - series: 'poker_event_loop_delay_p99_ms{job="engine_game_server",instance="engine"}'
-        values: '250x24'
+        values: '250x18'
       - series: 'poker_main_event_loop_governor_scale{job="engine_game_server",instance="engine"}'
-        values: '0.6x24'
+        values: '0.6x18'
       - series: 'poker_maintenance_break_active{job="engine_game_server",instance="engine"}'
-        values: '1x24'
+        values: '1x18'
     alert_rule_test:
-      - alertname: EngineMainEventLoopLagHigh
-        eval_time: 5m
+      - alertname: EngineCoreOutOfHeadroom
+        eval_time: 15m
         exp_alerts: []

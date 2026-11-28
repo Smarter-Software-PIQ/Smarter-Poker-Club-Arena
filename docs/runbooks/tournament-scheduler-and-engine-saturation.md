@@ -10,7 +10,6 @@ Use this runbook when any of these alerts fires:
 - `TournamentBountyOutboxBacklogStuck`
 - `EngineCoreOutOfHeadroom`
 - `EngineCoreSaturated`
-- `EngineMainEventLoopLagHigh`
 
 The first two rules are diagnostic: do not restart the engine simply because
 its queue is non-empty or a tournament promise is slow. Correctness work is
@@ -139,13 +138,16 @@ work on the same Node event loop.
 5. Do not solve sustained saturation by increasing action or health timeouts.
    Reduce work on the process or add real engine capacity.
 
-## Engine Main Event Loop Lag High (Early Warning)
+## Engine Core Out Of Headroom (Early Tail-Lag / Governor Signal)
 
-`EngineMainEventLoopLagHigh` fires after three minutes whenever
-`poker_event_loop_delay_p99_ms > 150` or `poker_main_event_loop_governor_scale < 1`
-outside an hourly maintenance break. It warns before main-thread V8 GC pauses or
-synchronous JSON/serialization spikes cascade into `fn_ca_hand_gap_watch` or
-`EngineCoreOutOfHeadroom`.
+`EngineCoreOutOfHeadroom` fires after ten minutes outside an hourly maintenance
+break whenever `poker_event_loop_delay_p50_ms > 40`,
+`poker_main_event_loop_governor_sampler_late_ms > 40`,
+`poker_event_loop_delay_p99_ms > 150`, or
+`poker_main_event_loop_governor_scale < 1`. Watching p99 tail lag and
+main-thread governor scale alongside p50 catches V8 GC pauses or synchronous
+serialization spikes before they cascade into `fn_ca_hand_gap_watch` or
+`EngineCoreSaturated`.
 
 1. Inspect `/health` fields `eventLoopDelay`, `mainEventLoopGovernor`, `gcPauseMonitor`,
    and `horseDecisionWorker.mainHistoryCache` to separate V8 GC pressure from synchronous

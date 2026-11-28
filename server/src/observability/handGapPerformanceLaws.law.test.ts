@@ -223,7 +223,7 @@ describe('hand-gap performance & anti-regression laws (1e532243)', () => {
     expect(gapSrc).toContain('withClusterHalt');
     expect(dealingSrc).toContain("'cluster_dealing_halted'");
     expect(dealingSrc).toContain("'recover_busted_horses_halted'");
-    expect(alertsSrc).toContain('- alert: EngineMainEventLoopLagHigh');
+    expect(alertsSrc).toContain('- alert: EngineCoreOutOfHeadroom');
     expect(alertsSrc).toContain('poker_event_loop_delay_p99_ms > 150');
     expect(alertsSrc).toContain('poker_main_event_loop_governor_scale < 1');
   });
