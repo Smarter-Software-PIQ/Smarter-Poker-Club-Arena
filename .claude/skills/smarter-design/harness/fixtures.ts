@@ -1,6 +1,7 @@
 /* Kings Club figures for the render harness (Dan's screenshot: rake 403.3814552027556). */
 export const CLUB_UUID = '2a1132b9-5ba2-42e6-9f01-30a7fcffebe3';
 export const SLUG = 'kings-club';
+export const UNION_UUID = '7d0c2f4e-1b3a-4c5d-9e8f-0a1b2c3d4e5f';
 const ownerId = 'owner-0001';
 const now = new Date().toISOString();
 const table = (i: number, status: string, seated: number) => ({
@@ -202,6 +203,53 @@ export const rpcFixtures: Record<string, unknown> = {
     totals: { in: '1234567.89', out: '2500.00', managed: '0.00', count: 1432 },
     generated_at: now,
   },
+  /* The Union pages (batch U1): Midway Union and its statement board. */
+  fn_is_union_operator: true,
+  fn_union_online_count: 87,
+  fn_can_i_create_a_union: true,
+  fn_can_i_operate_the_union_network: true,
+  fn_union_eco_settings: { eco_terms_effective_from: '2026-11-16' },
+  fn_batch_club_member_counts: [
+    { club_id: CLUB_UUID, member_count: 174 },
+    { club_id: 'club-aces-0002', member_count: 410 },
+    { club_id: 'club-river-003', member_count: 1 },
+  ],
+  ca_union_statement_board: {
+    union_id: UNION_UUID,
+    period_start: '2026-11-16',
+    period_end: '2026-11-22',
+    clubs: [
+      {
+        club_id: CLUB_UUID,
+        club_name: 'Kings Club',
+        invoice_id: 'inv-kings-0001',
+        status: 'paid',
+        snapshot_complete: true,
+        amount: '403.38',
+        paid_total: '403.38',
+        rake_generated: '3361.50',
+        union_fee_kept: '403.38',
+        rakeback_due: '2958.12',
+        due_at: null,
+        outstanding: '0.00',
+      },
+      {
+        club_id: 'club-aces-0002',
+        club_name: 'Aces Club',
+        invoice_id: 'inv-aces-0002',
+        status: 'pending',
+        snapshot_complete: true,
+        amount: '145.26',
+        paid_total: '0.00',
+        rake_generated: '1210.50',
+        union_fee_kept: '145.26',
+        rakeback_due: '1065.24',
+        due_at: '2026-11-30T00:00:00Z',
+        outstanding: '145.26',
+      },
+      { club_id: 'club-river-003', club_name: 'River Club', status: 'missing' },
+    ],
+  },
   fn_poker_arena_context: {
     arena: { id: CLUB_UUID, asset: 'chips', is_platform: false, union_id: null },
     member: true,
@@ -234,6 +282,65 @@ export const fixtures = {
         user_id: ownerId,
         club_id: CLUB_UUID,
         chip_balance: 33442.45,
+      },
+    ],
+    /* The Union pages (batch U1): one union of three clubs. */
+    unions: [
+      {
+        id: UNION_UUID,
+        slug: 'midway-union',
+        name: 'Midway Union',
+        description: 'Every Midway Club Under One Network.',
+        owner_id: ownerId,
+        avatar_url: null,
+        is_public: true,
+        member_count: 585,
+        club_count: 3,
+        total_rake: 0,
+        level: 7,
+        player_level: 7,
+        hierarchy_level: 3,
+        total_players: 585,
+        hierarchy_units: 3,
+        hierarchy_units_rounded_up: 3,
+        player_threshold_current: 500,
+        player_threshold_next: 1000,
+        hierarchy_threshold_current: 3,
+        hierarchy_threshold_next: 4,
+        settings: {
+          revenue_share_percent: 12,
+          shared_player_pool: true,
+          cross_club_tournaments: true,
+          eco_cash_enabled: true,
+          eco_cash_rate: 0.1,
+        },
+        created_at: '2026-01-04T00:00:00Z',
+        updated_at: '2026-11-20T00:00:00Z',
+      },
+    ],
+    union_clubs: [
+      ['uc-1', CLUB_UUID, 'Kings Club', ownerId],
+      ['uc-2', 'club-aces-0002', 'Aces Club', 'owner-0002'],
+      ['uc-3', 'club-river-003', 'River Club', 'owner-0003'],
+    ].map(([id, club, name, owner]) => ({
+      id,
+      union_id: UNION_UUID,
+      club_id: club,
+      joined_at: '2026-02-01T00:00:00Z',
+      clubs: { id: club, name, owner_id: owner },
+    })),
+    tournaments: [
+      {
+        id: 'mtt-union-1',
+        name: 'Midway Sunday Major',
+        status: 'REGISTERING',
+        buy_in_amount: 100,
+        buy_in_fee: 10,
+        current_players: 42,
+        max_players: 200,
+        start_time: '2026-11-30T19:00:00Z',
+        union_id: UNION_UUID,
+        clubs: { name: 'Kings Club' },
       },
     ],
     /* Settings: the jackpot Announcements (BBJThresholdPanel). */
