@@ -12,6 +12,7 @@ import {
   evCoverageRecovered,
   STATS_HEALTH_COMPONENT,
   STATS_INDEX_LAG_THRESHOLD_S,
+  STATS_INDEX_POST_BREAK_CATCHUP_LAG_S,
   STATS_HEALTH_PERIOD_MS,
 } from './StatsHealthMonitor.js';
 
@@ -771,5 +772,141 @@ describe('StatsHealthMonitor', () => {
     release!();
     await Promise.all([first, second]);
     expect(mon.publish()?.indexLagSeconds).toBe(600.5);
+  });
+
+  it('runs one-shot catchUpIndex on maintenance-break exit when lag exceeds one cadence, refreshing /health and /metrics before the 30m bar', async () => {
+    let isPaused = true;
+    const reads = [
+      { ...LIVE_SAMPLE, indexLagSeconds: 1505 }, // during break (07:04): must NOT call catchUpIndex
+      { ...LIVE_SAMPLE, indexLagSeconds: 1565 }, // right after thaw (07:05): triggers ONE catchUpIndex
+      { ...LIVE_SAMPLE, indexLagSeconds: 305 }, // immediate post-catch-up re-read
+      { ...LIVE_SAMPLE, indexLagSeconds: 1900 }, // later steady-state outage: must NOT auto-catch-up
+    ];
+    let i = 0;
+    const read = vi.fn(async () => reads[Math.min(i++, reads.length - 1)]);
+    const catchUpIndex = vi.fn(async () => undefined);
+    const raise = vi.fn<(a: StatsHealthAlert) => Promise<boolean>>(async () => true);
+    const resolve = vi.fn<(name: string, component: string, note: string) => Promise<boolean>>(
+      async () => true
+    );
+
+    const mon = new StatsHealthMonitor({
+      read,
+      catchUpIndex,
+      raise,
+      resolve,
+      paused: () => isPaused,
+      log: () => {},
+    });
+
+    // Tick 1: inside maintenance break — never runs bulk refresh while frozen.
+    await mon.tick();
+    expect(catchUpIndex).toHaveBeenCalledTimes(0);
+    expect(raise).toHaveBeenCalledTimes(0);
+
+    // Tick 2: maintenance break ends — catches up once and re-reads fresh watermark.
+    isPaused = false;
+    await mon.tick();
+    expect(catchUpIndex).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledTimes(3);
+    expect(mon.publish()?.indexLagSeconds).toBe(305);
+    expect(mon.prometheusLines().join('\n')).toContain('poker_stats_index_lag_seconds 305');
+    expect(raise.mock.calls.some((c) => c[0]?.alertname === STATS_INDEX_LAG_ALERT)).toBe(false);
+
+    // Tick 3: steady-state scheduler outage with no break transition — still alerts at > 30m.
+    await mon.tick();
+    expect(catchUpIndex).toHaveBeenCalledTimes(1);
+    expect(raise.mock.calls.some((c) => c[0]?.alertname === STATS_INDEX_LAG_ALERT)).toBe(true);
+  });
+
+  it('catches up once on cold boot right after a break if lag already exceeds one cadence, and never loops', async () => {
+    const reads = [
+      { ...LIVE_SAMPLE, indexLagSeconds: STATS_INDEX_POST_BREAK_CATCHUP_LAG_S + 300 },
+      { ...LIVE_SAMPLE, indexLagSeconds: 300 },
+      { ...LIVE_SAMPLE, indexLagSeconds: STATS_INDEX_LAG_THRESHOLD_S + 120 },
+    ];
+    let i = 0;
+    const read = vi.fn(async () => reads[Math.min(i++, reads.length - 1)]);
+    const catchUpIndex = vi.fn(async () => undefined);
+    const raise = vi.fn<(a: StatsHealthAlert) => Promise<boolean>>(async () => true);
+    const resolve = vi.fn<(name: string, component: string, note: string) => Promise<boolean>>(
+      async () => true
+    );
+
+    const mon = new StatsHealthMonitor({
+      read,
+      catchUpIndex,
+      raise,
+      resolve,
+      paused: () => false,
+      log: () => {},
+    });
+
+    await mon.tick();
+    expect(catchUpIndex).toHaveBeenCalledTimes(1);
+    expect(mon.publish()?.indexLagSeconds).toBe(300);
+
+    // Subsequent tick with external cron actually dead must alert, not loop catchUpIndex.
+    await mon.tick();
+    expect(catchUpIndex).toHaveBeenCalledTimes(1);
+    expect(raise.mock.calls.some((c) => c[0]?.alertname === STATS_INDEX_LAG_ALERT)).toBe(true);
+  });
+
+  it('logs and still evaluates honestly when catchUpIndex throws, without blocking liveness', async () => {
+    const logs: string[] = [];
+    const read = vi.fn(async () => ({
+      ...LIVE_SAMPLE,
+      indexLagSeconds: STATS_INDEX_LAG_THRESHOLD_S + 60,
+    }));
+    const catchUpIndex = vi.fn(async () => {
+      throw new Error('advisory lock busy');
+    });
+    const raise = vi.fn<(a: StatsHealthAlert) => Promise<boolean>>(async () => true);
+    const mon = new StatsHealthMonitor({
+      read,
+      catchUpIndex,
+      raise,
+      resolve: async () => true,
+      paused: () => false,
+      log: (m) => logs.push(m),
+    });
+
+    await expect(mon.tick()).resolves.toBeUndefined();
+    expect(catchUpIndex).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(logs.some((m) => m.includes('post-break index catch-up failed'))).toBe(true);
+    expect(raise.mock.calls.some((c) => c[0]?.alertname === STATS_INDEX_LAG_ALERT)).toBe(true);
+  });
+
+  it('cancels post-catch-up re-read and alert delivery if stop() runs while catchUpIndex is in flight', async () => {
+    let finishCatchUp!: () => void;
+    const read = vi.fn(async () => ({
+      ...LIVE_SAMPLE,
+      indexLagSeconds: STATS_INDEX_LAG_THRESHOLD_S + 60,
+    }));
+    const catchUpIndex = vi.fn(
+      () =>
+        new Promise<void>((res) => {
+          finishCatchUp = res;
+        })
+    );
+    const raise = vi.fn(async () => true);
+    const mon = new StatsHealthMonitor({
+      read,
+      catchUpIndex,
+      raise,
+      resolve: async () => true,
+      paused: () => false,
+      log: () => {},
+    });
+
+    mon.start(60_000);
+    await vi.waitFor(() => expect(catchUpIndex).toHaveBeenCalledTimes(1));
+    const stopPromise = mon.stop();
+    finishCatchUp();
+    await stopPromise;
+
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(raise).toHaveBeenCalledTimes(0);
   });
 });
