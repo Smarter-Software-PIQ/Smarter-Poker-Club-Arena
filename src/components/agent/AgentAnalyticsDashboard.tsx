@@ -16,6 +16,7 @@ import { supabase } from '../../lib/supabase';
 import { masterBus } from '../../core/MasterBus';
 import { resolveClubUUID } from '../../utils/clubIdResolver';
 import './AgentAnalyticsDashboard.css';
+import './AgentAnalyticsArena.css';
 import { reportError } from '../../utils/errorReporter';
 
 interface AgentAnalyticsDashboardProps {
@@ -164,11 +165,11 @@ export default function AgentAnalyticsDashboard({ userId, clubId }: AgentAnalyti
 
   if (loading) {
     return (
-      <div className="aad-container">
-        <h3 className="aad-title">Agent Analytics</h3>
+      <div className="aad-container arena-case arena-ops-case">
+        <h3 className="aad-title arena-section-title">Agent Analytics</h3>
         <div className="aad-loading">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="aad-skeleton" />
+            <div key={i} className="aad-skeleton arena-ledger-row" />
           ))}
         </div>
       </div>
@@ -176,26 +177,26 @@ export default function AgentAnalyticsDashboard({ userId, clubId }: AgentAnalyti
   }
 
   return (
-    <div className="aad-container">
-      <h3 className="aad-title">Agent Analytics</h3>
+    <div className="aad-container arena-case arena-ops-case">
+      <h3 className="aad-title arena-section-title">Agent Analytics</h3>
 
       {/* KPI Cards */}
       <div className="aad-kpis">
-        <div className="aad-kpi">
+        <div className="aad-kpi arena-meter">
           <span className="aad-kpi-value">{metrics.totalDistributed.toLocaleString()}</span>
           <span className="aad-kpi-label">Total Distributed</span>
         </div>
-        <div className="aad-kpi">
+        <div className="aad-kpi arena-meter">
           <span className="aad-kpi-value aad-green">{metrics.netOut.toLocaleString()}</span>
           <span className="aad-kpi-label">Net Out</span>
         </div>
-        <div className="aad-kpi">
+        <div className="aad-kpi arena-meter">
           <span className={`aad-kpi-value ${metrics.clawbackRate > 15 ? 'aad-red' : 'aad-amber'}`}>
             {metrics.clawbackRate.toFixed(1)}%
           </span>
           <span className="aad-kpi-label">Clawback Rate</span>
         </div>
-        <div className="aad-kpi">
+        <div className="aad-kpi arena-meter">
           <span className="aad-kpi-value">
             {Math.round(metrics.avgDistribution).toLocaleString()}
           </span>
@@ -205,19 +206,19 @@ export default function AgentAnalyticsDashboard({ userId, clubId }: AgentAnalyti
 
       {/* Secondary stats */}
       <div className="aad-secondary">
-        <div className="aad-sec-item">
+        <div className="aad-sec-item arena-ledger-row">
           <span className="aad-sec-label">Distributions/Day (30D)</span>
           <span className="aad-sec-value">{metrics.perDay.toFixed(1)}</span>
         </div>
-        <div className="aad-sec-item">
+        <div className="aad-sec-item arena-ledger-row">
           <span className="aad-sec-label">Promo Distributions</span>
           <span className="aad-sec-value">{metrics.promoCount}</span>
         </div>
-        <div className="aad-sec-item">
+        <div className="aad-sec-item arena-ledger-row">
           <span className="aad-sec-label">Regular Distributions</span>
           <span className="aad-sec-value">{metrics.regularCount}</span>
         </div>
-        <div className="aad-sec-item">
+        <div className="aad-sec-item arena-ledger-row">
           <span className="aad-sec-label">Total Transactions</span>
           <span className="aad-sec-value">{metrics.totalCount}</span>
         </div>
@@ -247,7 +248,7 @@ export default function AgentAnalyticsDashboard({ userId, clubId }: AgentAnalyti
         <div className="aad-top-section">
           <h4 className="aad-chart-title">Top Recipients</h4>
           {topRecipients.map((r, i) => (
-            <div key={r.id} className="aad-top-row">
+            <div key={r.id} className="aad-top-row arena-ledger-row">
               <span className="aad-top-rank">#{i + 1}</span>
               <span className="aad-top-id">{r.id.slice(0, 8)}…</span>
               <span className="aad-top-amount">{r.total.toLocaleString()}</span>

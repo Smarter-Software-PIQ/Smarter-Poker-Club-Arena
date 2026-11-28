@@ -81,7 +81,7 @@ describe('the pull request builds what ships', () => {
     }
   });
 
-  it('no twin is disabled: its failure is never forgiven and only the first shard may be its condition', () => {
+  it('no twin is disabled: its failure is never forgiven and only the balanced shard may be its condition', () => {
     expect(serverJob['continue-on-error'], 'Server Engine job forgives failures').toBeUndefined();
     const wanted = commands(String(qualifyStep.run)).filter((c) => !/^npm ci\b/.test(c));
     for (const command of wanted) {
@@ -93,12 +93,17 @@ describe('the pull request builds what ships', () => {
       );
       expect(twins.length, `Server Engine does not run: ${command}`).toBeGreaterThan(0);
       for (const twin of twins) {
-        expect(twin['continue-on-error'], `${twin.name} forgives a failure of: ${command}`).toBeUndefined();
+        expect(
+          twin['continue-on-error'],
+          `${twin.name} forgives a failure of: ${command}`
+        ).toBeUndefined();
         if (twin.if !== undefined)
-          expect(twin.if, `${twin.name} can be skipped: ${command}`).toBe('matrix.shard == 1');
+          expect(twin.if, `${twin.name} can be skipped: ${command}`).toBe('matrix.shard == 2');
       }
     }
-    const build = serverJob.steps.find((s) => commands(String(s.run ?? '')).includes('npm run build'))!;
+    const build = serverJob.steps.find((s) =>
+      commands(String(s.run ?? '')).includes('npm run build')
+    )!;
     expect(build.name).toBe('Build the exact server tree (as engine prequalification does)');
     expect(Object.keys(build)).not.toContain('continue-on-error');
   });

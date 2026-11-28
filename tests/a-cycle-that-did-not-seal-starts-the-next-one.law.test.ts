@@ -416,6 +416,10 @@ describe('the keep-serving Backup proves its intent and is never green for nothi
       REFRESH: '${{ needs.refresh.result }}',
       DEFERRED: '${{ needs.refresh.outputs.deferred }}',
       CERTIFY: '${{ needs.certify.result }}',
+      YIELDED: '${{ needs.certify.outputs.yielded }}',
+    });
+    expect(backup.jobs.certify.outputs).toMatchObject({
+      yielded: '${{ steps.certify.outputs.yielded }}',
     });
     // Run the step's own script against the outcomes that matter.
     const outcome = (env: Record<string, string>) =>
@@ -503,6 +507,21 @@ describe('the keep-serving Backup proves its intent and is never green for nothi
         CERTIFY: 'skipped',
       }).status
     ).toBe(0);
+    // O37b (BUG 1C): a keep-serving run that yielded mid-soak exits 0 cleanly
+    // and never falsely reports "was refreshed and certified".
+    const yielded = outcome({
+      PLAN: 'success',
+      PLANNED: sha,
+      REFRESH: 'success',
+      DEFERRED: '',
+      CERTIFY: 'success',
+      YIELDED: '1',
+    });
+    expect(yielded.status, yielded.stderr).toBe(0);
+    expect(yielded.stdout).toContain(
+      'certify yielded mid-soak (candidate became unselectable); host handed back cleanly, nothing certified.'
+    );
+    expect(yielded.stdout).not.toContain('was refreshed and certified');
   });
 
   it("a person's manual dispatch is untouched: the refusal names only the job token", () => {

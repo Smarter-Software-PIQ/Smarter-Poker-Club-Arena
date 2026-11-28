@@ -138,6 +138,25 @@ describe('engine alert receipt and routing contract', () => {
       expect(sliceEnclosingBlock(caller, "alertname: '" + name + "'")).toContain('page: true');
     }
   });
+  it('stamps live 40-hex GIT_COMMIT_SHA as labels.engine_release on firing and resolved alerts', async () => {
+    const sha = '2b3b3647d3a6713c033030197366259a77a39a8a';
+    vi.stubEnv('GIT_COMMIT_SHA', sha);
+    await expect(raiseEngineAlert(input)).resolves.toBe(true);
+    await expect(resolveEngineAlert(input.alertname, input.component)).resolves.toBe(true);
+    const alerts = fetchMock.mock.calls.map(([, options]) => JSON.parse(options.body).alerts[0]);
+    expect(alerts.map((alert) => alert.status)).toEqual(['firing', 'resolved']);
+    expect(alerts.map((alert) => alert.labels.engine_release)).toEqual([sha, sha]);
+  });
+
+  it('omits labels.engine_release when GIT_COMMIT_SHA is absent or malformed', async () => {
+    vi.stubEnv('GIT_COMMIT_SHA', 'not-a-sha');
+    await expect(raiseEngineAlert(input)).resolves.toBe(true);
+    await expect(resolveEngineAlert(input.alertname, input.component)).resolves.toBe(true);
+    const alerts = fetchMock.mock.calls.map(([, options]) => JSON.parse(options.body).alerts[0]);
+    expect(alerts[0].labels.engine_release).toBeUndefined();
+    expect(alerts[1].labels.engine_release).toBeUndefined();
+  });
+
   it('settles journal writes after gameplay ownership release and before process exit', () => {
     const source = readFileSync(new URL('../index.ts', import.meta.url), 'utf8');
     const shutdown = sliceEnclosingBlock(source, 'await gameServer.stop();');

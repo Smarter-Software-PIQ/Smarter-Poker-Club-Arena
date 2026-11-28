@@ -1,0 +1,198 @@
+/* AGENT ANALYTICS IN #SMARTERDESIGN (batch 7, 2026-11-28)
+
+   The agent's figures on Agent Team's Players tab. The panel is an
+   `arena-case` under an `arena-section-title`; the four headline figures are
+   `arena-meter` tiles; the four secondary counts, each top recipient and each
+   loading placeholder are chrome `arena-ledger-row`s. Those come from
+   ArenaWorkspace.css and ArenaOps.css. This sheet lays them out, quiets the
+   old rounded rules underneath and sets the words, and the weekly bars, in
+   the workspace inks. Every rule is scoped under .arena-workspace. No new
+   gradient, radius or shadow; nothing reacts to a resting pointer. No figure,
+   word, handler or hook changes. */
+
+.arena-workspace .aad-container {
+  margin: 7px 0;
+  backdrop-filter: none;
+  color: #dce5ef;
+}
+
+.arena-workspace .aad-container > .aad-title.arena-section-title {
+  margin: 0;
+}
+
+/* ── Headline figures: value under its label, as every tile reads ─── */
+.arena-workspace .aad-container .aad-kpis {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+}
+
+@media (min-width: 721px) {
+  .arena-workspace .aad-container .aad-kpis {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.arena-workspace .aad-container .aad-kpi.arena-meter {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 3px;
+  padding: 6px 4px;
+}
+
+.arena-workspace .aad-container .aad-kpi-label {
+  margin: 0;
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.arena-workspace .aad-container .aad-kpi-value {
+  overflow-wrap: anywhere;
+  color: #f1f5fc;
+  font:
+    800 18px/1.1 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.arena-workspace .aad-container .aad-kpi-value.aad-green {
+  color: #c8ffd2;
+}
+
+.arena-workspace .aad-container .aad-kpi-value.aad-amber {
+  color: #ffe98a;
+}
+
+.arena-workspace .aad-container .aad-kpi-value.aad-red {
+  color: #ff5b6e;
+}
+
+/* ── Secondary counts: four chrome rows ───────────────────────────── */
+.arena-workspace .aad-container .aad-secondary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+}
+
+@media (min-width: 721px) {
+  .arena-workspace .aad-container .aad-secondary {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.arena-workspace .aad-container .aad-sec-item.arena-ledger-row {
+  gap: 6px;
+  min-height: 44px;
+  padding: 4px 8px;
+}
+
+.arena-workspace .aad-container .aad-sec-label {
+  color: #9fbacc;
+  font:
+    700 11px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.arena-workspace .aad-container .aad-sec-value {
+  color: #f1f5fc;
+  font:
+    800 15px/1.1 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── The weekly bars and the top recipients ───────────────────────── */
+.arena-workspace .aad-container .aad-chart-section,
+.arena-workspace .aad-container .aad-top-section {
+  margin: 4px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid #253e57;
+}
+
+.arena-workspace .aad-container .aad-chart-title {
+  margin: 0 0 8px;
+  color: #f1f5fc;
+  font:
+    800 15px/1.1 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+/* Each bar stands in a field-glass well and fills with the live ink. */
+.arena-workspace .aad-container .aad-bar-wrapper {
+  box-sizing: border-box;
+  background: #040d17;
+  border: 1px solid #253e57;
+}
+
+.arena-workspace .aad-container .aad-bar {
+  background: #74dfff;
+  border-radius: 0;
+}
+
+.arena-workspace .aad-container .aad-bar-label {
+  color: #9fbacc;
+  font:
+    10px/1.2 Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.arena-workspace .aad-container .aad-top-row.arena-ledger-row {
+  min-height: 44px;
+  margin: 0 0 4px;
+  padding: 4px 10px;
+}
+
+.arena-workspace .aad-container .aad-top-rank {
+  color: #74dfff;
+  font:
+    800 13px/1 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.arena-workspace .aad-container .aad-top-id {
+  color: #9fbacc;
+  font-size: 11px;
+}
+
+.arena-workspace .aad-container .aad-top-amount {
+  color: #f1f5fc;
+  font:
+    800 14px/1.1 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.arena-workspace .aad-container .aad-top-count {
+  color: #9fbacc;
+  font-size: 11px;
+}
+
+.arena-workspace .aad-container .aad-top-clawed {
+  color: #ff5b6e;
+  font-size: 11px;
+}
+
+/* ── Loading ─────────────────────────────────────────────────────── */
+.arena-workspace .aad-container .aad-skeleton.arena-ledger-row {
+  height: 56px;
+  box-sizing: border-box;
+}

@@ -298,8 +298,28 @@ create_worktree() {
 # server/node_modules and was BLOCKED with "required local server dependencies
 # are incomplete" and no command to type.
 TREE_NPM_CI="npm ci --ignore-scripts --no-audit --no-fund"
+
+# NEVER ALLOW A WORKTREE node_modules SYMLINK TO SURVIVE OR BE INSTALLED THROUGH (2026-11-28).
+# `npm ci` / `npm install` deletes and rewrites through a symlinked node_modules,
+# gutting the shared clone's install for every worktree on the machine at once.
+# Refuse read-only (without mutating the link or its target) and name the exact
+# safe unlink + isolated install command.
+refuse_symlinked_node_modules() {
+  local dst="$1" label="$2" target
+  if [ -L "$dst/node_modules" ]; then
+    target="$(readlink "$dst/node_modules" 2>/dev/null || echo 'unknown')"
+    echo "REFUSED: $label ($dst/node_modules) is a symlink (-> $target)." >&2
+    echo "  Running npm ci or npm install inside this worktree would write through the symlink and gut the shared node_modules." >&2
+    echo "  Remove ONLY the worktree symlink (never the target), then install isolated dependencies:" >&2
+    echo "    rm \"$dst/node_modules\" && (cd \"$dst\" && $TREE_NPM_CI)" >&2
+    return 1
+  fi
+  return 0
+}
+
 install_in_tree() {
   # $1 = absolute package dir, $2 = label
+  refuse_symlinked_node_modules "$1" "$2" || return 1
   if ! command -v npm >/dev/null 2>&1; then
     echo "# $2: npm is not on PATH - run: (cd \"$1\" && $TREE_NPM_CI)" >&2
     return 0
@@ -319,6 +339,8 @@ provision_node_modules() {
   local src="$ROOT${rel:+/$rel}"
   local dst="$DIR${rel:+/$rel}"
   local label="${rel:-.}/node_modules"
+
+  refuse_symlinked_node_modules "$dst" "$label" || return 1
 
   if [ "$(uname -s)" = Darwin ]; then
     echo "# $label: automatic Mac provisioning disabled; prepare owned SSD dependencies for required local prechecks" >&2
@@ -496,17 +518,29 @@ find_node_modules_donor() {
 # carries its own manifest" - so the next package added would have been silently
 # unprovisioned, which is the same failure one package later.
 provision_all_package_roots() {
-  provision_node_modules ""
-  while IFS= read -r _manifest; do
-  [ -n "$_manifest" ] || continue
-  provision_node_modules "${_manifest%/package.json}"
-  done <<EOF_PKGS
-$(cd "$ROOT" 2>/dev/null && find . -name package.json \
+  local _nested _manifest
+  _nested="$(cd "$ROOT" 2>/dev/null && find . -name package.json \
     -not -path '*/node_modules/*' -not -path './.git/*' \
     -not -path './.cowork-trees/*' -not -path './.agent-trees/*' \
-    -mindepth 2 -maxdepth 3 2>/dev/null | sed 's|^\./||')
+    -mindepth 2 -maxdepth 3 2>/dev/null | sed 's|^\./||')"
+  # Preflight EVERY package root before any clone/install runs so a symlinked
+  # nested package (e.g. server/node_modules) aborts cleanly without side effects.
+  refuse_symlinked_node_modules "$DIR" "./node_modules" || return 1
+  while IFS= read -r _manifest; do
+    [ -n "$_manifest" ] || continue
+    local _rel="${_manifest%/package.json}"
+    refuse_symlinked_node_modules "$DIR/$_rel" "$_rel/node_modules" || return 1
+  done <<EOF_SYMLINK_PREFLIGHT
+$_nested
+EOF_SYMLINK_PREFLIGHT
+
+  provision_node_modules ""
+  while IFS= read -r _manifest; do
+    [ -n "$_manifest" ] || continue
+    provision_node_modules "${_manifest%/package.json}"
+  done <<EOF_PKGS
+$_nested
 EOF_PKGS
-  unset _manifest
 }
 
 # ── PRESENT IS NOT THE SAME AS USABLE (2026-08-25) ──
@@ -530,6 +564,7 @@ verify_native_deps() {
   # this path must neither copy native packages nor remove incomplete ones.
   [ "$(uname -s)" = Darwin ] && return 0
   local dst="$1"
+  refuse_symlinked_node_modules "$dst" "$dst/node_modules" || return 1
   [ -d "$dst/node_modules" ] || return 0
 
   # ONLY THIS PLATFORM'S PACKAGE. npm creates a directory for every platform in
