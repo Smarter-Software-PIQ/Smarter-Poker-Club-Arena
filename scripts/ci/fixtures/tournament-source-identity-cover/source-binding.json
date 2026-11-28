@@ -10,7 +10,7 @@
   "sourceFiles": {
     "docs/changelog/2026-10-29-tournament-source-identity-cover.md": "563c6c15b9e27de6cdf443ba9175e8f1831279f3b5110799f67a0deefc6fcf25",
     "docs/laws.d/tournament-source-identities-keep-narrow-physical-coverage.md": "35e2fed8e6d6de6270568bc1fbe040c285f104400d960fa5ac82d6ccd56b60ae",
-    "scripts/ci/apply-recorded-migration.mjs": "942fdb90bc5e1002a136b8c1f2f4fb940732306d6921dc5b571f8bf3e66e93b5",
+    "scripts/ci/apply-recorded-migration.mjs": "0b0300df63add91b99c6944959704a7e7c8184e330ce991456f79c5d33c1fe2d",
     "scripts/ci/fixtures/tournament-source-identity-cover/README.md": "69a44db7363317740ec41fa7bd477d8b5930e4794aa67ecf1a26fa18170825db",
     "scripts/ci/fixtures/tournament-source-identity-cover/actual-table-authority.json": "49ec49708441d27f3d37467659953464890439b0d508d04f5280ae35ab1dc648",
     "scripts/ci/fixtures/tournament-source-identity-cover/meaningful-table-contract.json": "62c3fe9a746c851433e3b5c70089448f634e9433326250a21ef569eb6e511f86",
@@ -199,5 +199,11 @@
     "before": "84be2b9cee82b716cc7883f4a2a074a797e273fd1987b2380b2676245dba10cf",
     "after": "942fdb90bc5e1002a136b8c1f2f4fb940732306d6921dc5b571f8bf3e66e93b5",
     "review": "Reviewed exact diff. Additions only: one import of releaseFreezeAdmission from scripts/ci/release-freeze-admission.mjs and, directly after the unchanged :50-:03 break-window refusal, a block that runs only when RELEASE_FREEZE_ENFORCED is 'true' (set only by apply-merged-migration.yml). Inside the nightly release schema freeze (23:45-04:15 America/Chicago) it refuses via the existing refused() before any connection, unless --dry-run, the maintenance-window route, or --release-freeze-override with at least 20 characters naming an outage. Nothing removed or reordered; with the flag unset (every throwaway-database proof and native fixture) the old path is taken byte for byte. Law: tests/a-hand-install-respects-the-release-freeze.law.test.ts. No financial, native-fixture or production qualification is restamped or claimed."
+  },
+  "preDdlTransientLockBackoff20261128": {
+    "path": "scripts/ci/apply-recorded-migration.mjs",
+    "before": "942fdb90bc5e1002a136b8c1f2f4fb940732306d6921dc5b571f8bf3e66e93b5",
+    "after": "0b0300df63add91b99c6944959704a7e7c8184e330ce991456f79c5d33c1fe2d",
+    "review": "Reviewed exact 8-line diff. Additions only: one import of waitForPreDdlLocks from scripts/ci/migration-pre-lock-wait.mjs and one call `if (!DRY_RUN) { await waitForPreDdlLocks(client, transactionBody); }` placed strictly before SET transaction_timeout and before the single client.query(transactionSQL) send. Performs a read-only SELECT on pg_locks + pg_stat_activity for conflicting active locks on target tables (bounded to max 3 checks x 5s = 15s total, zero delay when uncontended or when migration has no table-locking DDL). Never retries after BEGIN; concurrent preamble, recovery, settlement, accounting, thaw, window, atomic history, transaction budget and refusal/unknown semantics are byte-identical. Unit and live-PG regression: tests/unit/applyMigrationPreLockWait.test.ts. No financial, native-fixture or production qualification is restamped or claimed."
   }
 }
