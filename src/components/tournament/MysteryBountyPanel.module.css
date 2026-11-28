@@ -416,3 +416,8 @@
   text-transform: uppercase;
   cursor: pointer;
 }
+
+/* On the painted console, the arena key wrapper lays nothing out. */
+:global(.mbp-keys) {
+  display: contents;
+}

@@ -33,6 +33,8 @@
 import { useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import HandReplay from '../../components/replay/HandReplay';
+import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
+import '../../components/ops/ArenaOps.css';
 import './HandReplayerPage.css';
 
 export default function HandReplayerPage() {
@@ -43,8 +45,17 @@ export default function HandReplayerPage() {
   }, []);
 
   return (
-    <div className="hand-replayer-page">
-      <HandReplay handId={handId} />
+    <div className="arena-workspace hand-replayer-workspace">
+      <div className="hand-replayer-shell">
+        <ArenaWorkspaceHeader
+          area="handreview"
+          title="Hand Replay"
+          summary="Replay Every Street, Action And Showdown From This Recorded Hand."
+        />
+        <div className="arena-case arena-ops-case hand-replayer-page">
+          <HandReplay handId={handId} />
+        </div>
+      </div>
     </div>
   );
 }

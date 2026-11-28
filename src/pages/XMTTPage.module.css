@@ -1,184 +1,182 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   XMTT LOBBY - on the spade console (2026-09-08)
+   XMTT LOBBY — #SmarterDesign Arena Workspace (Batch T2, 2026-11-28)
 
-   The frame, the crest, the header well, the pill slot, the two action plates
-   and the flat closing cap all come from the approved master via
-   SpadeConsole.css. This sheet stacks the consoles on black and types the
-   figures on the glass between the rails.
-
-   The split-pane cards, the coloured status chips, the four-cell detail grid
-   and the four gradient buttons are gone. Every figure is a row: label in the
-   master's lit blue on the left, value in silver on the right, an engraved
-   rule between rows - a black cut with a light lip, the same cut the master's
-   own chrome rules are made of.
-
-   Sizes are cqw against the console; no :hover anywhere; nothing drawn.
+   Every selector is scoped under :global(.arena-workspace). The chrome case,
+   section titles, chrome-stat switches and chrome ledger rows come from
+   ArenaWorkspace.css and ArenaOps.css; this sheet only lays the lobby out and
+   types its rows in the workspace inks. No gradients, radii, shadows, or
+   :hover rules here.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-.page {
-  display: grid;
-  gap: 12px;
-  padding: 8px 12px 24px;
-  background: #000;
+:global(.arena-workspace).page {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   min-height: 100%;
+  padding-bottom: max(var(--bottom-nav-clearance, 74px), env(safe-area-inset-bottom));
+  overflow-x: hidden;
+  overflow-x: clip;
 }
 
-.head,
-.card {
+:global(.arena-workspace).page .head,
+:global(.arena-workspace).page .card {
   width: 100%;
-  max-width: 560px;
+  max-width: 720px;
   margin: 0 auto;
 }
 
-/* The selected row is LIT, not filled: brighter type, same frame. */
-.cardSelected {
-  filter: brightness(1.12);
+:global(.arena-workspace).page .cardSelected {
+  filter: brightness(1.08);
 }
 
-/* ── The filters: lit words on the glass, never pills ────────────────────── */
-
-.filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1.6cqw 5cqw;
-  padding: 1cqw 0.5cqw 2cqw;
-}
-
-.filter {
-  appearance: none;
+:global(.arena-workspace).page .filters {
   margin: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: #7f8b99;
-  font:
-    800 3cqw/1 'Roboto Condensed',
-    Inter,
-    sans-serif;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+}
+
+:global(.arena-workspace).page .filter {
   cursor: pointer;
 }
 
-.filter:active {
-  filter: brightness(1.3);
+:global(.arena-workspace).page .filterActive {
+  color: #f1f5fc;
 }
 
-.filterActive {
-  color: #45adff;
-  text-shadow:
-    0 0 0.9cqw rgb(49 168 255 / 70%),
-    0 0 2cqw rgb(49 168 255 / 30%);
-}
-
-.filter:focus-visible,
-.link:focus-visible {
-  outline: 0.5cqw solid #8fd4ff;
-  outline-offset: 0.4cqw;
-}
-
-/* ── The ways out, and the error line: lit words on the glass ────────────── */
-
-.links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2cqw 6cqw;
-  justify-content: center;
+:global(.arena-workspace).page .links {
   margin: 0;
-  padding: 2cqw 0.5cqw 0;
-  border-top: 1px solid #000;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
 }
 
-.link {
-  appearance: none;
-  margin: 0;
-  padding: 0.8cqw 1.4cqw;
-  border: 0;
-  background: transparent;
-  font:
-    800 3.2cqw/1 'Roboto Condensed',
-    Inter,
-    sans-serif;
-  letter-spacing: 0.14em;
-  text-decoration: none;
-  text-transform: uppercase;
+:global(.arena-workspace).page .link {
   cursor: pointer;
 }
 
-.link:active {
-  filter: brightness(1.3);
-}
-
-.error {
+:global(.arena-workspace).page .notice,
+:global(.arena-workspace).page .error {
   display: flex;
-  gap: 3cqw;
-  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
   justify-content: space-between;
-  margin-top: 2cqw;
-  padding: 2.2cqw 0.5cqw 0;
-  border-top: 1px solid #000;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
+  margin: 0;
+  padding: 8px 10px;
+  color: #dce5ef;
   font:
-    600 3.1cqw/1.4 Inter,
-    system-ui,
+    600 13px/1.4 Arial,
     sans-serif;
 }
 
-/* ── The figures ─────────────────────────────────────────────────────────── */
-
-.rows {
-  display: grid;
+:global(.arena-workspace).page .inlineAction {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  margin: 0;
+  padding: 6px 12px;
+  border: 1px solid #476079;
+  background: #040d17;
+  color: #74dfff;
+  font:
+    700 12px/1 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  cursor: pointer;
 }
 
-.row {
+:global(.arena-workspace).page .inlineAction:active {
+  filter: brightness(0.86);
+}
+
+:global(.arena-workspace).page .inlineAction:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+
+:global(.arena-workspace).page .copy {
+  margin: 0;
+  padding: 8px 4px;
+  color: #9fbacc;
+  font:
+    13px/1.45 Arial,
+    sans-serif;
+  text-align: center;
+}
+
+:global(.arena-workspace).page .rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+:global(.arena-workspace).page .row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 3cqw;
+  gap: 10px;
   align-items: baseline;
-  padding: 2.2cqw 0.5cqw;
-  border-top: 1px solid #000;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
+  padding: 8px 10px;
 }
 
-.value {
+:global(.arena-workspace).page .label {
+  color: #9fbacc;
+  font:
+    700 12px/1.25 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+:global(.arena-workspace).page .value {
   justify-self: end;
   min-width: 0;
-  font-size: 3.8cqw;
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  color: #f1f5fc;
+  font:
+    800 15px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
   text-align: right;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.player {
+:global(.arena-workspace).page .valueGold {
+  color: #ffd700;
+}
+
+:global(.arena-workspace).page .valueLive {
+  color: #74dfff;
+}
+
+:global(.arena-workspace).page .player {
   min-width: 0;
-  font-size: 3.6cqw;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  color: #f1f5fc;
+  font:
+    700 14px/1.25 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.sectionTitle {
-  margin: 3cqw 0 1.6cqw;
-  padding: 0 0.5cqw;
-  font-size: 4cqw;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+:global(.arena-workspace).page .sectionTitle {
+  margin: 8px 0 4px;
+  padding: 0 3px 5px;
+  border-bottom: 1px solid #253e57;
+  color: #f1f5fc;
+  font:
+    800 16px/1.1 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
 }
 
-/* The one refusal line on this page. It was borrowing the console's ink class
-   from a module sheet, where that name is hashed and resolves to nothing. */
-.actionError {
+:global(.arena-workspace).page .actionError {
   color: #ff5b6e;
   font:
-    600 3.2cqw/1.4 Inter,
-    system-ui,
+    600 13px/1.4 Arial,
     sans-serif;
-  text-shadow: 0 0 1cqw rgb(240 40 73 / 45%);
 }
