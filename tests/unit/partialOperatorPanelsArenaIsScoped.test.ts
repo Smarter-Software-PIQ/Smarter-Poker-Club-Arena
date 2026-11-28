@@ -17,6 +17,11 @@ const css = (path: string) => read(path).replace(/\/\*[\s\S]*?\*\//g, '');
    that also carries the panel's older rules] */
 const SHEETS: Array<[string, RegExp, string | null]> = [
   ['src/components/bbj/BBJThresholdArena.css', /^\.arena-workspace\s/, null],
+  [
+    'src/components/leaderboard/LeaderboardCard.module.css',
+    /^:global\(\.arena-workspace\)\s/,
+    '#SmarterDesign (2026-11-28)',
+  ],
 ];
 
 /* [component, its one host page, the host's arena root] */
@@ -25,6 +30,11 @@ const HOSTS: Array<[string, string, string]> = [
     'src/components/bbj/BBJThresholdPanel',
     'src/pages/ClubSettingsPage.tsx',
     'club-settings-page arena-workspace',
+  ],
+  [
+    'src/components/leaderboard/LeaderboardCard',
+    'src/pages/PromotionsPage.tsx',
+    'promotions-page arena-workspace',
   ],
 ];
 
@@ -42,7 +52,7 @@ function arenaPart(path: string, marker: string | null): string {
   if (marker === null) return css(path);
   const at = raw.indexOf(marker);
   expect(at, `${path} lost its marker`).toBeGreaterThan(0);
-  return raw.slice(at).replace(/\/\*[\s\S]*?\*\//g, '');
+  return raw.slice(raw.lastIndexOf('/*', at)).replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
 function sources(dir: string): string[] {

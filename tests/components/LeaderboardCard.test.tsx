@@ -20,14 +20,14 @@ const entry = (userId: string, rank = 1) => ({
 });
 describe('Promotion Leaderboard Console', () => {
   beforeEach(() => getLeaderboard.mockReset());
-  it('uses one painted frame, or none when embedded on existing glass', async () => {
+  it('uses one chrome case, or none when embedded on existing glass', async () => {
     getLeaderboard.mockResolvedValue([entry('me')]);
     const { container, rerender } = render(<LeaderboardCard promotionId="a" />);
     await screen.findByText('19,255.12');
-    expect(container.querySelectorAll('.sc')).toHaveLength(1);
+    expect(container.querySelectorAll('.arena-case')).toHaveLength(1);
     expect(screen.getByText('Prize 250')).toBeInTheDocument();
     rerender(<LeaderboardCard promotionId="a" variant="glass" />);
-    expect(container.querySelectorAll('.sc')).toHaveLength(0);
+    expect(container.querySelectorAll('.arena-case')).toHaveLength(0);
   });
   it('does not render a load error as an empty leaderboard and supports retry', async () => {
     getLeaderboard.mockRejectedValueOnce(new Error('Offline')).mockResolvedValue([entry('me')]);
