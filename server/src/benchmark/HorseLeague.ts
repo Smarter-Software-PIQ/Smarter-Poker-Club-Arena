@@ -4717,6 +4717,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaReraisedPotFoldReraiseIsPriced: true },
     b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
+  // 2026-11-27 (owner order 12:48 PM Chicago, lead-8 lane limprr): omahaLimpReraiseVsIsoRaiser, default OFF: a strong
+  // first-in raise may become the priced limp and the Horse's own limp, raised heads-up, the priced pot re-raise, only in
+  // position or with a connected rundown. Both arms carry production's live set; a adds the option
+  // (docs/horse-option-authority.d/omahaLimpReraiseVsIsoRaiser.md).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_limp_reraise_vs_iso_raiser`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaLimpReraiseVsIsoRaiser: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
   // 2026-11-15 OMAHA OUT-OF-POSITION RE-RAISED POT STRONG RANGE (default OFF):
   // a preflop call of a 3-bet or more out of position against the last raiser
   // stands only with suited aces, as a priced commitment, or with a
@@ -5138,6 +5150,25 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       omahaTurnFacingBetPriorIsLineSplit: true,
     },
     b: { omahaFacingBetEv: true, omahaFacingBetPriorIsPeopleMeasured: true },
+  })),
+  // 2026-11-27 lead-9 lane HUOOP (default OFF, PLO4/PLO5 cash): the hidden part of the heads-up turn bettor's
+  // non-value share priced as give-ups (weakest half, full realization), on top of the hidden-bets people prior.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_hidden_bets_are_priced_as_give_ups`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaFacingBetEv: true,
+      omahaFacingBetPriorIsPeopleMeasured: true,
+      omahaPeoplePriorCountsHiddenBets: true,
+      omahaHiddenBetsArePricedAsGiveUps: true,
+    },
+    b: {
+      omahaFacingBetEv: true,
+      omahaFacingBetPriorIsPeopleMeasured: true,
+      omahaPeoplePriorCountsHiddenBets: true,
+    },
   })),
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_facing_bet_field_is_joint`,

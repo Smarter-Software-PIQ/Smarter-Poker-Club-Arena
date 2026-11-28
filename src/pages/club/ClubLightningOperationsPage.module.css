@@ -482,3 +482,94 @@
   font-size: 3.6cqw;
   color: #dbe2ea;
 }
+
+/* ── #SmarterDesign (Dan 2026-11-27) ──────────────────────────────────────
+   The painted consoles were the old style for a page section. The overview
+   and the Cluster detail now print in the arena workspace's thin chrome case
+   (ClubPageSection's `arena`): choices and actions are chrome switches (the
+   choice lit by aria-pressed, a lone action lit as the primary), each Cluster
+   and signal a chrome ledger row, sections under chrome titles. Everything
+   below is scoped to the workspace, so the confirmation dialogs, which portal
+   to the body on their own popup chassis, keep their look. The case is the
+   container the cqw type above reads. */
+.page:global(.arena-workspace.arena-workspace) {
+  padding-bottom: calc(var(--bottom-nav-clearance, 74px) + 24px);
+}
+
+.page:global(.arena-workspace) .console {
+  container-type: inline-size;
+  width: 100%;
+  max-width: 880px;
+  margin: 8px auto 0;
+  filter: none;
+}
+
+:global(.arena-workspace) .console [class*='sc-ink--'] {
+  text-shadow: none;
+}
+
+:global(.arena-workspace) .console :global(.arena-section-title) small {
+  color: #74dfff;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+:global(.arena-workspace) .words:global(.arena-switch) {
+  justify-content: stretch;
+  margin: 4px 0;
+}
+
+:global(.arena-workspace) :global(.arena-switch) > .word {
+  font:
+    700 12px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+  white-space: normal;
+}
+
+:global(.arena-workspace) .section {
+  padding: 8px 0 4px;
+  border-top: 1px solid #253e57;
+  box-shadow: none;
+}
+
+:global(.arena-workspace) .sectionTitle {
+  margin: 0 0 4px;
+  color: #f1f5fc;
+  font:
+    800 16px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+:global(.arena-workspace) .row + .row,
+:global(.arena-workspace) .gridRow + .gridRow,
+:global(.arena-workspace) .flagRow + .flagRow,
+:global(.arena-workspace) .changeRow + .changeRow {
+  border-top: 1px solid rgb(37 62 87 / 70%);
+  box-shadow: none;
+}
+
+:global(.arena-workspace) .records {
+  gap: 4px;
+}
+
+:global(.arena-workspace) .record:global(.arena-ledger-row) {
+  padding: 8px 10px;
+  border-top: 4px solid transparent;
+  box-shadow: none;
+}
+
+:global(.arena-workspace) .fieldInput {
+  box-sizing: border-box;
+  padding: 8px 10px;
+  background: #030b14;
+  border: 1px solid #253e57;
+  border-radius: 4px;
+  box-shadow: none;
+  color: #f1f5fc;
+}

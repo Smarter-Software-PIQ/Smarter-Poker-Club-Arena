@@ -185,10 +185,18 @@ describe('the public arena is readable without JavaScript', () => {
       "@font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url(/hub/club-arena/fonts/inter.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131; }",
       "@font-face { font-family: 'Inter'; font-style: normal; font-weight: 700; font-display: swap; src: url(/hub/club-arena/fonts/inter.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131; }",
       "@font-face { font-family: 'Rajdhani'; font-style: normal; font-weight: 400; font-display: swap; src: url(/hub/club-arena/fonts/rajdhani.woff2) format('woff2'); unicode-range: U+0000-00FF; }",
+      '/* cyrillic */',
+      "@font-face { font-family: 'Roboto Condensed'; font-style: normal; font-weight: 800; font-display: swap; src: url(/hub/club-arena/fonts/robotocondensed-cyr.woff2) format('woff2'); unicode-range: U+0400-045F; }",
+      '/* latin */',
+      "@font-face { font-family: 'Roboto Condensed'; font-style: normal; font-weight: 700; font-display: swap; src: url(/hub/club-arena/fonts/robotocondensed.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131; }",
+      "@font-face { font-family: 'Roboto Condensed'; font-style: normal; font-weight: 800; font-display: swap; src: url(/hub/club-arena/fonts/robotocondensed.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131; }",
     ].join('\n');
+    // The arena workspace titles name Roboto Condensed first (2026-11-27), so
+    // its one latin file is preloaded once; its other subsets are not.
     expect(latinFontUrls(fontsCss)).toEqual([
       '/hub/club-arena/fonts/cinzel.woff2',
       '/hub/club-arena/fonts/inter.woff2',
+      '/hub/club-arena/fonts/robotocondensed.woff2',
     ]);
     const fonts = {
       file: 'fonts-abc123.css',
@@ -204,7 +212,7 @@ describe('the public arena is readable without JavaScript', () => {
     );
     expect(markup).toContain('<style data-prerender="fonts">@font-face');
     expect(markup).not.toContain('/* latin */');
-    expect((markup.match(/@font-face/g) || []).length).toBe(5);
+    expect((markup.match(/@font-face/g) || []).length).toBe(8);
 
     const shell = [
       '<head>',

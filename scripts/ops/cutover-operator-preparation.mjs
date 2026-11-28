@@ -32,11 +32,31 @@
  *      refused by the election by name, a cycle with no owner is lost. The
  *      output says UNKNOWN, never "no owner" (CLAUDE.md 10.86).
  *
+ * THE FALLBACK OUTLASTS A SPENT QUOTA (2026-11-27). gh on the Mac uses the
+ * user login every agent there shares, so its 5,000-an-hour REST quota can be
+ * spent by other lanes. For the 13:00 Chicago cycle of 2026-11-27 both runs
+ * (12:33 and 12:41) fell inside an exhausted quota: the read and the send were
+ * refused and the log kept only "Command failed". So, before the read, it asks
+ * `gh api rate_limit` (free: GitHub's REST docs for GET /rate_limit say
+ * "Accessing this endpoint does not count against your REST API rate limit",
+ * https://docs.github.com/en/rest/rate-limit/rate-limit). When fewer than two
+ * core calls remain and the quota resets before the last useful moment of the
+ * cycle (the preparation window's end, less SEND_MARGIN_MS for the dispatched
+ * run to be created inside it), it waits ONCE until the reset, then reads once
+ * and sends at most once. A reset after that moment sends nothing and exits 4,
+ * naming both times. An unreadable rate_limit proceeds as before. A waiting
+ * instance holds a per-cycle lock, so the cron's second firing does not wait
+ * beside it and send a second dispatch. Every gh failure is logged with gh's
+ * own last stderr line (tokens redacted), never just "Command failed".
+ *
  * It is self-contained (node and gh only) so the installed copy on the Mac
  * needs no checkout. Exit 0: nothing owed, followed or sent. Exit 2: the
- * dispatch itself failed.
+ * dispatch itself failed. Exit 4: rate limited past the deadline, nothing sent.
  */
 import { execFileSync } from 'node:child_process';
+import { closeSync, openSync, readFileSync, unlinkSync, writeSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const REPO = 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena';
@@ -45,6 +65,13 @@ export const CYCLE_HOURS = Object.freeze([1, 4, 7, 10, 13, 16, 19, 22]);
 export const PREPARATION_LEAD_MINUTES = 30;
 export const PREPARATION_WINDOW_MINUTES = 20;
 export const RESERVATION_LOOKBACK_MINUTES = 100;
+/** Core calls one firing needs: the run-list read and the dispatch. */
+export const CALLS_NEEDED = 2;
+/** Wake this long after the quota's reset, so the new bucket is in force. */
+export const RESET_SETTLE_MS = 5_000;
+/** Send at least this long before the window ends, so the dispatched run is created inside it. */
+export const SEND_MARGIN_MS = 60_000;
+export const EXIT_RATE_LIMITED_PAST_DEADLINE = 4;
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 
@@ -142,6 +169,125 @@ export function decide(nowMs, runs) {
   };
 }
 
+const chicagoTime = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/Chicago',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+  timeZoneName: 'short',
+});
+/** "HH:MM CST" (or CDT) for an epoch millisecond. */
+export function chicagoHHMM(ms) {
+  const parts = Object.fromEntries(
+    chicagoTime.formatToParts(new Date(ms)).map((p) => [p.type, p.value])
+  );
+  return `${parts.hour}:${parts.minute} ${parts.timeZoneName}`;
+}
+
+/** The last moment a dispatch is still useful for this window's cycle. */
+export function sendDeadline(window) {
+  return window.end - SEND_MARGIN_MS;
+}
+
+const SECRET = /gh[pousr]_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+/g;
+/**
+ * The meaningful reason a gh call failed: the last non-empty line of its
+ * stderr (gh's own message), else of error.message; tokens redacted.
+ */
+export function failureReason(error) {
+  const lastLine = (text) =>
+    String(text ?? '')
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .pop();
+  const reason = lastLine(error?.stderr) ?? lastLine(error?.message ?? error) ?? 'unknown failure';
+  return reason.replace(SECRET, '[redacted]');
+}
+const isRateLimit = (reason) => /rate limit/i.test(reason);
+
+/**
+ * The core REST quota, { remaining, resetMs }, from `gh api rate_limit` (which
+ * does not spend the quota), or null when it cannot be read.
+ */
+export function readRateLimit(run = gh) {
+  try {
+    const core = JSON.parse(run(['api', 'rate_limit']))?.resources?.core;
+    const remaining = core?.remaining;
+    const reset = core?.reset;
+    if (!Number.isFinite(remaining) || !Number.isFinite(reset)) return null;
+    return { remaining, resetMs: reset * 1000 };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What the quota allows: { action: 'go' } (enough left, or unreadable),
+ * { action: 'wait', untilMs } (reset before the deadline), or
+ * { action: 'give-up', reason } (reset after the deadline).
+ */
+export function quotaPlan(nowMs, window, quota) {
+  if (!quota || quota.remaining >= CALLS_NEEDED) return { action: 'go' };
+  const untilMs = Math.max(nowMs, quota.resetMs + RESET_SETTLE_MS);
+  const deadline = sendDeadline(window);
+  if (untilMs <= deadline) return { action: 'wait', untilMs };
+  return {
+    action: 'give-up',
+    reason: `RATE LIMITED until ${chicagoHHMM(quota.resetMs)} after the deadline ${chicagoHHMM(deadline)} (${quota.remaining} core calls left); nothing sent`,
+  };
+}
+
+function sleepSync(ms) {
+  if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * A per-cycle lock held while one instance waits out the quota, so a second
+ * cron firing of the same cycle does not wait beside it and send twice. Returns
+ * a release function, or null when a live instance already holds it.
+ */
+export function takeCycleLock(window, dir = tmpdir()) {
+  const path = join(dir, `ca-cutover-operator-preparation-${window.start}.lock`);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const fd = openSync(path, 'wx');
+      writeSync(fd, String(process.pid));
+      closeSync(fd);
+      return () => {
+        try {
+          unlinkSync(path);
+        } catch {
+          /* already gone */
+        }
+      };
+    } catch {
+      let holder = NaN;
+      try {
+        holder = Number(readFileSync(path, 'utf8'));
+      } catch {
+        /* unreadable: treat as stale */
+      }
+      let alive = false;
+      if (Number.isInteger(holder) && holder > 0) {
+        try {
+          process.kill(holder, 0);
+          alive = true;
+        } catch (e) {
+          alive = e?.code === 'EPERM';
+        }
+      }
+      if (alive) return null;
+      try {
+        unlinkSync(path);
+      } catch {
+        /* raced */
+      }
+    }
+  }
+  return null;
+}
+
 function gh(args) {
   return execFileSync('gh', args, {
     encoding: 'utf8',
@@ -151,7 +297,7 @@ function gh(args) {
 }
 
 /** The Stage runs created since the reservation opened, or null when unreadable. */
-export function readStageRuns(window, run = gh) {
+export function readStageRuns(window, run = gh, onError = () => {}) {
   try {
     const since = new Date(window.reservation).toISOString().replace(/\.\d+Z$/, 'Z');
     const out = run([
@@ -162,29 +308,78 @@ export function readStageRuns(window, run = gh) {
     if (!Array.isArray(body.workflow_runs) || typeof body.total_count !== 'number') return null;
     if (body.total_count > body.workflow_runs.length) return null;
     return body.workflow_runs;
-  } catch {
+  } catch (error) {
+    onError(failureReason(error));
     return null;
   }
 }
 
-export function main({ nowMs = Date.now(), run = gh, log = console.log } = {}) {
+export function main({
+  nowMs = Date.now(),
+  run = gh,
+  log = console.log,
+  sleep = sleepSync,
+  clock = Date.now,
+  lockDir = tmpdir(),
+} = {}) {
+  const prefix = '[cutover-operator-preparation]';
   const window = preparationWindow(nowMs);
   if (!window) {
-    log('[cutover-operator-preparation] outside every preparation window; nothing to do');
+    log(`${prefix} outside every preparation window; nothing to do`);
     return 0;
   }
-  const verdict = decide(nowMs, readStageRuns(window, run));
-  log(`[cutover-operator-preparation] ${verdict.reason}`);
-  if (verdict.action !== 'send') return 0;
-  try {
-    run(['api', '--method', 'POST', `repos/${REPO}/dispatches`, '-f', `event_type=${EVENT_TYPE}`]);
-    log(`[cutover-operator-preparation] SENT: ${EVENT_TYPE} (Stage elects it like any other run)`);
-    return 0;
-  } catch (error) {
+  let now = nowMs;
+  const plan = quotaPlan(now, window, readRateLimit(run));
+  if (plan.action === 'give-up') {
+    log(`${prefix} ${plan.reason}`);
+    return EXIT_RATE_LIMITED_PAST_DEADLINE;
+  }
+  let release = () => {};
+  if (plan.action === 'wait') {
+    const held = takeCycleLock(window, lockDir);
+    if (!held) {
+      log(
+        `${prefix} FOLLOW: another instance is waiting out the quota for this cycle; nothing sent`
+      );
+      return 0;
+    }
+    release = held;
     log(
-      `[cutover-operator-preparation] SEND FAILED: ${String(error?.message ?? error).split('\n')[0]}`
+      `${prefix} RATE LIMITED until ${chicagoHHMM(plan.untilMs - RESET_SETTLE_MS)}; waiting once, then one read and at most one send before ${chicagoHHMM(sendDeadline(window))}`
     );
-    return 2;
+    sleep(plan.untilMs - now);
+    now = Math.max(plan.untilMs, clock());
+  }
+  try {
+    const runs = readStageRuns(window, run, (reason) =>
+      log(`${prefix} READ FAILED: ${isRateLimit(reason) ? 'RATE LIMITED: ' : ''}${reason}`)
+    );
+    const verdict = decide(now, runs);
+    log(`${prefix} ${verdict.reason}`);
+    if (verdict.action !== 'send') return 0;
+    try {
+      run([
+        'api',
+        '--method',
+        'POST',
+        `repos/${REPO}/dispatches`,
+        '-f',
+        `event_type=${EVENT_TYPE}`,
+      ]);
+      log(`${prefix} SENT: ${EVENT_TYPE} (Stage elects it like any other run)`);
+      return 0;
+    } catch (error) {
+      const reason = failureReason(error);
+      let named = reason;
+      if (isRateLimit(reason)) {
+        const quota = readRateLimit(run);
+        named = `RATE LIMITED until ${quota ? chicagoHHMM(quota.resetMs) : 'an unreadable reset'}: ${reason}`;
+      }
+      log(`${prefix} SEND FAILED: ${named}`);
+      return 2;
+    }
+  } finally {
+    release();
   }
 }
 

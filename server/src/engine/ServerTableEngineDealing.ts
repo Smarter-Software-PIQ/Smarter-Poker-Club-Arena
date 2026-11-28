@@ -50,6 +50,7 @@ import {
   processLeavePending,
   readSeatWalletBalances,
 } from '../services/supabase.js';
+import { runWithEventDbPriority } from '../services/supabase/eventDatabaseBulkhead.js';
 import {
   BUST_REBUY_WINDOW_MS,
   bustRebuyRemainingMs,
@@ -3219,6 +3220,9 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       this.hasWeeklyPayoutMutationInFlight()
     )
       return false;
+    if (typeof controller.getLifecyclePhase === 'function') {
+      return controller.getLifecyclePhase().handStarted === false;
+    }
     return JSON.parse(controller.serializeRecoveryState()).handStarted === false;
   }
 
@@ -3288,6 +3292,9 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       this.hasWeeklyPayoutMutationInFlight()
     )
       return false;
+    if (typeof controller.getLifecyclePhase === 'function') {
+      return controller.getLifecyclePhase().handStarted === false;
+    }
     return JSON.parse(controller.serializeRecoveryState()).handStarted === false;
   }
 
@@ -3327,60 +3334,66 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   }
 
   protected async readNextHandInputs(): Promise<SeatedPlayer[]> {
-    // Seats and cash rake can be prepared in parallel under the rest.
-    // Tournament blinds must wait until that rest ends: a level may advance
-    // after this prepared roster is ready but before its hand is created.
-    const reads = [
-      this.withStepBudget(
-        'load_seats',
-        ServerTableEngineBase.DEAL_STEP_BUDGET_MS,
-        this.timeCashPrepareBranch('load_seats', loadSeatedPlayers(this.tableId))
-      ),
-      this.withStepBudget(
-        'refresh_rake',
-        ServerTableEngineBase.DEAL_STEP_BUDGET_MS,
-        this.timeCashPrepareBranch('refresh_rake', this.refreshRakeConfig())
-      ),
-      /* THE HALT, READ ONCE PER HAND ON A CLUSTER TABLE (2026-09-25). In
-         parallel with the roster, so it costs the deal no latency, and on
-         DEALING_HALT_TTL_MS rather than the rule re-read's minute - the gap
-         in which a busy table went on starting hands after its Cluster had
-         halted it. A no-op for every table outside a Cluster. The result is
-         honoured by the isNextHandPaused() check that follows the rest, the
-         last thing before dealHand(), and again at the top of the next pass. */
-      this.withStepBudget(
-        'refresh_dealing_halt',
-        ServerTableEngineBase.DEAL_STEP_BUDGET_MS,
-        this.timeCashPrepareBranch('refresh_dealing_halt', this.refreshDealingHalt())
-      ),
-    ] as const;
-    this.setLoopPhase('load_next_hand_inputs');
-    const haltedBeforeRead = this.dealingHaltLock;
-    // Do not fail fast and start another iteration while a sibling read is
-    // still in its budget. The old roster is retained if any input fails.
-    const [seats, rake, halt] = await Promise.allSettled(reads);
-    if (seats.status === 'rejected') throw seats.reason;
-    if (rake.status === 'rejected') throw rake.reason;
-    if (halt.status === 'rejected') throw halt.reason;
-    /* A HALT THAT LIFTED IN THIS READ GETS A ROSTER READ AFTER IT (Lightning
-       Phase 7, 2026-10-02). LIGHTNING -> MUST_MOVE clears the halt only after
-       every Lightning hand has settled, and those settlements moved chips on
-       this table's anchor seats while it stood halted. The roster and the
-       halt are separate round trips sent side by side, so the halt can be
-       answered cleared while the roster beside it was answered before the
-       last settlement committed - and the first hand back would be dealt on
-       stacks the database no longer holds. When this read is the one that
-       saw the lift, the seats are read once more, sent after the lift was
-       observed, so they include every settlement the lift waited for. Costs
-       one extra read per lift and nothing on any other hand. */
-    if (haltedBeforeRead && !this.dealingHaltLock) {
-      return await this.withStepBudget(
-        'load_seats_after_halt_lift',
-        ServerTableEngineBase.DEAL_STEP_BUDGET_MS,
-        this.timeCashPrepareBranch('load_seats_after_halt_lift', loadSeatedPlayers(this.tableId))
-      );
-    }
-    return seats.value;
+    // Live table between-hands REST reads (`table_seats`, `tournaments`, rake/halt)
+    // sit directly on the hand-gap boundary. Elevate them via bulkhead priority
+    // override so they never queue behind multi-page background elimination sweep
+    // or balance scans while keeping all pool caps intact (incident 1e532243).
+    return runWithEventDbPriority('high', async () => {
+      // Seats and cash rake can be prepared in parallel under the rest.
+      // Tournament blinds must wait until that rest ends: a level may advance
+      // after this prepared roster is ready but before its hand is created.
+      const reads = [
+        this.withStepBudget(
+          'load_seats',
+          ServerTableEngineBase.DEAL_STEP_BUDGET_MS,
+          this.timeCashPrepareBranch('load_seats', loadSeatedPlayers(this.tableId))
+        ),
+        this.withStepBudget(
+          'refresh_rake',
+          ServerTableEngineBase.DEAL_STEP_BUDGET_MS,
+          this.timeCashPrepareBranch('refresh_rake', this.refreshRakeConfig())
+        ),
+        /* THE HALT, READ ONCE PER HAND ON A CLUSTER TABLE (2026-09-25). In
+           parallel with the roster, so it costs the deal no latency, and on
+           DEALING_HALT_TTL_MS rather than the rule re-read's minute - the gap
+           in which a busy table went on starting hands after its Cluster had
+           halted it. A no-op for every table outside a Cluster. The result is
+           honoured by the isNextHandPaused() check that follows the rest, the
+           last thing before dealHand(), and again at the top of the next pass. */
+        this.withStepBudget(
+          'refresh_dealing_halt',
+          ServerTableEngineBase.DEAL_STEP_BUDGET_MS,
+          this.timeCashPrepareBranch('refresh_dealing_halt', this.refreshDealingHalt())
+        ),
+      ] as const;
+      this.setLoopPhase('load_next_hand_inputs');
+      const haltedBeforeRead = this.dealingHaltLock;
+      // Do not fail fast and start another iteration while a sibling read is
+      // still in its budget. The old roster is retained if any input fails.
+      const [seats, rake, halt] = await Promise.allSettled(reads);
+      if (seats.status === 'rejected') throw seats.reason;
+      if (rake.status === 'rejected') throw rake.reason;
+      if (halt.status === 'rejected') throw halt.reason;
+      /* A HALT THAT LIFTED IN THIS READ GETS A ROSTER READ AFTER IT (Lightning
+         Phase 7, 2026-10-02). LIGHTNING -> MUST_MOVE clears the halt only after
+         every Lightning hand has settled, and those settlements moved chips on
+         this table's anchor seats while it stood halted. The roster and the
+         halt are separate round trips sent side by side, so the halt can be
+         answered cleared while the roster beside it was answered before the
+         last settlement committed - and the first hand back would be dealt on
+         stacks the database no longer holds. When this read is the one that
+         saw the lift, the seats are read once more, sent after the lift was
+         observed, so they include every settlement the lift waited for. Costs
+         one extra read per lift and nothing on any other hand. */
+      if (haltedBeforeRead && !this.dealingHaltLock) {
+        return await this.withStepBudget(
+          'load_seats_after_halt_lift',
+          ServerTableEngineBase.DEAL_STEP_BUDGET_MS,
+          this.timeCashPrepareBranch('load_seats_after_halt_lift', loadSeatedPlayers(this.tableId))
+        );
+      }
+      return seats.value;
+    });
   }
 
   protected refreshBlinds(): Promise<void> {
@@ -3410,7 +3423,9 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
         if (!current()) return;
-        const data = await loadTournamentBlinds(this.tableId, table.tournament_id!);
+        const data = await runWithEventDbPriority('high', () =>
+          loadTournamentBlinds(this.tableId, table.tournament_id!)
+        );
         if (!current()) return;
         if (data) {
           /* AND TELL THE FELT (2026-09-09). `TABLE_META_UPDATE` - the message
@@ -5765,6 +5780,13 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
                   this.handPreparedUnderTheRest = false;
                   this.snapshotDirty = true;
                   this.detachTableWork('flushSnapshot', this.flushSnapshot());
+                }
+              : undefined,
+            typeof this.captureContinuationAccounting === 'function' &&
+              !Object.prototype.hasOwnProperty.call(this, 'captureContinuationEngine')
+              ? {
+                  captureAccounting: () => this.captureContinuationAccounting(),
+                  engineCaptureDetached: true,
                 }
               : undefined
           );

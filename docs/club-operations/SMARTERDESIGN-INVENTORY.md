@@ -44,35 +44,64 @@ integrity mast on Disputes and Blacklist. The table and felt are out of scope.
 | 2   | Club Rules    | `src/pages/ClubRulesPage.tsx`         | Painted spade console became the thin chrome case; Copy / Edit Rules a chrome switch.                           |
 | 3   | Announcements | `src/pages/ClubAnnouncementsPage.tsx` | Painted spade console became the chrome case; each post a chrome row; Pin / Delete and Refresh / New Post keys. |
 
+## Batch 2
+
+| #   | Surface                | File                                                                              | What changed                                                                                                                                                                                                                                        |
+| --- | ---------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 4   | Bomb Pot Report        | `src/pages/club/ClubBombPotReportPage.tsx`                                        | Painted spade console became the chrome case (`ClubPageSection arena`); the window a chrome switch; the six totals chrome meters; each table a chrome ledger row; Back / Export CSV chrome keys, Export lit.                                        |
+| 5   | Insurance Report       | `src/pages/club/ClubInsuranceReportPage.tsx`                                      | Same as Bomb Pot Report: funnel and money as chrome meters, each day a chrome ledger row with its net.                                                                                                                                              |
+| 6   | Lightning (operations) | `src/pages/club/ClubLightningOperationsPage.tsx`, `src/pages/club/lightning/*`    | Overview and Cluster detail moved to the chrome case; every in-page choice and action group is a chrome switch (choice lit by aria-pressed, a lone action lit); each Cluster and signal a chrome row. The control dialogs keep their popup chassis. |
+| 7   | Player Offers          | `src/pages/PromotionsPage.tsx`, `src/components/rewards/RewardsSurfaceHeader.tsx` | `RewardsSurfaceHeader` gained an opt-in `arena` prop (the other 18 pages that use it are unchanged). Views a chrome switch, each offer a chrome row, Claim a lit key, Invite Friends / Daily Bonus chrome keys.                                     |
+| 8   | Cashier Statements     | `src/pages/CashierStatementsPage.tsx`                                             | Lit words on flat glass became the Cashier's arena dress: each section a chrome case, range and filter choices chrome switches, totals chrome meters, entries chrome rows, actions chrome keys, fields dark wells.                                  |
+
+Left as lit words on purpose: the Lightning reconcile row's Trail and the feature
+flag Turn On / Off cell words (single words inside grid cells), and the Cashier
+Statements Load More / Retry words. The Lightning confirmation dialogs portal to
+the body on their painted popup chassis, which is a popup, not a page section.
+
+## Batch 3
+
+| #   | Surface             | File                                       | What changed                                                                                                                                                                                                                                                         |
+| --- | ------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 9   | Welcome Message     | `src/pages/ClubWelcomeMessagePage.tsx`     | Painted console became the chrome case; the selects and the message dark wells; Reload / Save Message chrome keys with Save lit.                                                                                                                                     |
+| 10  | Banner Displays     | `src/pages/ClubBannerDisplaysPage.tsx`     | Chrome case; the preview under a chrome section title; the file picker a dark well; Remove Club Banner and Reload chrome keys; Back To Club / Save Banner the case keys with Save lit.                                                                               |
+| 11  | Settlement          | `src/pages/SettlementPage.tsx`             | Shell only: the painted console became the chrome case and Back a chrome key. `WeeklyAccountingWorkspace` inside, every figure, handler and hook, is untouched.                                                                                                      |
+| 12  | Table Bomb Settings | `src/pages/club/TableBombSettingsPage.tsx` | Chrome case; the trigger one chrome switch lit by aria-pressed; every number and choice a dark well; rows under chrome hairlines; Back / Save Settings chrome keys with Save lit.                                                                                    |
+| 13  | Disputes (body)     | `src/pages/DisputeManagementPage.tsx`      | Docket moved to the chrome case under the arena integrity mast; status filter a chrome switch lit by aria-selected; fields dark wells; every case a chrome row; Start Review, Resolve, Escalate and Withdraw chrome keys (Resolve green, Escalate and Withdraw red). |
+
+Still old inside on purpose: `WeeklyAccountingWorkspace` (the Settlement body)
+prints its own lit words. It is a money screen shared with the Settlement
+Dashboard and needs its own pass with its figure hooks pinned first.
+
 ## Ranked backlog
 
 ### Tier 1: high traffic, cheap
 
-| Rank | Surface                | File                                             | Today                                                                                                                                                                     |
-| ---- | ---------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1    | Cashier Statements     | `src/pages/CashierStatementsPage.tsx`            | Lit words on flat glass under the cashier page bar; range and filter choices are plain text. Linked from the Cashier. Needs an account-scope harness stub to render data. |
-| 2    | Player Offers          | `src/pages/PromotionsPage.tsx`                   | Flat page sheet, no frames (0 radius); Club Control rail page. 10 tests read the file.                                                                                    |
-| 3    | Lightning (operations) | `src/pages/club/ClubLightningOperationsPage.tsx` | Painted `SpadeConsole` sections; converts by the `ClubPageSection arena` alias.                                                                                           |
-| 4    | Bomb Pot Report        | `src/pages/club/ClubBombPotReportPage.tsx`       | Painted `SpadeConsole` report sections.                                                                                                                                   |
-| 5    | Insurance Report       | `src/pages/club/ClubInsuranceReportPage.tsx`     | Painted `SpadeConsole` report sections.                                                                                                                                   |
-| 6    | Welcome Message        | `src/pages/ClubWelcomeMessagePage.tsx`           | Painted `SpadeConsole`, small (298 lines), no tests.                                                                                                                      |
-| 7    | Banner Displays        | `src/pages/ClubBannerDisplaysPage.tsx`           | Painted `SpadeConsole`, small (225 lines).                                                                                                                                |
-| 8    | Settlement             | `src/pages/SettlementPage.tsx`                   | 50-line painted `SpadeConsole` shell around the settlement panels.                                                                                                        |
-| 9    | Table Bomb Settings    | `src/pages/club/TableBombSettingsPage.tsx`       | Painted `SpadeConsole` form sections.                                                                                                                                     |
+| Rank | Surface                                | File                                             | Today                                                                                                                                                                     |
+| ---- | -------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | Cashier Statements (done, batch 2)     | `src/pages/CashierStatementsPage.tsx`            | Lit words on flat glass under the cashier page bar; range and filter choices are plain text. Linked from the Cashier. Needs an account-scope harness stub to render data. |
+| 2    | Player Offers (done, batch 2)          | `src/pages/PromotionsPage.tsx`                   | Flat page sheet, no frames (0 radius); Club Control rail page. 10 tests read the file.                                                                                    |
+| 3    | Lightning (operations) (done, batch 2) | `src/pages/club/ClubLightningOperationsPage.tsx` | Painted `SpadeConsole` sections; converts by the `ClubPageSection arena` alias.                                                                                           |
+| 4    | Bomb Pot Report (done, batch 2)        | `src/pages/club/ClubBombPotReportPage.tsx`       | Painted `SpadeConsole` report sections.                                                                                                                                   |
+| 5    | Insurance Report (done, batch 2)       | `src/pages/club/ClubInsuranceReportPage.tsx`     | Painted `SpadeConsole` report sections.                                                                                                                                   |
+| 6    | Welcome Message (done, batch 3)        | `src/pages/ClubWelcomeMessagePage.tsx`           | Painted `SpadeConsole`, small (298 lines), no tests.                                                                                                                      |
+| 7    | Banner Displays (done, batch 3)        | `src/pages/ClubBannerDisplaysPage.tsx`           | Painted `SpadeConsole`, small (225 lines).                                                                                                                                |
+| 8    | Settlement (done, batch 3)             | `src/pages/SettlementPage.tsx`                   | 50-line painted `SpadeConsole` shell around the settlement panels.                                                                                                        |
+| 9    | Table Bomb Settings (done, batch 3)    | `src/pages/club/TableBombSettingsPage.tsx`       | Painted `SpadeConsole` form sections.                                                                                                                                     |
 
 ### Tier 2: high traffic, more work
 
-| Rank | Surface           | File                                                | Today                                                                                               |
-| ---- | ----------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| 10   | Disputes (body)   | `src/pages/DisputeManagementPage.tsx`               | Integrity mast already arena; case list still sits in painted `SpadeConsole`.                       |
-| 11   | Blacklist (body)  | `src/pages/BlacklistManagerPage.tsx`                | Integrity mast already arena; form and ledger are its own module dress (rounded panels, gradients). |
-| 12   | Anti-Cheat        | `src/pages/AntiCheatPage.tsx`                       | 1,547 lines, own module dress, 1 e2e spec.                                                          |
-| 13   | Agent Network     | `src/pages/SuperAgentDashboard.tsx`                 | Rounded stat cards with glyph icons, gradient tabs (10 radius, 13 gradients).                       |
-| 14   | Promo Vault       | `src/pages/PromoVaultPage.tsx`                      | Own rounded dress (17 radius, 11 gradients), 1,241 lines.                                           |
-| 15   | Financials        | `src/pages/ClubFinancialsPage.tsx`                  | Heavy painted `SpadeConsole` use (21 references), 11 tests.                                         |
-| 16   | Diamond Wheel ops | `src/pages/club/ClubWheelOperationsPage.tsx`        | Painted `SpadeConsole` on the shared `diamondGames.module.css`.                                     |
-| 17   | Diamond Games ops | `src/pages/club/ClubDiamondGamesOperationsPage.tsx` | Same shared sheet as Diamond Wheel ops; convert together.                                           |
-| 18   | Agent Team        | `src/pages/AgentManagementPage.tsx`                 | 1,839 lines, painted `SpadeConsole` (11), 9 tests.                                                  |
+| Rank | Surface                         | File                                                | Today                                                                                               |
+| ---- | ------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| 10   | Disputes (body) (done, batch 3) | `src/pages/DisputeManagementPage.tsx`               | Integrity mast already arena; case list still sits in painted `SpadeConsole`.                       |
+| 11   | Blacklist (body)                | `src/pages/BlacklistManagerPage.tsx`                | Integrity mast already arena; form and ledger are its own module dress (rounded panels, gradients). |
+| 12   | Anti-Cheat                      | `src/pages/AntiCheatPage.tsx`                       | 1,547 lines, own module dress, 1 e2e spec.                                                          |
+| 13   | Agent Network                   | `src/pages/SuperAgentDashboard.tsx`                 | Rounded stat cards with glyph icons, gradient tabs (10 radius, 13 gradients).                       |
+| 14   | Promo Vault                     | `src/pages/PromoVaultPage.tsx`                      | Own rounded dress (17 radius, 11 gradients), 1,241 lines.                                           |
+| 15   | Financials                      | `src/pages/ClubFinancialsPage.tsx`                  | Heavy painted `SpadeConsole` use (21 references), 11 tests.                                         |
+| 16   | Diamond Wheel ops               | `src/pages/club/ClubWheelOperationsPage.tsx`        | Painted `SpadeConsole` on the shared `diamondGames.module.css`.                                     |
+| 17   | Diamond Games ops               | `src/pages/club/ClubDiamondGamesOperationsPage.tsx` | Same shared sheet as Diamond Wheel ops; convert together.                                           |
+| 18   | Agent Team                      | `src/pages/AgentManagementPage.tsx`                 | 1,839 lines, painted `SpadeConsole` (11), 9 tests.                                                  |
 
 ### Tier 3: risky (shared or heavily pinned), later batches
 
@@ -106,8 +135,9 @@ the club-arena-console skill, step 1.5). Platform staff desks (`src/pages/admin/
 Financial Admin, Engine) are internal tools. The front door
 (`InvitePage`, Auth) keeps its own dress.
 
-## Recommended Batch 2
+## Recommended Batch 4
 
-Cashier Statements, Player Offers, Lightning (operations), Bomb Pot Report and
-Insurance Report: the next highest operator traffic. Four of the five convert
-with the existing classes or the `ClubPageSection arena` alias.
+Blacklist (body), Diamond Wheel ops together with Diamond Games ops (they share
+`diamondGames.module.css`), and Financials, then the Settlement body
+(`WeeklyAccountingWorkspace`, pin its figure hooks first). Anti-Cheat, Agent
+Network and Promo Vault each need a pass of their own.

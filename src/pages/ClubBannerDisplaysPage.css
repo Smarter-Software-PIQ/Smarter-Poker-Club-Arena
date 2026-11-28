@@ -44,3 +44,68 @@
   width: 100%;
   height: auto;
 }
+
+/* ── #SmarterDesign (Dan 2026-11-27) ──────────────────────────────────────
+   The painted spade console was the old style for a page section. The
+   banner editor now prints in the arena workspace's thin chrome case
+   (ClubPageSection `arena`): the preview under a chrome section title,
+   Remove Club Banner and Reload as chrome keys, Back To Club / Save Banner as
+   the case's chrome switch with Save lit. */
+.club-banner-page.arena-workspace.arena-workspace {
+  overflow-x: clip;
+  padding-bottom: calc(var(--bottom-nav-clearance, 74px) + 24px);
+}
+.arena-workspace .arena-case.club-banner-console {
+  container-type: inline-size;
+  width: 100%;
+  max-width: 760px;
+  /* Clear the page's "?" (PageBar), which sits above the case, top right. */
+  margin: 52px auto 0;
+}
+.arena-workspace .club-banner-console .club-banner-body {
+  padding: 0;
+  color: #dce5ef;
+  font-family: Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.arena-workspace .club-banner-console .club-banner-body p {
+  margin: 0 0 12px;
+  color: #b6c8d6;
+}
+.arena-workspace .club-banner-console .club-banner-body h2.arena-section-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+.arena-workspace .club-banner-console .club-banner-body label {
+  margin: 12px 0 6px;
+  color: #9fbacc;
+  font:
+    700 12px/1.3 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.arena-workspace .club-banner-console .club-banner-body input[type='file'] {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px;
+  color: #dce5ef;
+  background: #040d17;
+  border: 1px solid #476079;
+  color-scheme: dark;
+}
+.arena-workspace .club-banner-console .club-banner-body [role='alert'] {
+  color: #ff5b6e;
+}
+.arena-workspace .club-banner-console .club-banner-preview {
+  margin-bottom: 8px;
+}
+.arena-workspace .club-banner-console .club-banner-keys {
+  margin: 4px 0 12px;
+}
+.arena-workspace .club-banner-console .club-banner-keys > button {
+  padding: 6px 14px;
+  color: #dce5ef;
+}

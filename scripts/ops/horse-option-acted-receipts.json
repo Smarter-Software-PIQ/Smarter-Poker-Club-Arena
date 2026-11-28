@@ -1278,6 +1278,13 @@
       "prefixes": ["omaha_turn_line_prior_"],
       "unlessOn": []
     },
+    "omahaHiddenBetsArePricedAsGiveUps": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_hidden_give_up_"],
+      "unlessOn": []
+    },
     "omahaFacingBetFieldIsJoint": {
       "releaseDefault": "off",
       "source": "declared",
@@ -1344,6 +1351,18 @@
       "keys": [
         "omaha_reraised_pot_priced_fold_reraise_kept",
         "omaha_reraised_pot_priced_fold_reraised"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaLimpReraiseVsIsoRaiser": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_limp_reraise_limped",
+        "omaha_limp_reraise_open_kept",
+        "omaha_limp_reraise_reraise_kept",
+        "omaha_limp_reraise_reraised"
       ],
       "prefixes": [],
       "unlessOn": []

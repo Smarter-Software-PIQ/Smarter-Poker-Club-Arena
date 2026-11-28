@@ -96,6 +96,18 @@ const LEDGER: ReadonlyArray<{ owner: string; kind: string; proof: string }> = [
     proof: 'callDownLimpTarget (omahaVpipFloorByLimp)',
   },
   { owner: 'vpipFloorCallDown', kind: 'post_route', proof: 'callDown' },
+  {
+    owner: 'lrLimp.decision',
+    kind: 'post_route',
+    proof:
+      'omahaLimpReraiseVsIsoRaiser (default OFF): PLO4/PLO5 cash preflop, first in; a raise becomes the call of exactly the price; never on chart_bb_defend, and after chart_open_jam or variant_price the route is reset to the active preflop reference owner (intent_engine under V7, legacy_preflop otherwise), which admits any proposal',
+  },
+  {
+    owner: 'lrRaise.decision',
+    kind: 'post_route',
+    proof:
+      "omahaLimpReraiseVsIsoRaiser (default OFF): the Horse's own limp facing one raise heads-up; a fold or call becomes the pot re-raise; same route rule as lrLimp",
+  },
   { owner: 'decidePostflop', kind: 'postflop', proof: 'no preflop receipt exists postflop' },
   {
     owner: 'classCapFloorKeepsTheCall',
@@ -587,6 +599,26 @@ describe('the raised floor limp of the reference node (vpipFloorLimpFoldsToARais
       }
     }
     expect(states).toBeGreaterThan(100);
+  });
+});
+
+describe('the limp re-raise of the reference node (omahaLimpReraiseVsIsoRaiser, default OFF)', () => {
+  it('never acts on chart_bb_defend, and resets a named open-jam or variant_price route to the active reference owner when it changes the proposal', () => {
+    expect(SOURCE).toMatch(
+      /opts\.omahaLimpReraiseVsIsoRaiser === true &&\s*phase6Reference\.route !== 'chart_bb_defend'/
+    );
+    expect(SOURCE).toMatch(
+      /decision !== beforeLimpReraise &&\s*\(phase6Reference\.route === 'chart_open_jam' \|\|\s*phase6Reference\.route === 'variant_price'\)\s*\) \{\s*phase6Reference\.route =\s*\(opts\.v7Preflop \?\? opts\.v7 !== false\) \? 'intent_engine' : 'legacy_preflop';\s*phase6Reference\.lookup = null;/
+    );
+    expect(
+      referenceReturnShape(
+        {
+          route: 'intent_engine',
+          referenceProposal: { action: 'raise', amount: 18 },
+        } as never,
+        { gameState: { currentBet: 6, actionHistory: [] }, player: { bet: 2, stack: 198 } } as never
+      )
+    ).toBe(true);
   });
 });
 

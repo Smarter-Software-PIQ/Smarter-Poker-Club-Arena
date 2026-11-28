@@ -571,3 +571,108 @@
   background: #05070a;
   font-size: 16px;
 }
+
+/* ── #SmarterDesign (Dan 2026-11-27) ──────────────────────────────────────
+   The statement used to be lit words on flat glass. It now wears the arena
+   workspace language the Cashier itself wears (ArenaWorkspace.css): every
+   section a thin chrome case, the range and filter choices chrome switches
+   lit by aria-pressed, the totals chrome meters, every entry a chrome ledger
+   row, and the actions chrome keys with the decisive one lit. The chrome
+   comes from the shared classes; this only seats the type inside it. */
+.page:global(.arena-workspace.arena-workspace) {
+  padding-bottom: calc(var(--bottom-nav-clearance, 74px) + 24px);
+}
+
+:global(.arena-workspace) .glass {
+  gap: 0;
+}
+
+:global(.arena-workspace) .section,
+:global(.arena-workspace) .refusal {
+  gap: 6px;
+  padding: 12px;
+  border-top: 0;
+}
+
+:global(.arena-workspace) .section > *,
+:global(.arena-workspace) .refusal > *,
+:global(.arena-workspace) .totals > * {
+  position: relative;
+  z-index: 2;
+}
+
+:global(.arena-workspace) .back {
+  margin: 0;
+}
+
+:global(.arena-workspace) .back > button {
+  padding: 6px 14px;
+}
+
+:global(.arena-workspace) .sectionHeading {
+  align-items: center;
+  justify-content: space-between;
+  margin: 0;
+  padding: 0 3px 5px;
+  border-bottom: 1px solid #253e57;
+}
+
+:global(.arena-workspace) .sectionHeading > :is(button, a) {
+  flex: 0 0 auto;
+  padding: 6px 14px;
+}
+
+:global(.arena-workspace) .sectionTitle {
+  font:
+    800 20px/1.05 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: -0.35px;
+  text-shadow: none;
+  text-transform: none;
+}
+
+:global(.arena-workspace) .choices {
+  gap: 4px;
+  margin: 0;
+}
+
+:global(.arena-workspace) .choice,
+:global(.arena-workspace) .choiceActive {
+  text-shadow: none;
+}
+
+:global(.arena-workspace) .actions {
+  align-items: center;
+  margin: 0;
+}
+
+:global(.arena-workspace) .totals {
+  gap: 4px;
+  padding: 12px;
+  border-top: 0;
+}
+
+:global(.arena-workspace) .totalCell {
+  align-items: center;
+  justify-content: center;
+  min-height: 58px;
+}
+
+:global(.arena-workspace) .totalValue {
+  text-shadow: none;
+}
+
+:global(.arena-workspace) .list {
+  gap: 4px;
+}
+
+:global(.arena-workspace) .entry {
+  padding: 0 6px;
+}
+
+:global(.arena-workspace) .console input {
+  padding: 8px 10px;
+  border: 1px solid #253e57;
+  background: #030b14;
+}
