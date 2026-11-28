@@ -1,0 +1,49 @@
+{
+  "money": {
+    "figures": [
+      "0",
+      "412",
+      "18,250",
+      "96",
+      "37"
+    ],
+    "hooks": [
+      "data-tone=default",
+      "data-state=live",
+      "data-state=live",
+      "data-active=false",
+      "data-state=live",
+      "data-active=false",
+      "data-state=live",
+      "data-active=false",
+      "data-state=live",
+      "data-active=false"
+    ]
+  },
+  "text": "Results | 0 | Network Scanner | Community Search | LIVE DATA | Search The Smarter Poker Network | ⌕ | Local History | Recent Searches | ◇ | Your Submitted Searches Will Appear Here.",
+  "regions": [
+    "dl||Find Your Next Game Live Summary",
+    "form|search|",
+    "div||Live Index Health",
+    "div|tablist|Search Categories",
+    "button|tab|",
+    "button|tab|",
+    "button|tab|",
+    "button|tab|",
+    "button|tab|",
+    "div|tabpanel|"
+  ],
+  "controls": [
+    "button|button|All|aria-selected=true",
+    "button|button|Clubs412|aria-pressed=false",
+    "button|button|Clubs|aria-selected=false",
+    "button|button|Players18,250|aria-pressed=false",
+    "button|button|Players|aria-selected=false",
+    "button|button|Tables96|aria-pressed=false",
+    "button|button|Tables|aria-selected=false",
+    "button|button|Tournaments37|aria-pressed=false",
+    "button|button|Tournaments|aria-selected=false",
+    "button|submit|Search|",
+    "input|search||value="
+  ]
+}

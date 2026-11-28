@@ -33,6 +33,10 @@ interface VIPMembershipPlateProps {
   status: VipStatus;
   expiresAt: Date | null;
   limits: VIPMonthlyLimits;
+  /** The /vip page's arena workspace (#SmarterDesign, player pages batch P6):
+   *  the plate prints as an arena case with each allowance on a chrome tile.
+   *  Off by default, so any other host keeps the plate's own look. */
+  arena?: boolean;
 }
 
 const MEMBERSHIP_LABEL: Record<VipStatus, string> = {
@@ -51,6 +55,7 @@ export const VIPMembershipPlate: React.FC<VIPMembershipPlateProps> = ({
   status,
   expiresAt,
   limits,
+  arena = false,
 }) => {
   const isMember = status !== 'none';
   const isLifetime = status === 'lifetime';
@@ -106,7 +111,10 @@ export const VIPMembershipPlate: React.FC<VIPMembershipPlateProps> = ({
   );
 
   return (
-    <section className="vmp" aria-label="VIP Membership">
+    <section
+      className={arena ? 'vmp arena-case arena-ops-case' : 'vmp'}
+      aria-label="VIP Membership"
+    >
       <div className="vmp__body">
         <header className="vmp__head">
           <div className="vmp__identity">
@@ -139,7 +147,10 @@ export const VIPMembershipPlate: React.FC<VIPMembershipPlateProps> = ({
                   {allowances.map((a) => {
                     const remaining = Math.max(0, a.limit - a.used);
                     return (
-                      <li key={a.id} className="vmp__allowance">
+                      <li
+                        key={a.id}
+                        className={arena ? 'vmp__allowance arena-meter' : 'vmp__allowance'}
+                      >
                         <span className="vmp__allowanceLabel">{a.label}</span>
                         <strong className="vmp__allowanceValue">
                           {fmt(remaining)}

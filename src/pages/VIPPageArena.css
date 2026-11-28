@@ -1,0 +1,705 @@
+/* /vip in #SmarterDesign (player pages batch P6, 2026-11-28).
+   The page is the arena workspace: the chrome mast, then the membership, the
+   card and its perks, Diamond Activity, the balance and Buy Features, each an
+   arena case. VIPPage.css and the shared component sheets keep the painted
+   shark dress they are pinned to (marketplace-console-visual-contract); this
+   sheet overrides it only under the page's arena root, from the workspace's
+   own art and inks. The old sheets paint their keys with `!important` on a
+   clipped ::before plate, so the chrome keys here answer with `!important`
+   on the same properties and hide that plate; nothing else needs it. */
+
+.vip-page.arena-workspace {
+  max-width: 1180px;
+  padding: 7px 6px max(112px, calc(90px + env(safe-area-inset-bottom)));
+  color: #f1f5fc;
+  background: #050d17;
+}
+@media (min-width: 721px) {
+  .vip-page.arena-workspace {
+    padding-inline: 12px;
+  }
+}
+
+/* ── Cases ───────────────────────────────────────────────────────────── */
+.vip-page.arena-workspace .arena-case:is(.vmp, .vip-section, .vip-activity-history) {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 7px 0;
+  padding: 14px;
+  color: #f1f5fc;
+  background: var(--arena-panel);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  font-family: Arial, sans-serif;
+}
+.vip-page.arena-workspace .arena-case h3.arena-section-title {
+  margin: 0;
+  padding: 0 3px 5px;
+  color: #f1f5fc;
+  border-bottom: 1px solid #253e57;
+  font:
+    800 20px/1.05 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: -0.35px;
+  text-shadow: none;
+}
+.vip-page.arena-workspace .loading-state {
+  padding: 24px 0;
+}
+
+/* Every chrome tile on the page. */
+.vip-page.arena-workspace
+  :is(.vmp__allowance, .summary-card, .month-card, .diamond-balance__copy).arena-meter {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  background: var(--arena-tile);
+  text-align: left;
+}
+
+/* Every chrome row on the page. */
+.vip-page.arena-workspace :is(.timeline-item, .purchase-card).arena-ledger-row,
+.vip-page.arena-workspace .vip-perks-grid .perk-card {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  border: 4px solid transparent;
+  border-image: var(--arena-row) 13 / 6px stretch;
+  border-radius: 0;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+  box-shadow: none;
+  overflow: visible;
+}
+
+/* Every chrome key on the page: steel, the rim painted on ::after. */
+.vip-page.arena-workspace
+  :is(.vip-extend-btn, .diamond-buy-btn, .purchase-btn, .filter-tab, .activity-retry) {
+  position: relative;
+  box-sizing: border-box;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  min-height: 44px;
+  aspect-ratio: auto;
+  padding: 6px 12px;
+  color: #dce5ef;
+  background: linear-gradient(#152639, #06111e 65%) !important;
+  border: 0;
+  border-radius: 6px;
+  box-shadow: none !important;
+  font:
+    700 13px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-shadow: none;
+  text-transform: none;
+  cursor: pointer;
+}
+.vip-page.arena-workspace
+  :is(.vip-extend-btn, .diamond-buy-btn, .purchase-btn, .filter-tab, .activity-retry)::before {
+  display: none;
+}
+.vip-page.arena-workspace
+  :is(.vip-extend-btn, .diamond-buy-btn, .purchase-btn, .filter-tab, .activity-retry)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  border-style: solid;
+  border-width: 6px;
+  border-color: transparent;
+}
+/* The lit keys: the pressed filter, Buy Diamonds, each Buy, Retry. */
+.vip-page.arena-workspace
+  :is(.filter-tab[aria-pressed='true'], .diamond-buy-btn--primary, .purchase-btn, .activity-retry) {
+  color: white;
+  background: linear-gradient(#1678ec, #064da9 52%, #082d60) !important;
+}
+.vip-page.arena-workspace
+  :is(
+    .filter-tab[aria-pressed='true'],
+    .diamond-buy-btn--primary,
+    .purchase-btn,
+    .activity-retry
+  )::after {
+  border-image-source: var(--arena-active);
+}
+.vip-page.arena-workspace
+  :is(.vip-extend-btn, .diamond-buy-btn, .purchase-btn, .filter-tab, .activity-retry):active {
+  filter: brightness(0.86);
+  transform: none;
+}
+.vip-page.arena-workspace
+  :is(
+    .vip-extend-btn,
+    .diamond-buy-btn,
+    .purchase-btn,
+    .filter-tab,
+    .activity-retry
+  ):focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+.vip-page.arena-workspace :is(.purchase-btn, .diamond-buy-btn):disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── Membership ──────────────────────────────────────────────────────── */
+.vip-page.arena-workspace .vmp__head {
+  padding: 0 3px 6px;
+  border-bottom: 1px solid #253e57;
+}
+.vip-page.arena-workspace .vmp__identity {
+  gap: 2px;
+}
+.vip-page.arena-workspace :is(.vmp__eyebrow, .vmp__title) {
+  margin: 0;
+  color: #9fbacc;
+  font:
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.02em;
+}
+.vip-page.arena-workspace .vmp__grade {
+  color: #f1f5fc;
+  font:
+    800 22px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.vip-page.arena-workspace .vmp__grade:is([data-status='vip'], [data-status='lifetime']) {
+  color: #74dfff;
+}
+.vip-page.arena-workspace .vmp__term {
+  color: #9fbacc;
+  font:
+    12px/1.35 Arial,
+    sans-serif;
+}
+.vip-page.arena-workspace .vmp__section {
+  margin-top: 8px;
+}
+.vip-page.arena-workspace .vmp__title {
+  margin-bottom: 6px;
+}
+.vip-page.arena-workspace .vmp__allowances {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+@media (min-width: 721px) {
+  .vip-page.arena-workspace .vmp__allowances {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+.vip-page.arena-workspace .vmp__allowance {
+  gap: 3px;
+}
+.vip-page.arena-workspace .vmp__allowanceLabel {
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.vip-page.arena-workspace .vmp__allowanceValue {
+  color: #f1f5fc;
+  font:
+    800 18px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.vip-page.arena-workspace .vmp__allowanceOf {
+  color: #9aabba;
+  font:
+    10px/1.3 Arial,
+    sans-serif;
+}
+.vip-page.arena-workspace .vmp__meter {
+  height: 4px;
+  background: #040d17;
+  border: 1px solid #253e57;
+}
+.vip-page.arena-workspace .vmp__meterFill {
+  background: #74dfff;
+}
+
+/* ── The card and its perks ──────────────────────────────────────────── */
+.vip-page.arena-workspace .vip-card-active {
+  display: grid;
+  grid-template-columns: minmax(0, 240px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
+.vip-page.arena-workspace .vip-card-image {
+  display: block;
+  width: 100%;
+  max-width: 240px;
+  height: auto;
+}
+.vip-page.arena-workspace .vip-card-info {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+}
+.vip-page.arena-workspace .vip-card-tier {
+  color: #74dfff;
+  font:
+    800 20px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.vip-page.arena-workspace .vip-card-expiry {
+  color: #9fbacc;
+  font:
+    12px/1.35 Arial,
+    sans-serif;
+}
+@media (max-width: 720px) {
+  .vip-page.arena-workspace .vip-card-active {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+  }
+  .vip-page.arena-workspace .vip-card-info {
+    text-align: center;
+  }
+  .vip-page.arena-workspace .vip-extend-btn {
+    width: 100%;
+  }
+}
+
+.vip-page.arena-workspace .vip-perks-grid {
+  margin-top: 4px;
+  color: #f1f5fc;
+}
+.vip-page.arena-workspace .vip-perks-grid .vip-perks-grid__heading {
+  margin: 0 0 6px;
+}
+.vip-page.arena-workspace .vip-perks-grid .vip-perks-grid__heading h3 {
+  color: #9fbacc;
+  font:
+    700 13px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.02em;
+  text-shadow: none;
+}
+.vip-page.arena-workspace .vip-perks-grid .perks-container {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 4px;
+}
+.vip-page.arena-workspace .vip-perks-grid .perk-card {
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 10px;
+  padding: 6px 10px;
+}
+.vip-page.arena-workspace .vip-perks-grid .perk-visual {
+  min-height: 48px;
+}
+.vip-page.arena-workspace .vip-perks-grid .perk-club-icon {
+  width: 36px;
+  height: 36px;
+}
+.vip-page.arena-workspace .vip-perks-grid .perk-artwork {
+  max-height: 48px;
+}
+.vip-page.arena-workspace .vip-perks-grid .perk-content {
+  padding: 0;
+}
+.vip-page.arena-workspace .vip-perks-grid .perk-content h4 {
+  margin: 0 0 2px;
+  color: #f1f5fc;
+  font:
+    700 14px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+  text-shadow: none;
+}
+.vip-page.arena-workspace .vip-perks-grid .perk-content p {
+  color: #9fbacc;
+  font:
+    12px/1.35 Arial,
+    sans-serif;
+}
+.vip-page.arena-workspace .vip-perks-grid .perk-value {
+  margin-top: 2px;
+  color: #74dfff;
+  font:
+    800 13px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  text-shadow: none;
+}
+
+/* ── Diamond Activity ────────────────────────────────────────────────── */
+.vip-page.arena-workspace .vip-activity-history .activity-header {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+.vip-page.arena-workspace .vip-activity-history .activity-header p {
+  margin: 0;
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+}
+.vip-page.arena-workspace .vip-activity-history .activity-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+.vip-page.arena-workspace .vip-activity-history .summary-card {
+  gap: 2px;
+  min-height: 0;
+}
+.vip-page.arena-workspace .vip-activity-history :is(.summary-label, .stat-label) {
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.vip-page.arena-workspace .vip-activity-history .summary-value {
+  color: #f1f5fc;
+  font:
+    800 18px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-shadow: none;
+}
+.vip-page.arena-workspace .vip-activity-history .summary-card.earned .summary-value,
+.vip-page.arena-workspace .vip-activity-history .stat-value.earned,
+.vip-page.arena-workspace .vip-activity-history .diamonds-value.earned {
+  color: #74dfff;
+}
+.vip-page.arena-workspace .vip-activity-history .summary-card.spent .summary-value,
+.vip-page.arena-workspace .vip-activity-history .stat-value.spent,
+.vip-page.arena-workspace .vip-activity-history .diamonds-value:is(.spent, .redeemed) {
+  color: #dce5ef;
+}
+.vip-page.arena-workspace .vip-activity-history .activity-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+}
+.vip-page.arena-workspace .vip-activity-history .activity-filters > .filter-tab {
+  flex: 1 1 calc(50% - 4px);
+  gap: 6px;
+}
+@media (min-width: 721px) {
+  .vip-page.arena-workspace .vip-activity-history .activity-filters > .filter-tab {
+    flex: 1 1 0;
+  }
+}
+.vip-page.arena-workspace .vip-activity-history .filter-count {
+  color: inherit;
+  background: none;
+  font:
+    800 13px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  opacity: 0.8;
+}
+.vip-page.arena-workspace .vip-activity-history .activity-timeline {
+  gap: 4px;
+  max-height: none;
+}
+.vip-page.arena-workspace .vip-activity-history .timeline-item {
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 6px 10px;
+}
+.vip-page.arena-workspace .vip-activity-history .timeline-marker {
+  width: 32px;
+  height: 32px;
+}
+.vip-page.arena-workspace .vip-activity-history .timeline-marker img {
+  width: 26px;
+  height: 26px;
+}
+.vip-page.arena-workspace .vip-activity-history .activity-description {
+  color: #f1f5fc;
+  font:
+    700 14px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.vip-page.arena-workspace .vip-activity-history .activity-date {
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+}
+.vip-page.arena-workspace .vip-activity-history .diamonds-value {
+  font:
+    800 16px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.vip-page.arena-workspace .vip-activity-history :is(.diamonds-label, .balance-label) {
+  color: #9fbacc;
+  font:
+    10px/1.3 Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.vip-page.arena-workspace .vip-activity-history .timeline-balance {
+  padding-left: 10px;
+  border-left: 1px solid #253e57;
+}
+.vip-page.arena-workspace .vip-activity-history .balance-value {
+  color: #dce5ef;
+  font:
+    700 14px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.vip-page.arena-workspace .vip-activity-history .monthly-summary {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+.vip-page.arena-workspace .vip-activity-history .monthly-summary h4 {
+  margin: 0;
+  color: #9fbacc;
+  font:
+    700 13px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+.vip-page.arena-workspace .vip-activity-history .summary-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+  gap: 4px;
+}
+.vip-page.arena-workspace .vip-activity-history .month-card {
+  gap: 4px;
+}
+.vip-page.arena-workspace .vip-activity-history .month-label {
+  color: #74dfff;
+  font:
+    700 12px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.vip-page.arena-workspace .vip-activity-history .month-count {
+  color: #9aabba;
+  font:
+    10px/1.3 Arial,
+    sans-serif;
+  text-align: left;
+}
+.vip-page.arena-workspace .vip-activity-history :is(.activity-state, .no-activity) {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 16px 12px;
+  color: #dce5ef;
+  background: #040d17;
+  border: 1px solid #476079;
+  border-image: none;
+  font:
+    700 14px/1.3 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.vip-page.arena-workspace .vip-activity-history :is(.activity-state, .no-activity) p {
+  margin: 0;
+  color: #dce5ef;
+  font: inherit;
+}
+.vip-page.arena-workspace .vip-activity-history .activity-state--error p {
+  color: #ff5b6e;
+}
+@media (max-width: 720px) {
+  .vip-page.arena-workspace .vip-activity-history .timeline-item {
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+  .vip-page.arena-workspace .vip-activity-history .timeline-balance {
+    padding: 4px 0 0;
+    border-top: 1px solid #253e57;
+    border-left: 0;
+  }
+}
+
+/* ── Balance ─────────────────────────────────────────────────────────── */
+.vip-page.arena-workspace .diamond-balance {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-image: none;
+}
+.vip-page.arena-workspace .diamond-balance__identity {
+  gap: 8px;
+}
+.vip-page.arena-workspace .diamond-balance__icon {
+  display: block;
+  width: 44px;
+  height: 44px;
+  filter: none;
+}
+.vip-page.arena-workspace .diamond-balance__copy {
+  flex: 1 1 auto;
+  gap: 2px;
+}
+.vip-page.arena-workspace .diamond-count {
+  color: #f1f5fc;
+  font:
+    800 22px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-shadow: none;
+}
+.vip-page.arena-workspace .diamond-count--unknown {
+  color: #ff5b6e;
+  font-size: 16px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.vip-page.arena-workspace .diamond-label {
+  margin: 0;
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+}
+.vip-page.arena-workspace .diamond-balance__actions.arena-switch {
+  display: flex;
+  margin: 0;
+}
+.vip-page.arena-workspace .diamond-balance__actions > .diamond-buy-btn {
+  flex: 1 1 0;
+  min-width: 120px;
+}
+@media (max-width: 600px) {
+  .vip-page.arena-workspace .diamond-balance {
+    grid-template-columns: 1fr;
+  }
+  .vip-page.arena-workspace .diamond-balance__actions > .diamond-buy-btn {
+    min-width: 0;
+  }
+}
+
+/* ── Buy Features ────────────────────────────────────────────────────── */
+.vip-page.arena-workspace .vip-buy-section .section-desc {
+  margin: 0;
+  color: #dce5ef;
+  font:
+    13px/1.4 Arial,
+    sans-serif;
+}
+.vip-page.arena-workspace .vip-buy-section .section-desc a {
+  color: #74dfff;
+  font-weight: 700;
+}
+.vip-page.arena-workspace .vip-buy-section .section-offer {
+  margin: 0;
+  color: #ffe98a;
+  font:
+    700 13px/1.4 Arial,
+    sans-serif;
+}
+.vip-page.arena-workspace .purchase-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 4px;
+}
+.vip-page.arena-workspace .purchase-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 6px 10px;
+}
+.vip-page.arena-workspace .purchase-card::after {
+  display: none;
+}
+.vip-page.arena-workspace .purchase-info {
+  gap: 2px;
+}
+.vip-page.arena-workspace .purchase-name {
+  color: #f1f5fc;
+  font:
+    700 14px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.vip-page.arena-workspace .purchase-desc {
+  color: #9fbacc;
+  font:
+    12px/1.35 Arial,
+    sans-serif;
+}
+.vip-page.arena-workspace .purchase-action {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+}
+.vip-page.arena-workspace .purchase-cost {
+  color: #74dfff;
+  font:
+    800 14px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.vip-page.arena-workspace .purchase-btn {
+  min-width: 88px;
+}
+@media (max-width: 480px) {
+  .vip-page.arena-workspace .purchase-card {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+  .vip-page.arena-workspace .purchase-action {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .vip-page.arena-workspace .purchase-btn {
+    min-width: 120px;
+  }
+}
+
+/* Leftover painted ink from the shared sheets, read as the workspace's. */
+.vip-page.arena-workspace .vip-activity-history .monthly-summary h4,
+.vip-page.arena-workspace .vip-activity-history .activity-header h3 {
+  text-shadow: none;
+}
+.vip-page.arena-workspace .vip-activity-history .stat-value {
+  font:
+    800 18px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-shadow: none;
+}
+.vip-page.arena-workspace .purchase-cost {
+  letter-spacing: 0;
+  text-transform: none;
+}

@@ -30,7 +30,11 @@ MAX_NATIVE_PROBE_WORKERS = 3
 # Vitest test or native PG17 probe (leading '/' ensures server/src is kept).
 # Keeps /server, /server/src, /scripts/ci, /scripts/dev, /supabase, /tests/unit,
 # and every satellite/f06 fixture intact while stripping client/media/mobile/build
-# trees and unrelated accounting/e2e evidence from Qualification.pg & fallback builds.
+# Root-anchored .dockerignore entries excluding unused top-level client/media/doc
+# trees from Qualification.pg & fallback builds. NEVER exclude /server, /supabase,
+# /scripts/ci, or /tests (or any subdirectory under them): native PG probes
+# dynamically resolve fixtures across /scripts/ci/fixtures and /tests/fixtures
+# (incidents 46135124209 & 46148552900, 2026-11-28).
 DOCKERIGNORE_EXCLUDES = (
     '/docs',
     '/src',
@@ -46,20 +50,6 @@ DOCKERIGNORE_EXCLUDES = (
     '/dist-native',
     '/graphify-out',
     '/scripts/ops',
-    '/tests/e2e',
-    '/tests/components',
-    '/tests/sql',
-    '/tests/operations',
-    '/tests/_archive',
-    '/tests/fixtures/full-weekly-accounting',
-    '/tests/fixtures/horse-feature-ablation-stores',
-    '/scripts/ci/fixtures/cash-link-union-proof-index',
-    '/scripts/ci/fixtures/weekly-linked-window-proof',
-    '/scripts/ci/fixtures/tournament-quality-bounded-evidence',
-    '/scripts/ci/fixtures/cash-refusal-scope-time',
-    '/scripts/ci/fixtures/rakeback-cascade-real-runner',
-    '/scripts/ci/fixtures/launch-reset',
-    '/scripts/ci/fixtures/original-cash-three-helper-forward',
 )
 # Qualification.node only runs focused Vitest suites under /source/server and
 # never reads /scripts, /supabase, or /tests; Dockerfile-scoped ignore shrinks
