@@ -213,6 +213,24 @@ Both are prerendered for signed-out readers and crawlers, and the prerender prin
 
 Hand History was skipped: `tests/unit/cinematicRouteFamilies.test.ts` (`PLAY_PAGES`) binds `src/pages/HandHistoryPage.tsx` to the Play & Review master (`CasinoSurfaceHeader`, `data-arena-surface="play"`).
 
+## Batch O1: the partial operator pages
+
+The generated inventory listed eleven operator pages as Partial. This batch finishes seven of them.
+
+| #   | Surface             | File                                             | What changed                                                                                                                                                                                                         |
+| --- | ------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| O1a | Welcome Message     | `src/pages/ClubWelcomeMessagePage.tsx`           | The PageBar head became the chrome mast (area control, the club's name, the same help summary); the case no longer leaves 52px for the old "?".                                                                      |
+| O1b | Banner Displays     | `src/pages/ClubBannerDisplaysPage.tsx`           | Same as Welcome Message. Back To Club stays a case key beside the lit Save Banner.                                                                                                                                   |
+| O1c | Table Bomb Settings | `src/pages/club/TableBombSettingsPage.tsx`       | The chrome mast (area dashboard) on the ready, loading and error states. Back stays a case key beside the lit Save Settings.                                                                                         |
+| O1d | Cashier Statements  | `src/pages/CashierStatementsPage.tsx`            | The chrome mast (area cashier) heads the page and Back To Cashier sits above it; the page bar keeps only the live status pill.                                                                                       |
+| O1e | Settings: Jackpot   | `src/components/bbj/BBJThresholdPanel.tsx`       | Off the painted console onto the chrome case (`ClubPageSection arena`): each threshold a chrome row, Turn On / Off and Remove chrome keys, the fields dark wells, Add Announcement lit. `BBJThresholdArena.css`.     |
+| O1f | Player Offers       | `src/components/leaderboard/LeaderboardCard.tsx` | On its own, the standings print in the chrome case; inside an offer row they take the workspace inks and figures, and Retry Rankings is a chrome key.                                                                |
+| O1g | Agent Dashboard     | `src/components/agent/AgentScoreCard.tsx`        | The Performance Score prints no second frame inside the page's Score case: chrome section title with the grade, the overall score on a readout tile, every score and figure a chrome row. `AgentScoreCardArena.css`. |
+
+Every printed figure, word, data hook, named region and control state was recorded on main before the change and holds unchanged after (`tests/components/partialOperatorMastPagesArePinned.test.tsx`, `cashierStatementsMastIsPinned.test.tsx`, `partialOperatorPanelsArePinned.test.tsx`, read by `tests/helpers/surfacePin.ts`). The panel dress is scoped and its single arena host checked by `tests/unit/partialOperatorPanelsArenaIsScoped.test.ts`.
+
+Left for a later batch, as assigned: TournamentDetails, SettlementDashboardPage and UnionStatementsPage. GameManagementPage (the painted section in `TableConfigPage`) is also still Partial.
+
 ## Batch S1: the Settlement Center
 
 | #   | Surface           | File                                    | What changed                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |

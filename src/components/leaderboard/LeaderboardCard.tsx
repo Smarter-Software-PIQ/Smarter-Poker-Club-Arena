@@ -3,7 +3,9 @@ import { useIsMounted } from '../../hooks/useIsMounted';
 import { useMasterBusSubscription } from '../../hooks/useMasterBusSubscription';
 import { promotionService, LeaderboardEntry } from '../../services/PromotionService';
 import { useAuthUser } from '../../hooks/useAuthUser';
-import { SpadeConsole } from '../console/SpadeConsole';
+/* #SmarterDesign (Dan 2026-11-27): the painted console is the old style for a
+   page section; standings on their own print in the thin chrome case. */
+import { ClubPageSection as SpadeConsole } from '../club/ClubPageSection';
 import { compactChips } from '../../utils/format';
 import { generateDefaultAvatar } from '../../utils/avatarGenerator';
 import { reportError } from '../../utils/errorReporter';
@@ -150,9 +152,11 @@ function LeaderboardCardInner({
           {error && (
             <div className={styles.error} role="alert">
               <p>Rankings Could Not Be Updated.</p>
-              <button type="button" onClick={() => void loadLeaderboard()}>
-                Retry Rankings
-              </button>
+              <span className="arena-switch">
+                <button type="button" onClick={() => void loadLeaderboard()}>
+                  Retry Rankings
+                </button>
+              </span>
             </div>
           )}
           {!error && entries.length === 0 && <p className={styles.message}>No Entries Yet</p>}
@@ -173,6 +177,7 @@ function LeaderboardCardInner({
     content
   ) : (
     <SpadeConsole
+      arena
       className={styles.console}
       crest="flat"
       eyebrow="Promotion Rankings"
