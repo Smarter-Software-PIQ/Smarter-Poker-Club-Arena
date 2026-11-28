@@ -1,0 +1,3 @@
+# tests/a-bust-money-span-changes-nothing.law.test.ts
+
+The timing spans in the knockout door and the bounty payer's entry point fn_collect_bounty_obligation (20261114190106) change nothing a caller can observe: deleting every `-- @bust-money-span` line restores the exact bodies production ran (prosrc md5 4ec5bce3... and dde145f7...), every span is a single RAISE LOG (no write, no EXCEPTION block, so no subtransaction; FOUND and ROW_COUNT untouched; below client_min_messages), none sits inside the lane's lock block, grants equal production's, and the held removal migration restores both bodies. Native proof: scripts/ci/test-bust-money-spans-native.sh (PG17 scratch cluster).
