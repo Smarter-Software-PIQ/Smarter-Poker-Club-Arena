@@ -68,6 +68,27 @@ vi.mock('../../src/components/console/SpadeConsole', () => ({
     </section>
   ),
 }));
+// #SmarterDesign (2026-11-27): the Lightning pages print through ClubPageSection's
+// arena case; the same stand-in keeps these tests about the page, not the chrome.
+vi.mock('../../src/components/club/ClubPageSection', () => ({
+  ClubPageSection: ({ children, plates, title, pill }: any) => (
+    <section>
+      <h2>{title}</h2>
+      {pill ? <span data-testid="pill">{pill}</span> : null}
+      {children}
+      {plates?.secondary ? (
+        <button type="button" onClick={plates.secondary.onClick}>
+          {plates.secondary.label}
+        </button>
+      ) : null}
+      {plates?.primary ? (
+        <button type="button" onClick={plates.primary.onClick} disabled={plates.primary.disabled}>
+          {plates.primary.label}
+        </button>
+      ) : null}
+    </section>
+  ),
+}));
 
 import {
   fetchLightningOverview,

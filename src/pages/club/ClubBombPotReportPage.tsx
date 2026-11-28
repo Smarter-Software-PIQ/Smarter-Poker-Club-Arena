@@ -35,7 +35,11 @@ import { supabase } from '../../lib/supabase';
 import { isAuthzError } from '../../utils/clubDashboard';
 import { reportError } from '../../utils/errorReporter';
 import { downloadCsv, csvEscape } from '../../utils/downloadCsv';
-import { SpadeConsole } from '../../components/console/SpadeConsole';
+/* #SmarterDesign (Dan 2026-11-27): the painted console is the old style for a
+   page section; the report prints in the thin chrome case with chrome keys. */
+import { ClubPageSection as SpadeConsole } from '../../components/club/ClubPageSection';
+import '../../components/console/SpadeConsole.css';
+import '../../components/lobby/ArenaWorkspace.css';
 import { compactChips } from '../../utils/format';
 import { titleCase } from '../../utils/titleCase';
 import { useIsMounted } from '../../hooks/useIsMounted';
@@ -404,26 +408,22 @@ export default function ClubBombPotReportPage() {
 
   if (notFound) {
     return (
-      <div className={styles.page}>
+      <div className={`${styles.page} arena-workspace`}>
         <SpadeConsole
-          className={styles.console}
+          arena
           family="spade"
+          className={styles.console}
           eyebrow="Bomb Pots"
           title="Club Not Found"
           titleId="bomb-pot-report-title"
           pill="Missing"
           pillInk="muted"
-          foot="foot"
         >
           <p className={`sc-copy sc-copy--center ${styles.state}`}>
             No Club Answers To That Address.
           </p>
-          <div className={styles.actions}>
-            <button
-              type="button"
-              className={`${styles.word} sc-ink--white`}
-              onClick={() => navigate('/clubs')}
-            >
+          <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.actions}`}>
+            <button type="button" className={styles.word} onClick={() => navigate('/clubs')}>
               Back To Clubs
             </button>
           </div>
@@ -434,24 +434,24 @@ export default function ClubBombPotReportPage() {
 
   if (denied) {
     return (
-      <div className={styles.page}>
+      <div className={`${styles.page} arena-workspace`}>
         <SpadeConsole
-          className={styles.console}
+          arena
           family="spade"
+          className={styles.console}
           eyebrow="Bomb Pots"
           title="Bomb Pot Report"
           titleId="bomb-pot-report-title"
           pill="Staff"
           pillInk="red"
-          foot="foot"
         >
           <p className={`sc-copy sc-copy--center ${styles.state}`}>
             This Report Is Only Available To Club Staff.
           </p>
-          <div className={styles.actions}>
+          <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.actions}`}>
             <button
               type="button"
-              className={`${styles.word} sc-ink--white`}
+              className={styles.word}
               onClick={() => navigate(`/clubs/${clubId}`)}
             >
               Back To Club
@@ -463,10 +463,11 @@ export default function ClubBombPotReportPage() {
   }
 
   return (
-    <div className={styles.page}>
+    <div className={`${styles.page} arena-workspace`}>
       <SpadeConsole
-        className={styles.console}
+        arena
         family="spade"
+        className={styles.console}
         eyebrow="Bomb Pots"
         title="Bomb Pot Report"
         titleId="bomb-pot-report-title"
@@ -482,12 +483,12 @@ export default function ClubBombPotReportPage() {
           },
         }}
       >
-        <div className={styles.windows} role="group" aria-label="Report Window">
+        <div className={`arena-switch ${styles.windows}`} role="group" aria-label="Report Window">
           {WINDOWS.map((w) => (
             <button
               key={w}
               type="button"
-              className={`${styles.word} ${days === w ? 'sc-ink--white' : 'sc-ink--muted'}`}
+              className={styles.word}
               aria-pressed={days === w}
               onClick={() => setDays(w)}
             >
@@ -510,13 +511,11 @@ export default function ClubBombPotReportPage() {
         ) : error ? (
           <div className={styles.errorState} role="alert">
             <p className={`sc-copy sc-copy--center ${styles.state} sc-ink--red`}>{error}</p>
-            <button
-              type="button"
-              className={`${styles.word} sc-ink--white`}
-              onClick={() => void load()}
-            >
-              Retry
-            </button>
+            <div className="arena-switch arena-ops-keys arena-ops-primary">
+              <button type="button" className={styles.word} onClick={() => void load()}>
+                Retry
+              </button>
+            </div>
           </div>
         ) : !rows || rows.length === 0 ? (
           <p className={`sc-copy sc-copy--center ${styles.state}`}>
@@ -525,31 +524,31 @@ export default function ClubBombPotReportPage() {
         ) : (
           <>
             <section className={styles.section} aria-label="Totals">
-              <div className={styles.row}>
+              <div className={`arena-meter ${styles.row}`}>
                 <span className={`${styles.rowLabel} sc-ink--blue`}>Bomb Pots Dealt</span>
                 <span className={`${styles.rowValue} sc-ink--silver`}>
                   {totals.hands.toLocaleString()}
                 </span>
               </div>
-              <div className={styles.row}>
+              <div className={`arena-meter ${styles.row}`}>
                 <span className={`${styles.rowLabel} sc-ink--blue`}>Tables Running Them</span>
                 <span className={`${styles.rowValue} sc-ink--silver`}>{totals.tables}</span>
               </div>
-              <div className={styles.row}>
+              <div className={`arena-meter ${styles.row}`}>
                 <span className={`${styles.rowLabel} sc-ink--blue`}>Players Per Bomb</span>
                 <span className={`${styles.rowValue} sc-ink--silver`}>
                   {compactChips(totals.avgPlayers)}
                 </span>
               </div>
-              <div className={styles.row}>
+              <div className={`arena-meter ${styles.row}`}>
                 <span className={`${styles.rowLabel} sc-ink--blue`}>Forced Antes Collected</span>
                 <span className={`${styles.rowValue} sc-ink--silver`}>{chips(totals.antes)}</span>
               </div>
-              <div className={styles.row}>
+              <div className={`arena-meter ${styles.row}`}>
                 <span className={`${styles.rowLabel} sc-ink--blue`}>Rake From Bomb Pots</span>
                 <span className={`${styles.rowValue} sc-ink--green`}>{chips(totals.rake)}</span>
               </div>
-              <div className={styles.row}>
+              <div className={`arena-meter ${styles.row}`}>
                 <span className={`${styles.rowLabel} sc-ink--blue`}>Scooped Outright</span>
                 <span className={`${styles.rowValue} sc-ink--silver`}>
                   {totals.scoopRate === null ? '-' : `${totals.scoopRate}%`}
@@ -567,17 +566,14 @@ export default function ClubBombPotReportPage() {
             )}
 
             <section className={styles.section} aria-labelledby="bomb-pot-per-table">
-              <h2
-                id="bomb-pot-per-table"
-                className={`${styles.sectionTitle} sc-label sc-ink--silver`}
-              >
+              <h2 id="bomb-pot-per-table" className={`arena-section-title ${styles.sectionTitle}`}>
                 Per Table
               </h2>
               <ul className={styles.records}>
                 {rows.map((d) => (
                   <li
                     key={`${d.table_id}-${d.trigger_reason}-${d.board_count}-${d.variant ?? ''}`}
-                    className={styles.record}
+                    className={`arena-ledger-row ${styles.record}`}
                   >
                     <div className={styles.recordHead}>
                       <span className={`${styles.recordName} sc-ink--silver`}>
