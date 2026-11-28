@@ -5,11 +5,7 @@ import {
   type DiamondStatement,
 } from '../../services/DiamondStatementService';
 import { reportError } from '../../utils/errorReporter';
-/* #SmarterDesign (Dan 2026-11-27): printed only on the Diamond Games
-   operations page, so it takes that page's thin chrome case. Only the frame
-   changes; every statement figure and hook is unchanged. */
-import { ClubPageSection as SpadeConsole } from './ClubPageSection';
-import '../console/SpadeConsole.css';
+import { SpadeConsole } from '../console/SpadeConsole';
 import styles from './DiamondSpinStatements.module.css';
 
 const amount = (value: number) => value.toLocaleString();
@@ -76,7 +72,7 @@ function Statements() {
     };
   }, []);
   return (
-    <SpadeConsole arena eyebrow="Owner Wallet" title="Daily Diamond Statements" foot="foot">
+    <SpadeConsole eyebrow="Owner Wallet" title="Daily Diamond Statements" foot="foot">
       <p className="sc-copy">
         Spin Entries And Prize Costs Are Recorded Throughout The Day. After Midnight, Chicago Time,
         Each Day Settles In One Wallet Transaction: The Platform Burns{' '}

@@ -126,13 +126,6 @@ vi.mock('../../src/components/console/SpadeConsole', () => ({
     <section aria-label={title}>{children}</section>
   ),
 }));
-// #SmarterDesign (2026-11-27): the page's consoles print through ClubPageSection's
-// arena case; the same stand-in keeps this test about the snapshot, not the chrome.
-vi.mock('../../src/components/club/ClubPageSection', () => ({
-  ClubPageSection: ({ title, children }: { title: string; children: ReactNode }) => (
-    <section aria-label={title}>{children}</section>
-  ),
-}));
 vi.mock('../../src/components/dashboard/ClubFinancialDashboard', () => ({
   ClubFinancialDashboard: (props: unknown) => {
     m.dashboardProps(props);

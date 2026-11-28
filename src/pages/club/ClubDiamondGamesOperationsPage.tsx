@@ -34,13 +34,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useToast } from '../../components/common/Toast';
 import { ErrorState, LoadingState } from '../../components/common/EmptyState';
-import { type ConsoleInk } from '../../components/console/SpadeConsole';
-/* #SmarterDesign (Dan 2026-11-27): the operator console's own sections print
-   in the thin chrome case. The shared money and agreement consoles keep the
-   painted chassis their laws pin. Figures, handlers and hooks are unchanged. */
-import { ClubPageSection as SpadeConsole } from '../../components/club/ClubPageSection';
-import '../../components/console/SpadeConsole.css';
-import '../../components/lobby/ArenaWorkspace.css';
+import { SpadeConsole, type ConsoleInk } from '../../components/console/SpadeConsole';
 import DiamondGamesService, {
   type DiamondGame,
   type GameConfigPatch,
@@ -159,12 +153,7 @@ function Toggle({
   onToggle: () => void;
 }) {
   return (
-    <button
-      type="button"
-      className={`${styles.rowButton} arena-ledger-row`}
-      onClick={onToggle}
-      aria-pressed={on}
-    >
+    <button type="button" className={styles.rowButton} onClick={onToggle} aria-pressed={on}>
       <span className={`sc-label sc-ink--silver ${styles.rowLabel}`}>
         {label}
         <span className={`${styles.rowMeta} sc-ink--muted`}>{hint}</span>
@@ -350,7 +339,7 @@ export default function ClubDiamondGamesOperationsPage() {
   if (loading && !metrics) return <LoadingState message="Reading The Games" />;
   if (error) {
     return (
-      <div className={`${styles.page} arena-workspace`}>
+      <div className={styles.page}>
         <ErrorState message={error} onRetry={() => void load(game)} />
       </div>
     );
@@ -365,22 +354,19 @@ export default function ClubDiamondGamesOperationsPage() {
   const set = (key: keyof Draft) => (v: string) => setDraft((d) => ({ ...d, [key]: v }));
 
   return (
-    <div className={`${styles.page} arena-workspace`}>
-      <span className={`arena-switch ${styles.backKeys}`}>
-        <button
-          type="button"
-          className={styles.back}
-          onClick={() => navigate(`/clubs/${routeClubId}/operations`)}
-        >
-          ‹ Operations
-        </button>
-      </span>
+    <div className={styles.page}>
+      <button
+        type="button"
+        className={styles.back}
+        onClick={() => navigate(`/clubs/${routeClubId}/operations`)}
+      >
+        ‹ Operations
+      </button>
 
-      <DiamondSpinsOwnerTerms arena clubId={clubUuid} onAccepted={() => void load(game)} />
+      <DiamondSpinsOwnerTerms clubId={clubUuid} onAccepted={() => void load(game)} />
       <DiamondSpinStatements />
 
       <SpadeConsole
-        arena
         eyebrow="Operations"
         title={word}
         titleId="diamond-games-ops-title"
@@ -481,7 +467,6 @@ export default function ClubDiamondGamesOperationsPage() {
           promo wallet on its own, so the games never stop; this is how an
           operator moves the float to where it is meant to sit. */}
       <SpadeConsole
-        arena
         eyebrow="Cover"
         title="The Promo Wallet"
         pill={promoDry ? 'On The Bank' : 'Funded'}
@@ -517,7 +502,7 @@ export default function ClubDiamondGamesOperationsPage() {
 
       <DiamondGamesMoney clubId={clubUuid} />
 
-      <SpadeConsole arena eyebrow="Settled Play" title="Game Activity" foot="foot">
+      <SpadeConsole eyebrow="Settled Play" title="Game Activity" foot="foot">
         <div className={styles.rows}>
           <div className={`${styles.grid4} ${styles.grid4Head}`}>
             <span className="sc-label sc-ink--blue">Window</span>
@@ -577,7 +562,6 @@ export default function ClubDiamondGamesOperationsPage() {
       </SpadeConsole>
 
       <SpadeConsole
-        arena
         eyebrow={`${word} Is ${enabled ? 'Open' : 'Closed'}`}
         title="Controls"
         plates={{
@@ -666,7 +650,6 @@ export default function ClubDiamondGamesOperationsPage() {
       </SpadeConsole>
 
       <SpadeConsole
-        arena
         eyebrow="Lifetime"
         title="The Pool"
         plates={{

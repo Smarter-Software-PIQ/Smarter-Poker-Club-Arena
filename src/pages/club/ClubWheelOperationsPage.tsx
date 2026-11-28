@@ -41,13 +41,7 @@ import DiamondSpinsOwnerTerms from '../../components/games/DiamondSpinsOwnerTerm
 import { useNavigate, useParams } from 'react-router-dom';
 import { useToast } from '../../components/common/Toast';
 import { ErrorState, LoadingState } from '../../components/common/EmptyState';
-import { type ConsoleInk } from '../../components/console/SpadeConsole';
-/* #SmarterDesign (Dan 2026-11-27): the operator console's own sections print
-   in the thin chrome case. The shared money and agreement consoles keep the
-   painted chassis their laws pin. Figures, handlers and hooks are unchanged. */
-import { ClubPageSection as SpadeConsole } from '../../components/club/ClubPageSection';
-import '../../components/console/SpadeConsole.css';
-import '../../components/lobby/ArenaWorkspace.css';
+import { SpadeConsole, type ConsoleInk } from '../../components/console/SpadeConsole';
 import DiamondWheelService, {
   type WheelConfigPatch,
   type WheelWelcomePatch,
@@ -152,12 +146,7 @@ function Toggle({
   onToggle: () => void;
 }) {
   return (
-    <button
-      type="button"
-      className={`${styles.rowButton} arena-ledger-row`}
-      onClick={onToggle}
-      aria-pressed={on}
-    >
+    <button type="button" className={styles.rowButton} onClick={onToggle} aria-pressed={on}>
       <span className={`sc-label sc-ink--silver ${styles.rowLabel}`}>
         {label}
         <span className={`${styles.rowMeta} sc-ink--muted`}>{hint}</span>
@@ -359,7 +348,7 @@ export default function ClubWheelOperationsPage() {
   if (loading) return <LoadingState message="Reading The Wheel" />;
   if (error) {
     return (
-      <div className={`${styles.page} arena-workspace`}>
+      <div className={styles.page}>
         <ErrorState message={error} onRetry={() => void load()} />
       </div>
     );
@@ -380,21 +369,18 @@ export default function ClubWheelOperationsPage() {
   const set = (key: keyof Draft) => (v: string) => setDraft((d) => ({ ...d, [key]: v }));
 
   return (
-    <div className={`${styles.page} arena-workspace`}>
-      <span className={`arena-switch ${styles.backKeys}`}>
-        <button
-          type="button"
-          className={styles.back}
-          onClick={() => navigate(`/clubs/${routeClubId}/operations`)}
-        >
-          ‹ Operations
-        </button>
-      </span>
+    <div className={styles.page}>
+      <button
+        type="button"
+        className={styles.back}
+        onClick={() => navigate(`/clubs/${routeClubId}/operations`)}
+      >
+        ‹ Operations
+      </button>
 
-      <DiamondSpinsOwnerTerms arena clubId={clubUuid} />
+      <DiamondSpinsOwnerTerms clubId={clubUuid} />
 
       <SpadeConsole
-        arena
         eyebrow="Operations"
         title="Diamond Wheel"
         titleId="wheel-ops-title"
@@ -468,7 +454,6 @@ export default function ClubWheelOperationsPage() {
           operator moves the float to where it is meant to sit, without leaving
           the console they are already reading. */}
       <SpadeConsole
-        arena
         eyebrow="Cover"
         title="The Promo Wallet"
         pill={promoDry ? 'On The Bank' : 'Funded'}
@@ -523,7 +508,7 @@ export default function ClubWheelOperationsPage() {
         </div>
       </SpadeConsole>
 
-      <SpadeConsole arena eyebrow="Settled Play" title="Game Activity" foot="foot">
+      <SpadeConsole eyebrow="Settled Play" title="Game Activity" foot="foot">
         <div className={styles.rows}>
           <div className={`${styles.grid4} ${styles.grid4Head}`}>
             <span className="sc-label sc-ink--blue">Window</span>
@@ -563,7 +548,6 @@ export default function ClubWheelOperationsPage() {
       </SpadeConsole>
 
       <SpadeConsole
-        arena
         eyebrow={`The Wheel Is ${enabled ? 'Open' : 'Closed'}`}
         title="Controls"
         plates={{
@@ -629,7 +613,6 @@ export default function ClubWheelOperationsPage() {
       </SpadeConsole>
 
       <SpadeConsole
-        arena
         eyebrow="On The Club"
         title="The Welcome Spin"
         pill={welcomeOn ? 'On' : 'Off'}
@@ -711,7 +694,6 @@ export default function ClubWheelOperationsPage() {
       <DiamondGamesMoney clubId={clubUuid} />
 
       <SpadeConsole
-        arena
         eyebrow="Lifetime"
         title="The Pool"
         plates={{
