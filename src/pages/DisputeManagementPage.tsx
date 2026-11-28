@@ -398,11 +398,21 @@ export default function DisputeManagementPage() {
       />
       <section
         className="arena-case arena-ops-case dmp__docket"
-        aria-labelledby="dispute-docket-title"
+        aria-labelledby="dispute-docket-name"
       >
         <p className="arena-ops-eyebrow">Live Case Docket</p>
-        <h2 id="dispute-docket-title" className="arena-section-title">
-          {clubId ? 'Club Disputes' : 'Account Disputes'}
+        {/* The heading and the docket region are named by the title alone. The
+            status pill sat inside the h2, so both were announced as "Club
+            Disputes Clear" / "Club Disputes 2 Open", a name that changed with
+            the count; post-deploy financial-admin-deep could no longer find the
+            "Club Disputes" heading (run 46128787571). The pill stays readable
+            content right after the name. */}
+        <h2
+          id="dispute-docket-title"
+          className="arena-section-title"
+          aria-labelledby="dispute-docket-name"
+        >
+          <span id="dispute-docket-name">{clubId ? 'Club Disputes' : 'Account Disputes'}</span>
           <small className="dmp__pill" data-open={statusCounts.open > 0 || undefined}>
             {statusCounts.open > 0 ? `${statusCounts.open} Open` : 'Clear'}
           </small>
