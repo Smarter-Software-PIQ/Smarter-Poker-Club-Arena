@@ -25,6 +25,7 @@ import { diamondCashJackpotVerdict } from './diamondCashJackpot.js';
 import { diamondCashRakeFactsFor } from './diamondCashRakeFacts.js';
 import { pendingSeatMoves, type PendingSeatMove } from '../services/supabase/seatMoves.js';
 import { bindToProcessRoot } from '../services/supabase/dataActorContext.js';
+import { runWithEventDbPriority } from '../services/supabase/eventDatabaseBulkhead.js';
 import { getTournamentBrainContextSnapshot } from '../services/TournamentBrainContext.js';
 /**
  * ServerTableEngine, layer 6/8 — the HAND_COMPLETE settlement pipeline and post-hand tasks.
@@ -3364,11 +3365,13 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
       const readCommittedStacks = () =>
         readCommittedSeatStacks({
           read: () =>
-            supabase
-              .from('table_seats')
-              .select('user_id,stack')
-              .eq('table_id', this.tableId)
-              .is('left_at', null),
+            runWithEventDbPriority('high', () =>
+              supabase
+                .from('table_seats')
+                .select('user_id,stack')
+                .eq('table_id', this.tableId)
+                .is('left_at', null)
+            ),
           canReflect: () => this.lifecycleCanMutate(),
           progress: () => this.markProgress(),
           sleep: (ms) => this.sleep(ms),
@@ -4612,8 +4615,8 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
       // Fresh authoritative recount, with no update request when the stored
       // summary already agrees. Unavailable reads stay unknown, never zero,
       // and a generation that loses lifecycle authority cannot repair or emit.
-      const finalCount = await reconcileTableSeatCount(this.tableId, () =>
-        this.lifecycleCanMutate()
+      const finalCount = await runWithEventDbPriority('high', () =>
+        reconcileTableSeatCount(this.tableId, () => this.lifecycleCanMutate())
       );
       if (!this.lifecycleCanMutate()) return;
 

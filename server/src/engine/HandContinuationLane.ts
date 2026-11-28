@@ -31,6 +31,28 @@ export interface HandContinuationBatch {
   engine: Record<string, unknown>;
 }
 
+/** Accounting-only engine subset captured after the previous batch dispatches. */
+export interface HandContinuationAccounting {
+  fields: unknown;
+  timeBankMeta: unknown;
+  timeBankDebits: unknown;
+}
+
+export interface HandContinuationLaneOptions {
+  /**
+   * Optional narrowed accounting capture that skips control-only fields
+   * (`disconnectStates`, `timeBanks`, `waitingForButton`) on the post-dispatch
+   * second capture (incident 1e532243).
+   */
+  captureAccounting?: () => HandContinuationAccounting;
+  /**
+   * Set true only when `captureEngine` (and `captureAccounting`, if supplied)
+   * already return freshly detached deep copies so the lane does not repeat
+   * `structuredClone` on the same snapshot tree.
+   */
+  engineCaptureDetached?: boolean;
+}
+
 /**
  * The synchronous controller emits several events per mutation. Capture its
  * stable end state at the end of that JavaScript turn, persist one immutable
@@ -98,7 +120,8 @@ export class HandContinuationLane {
     private readonly reportFailure: (error: unknown) => void,
     initialReplay?: () => Promise<void>,
     private readonly retainedInputReady?: () => Promise<void>,
-    private readonly beforeFirstDispatch?: () => Promise<void>
+    private readonly beforeFirstDispatch?: () => Promise<void>,
+    private readonly options?: HandContinuationLaneOptions
   ) {
     if (!Number.isSafeInteger(sequence) || sequence < 0) throw new Error('Invalid Hand Sequence');
     this.sequence = sequence;
@@ -135,7 +158,10 @@ export class HandContinuationLane {
       if (this.failed || this.closed || !this.current())
         throw new Error('Hand Continuation Is Fenced');
       const controller = this.captureController();
-      const control = structuredClone(this.captureEngine());
+      const rawControl = this.captureEngine();
+      const control = this.options?.engineCaptureDetached
+        ? rawControl
+        : structuredClone(rawControl);
       const events = this.pending;
       this.pending = [];
       this.controlDirty = false;
@@ -148,11 +174,15 @@ export class HandContinuationLane {
             throw new Error('Hand Continuation Is Fenced');
           // Engine metadata follows the PREVIOUS fully dispatched batch. The
           // stored events reconstruct only this batch after a process loss.
-          // Each capture copies every hand field and every player's clocks.
-          // Take one coherent accounting snapshot here, rather than repeating
-          // that full work for each of its three selected fields. The earlier
-          // control capture still owns this mutation's presence and time.
-          const accounting = this.captureEngine();
+          // When captureAccounting is supplied, capture only the three
+          // accounting fields instead of repeating disconnectStates/timeBanks/
+          // waitingForButton copies, and skip redundant structuredClone when
+          // the capture producer already detached every mutable field
+          // (incident 1e532243).
+          const accounting = this.options?.captureAccounting
+            ? this.options.captureAccounting()
+            : this.captureEngine();
+          const detached = this.options?.engineCaptureDetached === true;
           const batch: HandContinuationBatch = {
             version: 1,
             sequence,
@@ -160,9 +190,13 @@ export class HandContinuationLane {
             events,
             engine: {
               ...control,
-              fields: structuredClone(accounting.fields),
-              timeBankMeta: structuredClone(accounting.timeBankMeta),
-              timeBankDebits: structuredClone(accounting.timeBankDebits),
+              fields: detached ? accounting.fields : structuredClone(accounting.fields),
+              timeBankMeta: detached
+                ? accounting.timeBankMeta
+                : structuredClone(accounting.timeBankMeta),
+              timeBankDebits: detached
+                ? accounting.timeBankDebits
+                : structuredClone(accounting.timeBankDebits),
             },
           };
           await this.persist(batch);

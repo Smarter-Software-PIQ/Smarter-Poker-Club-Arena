@@ -39,7 +39,9 @@ import { parse } from 'yaml';
 import {
   MERGE_WINDOW_CONTEXT,
   MERGE_WINDOW_OVERRIDE_LABEL,
+  ACTIVE_PR_DAYS,
   DRAFT_HELD,
+  INACTIVE_HELD,
   ONE_SWEEP_BUDGET_MINUTES,
   PASS_BUDGET_MS,
   RATE_LIMITED_GH_ERROR,
@@ -69,6 +71,7 @@ import { releaseFreezeAdmission } from '../scripts/ci/release-freeze-admission.m
 import {
   ALERT_NAME as WATCH_ALERT,
   FLEET_TASK_ID,
+  activeThroughWindow,
   decide as watchDecide,
   lastClosedWindow,
   windowVerdict,
@@ -470,8 +473,9 @@ describe('a missed merge window is paged (2026-11-26)', () => {
     );
     const watch = read('scripts/ci/merge-window-watch.mjs');
     expect(/^(Install window open|Migrations merge|Release controls merge|Outage override)/.test(DRAFT_HELD)).toBe(false);
-    expect(watch).toContain('nodes{ number isDraft commits(last:1)');
+    expect(watch).toContain('nodes{ number isDraft updatedAt commits(last:1)');
     expect(watch).toContain('.filter((n) => !n.isDraft && n.commit && MIGRATION_STATUS.test(');
+    expect(watch).toContain('orderBy:{field:UPDATED_AT,direction:DESC}');
   });
 
   it('fires one fleet-addressed episode for a missed window and resolves it on the next held one', () => {
@@ -587,7 +591,8 @@ describe('the window opens on time (2026-11-27)', () => {
       const out = publish(
         [
           { pr: pr(12191, '2026-11-27T09:50:00Z'), files, error: null },
-          { pr: pr(2303, '2026-09-01T00:00:00Z'), files, error: null },
+          // Updated within ACTIVE_PR_DAYS, so the window opens it (an older one is held inactive).
+          { pr: pr(2303, '2026-11-25T00:00:00Z'), files, error: null },
         ],
         { repo: 'o/r', now, cadence: C, log: () => {} }
       );
@@ -1114,6 +1119,106 @@ describe('a one-shot sweep never opens a window (2026-11-27)', () => {
     expect(read('scripts/ci/merge-window-watch.mjs')).toContain(
       'const MIGRATION_STATUS = /^(Install window open|Migrations merge|Release controls merge|Outage override)/;'
     );
+  });
+
+  describe('a window opens only active pull requests (2026-11-27)', () => {
+    // 1:10-1:27 PM CST on 2026-11-26. Measured on 2026-11-27: about 154 status
+    // writes at each open and 154 at each close, and 195 of the 212 held pull
+    // requests had not been updated in 7 days. Only active ones flip now.
+    const DAY = 24 * 60 * 60_000;
+    const iso = (ms: number) => new Date(ms).toISOString();
+    const inactiveAt = iso(OPENS - (ACTIVE_PR_DAYS + 1) * DAY);
+    const sixDays = iso(OPENS - 6 * DAY);
+    const verdictAt = (nowMs: number, updatedAt: string, labels: string[] = [], body = '') =>
+      mergeWindowVerdict({ nowMs, cadence: C, baseRef: 'main', files: [mig(ORDINARY)], labels, body, updatedAt });
+
+    it('an inactive held pull request is never opened, and its one text is the same at every boundary', () => {
+      for (const nowMs of [OPENS - 1_000, OPENS, CLOSES - 1, CLOSES, at('2026-11-26T22:10:00Z')])
+        expect(verdictAt(nowMs, inactiveAt)).toEqual({ state: 'failure', description: INACTIVE_HELD });
+      expect(INACTIVE_HELD.length).toBeLessThanOrEqual(140);
+      expect(INACTIVE_HELD).toMatch(/push or edit the PR/);
+      // It is not a text the missed-window watch samples.
+      expect(/^(Install window open|Migrations merge|Release controls merge|Outage override)/.test(INACTIVE_HELD)).toBe(false);
+      // A pull request updated 6 days ago is opened; the outage override still applies to an inactive one.
+      expect(verdictAt(OPENS, sixDays).state).toBe('success');
+      const why = 'Outage override: engine cannot seat players since 12:40 PM';
+      expect(verdictAt(OPENS - 60 * 60_000, inactiveAt, [MERGE_WINDOW_OVERRIDE_LABEL], why)).toEqual({
+        state: 'success',
+        description: why,
+      });
+      // An unreadable updatedAt keeps the window rules: it can only cost writes, never open a closed window.
+      expect(verdictAt(OPENS, 'not a date').state).toBe('success');
+      expect(verdictAt(OPENS - 1_000, 'not a date').state).toBe('failure');
+    });
+
+    it('writes per boundary: only active held pull requests flip; an inactive one is written once, ever', async () => {
+      const inactiveDone: Fixture = { number: 81, updatedAt: inactiveAt, head: head('81a', { state: 'FAILURE', description: INACTIVE_HELD }) };
+      const inactiveOld: Fixture = {
+        number: 82,
+        updatedAt: inactiveAt,
+        head: head('82a', { state: 'FAILURE', description: 'Migrations merge 10-27 min after a cycle or 4:15-4:27 AM; next 1:10 PM CST' }),
+      };
+      const active: Fixture = { number: 83, updatedAt: sixDays, head: head('83a') };
+      const { w, run } = world(OPENS, [inactiveDone, inactiveOld, active]);
+      const writesAt = (nowMs: number) =>
+        run(() => {
+          w.clock = nowMs;
+          const before = w.writes.length;
+          sweep({ repo: REPO, nowMs, cadence: C, log: () => {} });
+          return w.writes.slice(before).map((x) => [x.sha, x.state, x.description]);
+        });
+      // First pass after the change: the stale text becomes INACTIVE_HELD once; the active one is written.
+      expect((await writesAt(OPENS - 1_000)).map((x) => x[0])).toEqual([active.head.sha, inactiveOld.head.sha]);
+      // Open: one write (the active one). Close: one write. Neither inactive pull request is touched.
+      expect(await writesAt(OPENS)).toEqual([[active.head.sha, 'success', 'Install window open: merge before 1:27 PM CST']]);
+      expect(await writesAt(CLOSES - 1)).toEqual([]);
+      expect((await writesAt(CLOSES)).map((x) => [x[0], x[1]])).toEqual([[active.head.sha, 'failure']]);
+      expect(await writesAt(at('2026-11-26T22:10:00Z'))).toEqual([
+        [active.head.sha, 'success', 'Install window open: merge before 4:27 PM CST'],
+      ]);
+      expect(inactiveDone.head.status?.description).toBe(INACTIVE_HELD);
+      expect(inactiveOld.head.status?.description).toBe(INACTIVE_HELD);
+    });
+
+    it('an inactive pull request that receives an event is opened in the same window', async () => {
+      const f: Fixture = { number: 84, updatedAt: inactiveAt, head: head('84a', { state: 'FAILURE', description: INACTIVE_HELD }) };
+      const { w, run } = world(OPENS, [f]);
+      await run(() => {
+        w.clock = OPENS + 60_000;
+        sweep({ repo: REPO, nowMs: w.clock, cadence: C, log: () => {} });
+        expect(w.writes).toEqual([]);
+        // An edit at 1:15 PM: the edited event re-runs the verdict (and the keeper re-reads updatedAt every pass).
+        f.updatedAt = iso(OPENS + 5 * 60_000);
+        w.clock = OPENS + 5 * 60_000 + 2_000;
+        sweep({ repo: REPO, nowMs: w.clock, cadence: C, log: () => {} });
+      });
+      expect(w.writes.map((x) => [x.sha, x.state])).toEqual([[f.head.sha, 'success']]);
+    });
+
+    it('the missed-window watch samples only pull requests the keeper was due to open', () => {
+      const win = { open: OPENS, close: CLOSES };
+      const st = (state: string, description: string, ms: number) => ({ state, description, created_at: iso(ms) });
+      const heldBefore = st('failure', 'Migrations merge 10-27 min after a cycle or 4:15-4:27 AM; next 1:10 PM CST', OPENS - 3 * 60 * 60_000);
+      const inactiveBefore = st('failure', INACTIVE_HELD, OPENS - 3 * 60 * 60_000);
+      const opened = st('success', 'Install window open: merge before 1:27 PM CST', OPENS + 12_000);
+      const inactive = [81, 82, 83].map((number) => ({ number, isDraft: false, updatedAt: inactiveAt, statuses: [inactiveBefore] }));
+      // Only inactive pull requests: nothing was due to open, so not needed (never missed).
+      expect(windowVerdict(win, inactive)).toBe('not-needed');
+      // An active, ready one that stayed held through the window is still a missed window.
+      const stayedHeld = { number: 90, isDraft: false, updatedAt: sixDays, statuses: [heldBefore] };
+      expect(windowVerdict(win, [...inactive, stayedHeld])).toBe('missed');
+      expect(windowVerdict(win, [...inactive, { ...stayedHeld, statuses: [opened, heldBefore] }])).toBe('held');
+      // One that crossed ACTIVE_PR_DAYS during the window was not due to open for all of it.
+      const crossed = { ...stayedHeld, updatedAt: iso(CLOSES - ACTIVE_PR_DAYS * DAY - 60_000) };
+      expect(activeThroughWindow(win, crossed)).toBe(false);
+      // Updated only after the window (a comment, a label): judged from its statuses.
+      const touchedAfter = { number: 91, isDraft: false, updatedAt: iso(CLOSES + 10 * 60_000) };
+      expect(windowVerdict(win, [{ ...touchedAfter, statuses: [inactiveBefore] }])).toBe('not-needed');
+      expect(windowVerdict(win, [{ ...touchedAfter, statuses: [st('failure', INACTIVE_HELD, OPENS), heldBefore] }])).toBe('not-needed');
+      expect(windowVerdict(win, [{ ...touchedAfter, statuses: [heldBefore] }])).toBe('missed');
+      // A draft is still never a witness.
+      expect(activeThroughWindow(win, { ...stayedHeld, isDraft: true })).toBe(false);
+    });
   });
 
   it('names the zone in force: CST in winter, CDT in daylight time', () => {
