@@ -73,6 +73,16 @@ Still old inside on purpose: `WeeklyAccountingWorkspace` (the Settlement body)
 prints its own lit words. It is a money screen shared with the Settlement
 Dashboard and needs its own pass with its figure hooks pinned first.
 
+## Batch 4
+
+| #   | Surface          | File                                 | What changed                                                                                                                                                                                                                                      |
+| --- | ---------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 14  | Blacklist (body) | `src/pages/BlacklistManagerPage.tsx` | Cut-corner panels became chrome cases; every control a chrome key (Add Exclusion lit; Apply Exclusion, Confirm, Remove From Play and Remove Access Control keep red ink); fields dark wells; each exclusion and roster match a chrome ledger row. |
+
+Diamond Wheel ops, Diamond Games ops and Financials are in progress as one
+full pass (with `DiamondGamesMoney` and the Financials embeds), so no page
+ships with painted and chrome frames mixed on one screen.
+
 ## Ranked backlog
 
 ### Tier 1: high traffic, cheap
@@ -91,17 +101,17 @@ Dashboard and needs its own pass with its figure hooks pinned first.
 
 ### Tier 2: high traffic, more work
 
-| Rank | Surface                         | File                                                | Today                                                                                               |
-| ---- | ------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| 10   | Disputes (body) (done, batch 3) | `src/pages/DisputeManagementPage.tsx`               | Integrity mast already arena; case list still sits in painted `SpadeConsole`.                       |
-| 11   | Blacklist (body)                | `src/pages/BlacklistManagerPage.tsx`                | Integrity mast already arena; form and ledger are its own module dress (rounded panels, gradients). |
-| 12   | Anti-Cheat                      | `src/pages/AntiCheatPage.tsx`                       | 1,547 lines, own module dress, 1 e2e spec.                                                          |
-| 13   | Agent Network                   | `src/pages/SuperAgentDashboard.tsx`                 | Rounded stat cards with glyph icons, gradient tabs (10 radius, 13 gradients).                       |
-| 14   | Promo Vault                     | `src/pages/PromoVaultPage.tsx`                      | Own rounded dress (17 radius, 11 gradients), 1,241 lines.                                           |
-| 15   | Financials                      | `src/pages/ClubFinancialsPage.tsx`                  | Heavy painted `SpadeConsole` use (21 references), 11 tests.                                         |
-| 16   | Diamond Wheel ops               | `src/pages/club/ClubWheelOperationsPage.tsx`        | Painted `SpadeConsole` on the shared `diamondGames.module.css`.                                     |
-| 17   | Diamond Games ops               | `src/pages/club/ClubDiamondGamesOperationsPage.tsx` | Same shared sheet as Diamond Wheel ops; convert together.                                           |
-| 18   | Agent Team                      | `src/pages/AgentManagementPage.tsx`                 | 1,839 lines, painted `SpadeConsole` (11), 9 tests.                                                  |
+| Rank | Surface                                    | File                                                | Today                                                                                               |
+| ---- | ------------------------------------------ | --------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| 10   | Disputes (body) (done, batch 3)            | `src/pages/DisputeManagementPage.tsx`               | Integrity mast already arena; case list still sits in painted `SpadeConsole`.                       |
+| 11   | Blacklist (body) (done, batch 4)           | `src/pages/BlacklistManagerPage.tsx`                | Integrity mast already arena; form and ledger are its own module dress (rounded panels, gradients). |
+| 12   | Anti-Cheat                                 | `src/pages/AntiCheatPage.tsx`                       | 1,547 lines, own module dress, 1 e2e spec.                                                          |
+| 13   | Agent Network                              | `src/pages/SuperAgentDashboard.tsx`                 | Rounded stat cards with glyph icons, gradient tabs (10 radius, 13 gradients).                       |
+| 14   | Promo Vault                                | `src/pages/PromoVaultPage.tsx`                      | Own rounded dress (17 radius, 11 gradients), 1,241 lines.                                           |
+| 15   | Financials (in progress, full pass)        | `src/pages/ClubFinancialsPage.tsx`                  | Heavy painted `SpadeConsole` use (21 references), 11 tests.                                         |
+| 16   | Diamond Wheel ops (in progress, full pass) | `src/pages/club/ClubWheelOperationsPage.tsx`        | Painted `SpadeConsole` on the shared `diamondGames.module.css`.                                     |
+| 17   | Diamond Games ops (in progress, full pass) | `src/pages/club/ClubDiamondGamesOperationsPage.tsx` | Same shared sheet as Diamond Wheel ops; convert together.                                           |
+| 18   | Agent Team                                 | `src/pages/AgentManagementPage.tsx`                 | 1,839 lines, painted `SpadeConsole` (11), 9 tests.                                                  |
 
 ### Tier 3: risky (shared or heavily pinned), later batches
 
@@ -135,9 +145,10 @@ the club-arena-console skill, step 1.5). Platform staff desks (`src/pages/admin/
 Financial Admin, Engine) are internal tools. The front door
 (`InvitePage`, Auth) keeps its own dress.
 
-## Recommended Batch 4
+## Recommended Batch 5
 
-Blacklist (body), Diamond Wheel ops together with Diamond Games ops (they share
-`diamondGames.module.css`), and Financials, then the Settlement body
-(`WeeklyAccountingWorkspace`, pin its figure hooks first). Anti-Cheat, Agent
-Network and Promo Vault each need a pass of their own.
+The money pages as one full pass: Diamond Wheel ops and Diamond Games ops with
+`DiamondGamesMoney`, and Financials with every embed (`ClubFinancialDashboard`,
+`RakeReports`, `TransactionLedgerView`, `ChipStatement`, `DynamicWallet`),
+their figure hooks pinned by tests first. Then the Settlement body
+(`WeeklyAccountingWorkspace`), Agent Team and Agent Network.

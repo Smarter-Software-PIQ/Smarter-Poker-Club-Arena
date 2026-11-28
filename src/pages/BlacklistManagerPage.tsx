@@ -10,6 +10,8 @@ import { resolveClubUUID } from '../utils/clubIdResolver';
 import { safeErrorMessage } from '../utils/safeErrorMessage';
 import { adminRemovePlayerFromClubTables } from '../services/IntegrityActionService';
 import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../utils/playerDisplayName';
+import '../components/lobby/ArenaWorkspace.css';
+import '../components/ops/ArenaOps.css';
 import styles from './BlacklistManagerPage.module.css';
 
 interface MemberOption {
@@ -370,7 +372,7 @@ export default function BlacklistManagerPage() {
   const permanentCount = entries.filter((entry) => !entry.expires_at).length;
 
   return (
-    <div className={styles.page}>
+    <div className={`${styles.page} arena-workspace`}>
       <ClubIntegrityHeader
         clubId={clubId}
         active="blacklist"
@@ -382,9 +384,11 @@ export default function BlacklistManagerPage() {
           { label: 'Total Records', value: entries.length },
         ]}
         action={
-          <button className={styles.addButton} type="button" onClick={() => setShowAddForm(true)}>
-            Add Exclusion
-          </button>
+          <span className={`arena-switch arena-ops-keys arena-ops-primary ${styles.addKeys}`}>
+            <button className={styles.addButton} type="button" onClick={() => setShowAddForm(true)}>
+              Add Exclusion
+            </button>
+          </span>
         }
       />
 
@@ -398,27 +402,29 @@ export default function BlacklistManagerPage() {
         </div>
 
         {error && (
-          <div className={styles.errorPanel} role="alert">
+          <div className={`arena-case ${styles.errorPanel}`} role="alert">
             <div>
               <strong>
                 {loadFailed ? 'Exclusion Ledger Unavailable' : 'Control Action Incomplete'}
               </strong>
               <p>{error}</p>
             </div>
-            {loadFailed ? (
-              <button type="button" onClick={() => void loadEntries()}>
-                Retry
-              </button>
-            ) : (
-              <button type="button" onClick={() => setError(null)}>
-                Dismiss
-              </button>
-            )}
+            <span className="arena-switch arena-ops-keys arena-ops-primary">
+              {loadFailed ? (
+                <button type="button" onClick={() => void loadEntries()}>
+                  Retry
+                </button>
+              ) : (
+                <button type="button" onClick={() => setError(null)}>
+                  Dismiss
+                </button>
+              )}
+            </span>
           </div>
         )}
 
         {showAddForm && (
-          <form className={styles.formPanel} onSubmit={handleAdd}>
+          <form className={`arena-case ${styles.formPanel}`} onSubmit={handleAdd}>
             <div className={styles.panelHeader}>
               <div>
                 <p className={styles.kicker}>New Control Record</p>
@@ -430,7 +436,7 @@ export default function BlacklistManagerPage() {
               <div className={styles.field}>
                 <label htmlFor="blacklist-member-search">Player</label>
                 {selectedMember ? (
-                  <div className={styles.selectedMember}>
+                  <div className={`arena-switch ${styles.selectedMember}`}>
                     <span>{selectedMember.display_name}</span>
                     <button
                       className={styles.secondaryButton}
@@ -469,6 +475,7 @@ export default function BlacklistManagerPage() {
                           <li key={option.user_id}>
                             <button
                               type="button"
+                              className="arena-ledger-row"
                               onClick={() => {
                                 setSelectedMember(option);
                                 setNewUserId(option.user_id);
@@ -504,7 +511,7 @@ export default function BlacklistManagerPage() {
                 />
               </div>
             </div>
-            <div className={styles.formActions}>
+            <div className={`arena-switch arena-ops-keys ${styles.formActions}`}>
               <button
                 className={styles.dangerButton}
                 type="submit"
@@ -520,7 +527,7 @@ export default function BlacklistManagerPage() {
         )}
 
         {seatedAfterExclusion && (
-          <div className={styles.seatedPanel} role="alert">
+          <div className={`arena-case ${styles.seatedPanel}`} role="alert">
             <div>
               <strong>
                 {seatedAfterExclusion.member.display_name} Is Still Seated At{' '}
@@ -534,7 +541,7 @@ export default function BlacklistManagerPage() {
               </p>
             </div>
             {removalStatus && <p role="status">{removalStatus}</p>}
-            <div className={styles.confirmActions}>
+            <div className={`arena-switch arena-ops-keys ${styles.confirmActions}`}>
               <button
                 className={styles.dangerButton}
                 type="button"
@@ -555,13 +562,16 @@ export default function BlacklistManagerPage() {
         )}
 
         {!loadFailed && (
-          <section className={styles.ledger} aria-labelledby="blacklist-ledger-title">
+          <section
+            className={`arena-case ${styles.ledger}`}
+            aria-labelledby="blacklist-ledger-title"
+          >
             <div className={styles.panelHeader}>
               <div>
                 <p className={styles.kicker}>Live Club Control</p>
                 <h2 id="blacklist-ledger-title">Exclusion Ledger</h2>
               </div>
-              <div className={styles.ledgerTools}>
+              <div className={`arena-switch ${styles.ledgerTools}`}>
                 <span>{entries.length} Total</span>
                 {expiredEntries.length > 0 && (
                   <button
@@ -610,7 +620,7 @@ export default function BlacklistManagerPage() {
                       const expired = isExpired(entry);
                       const confirming = confirmingRemoval === entry.id;
                       return (
-                        <tr key={entry.id}>
+                        <tr key={entry.id} className="arena-ledger-row">
                           <td data-label="Player">
                             <span className={styles.playerCell}>
                               <strong>{names[entry.user_id] || 'Loading Name'}</strong>
@@ -629,7 +639,9 @@ export default function BlacklistManagerPage() {
                           </td>
                           <td data-label="Control">
                             {confirming ? (
-                              <div className={styles.confirmActions}>
+                              <div
+                                className={`arena-switch arena-ops-keys ${styles.confirmActions}`}
+                              >
                                 <button
                                   className={styles.dangerButton}
                                   type="button"
@@ -647,13 +659,15 @@ export default function BlacklistManagerPage() {
                                 </button>
                               </div>
                             ) : (
-                              <button
-                                className={styles.removeButton}
-                                type="button"
-                                onClick={() => setConfirmingRemoval(entry.id)}
-                              >
-                                Remove Access Control
-                              </button>
+                              <span className="arena-switch">
+                                <button
+                                  className={styles.removeButton}
+                                  type="button"
+                                  onClick={() => setConfirmingRemoval(entry.id)}
+                                >
+                                  Remove Access Control
+                                </button>
+                              </span>
                             )}
                           </td>
                         </tr>
