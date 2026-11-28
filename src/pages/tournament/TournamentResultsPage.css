@@ -131,6 +131,11 @@
   margin: 0;
 }
 
+.tournament-results-page.arena-workspace .tr-spin-tabs button {
+  min-height: 44px;
+  touch-action: manipulation;
+}
+
 .tournament-results-page.arena-workspace .tr-leaders-list {
   display: grid;
   gap: 4px;
