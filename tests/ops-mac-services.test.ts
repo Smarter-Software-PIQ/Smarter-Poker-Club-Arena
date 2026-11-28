@@ -42,6 +42,32 @@ describe('operations Mac services', () => {
     expect(out).toContain("ARRAY['public.fn_existing','public.fn_new_helper']");
     expect(out.trim().split('\n').at(-1)).toMatch(/^SELECT 'liveproof', \(/);
   });
+  it('sees its own workflow run while it waits behind another run for the same file', () => {
+    // 20261118233000 (2026-11-19, Production Alerts 444704): the merge dispatcher's
+    // run held the per-file concurrency group, the queue's own send waited behind it
+    // with no job yet, and matching on the job name reported "no run appeared"
+    // (rc=3) for a migration that installed ten minutes later. The run-name exists
+    // from creation, so the pending run is seen; a longer file name sharing the
+    // prefix is not mistaken for it.
+    const file = '20261118233000_the_capped_satellite_executor_carries_its_own_deadline.sql';
+    const listing = fs.readFileSync('tests/fixtures/ops-mac-apply-runs/queued-behind-dispatcher.json', 'utf8');
+    const run = (mode: string, input = listing) =>
+      execFileSync('python3', [`${dir}/apply-runs.py`, file, mode], { encoding: 'utf8', input }).trim();
+    expect(run('latest')).toBe('900003');
+    expect(run('inflight')).toBe('2');
+    expect(run('inflight', '[]')).toBe('0');
+    expect(run('latest', '[]')).toBe('');
+    // An unreadable listing is never read as "nothing in flight".
+    expect(() => run('inflight', 'rate limited')).toThrow();
+    expect(driver).toContain('python3 $O/apply-runs.py "$F" latest');
+    expect(driver).not.toContain(".jobs[0].name");
+    expect(driver).toMatch(/wait_window\n {2}wait_inflight\n {2}BEFORE=\$\(latest_run\)/);
+    expect(read('setup.sh')).toContain('apply-runs.py');
+  });
+  it('fails a job only when its version is still not recorded', () => {
+    expect(queue).toContain('recorded by another route after driver rc=$rc; verifying only');
+    expect(queue).toMatch(/if \[ \$rc -ne 0 \]; then case "\$\(rec_state "\$V"\)" in/);
+  });
   it('alerts on a failed job and on a stopped queue', () => {
     expect(queue).toContain('InstallQueueJobFailed');
     expect(beat).toContain('InstallQueueServiceDown');
