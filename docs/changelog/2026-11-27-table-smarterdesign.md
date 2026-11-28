@@ -11,7 +11,7 @@ Every console on the table is a `SpadeConsole` (settings, table settings, theme,
 history and hand detail, leaderboard, club profile, identity, sit out, wait list, hit-and-run
 leave, heads-up waiting, invites, time bank store, real-time results, tournament break and winner,
 connection banner, load failure, Lightning notices and more). `SpadeConsole` now reads a
-`ConsoleSkinContext` (`src/components/console/consoleSkin.ts`). `PersistentTableLayer` provides
+`ConsoleSkinContext` (defined in `src/components/console/SpadeConsole.tsx`). `MultiTableSurface` (the lazily loaded wrapper `PersistentTableLayer` opens) provides
 `smarterdesign` once, around the whole table layer, so every one of those changes together with no
 caller touched. Off the table nothing changes: the default skin is still the painted master.
 

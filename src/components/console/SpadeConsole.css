@@ -666,9 +666,9 @@ input.sc-check__box:disabled {
    an opaque panel, so nothing on the felt shows through a popup.
    ══════════════════════════════════════════════════════════════════════════ */
 .sc.sc--sd.sc--sd {
-  --sd-case: url('../lobby/console-art/chrome-case.webp');
-  --sd-stat: url('../lobby/console-art/chrome-stat.webp');
-  --sd-active: url('../lobby/console-art/chrome-active.webp');
+  --sd-case: url('/assets/club-buttons/console/smarterdesign-v1/chrome-case.webp');
+  --sd-stat: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp');
+  --sd-active: url('/assets/club-buttons/console/smarterdesign-v1/chrome-active.webp');
   --sd-panel:
     radial-gradient(ellipse at 90% -40%, #1e3853, transparent 63%),
     linear-gradient(145deg, #091727, #030b14 74%);

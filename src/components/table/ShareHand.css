@@ -682,7 +682,8 @@
 .share-hand__video .share-hand__video-btn.share-hand__video-btn {
   min-height: 50px;
   border: 5px solid transparent !important;
-  border-image: url('../lobby/console-art/chrome-active.webp') 11 / 6px stretch !important;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-active.webp') 11 / 6px
+    stretch !important;
   border-radius: 0 !important;
   background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
   background-clip: padding-box !important;
@@ -693,12 +694,12 @@
   text-shadow: none;
 }
 .share-hand__video .share-hand__video-btn.share-hand__video-btn--plate {
-  border-image-source: url('../lobby/console-art/chrome-stat.webp') !important;
+  border-image-source: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') !important;
   background: linear-gradient(155deg, #12273b, #07111c 70%) !important;
   color: #f1f5fc !important;
 }
 .share-hand__video .share-hand__video-btn.share-hand__video-btn:disabled {
-  border-image-source: url('../lobby/console-art/chrome-stat.webp') !important;
+  border-image-source: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') !important;
   background: #13202c !important;
   color: #a7b7c8 !important;
   opacity: 1;
@@ -722,13 +723,15 @@
 }
 .share-hand__video .share-hand__video-preview {
   border: 7px solid transparent;
-  border-image: url('../lobby/console-art/chrome-readout.webp') 21 / 10px stretch;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-readout.webp') 21 / 10px
+    stretch;
   border-radius: 0;
   box-shadow: none;
 }
 .share-hand__video .share-hand__video-caption {
   border: 4px solid transparent;
-  border-image: url('../lobby/console-art/chrome-row.webp') 13 / 6px stretch;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-row.webp') 13 / 6px
+    stretch;
   border-radius: 0;
   background: #030b14;
   color: #f1f5fc;

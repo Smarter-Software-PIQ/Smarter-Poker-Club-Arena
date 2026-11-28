@@ -305,7 +305,8 @@
   inset: 0;
   z-index: 3;
   pointer-events: none;
-  border-image: url('../lobby/console-art/chrome-case.webp') 41 / 19px stretch;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-case.webp') 41 / 19px
+    stretch;
 }
 .tournamentAnnouncement.tournamentAnnouncement .announcementTitle {
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
@@ -345,7 +346,8 @@
 }
 .tournamentAnnouncement.tournamentAnnouncement.compact .announcementContent {
   border: 4px solid transparent;
-  border-image: url('../lobby/console-art/chrome-row.webp') 13 / 6px stretch;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-row.webp') 13 / 6px
+    stretch;
   border-radius: 0;
   background: linear-gradient(108deg, #13253a, #060e18 72%);
 }

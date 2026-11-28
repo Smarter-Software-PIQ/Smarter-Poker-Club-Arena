@@ -190,7 +190,7 @@ const ROUTE_CHUNKS: Record<string, () => Promise<any>> = {
   // (2026-08-24: it was removed from CRITICAL_CHUNKS on the stated grounds
   // that ROUTE_CHUNKS already warmed it - which was true of TablePage only.)
   '/table/': () => {
-    void import('../pages/MultiTablePage').catch(() => {});
+    void import('../pages/MultiTableSurface').catch(() => {});
     return import('../pages/TablePage');
   },
   '/clubs/': () => import('../pages/ClubHomePage'),

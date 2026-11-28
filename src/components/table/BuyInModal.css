@@ -451,7 +451,8 @@
   inset: 0;
   z-index: 3;
   pointer-events: none;
-  border-image: url('../lobby/console-art/chrome-case.webp') 41 / 19px stretch;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-case.webp') 41 / 19px
+    stretch;
 }
 .buy-in-modal.buy-in-modal :is(.sc-zone, .buy-in-modal__bay-button, .sc-plate) {
   position: relative !important;
@@ -516,7 +517,8 @@
   grid-row: 1 / span 2;
   padding: 6px 12px;
   border: 4px solid transparent;
-  border-image: url('../lobby/console-art/chrome-stat.webp') 11 / 5px stretch;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') 11 / 5px
+    stretch;
   background: linear-gradient(155deg, #12273b, #07111c 70%);
   font:
     700 16px / 1.1 'Rajdhani',
@@ -541,7 +543,8 @@
   gap: 4px;
   padding: 10px 8px;
   border: 7px solid transparent;
-  border-image: url('../lobby/console-art/chrome-readout.webp') 21 / 10px stretch;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-readout.webp') 21 / 10px
+    stretch;
   border-radius: 0;
   background: radial-gradient(ellipse at 50% 5%, #132e47, transparent 68%), #030b14;
   box-shadow: none;
@@ -594,7 +597,8 @@
   min-height: 48px;
   padding: 4px 2px !important;
   border: 4px solid transparent !important;
-  border-image: url('../lobby/console-art/chrome-stat.webp') 11 / 5px stretch !important;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') 11 / 5px
+    stretch !important;
   background: linear-gradient(155deg, #12273b, #07111c 70%) !important;
   color: #f4f8ff;
   font:
@@ -604,7 +608,7 @@
   font-variant-numeric: tabular-nums;
 }
 .buy-in-modal.buy-in-modal .buy-in-modal__bay-button[aria-pressed='true'] {
-  border-image-source: url('../lobby/console-art/chrome-active.webp') !important;
+  border-image-source: url('/assets/club-buttons/console/smarterdesign-v1/chrome-active.webp') !important;
   background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
   background-clip: padding-box !important;
 }
@@ -632,7 +636,8 @@
   margin-top: 6px;
   padding: 6px 10px;
   border: 5px solid transparent !important;
-  border-image: url('../lobby/console-art/chrome-stat.webp') 11 / 6px stretch !important;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') 11 / 6px
+    stretch !important;
   background: linear-gradient(155deg, #12273b, #07111c 70%) !important;
   color: #f1f5fc !important;
 }
@@ -640,13 +645,13 @@
   content: none;
 }
 .buy-in-modal.buy-in-modal .buy-in-modal__deck > .buy-in-modal__confirm {
-  border-image-source: url('../lobby/console-art/chrome-active.webp') !important;
+  border-image-source: url('/assets/club-buttons/console/smarterdesign-v1/chrome-active.webp') !important;
   background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
   background-clip: padding-box !important;
   color: #fff !important;
 }
 .buy-in-modal.buy-in-modal .buy-in-modal__deck > .buy-in-modal__confirm--disabled {
-  border-image-source: url('../lobby/console-art/chrome-stat.webp') !important;
+  border-image-source: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') !important;
   background: #13202c !important;
 }
 .buy-in-modal.buy-in-modal .sc-plate__well {

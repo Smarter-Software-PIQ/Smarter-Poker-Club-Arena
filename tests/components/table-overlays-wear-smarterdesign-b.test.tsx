@@ -30,7 +30,9 @@ const FILES = [
 describe('table overlays wear #SmarterDesign', () => {
   it.each(FILES)('%s uses the chrome art and never touches an animation', (file) => {
     const css = block(file);
-    expect(css).toMatch(/\.\.\/lobby\/console-art\/chrome-(case|row|stat|readout|active)\.webp/);
+    expect(css).toMatch(
+      /\/assets\/club-buttons\/console\/smarterdesign-v1\/chrome-(case|row|stat|readout|active)\.webp/
+    );
     expect(css).not.toMatch(/(^|[;{\s])animation(-[a-z]+)?\s*:/m);
     expect(css).not.toMatch(/:hover/);
     // The announcement re-inks the warm accents by matching them in a

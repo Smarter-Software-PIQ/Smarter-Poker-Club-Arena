@@ -315,11 +315,11 @@
    the `!important` resets on the plates, close, presets and amount.
    ══════════════════════════════════════════════════════════════════════════ */
 .addon-console.addon-console.addon-console {
-  --pc-case: url('../lobby/console-art/chrome-case.webp');
-  --pc-row: url('../lobby/console-art/chrome-row.webp');
-  --pc-stat: url('../lobby/console-art/chrome-stat.webp');
-  --pc-active: url('../lobby/console-art/chrome-active.webp');
-  --pc-readout: url('../lobby/console-art/chrome-readout.webp');
+  --pc-case: url('/assets/club-buttons/console/smarterdesign-v1/chrome-case.webp');
+  --pc-row: url('/assets/club-buttons/console/smarterdesign-v1/chrome-row.webp');
+  --pc-stat: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp');
+  --pc-active: url('/assets/club-buttons/console/smarterdesign-v1/chrome-active.webp');
+  --pc-readout: url('/assets/club-buttons/console/smarterdesign-v1/chrome-readout.webp');
   position: relative;
   isolation: isolate;
   box-sizing: border-box;

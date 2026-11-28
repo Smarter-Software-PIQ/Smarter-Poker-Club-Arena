@@ -293,7 +293,8 @@
   inset: 0;
   z-index: 3;
   pointer-events: none;
-  border-image: url('../lobby/console-art/chrome-case.webp') 41 / 19px stretch;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-case.webp') 41 / 19px
+    stretch;
 }
 .maintenance-break .maintenance-break__close.maintenance-break__close {
   top: 12px;
@@ -302,7 +303,8 @@
   width: 44px;
   height: 44px;
   border: 4px solid transparent !important;
-  border-image: url('../lobby/console-art/chrome-stat.webp') 11 / 5px stretch !important;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') 11 / 5px
+    stretch !important;
   border-radius: 0 !important;
   background: linear-gradient(180deg, #1d344b, #0a1726 60%, #10243a) !important;
   color: #e9f1fb !important;
@@ -314,7 +316,8 @@
 }
 .maintenance-break .maintenance-break__badge {
   border: 4px solid transparent;
-  border-image: url('../lobby/console-art/chrome-stat.webp') 11 / 5px stretch;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') 11 / 5px
+    stretch;
   border-radius: 0;
   background: linear-gradient(155deg, #12273b, #07111c 70%);
   color: #86daff;
@@ -338,7 +341,8 @@
 }
 .maintenance-break .maintenance-break__facts li {
   border: 4px solid transparent;
-  border-image: url('../lobby/console-art/chrome-row.webp') 13 / 6px stretch;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-row.webp') 13 / 6px
+    stretch;
   border-radius: 0;
   background: linear-gradient(108deg, #13253a, #060e18 72%);
 }

@@ -111,7 +111,8 @@
   inset: 0;
   z-index: 3;
   pointer-events: none;
-  border-image: url('../lobby/console-art/chrome-case.webp') 41 / 19px stretch;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-case.webp') 41 / 19px
+    stretch;
 }
 .emoji-picker-overlay .emoji-picker__label {
   color: #86daff;
@@ -125,7 +126,8 @@
   position: relative;
   z-index: 1;
   border: 3px solid transparent;
-  border-image: url('../lobby/console-art/chrome-stat.webp') 11 / 4px stretch;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') 11 / 4px
+    stretch;
   border-radius: 0;
   background: linear-gradient(155deg, #12273b, #07111c 70%);
   box-shadow: none;

@@ -27,10 +27,11 @@ import { matchPath, useLocation } from 'react-router-dom';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import ErrorBoundary from '../common/ErrorBoundary';
 import PortraitLock from './PortraitLock';
-import { ConsoleSkinProvider } from '../console/consoleSkin';
 import { lazyWithRetry } from '../../utils/lazyWithRetry';
 
-const MultiTablePage = lazyWithRetry(() => import('../../pages/MultiTablePage'));
+/* The surface wraps MultiTablePage in the #SmarterDesign console skin; see
+   pages/MultiTableSurface.tsx for why the provider is not in this file. */
+const MultiTablePage = lazyWithRetry(() => import('../../pages/MultiTableSurface'));
 /* Lazy for the same reason MultiTablePage is: this layer is imported by
    App.tsx, so a static import here lands in the ENTRY chunk that every
    player downloads before first paint (the CI entry-chunk guard refused six
@@ -73,11 +74,7 @@ export default function PersistentTableLayer() {
   if (!user) return null;
 
   return (
-    // #SMARTERDESIGN (Dan 2026-11-27): every console drawn by the table layer -
-    // buy-in, rebuy, settings, hand history, leave, sit out, waitlist, the
-    // tournament screens - wears the arena workspace dress, not the painted
-    // master. One provider here reaches all of them, portals included.
-    <ConsoleSkinProvider value="smarterdesign">
+    <>
       {/* PORTRAIT LOCK (Dan 2026-08-28: "lock it, portrait mode only").
           It belongs HERE and nowhere else. MultiTablePage keeps up to four
           TablePages mounted at once, so anything rendered inside a table would
@@ -117,6 +114,6 @@ export default function PersistentTableLayer() {
           <MultiTablePage />
         </Suspense>
       </ErrorBoundary>
-    </ConsoleSkinProvider>
+    </>
   );
 }

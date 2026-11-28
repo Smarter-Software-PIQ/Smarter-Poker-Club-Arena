@@ -547,7 +547,8 @@
   inset: 0;
   z-index: -1;
   border: 7px solid transparent;
-  border-image: url('../lobby/console-art/chrome-readout.webp') 21 / 10px stretch;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-readout.webp') 21 / 10px
+    stretch;
   background:
     radial-gradient(ellipse at 50% 5%, rgb(19 46 71 / 92%), transparent 68%), rgb(3 11 20 / 88%);
   background-clip: padding-box;
