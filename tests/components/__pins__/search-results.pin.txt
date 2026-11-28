@@ -69,7 +69,7 @@
       "data-kind=registering"
     ]
   },
-  "text": "Results | 13 | Network Scanner | Community Search | LIVE DATA | Search The Smarter Poker Network | ⌕ | 13 | Matches | · Showing 6 | Across The Network | · Fuzzy On | Clubs | 9 | Players | 2 | Friends | Tables | 1 | Tournaments | 1",
+  "text": "Results | 13 | Network Scanner | Community Search | Live Data | Search The Smarter Poker Network | ⌕ | 13 | Matches | · Showing 6 | Across The Network | · Fuzzy On | Clubs | 9 | Players | 2 | Friends | Tables | 1 | Tournaments | 1",
   "regions": [
     "dl||Find Your Next Game Live Summary",
     "form|search|",

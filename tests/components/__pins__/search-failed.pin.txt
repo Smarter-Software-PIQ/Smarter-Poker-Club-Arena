@@ -20,7 +20,7 @@
       "data-active=false"
     ]
   },
-  "text": "Results | 0 | Network Scanner | Community Search | PARTIAL INDEX | Search The Smarter Poker Network | ⌕ | Index Connection Interrupted | The Community Index Is Temporarily Unavailable. Your Query Is Safe To Retry.",
+  "text": "Results | 0 | Network Scanner | Community Search | Partial Index | Search The Smarter Poker Network | ⌕ | Index Connection Interrupted | The Community Index Is Temporarily Unavailable. Your Query Is Safe To Retry.",
   "regions": [
     "dl||Find Your Next Game Live Summary",
     "form|search|",

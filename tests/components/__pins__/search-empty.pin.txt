@@ -20,7 +20,7 @@
       "data-active=false"
     ]
   },
-  "text": "Results | 0 | Network Scanner | Community Search | LIVE DATA | Search The Smarter Poker Network | ⌕ | ⌁ | No Matches For “ | zzqx | ” | Check The Spelling Or Try A Broader Term. Club Numbers And Stakes Work Too.",
+  "text": "Results | 0 | Network Scanner | Community Search | Live Data | Search The Smarter Poker Network | ⌕ | ⌁ | No Matches For “ | zzqx | ” | Check The Spelling Or Try A Broader Term. Club Numbers And Stakes Work Too.",
   "regions": [
     "dl||Find Your Next Game Live Summary",
     "form|search|",

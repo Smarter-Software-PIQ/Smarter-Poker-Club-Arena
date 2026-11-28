@@ -787,10 +787,10 @@ export default function SearchPage() {
           </div>
           <span className={styles.indexStatus} data-state={searchFreshness}>
             {searchFreshness === 'cached'
-              ? 'RECENT SNAPSHOT'
+              ? 'Recent Snapshot'
               : searchFreshness === 'partial'
-                ? 'PARTIAL INDEX'
-                : 'LIVE DATA'}
+                ? 'Partial Index'
+                : 'Live Data'}
           </span>
         </div>
 

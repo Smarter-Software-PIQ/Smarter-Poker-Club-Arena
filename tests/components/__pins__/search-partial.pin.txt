@@ -62,7 +62,7 @@
       "data-kind=registering"
     ]
   },
-  "text": "Results | 11 | Network Scanner | Community Search | PARTIAL INDEX | Search The Smarter Poker Network | ⌕ | Index Connection Interrupted | The players Index Could Not Be Reached. The Results Below Are Partial. | 11 | Matches | · Showing 4 | Across The Network | · Fuzzy On | Clubs | 9 | Players | 0 | This Index Did Not Answer. Retry Above. | Tables | 1 | Tournaments | 1",
+  "text": "Results | 11 | Network Scanner | Community Search | Partial Index | Search The Smarter Poker Network | ⌕ | Index Connection Interrupted | The players Index Could Not Be Reached. The Results Below Are Partial. | 11 | Matches | · Showing 4 | Across The Network | · Fuzzy On | Clubs | 9 | Players | 0 | This Index Did Not Answer. Retry Above. | Tables | 1 | Tournaments | 1",
   "regions": [
     "dl||Find Your Next Game Live Summary",
     "form|search|",
