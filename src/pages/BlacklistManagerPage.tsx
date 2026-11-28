@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import ClubIntegrityHeader from '../components/club/ClubIntegrityHeader';
+import { ArenaState } from '../components/ops/ArenaOps';
+import '../components/lobby/ArenaWorkspace.css';
+import '../components/ops/ArenaOps.css';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { supabase } from '../lib/supabase';
 import type { BlacklistEntry } from '../types/club.types';
@@ -10,8 +13,6 @@ import { resolveClubUUID } from '../utils/clubIdResolver';
 import { safeErrorMessage } from '../utils/safeErrorMessage';
 import { adminRemovePlayerFromClubTables } from '../services/IntegrityActionService';
 import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../utils/playerDisplayName';
-import '../components/lobby/ArenaWorkspace.css';
-import '../components/ops/ArenaOps.css';
 import styles from './BlacklistManagerPage.module.css';
 
 interface MemberOption {
@@ -384,33 +385,34 @@ export default function BlacklistManagerPage() {
           { label: 'Total Records', value: entries.length },
         ]}
         action={
-          <span className={`arena-switch arena-ops-keys arena-ops-primary ${styles.addKeys}`}>
-            <button className={styles.addButton} type="button" onClick={() => setShowAddForm(true)}>
+          <div className="arena-switch arena-ops-keys arena-ops-primary">
+            <button type="button" onClick={() => setShowAddForm(true)}>
               Add Exclusion
             </button>
-          </span>
+          </div>
         }
       />
 
       <main className={styles.workspace}>
         <div className={styles.workspaceHeading}>
           <div>
-            <p className={styles.kicker}>Controlled Access Ledger</p>
-            <h2>Excluded Players</h2>
+            <p className="arena-ops-eyebrow">Controlled Access Ledger</p>
+            <h2 className="arena-section-title">Excluded Players</h2>
           </div>
-          {clubId && <Link to={`/clubs/${clubId}/operations`}>Return To Operations</Link>}
+          {clubId && (
+            <div className="arena-switch">
+              <Link to={`/clubs/${clubId}/operations`}>Return To Operations</Link>
+            </div>
+          )}
         </div>
 
         {error && (
-          <div className={`arena-case ${styles.errorPanel}`} role="alert">
-            <div>
-              <strong>
-                {loadFailed ? 'Exclusion Ledger Unavailable' : 'Control Action Incomplete'}
-              </strong>
-              <p>{error}</p>
-            </div>
-            <span className="arena-switch arena-ops-keys arena-ops-primary">
-              {loadFailed ? (
+          <ArenaState
+            tone="error"
+            title={loadFailed ? 'Exclusion Ledger Unavailable' : 'Control Action Incomplete'}
+            message={error}
+            actions={
+              loadFailed ? (
                 <button type="button" onClick={() => void loadEntries()}>
                   Retry
                 </button>
@@ -418,49 +420,53 @@ export default function BlacklistManagerPage() {
                 <button type="button" onClick={() => setError(null)}>
                   Dismiss
                 </button>
-              )}
-            </span>
-          </div>
+              )
+            }
+          />
         )}
 
         {showAddForm && (
-          <form className={`arena-case ${styles.formPanel}`} onSubmit={handleAdd}>
+          <form className="arena-case arena-ops-case" onSubmit={handleAdd}>
             <div className={styles.panelHeader}>
               <div>
-                <p className={styles.kicker}>New Control Record</p>
-                <h2>Exclude A Player</h2>
+                <p className="arena-ops-eyebrow">New Control Record</p>
+                <h2 className="arena-section-title">Exclude A Player</h2>
               </div>
-              <span>Reason Required</span>
+              <span className={styles.required}>Reason Required</span>
             </div>
             <div className={styles.formGrid}>
               <div className={styles.field}>
                 <label htmlFor="blacklist-member-search">Player</label>
                 {selectedMember ? (
-                  <div className={`arena-switch ${styles.selectedMember}`}>
-                    <span>{selectedMember.display_name}</span>
-                    <button
-                      className={styles.secondaryButton}
-                      type="button"
-                      onClick={() => {
-                        setSelectedMember(null);
-                        setNewUserId('');
-                        setMemberSearch('');
-                      }}
-                    >
-                      Change
-                    </button>
+                  <div className={`arena-ledger-row arena-ops-row ${styles.selectedMember}`}>
+                    <span className="arena-ops-row__copy">
+                      <strong>{selectedMember.display_name}</strong>
+                    </span>
+                    <div className="arena-switch">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedMember(null);
+                          setNewUserId('');
+                          setMemberSearch('');
+                        }}
+                      >
+                        Change
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <>
                     <input
                       id="blacklist-member-search"
+                      className="arena-ops-well"
                       autoComplete="off"
                       placeholder="Search This Club's Roster By Name"
                       value={memberSearch}
                       onChange={(event) => setMemberSearch(event.target.value)}
                       aria-describedby="blacklist-member-help"
                     />
-                    <p id="blacklist-member-help" className={styles.fieldHelp}>
+                    <p id="blacklist-member-help" className="arena-ops-live">
                       {searchingMembers
                         ? 'Searching The Roster'
                         : memberSearch.trim().length < 2
@@ -470,19 +476,21 @@ export default function BlacklistManagerPage() {
                             : 'Choose The Player To Exclude'}
                     </p>
                     {memberOptions.length > 0 && (
-                      <ul className={styles.memberOptions}>
+                      <ul className="arena-ops-rows arena-ops-rows--single">
                         {memberOptions.map((option) => (
                           <li key={option.user_id}>
                             <button
                               type="button"
-                              className="arena-ledger-row"
+                              className={`arena-ledger-row arena-ops-row ${styles.optionRow}`}
                               onClick={() => {
                                 setSelectedMember(option);
                                 setNewUserId(option.user_id);
                                 setMemberOptions([]);
                               }}
                             >
-                              <span>{option.display_name}</span>
+                              <span className="arena-ops-row__copy">
+                                <strong>{option.display_name}</strong>
+                              </span>
                             </button>
                           </li>
                         ))}
@@ -495,6 +503,7 @@ export default function BlacklistManagerPage() {
                 <label htmlFor="blacklist-reason">Reason</label>
                 <input
                   id="blacklist-reason"
+                  className="arena-ops-well"
                   placeholder="Document The Control Decision"
                   value={newReason}
                   onChange={(event) => setNewReason(event.target.value)}
@@ -505,21 +514,18 @@ export default function BlacklistManagerPage() {
                 <label htmlFor="blacklist-expiry">Expiry Date (Optional)</label>
                 <input
                   id="blacklist-expiry"
+                  className="arena-ops-well"
                   type="date"
                   value={newExpiry}
                   onChange={(event) => setNewExpiry(event.target.value)}
                 />
               </div>
             </div>
-            <div className={`arena-switch arena-ops-keys ${styles.formActions}`}>
-              <button
-                className={styles.dangerButton}
-                type="submit"
-                disabled={adding || !selectedMember || !newReason.trim()}
-              >
+            <div className="arena-switch arena-ops-keys arena-ops-primary">
+              <button type="submit" disabled={adding || !selectedMember || !newReason.trim()}>
                 {adding ? 'Applying Exclusion…' : 'Apply Exclusion'}
               </button>
-              <button className={styles.secondaryButton} type="button" onClick={resetForm}>
+              <button type="button" onClick={resetForm}>
                 Cancel
               </button>
             </div>
@@ -527,34 +533,33 @@ export default function BlacklistManagerPage() {
         )}
 
         {seatedAfterExclusion && (
-          <div className={`arena-case ${styles.seatedPanel}`} role="alert">
+          <div className={`arena-case arena-ops-case ${styles.seatedPanel}`} role="alert">
             <div>
-              <strong>
+              <strong className={styles.seatedTitle}>
                 {seatedAfterExclusion.member.display_name} Is Still Seated At{' '}
                 {seatedAfterExclusion.tables.length} Table
                 {seatedAfterExclusion.tables.length === 1 ? '' : 's'}
               </strong>
-              <p>
+              <p className="arena-ops-copy">
                 The Exclusion Stops Every Future Buy In, Rebuy And Tournament Entry. It Does Not
                 Empty A Seat They Are Already In. Removing Them Now Cashes Their Stack Out To Their
                 Club Wallet.
               </p>
             </div>
-            {removalStatus && <p role="status">{removalStatus}</p>}
-            <div className={`arena-switch arena-ops-keys ${styles.confirmActions}`}>
+            {removalStatus && (
+              <p className="arena-ops-live" role="status">
+                {removalStatus}
+              </p>
+            )}
+            <div className="arena-switch arena-ops-keys arena-ops-primary">
               <button
-                className={styles.dangerButton}
                 type="button"
                 onClick={() => void removeFromPlay()}
                 disabled={removingFromPlay}
               >
                 {removingFromPlay ? 'Removing From Play…' : 'Remove From Play'}
               </button>
-              <button
-                className={styles.secondaryButton}
-                type="button"
-                onClick={() => setSeatedAfterExclusion(null)}
-              >
+              <button type="button" onClick={() => setSeatedAfterExclusion(null)}>
                 Leave Them Seated
               </button>
             </div>
@@ -562,120 +567,93 @@ export default function BlacklistManagerPage() {
         )}
 
         {!loadFailed && (
-          <section
-            className={`arena-case ${styles.ledger}`}
-            aria-labelledby="blacklist-ledger-title"
-          >
+          <section className="arena-case arena-ops-case" aria-labelledby="blacklist-ledger-title">
             <div className={styles.panelHeader}>
               <div>
-                <p className={styles.kicker}>Live Club Control</p>
-                <h2 id="blacklist-ledger-title">Exclusion Ledger</h2>
+                <p className="arena-ops-eyebrow">Live Club Control</p>
+                <h2 id="blacklist-ledger-title" className="arena-section-title">
+                  Exclusion Ledger
+                </h2>
               </div>
-              <div className={`arena-switch ${styles.ledgerTools}`}>
-                <span>{entries.length} Total</span>
+              <div className={styles.ledgerTools}>
+                <span className={styles.total}>{entries.length} Total</span>
                 {expiredEntries.length > 0 && (
-                  <button
-                    className={styles.secondaryButton}
-                    type="button"
-                    onClick={() => void clearExpired()}
-                    disabled={clearingExpired}
-                  >
-                    {clearingExpired
-                      ? 'Clearing Expired…'
-                      : `Clear ${expiredEntries.length} Expired`}
-                  </button>
+                  <div className="arena-switch">
+                    <button
+                      type="button"
+                      onClick={() => void clearExpired()}
+                      disabled={clearingExpired}
+                    >
+                      {clearingExpired
+                        ? 'Clearing Expired…'
+                        : `Clear ${expiredEntries.length} Expired`}
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
 
             {loading ? (
-              <div className={styles.state} aria-live="polite">
-                Loading Exclusion Records…
-              </div>
+              <ArenaState tone="loading" title="Loading Exclusion Records…" />
             ) : entries.length === 0 ? (
-              <div className={styles.state}>
-                <strong>No Club Exclusions</strong>
-                <p>Players With An Active Or Historical Exclusion Will Appear In This Ledger.</p>
-              </div>
+              <ArenaState
+                tone="empty"
+                title="No Club Exclusions"
+                message="Players With An Active Or Historical Exclusion Will Appear In This Ledger."
+              />
             ) : (
-              <div
-                className={styles.tableScroll}
-                tabIndex={0}
-                aria-label="Scrollable Exclusion Ledger"
+              <ul
+                className="arena-ops-rows arena-ops-rows--single"
+                aria-label="Club Player Exclusion Records"
               >
-                <table>
-                  <caption className={styles.srOnly}>Club Player Exclusion Records</caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">Player</th>
-                      <th scope="col">Reason</th>
-                      <th scope="col">Applied</th>
-                      <th scope="col">Expires</th>
-                      <th scope="col">Status</th>
-                      <th scope="col">Control</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {entries.map((entry) => {
-                      const expired = isExpired(entry);
-                      const confirming = confirmingRemoval === entry.id;
-                      return (
-                        <tr key={entry.id} className="arena-ledger-row">
-                          <td data-label="Player">
-                            <span className={styles.playerCell}>
-                              <strong>{names[entry.user_id] || 'Loading Name'}</strong>
-                              <code>{entry.user_id.substring(0, 8)}</code>
-                            </span>
-                          </td>
-                          <td data-label="Reason">{entry.reason}</td>
-                          <td data-label="Applied">{formatDate(entry.banned_at)}</td>
-                          <td data-label="Expires">
+                {entries.map((entry) => {
+                  const expired = isExpired(entry);
+                  const confirming = confirmingRemoval === entry.id;
+                  return (
+                    <li key={entry.id}>
+                      <div className={`arena-ledger-row arena-ops-row ${styles.entryRow}`}>
+                        <span className="arena-ops-row__copy">
+                          <strong>
+                            {names[entry.user_id] || 'Loading Name'}{' '}
+                            <code className={styles.playerId}>{entry.user_id.substring(0, 8)}</code>
+                          </strong>
+                          <small>{entry.reason}</small>
+                          <small>
+                            Applied {formatDate(entry.banned_at)} · Expires{' '}
                             {entry.expires_at ? formatDate(entry.expires_at) : 'Permanent'}
-                          </td>
-                          <td data-label="Status">
-                            <span className={expired ? styles.expiredBadge : styles.activeBadge}>
-                              {expired ? 'Expired' : 'Active'}
-                            </span>
-                          </td>
-                          <td data-label="Control">
-                            {confirming ? (
-                              <div
-                                className={`arena-switch arena-ops-keys ${styles.confirmActions}`}
-                              >
-                                <button
-                                  className={styles.dangerButton}
-                                  type="button"
-                                  onClick={() => void handleRemove(entry.id)}
-                                  disabled={removing === entry.id}
-                                >
-                                  {removing === entry.id ? 'Removing…' : 'Confirm'}
-                                </button>
-                                <button
-                                  className={styles.secondaryButton}
-                                  type="button"
-                                  onClick={() => setConfirmingRemoval(null)}
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            ) : (
-                              <span className="arena-switch">
-                                <button
-                                  className={styles.removeButton}
-                                  type="button"
-                                  onClick={() => setConfirmingRemoval(entry.id)}
-                                >
-                                  Remove Access Control
-                                </button>
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                          </small>
+                        </span>
+                        <span
+                          className="arena-ops-row__signal"
+                          data-tone={expired ? 'attention' : 'danger'}
+                        >
+                          {expired ? 'Expired' : 'Active'}
+                        </span>
+                        {confirming ? (
+                          <div className={`arena-switch arena-ops-primary ${styles.entryKeys}`}>
+                            <button
+                              type="button"
+                              onClick={() => void handleRemove(entry.id)}
+                              disabled={removing === entry.id}
+                            >
+                              {removing === entry.id ? 'Removing…' : 'Confirm'}
+                            </button>
+                            <button type="button" onClick={() => setConfirmingRemoval(null)}>
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <div className={`arena-switch ${styles.entryKeys}`}>
+                            <button type="button" onClick={() => setConfirmingRemoval(entry.id)}>
+                              Remove Access Control
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
             )}
           </section>
         )}

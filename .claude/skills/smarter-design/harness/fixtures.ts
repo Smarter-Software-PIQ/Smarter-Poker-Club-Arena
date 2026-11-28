@@ -149,6 +149,7 @@ export const rpcFixtures: Record<string, unknown> = {
   },
   ca_club_tournaments: { live: [], recent: [] },
   ca_club_members: [],
+  fn_game_creation_access: { allowed: true, reason: 'ok', union_id: null },
   fn_poker_arena_context: {
     arena: { id: CLUB_UUID, asset: 'chips', is_platform: false, union_id: null },
     member: true,

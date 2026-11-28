@@ -65,6 +65,11 @@ export default function ClubOperationsRailBody({
   // Overview item, so the two must agree on one path rather than hard-coding
   // the suffix in a second place.
   const homePath = items.find((i) => i.id === 'overview')?.path ?? `/clubs/${clubId}/operations`;
+  // One key lights per page (Dan 2026-11-27): when the Overview item is in
+  // the strip it is the current key and the identity key stays unlit, so
+  // exactly one link carries aria-current="page". The identity key lights
+  // only when the strip has no item for the Operations Center.
+  const identityCurrent = homePath === activePath && !items.some((i) => i.path === activePath);
 
   return (
     <nav className={styles.rail} aria-label="Club Operations Sections">
@@ -75,14 +80,15 @@ export default function ClubOperationsRailBody({
           aria-hidden. Clicking it did nothing, which is indistinguishable
           from a broken button. It is now the link its appearance already
           promised: the Operations Center, which is the parent of every
-          other item in the rail. It carries aria-current when that page is
-          the one you are on, so it is no longer possible for the whole rail
-          to show nothing selected while you stand on /operations.
+          other item in the rail. On /operations the Overview item carries
+          aria-current; this key carries it only when the strip has no
+          Overview item, so the rail never shows nothing selected and never
+          lights two keys.
         */}
         <Link
-          className={`${styles.identity} ${homePath === activePath ? styles.identityActive : ''}`}
+          className={`${styles.identity} ${identityCurrent ? styles.identityActive : ''}`}
           to={homePath}
-          aria-current={homePath === activePath ? 'page' : undefined}
+          aria-current={identityCurrent ? 'page' : undefined}
           title="Open The Club Operations Center"
         >
           <span className={styles.statusLight} aria-hidden="true" />

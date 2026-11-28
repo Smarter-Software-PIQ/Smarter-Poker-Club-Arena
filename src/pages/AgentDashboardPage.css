@@ -1,0 +1,150 @@
+/**
+ * AGENT DASHBOARD IN #SMARTERDESIGN (Dan 2026-11-27)
+ *
+ * The page wears the arena workspace language from ArenaWorkspace.css and
+ * ArenaOps.css: the chrome mast, thin chrome cases, chrome keys that light
+ * blue when selected, chrome meters and chrome ledger rows. This sheet only
+ * lays out what those pieces do not: the banners, the pending cashout alert,
+ * the cashout row, the forms and the transfer dialog. Everything is scoped
+ * under .arena-workspace. No :hover (phones do not hover).
+ */
+
+.arena-workspace.agent-dash-page {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 8px max(var(--bottom-nav-clearance, 74px), env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+
+.arena-workspace .agent-dash-banner {
+  margin: 4px 0;
+  padding: 8px 10px;
+  border-left: 3px solid #45adff;
+  background: #07111c;
+  color: #f1f5fc;
+  font:
+    13px/1.4 Arial,
+    sans-serif;
+}
+
+.arena-workspace .agent-dash-banner[data-tone='danger'] {
+  border-left-color: #ff5a6a;
+  color: #ff5a6a;
+}
+
+.arena-workspace .agent-dash-banner[data-tone='live'] {
+  border-left-color: #74dfff;
+  color: #74dfff;
+}
+
+.arena-workspace .agent-dash-alert {
+  margin: 4px 0;
+  padding: 8px 10px;
+  border: 1px solid #253e57;
+  background: #07111c;
+  color: #ffd700;
+  text-align: left;
+  font:
+    700 13px/1.4 'Arial Narrow',
+    Arial,
+    sans-serif;
+  cursor: pointer;
+}
+
+.arena-workspace .agent-dash-alert:focus-visible {
+  outline: 2px solid #45adff;
+  outline-offset: 2px;
+}
+
+/* A tab's count: a gold number, never a badge box. */
+.arena-workspace .agent-dash-count {
+  margin-left: 5px;
+  color: #ffd700;
+  font-variant-numeric: tabular-nums;
+}
+
+.arena-workspace .agent-dash-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+.arena-workspace .agent-dash-row-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #f1f5fc;
+  font:
+    800 15px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.arena-workspace .agent-dash-row small {
+  color: #9aabba;
+  font:
+    12px/1.35 Arial,
+    sans-serif;
+  overflow-wrap: anywhere;
+}
+
+.arena-workspace .agent-dash-gold {
+  color: #ffd700;
+  font-variant-numeric: tabular-nums;
+}
+
+.arena-workspace .agent-dash-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.arena-workspace .agent-dash-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.arena-workspace .agent-dash-field > span,
+.arena-workspace .agent-dash-field > label {
+  color: #9fbacc;
+  font:
+    700 11px/1.3 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.arena-workspace .agent-dash-inline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px;
+  gap: 6px;
+}
+
+.arena-workspace .agent-dash-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgb(2 7 13 / 82%);
+}
+
+.arena-workspace .agent-dash-dialog {
+  width: 100%;
+  max-width: 420px;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  background: #050d17;
+}

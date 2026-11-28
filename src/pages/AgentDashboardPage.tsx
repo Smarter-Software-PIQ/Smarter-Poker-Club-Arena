@@ -2,7 +2,7 @@ import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { PROMO_PLAY_THROUGH_SENDER_TERMS } from '../components/legal/promoPlayThroughTerms';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- *  AGENT DASHBOARD PAGE — Agent Operations Center
+ *  AGENT DASHBOARD PAGE - Agent Operations Center
  * Ported from World Hub agent-dashboard.js → Club Arena TypeScript
  *
  * Tabs (8): Overview, Players, Cashouts, Commissions, Score, Analytics, Promo, Credit
@@ -61,7 +61,10 @@ import {
 } from '../services/AgentWalletIntent';
 import { exportToCSV } from '../lib/export';
 import TransactionLedgerView from '../components/common/TransactionLedgerView';
-import './AdminDashboardPage.css';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import PageBar from '../components/help/PageBar';
+import { ArenaReadings, ArenaRow, ArenaState } from '../components/ops/ArenaOps';
+import './AgentDashboardPage.css';
 import AgentScoreCard from '../components/agent/AgentScoreCard';
 
 import { useIsMounted } from '../hooks/useIsMounted';
@@ -73,7 +76,6 @@ import { reportError } from '../utils/errorReporter';
 import AgentBackOffice from '../components/agent/AgentBackOffice';
 
 import { safeErrorMessage } from '../utils/safeErrorMessage';
-import { EmptyState } from '../components/common/EmptyState';
 import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../utils/playerDisplayName';
 import { resolvePageClubId, pickPreferredClubId } from '../utils/resolvePageClubId';
 import { SEND_DESTINATION_LABELS } from '../utils/cashierSendWallets';
@@ -143,6 +145,12 @@ interface AgentCommission {
   settled_via?: string | null;
 }
 // ChipTransaction imported from types/database.types (canonical definition)
+
+/** The club's name as the link spells it; a raw UUID names nothing. */
+function clubContext(clubId?: string): string | undefined {
+  if (!clubId || /^[0-9a-f]{8}-/i.test(clubId)) return undefined;
+  return clubId.replace(/[-_]/g, ' ');
+}
 
 export default function AgentDashboardPage() {
   const { user } = useAuthUser();
@@ -522,8 +530,8 @@ function AgentDashboardContent() {
          from inside a club lands on THAT club's book. The param is resolved,
          so a slug works as well as a UUID.
 
-         The fallback keeps its role filter — an agent's book only exists in
-         clubs where they hold an agent-ish role — but no longer takes
+         The fallback keeps its role filter - an agent's book only exists in
+         clubs where they hold an agent-ish role - but no longer takes
          `mems[0]` from an unordered query. An agent working two clubs was
          shown whichever row came back first, which is a commission book
          chosen by the query planner. */
@@ -692,7 +700,7 @@ function AgentDashboardContent() {
     return () => unsubs.forEach((u) => u());
   }, [clubId, refreshDashboard]);
 
-  // ── Supabase Realtime — cross-user WebSocket updates ──
+  // ── Supabase Realtime - cross-user WebSocket updates ──
   const loadDashboardRef = useRef(loadDashboard);
   loadDashboardRef.current = loadDashboard;
 
@@ -753,7 +761,7 @@ function AgentDashboardContent() {
     };
   }, [clubId]);
 
-  // ── Visibility Refresh — refresh on tab focus after 30s ──
+  // ── Visibility Refresh - refresh on tab focus after 30s ──
   useVisibilityRefresh(() => loadDashboard(clubId));
 
   const decisions = usePreparedCashoutOperations(
@@ -954,46 +962,49 @@ function AgentDashboardContent() {
   const totalPlayerChips = players.reduce((sum, p) => sum + (p.chip_balance || 0), 0);
   const onlinePlayers = players.filter((p) => p.profile?.online === true);
 
+  // ── Workspace Mast ─────────────────────────────────────────
+  /* #SmarterDesign (Dan 2026-11-27): the arena mast carries the title, the
+     club the link named and the chrome "?" help. */
+  const header = (
+    <ArenaWorkspaceHeader
+      area="operations"
+      title="Agent Dashboard"
+      context={clubContext(searchParams.get('club') || searchParams.get('clubId') || undefined)}
+      summary="Your Downline, Cashouts, Commissions And Agent Wallet In One Place."
+    />
+  );
+
   // ── Loading State ──────────────────────────────────────────
   if (loading) {
     return (
-      <div className="admin-page">
-        <div className="admin-container">
-          <div className="admin-skeleton" style={{ height: '48px', marginBottom: '16px' }} />
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-              gap: '12px',
-            }}
-          >
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="admin-skeleton" style={{ height: '80px' }} />
-            ))}
-          </div>
-          <div className="admin-skeleton" style={{ height: '36px', marginTop: '16px' }} />
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="admin-skeleton" style={{ height: '60px', marginTop: '8px' }} />
-          ))}
-        </div>
+      <div className="arena-workspace agent-dash-page">
+        {header}
+        <ArenaState tone="loading" title="Loading" message="Reading Your Agent Network" />
       </div>
     );
   }
 
   if (!clubId) {
     return (
-      <div className="admin-page">
-        <EmptyState
-          icon="AGENT"
-          eyebrow="Agent Context Required"
-          tone="permission"
+      <div className="arena-workspace agent-dash-page">
+        {header}
+        <ArenaState
+          tone="empty"
           title="No Agent Workspace Is Available"
-          description={
+          message={
             error ||
             'Agent Balances, Downlines, Cashouts, And Commissions Belong To A Club. Open The Agent Team From An Authorized Club Workspace.'
           }
-          action={{ label: 'Return To Arena', onClick: () => navigate('/') }}
-          secondaryAction={{ label: 'Find Clubs', onClick: () => navigate('/search') }}
+          actions={
+            <>
+              <button type="button" onClick={() => navigate('/')}>
+                Return To Arena
+              </button>
+              <button type="button" onClick={() => navigate('/search')}>
+                Find Clubs
+              </button>
+            </>
+          }
         />
       </div>
     );
@@ -1001,106 +1012,125 @@ function AgentDashboardContent() {
 
   const isOwnerOrAdmin = ['owner', 'co_owner', 'admin'].includes(role);
   const isOwner = role === 'owner';
+  const pendingCashoutTotal = sumChips(pendingCashouts.map((c: CashoutRequest) => c.amount || 0));
 
   return (
-    <div className="admin-page">
-      <div className="admin-container">
-        {/* Banners */}
-        {error && <div className="admin-error-banner">{error}</div>}
-        {success && <div className="admin-success-banner">{success}</div>}
+    <div className="arena-workspace agent-dash-page">
+      {header}
+      {/* Bus-driven reloads were invisible: isRefreshing was set and never
+          read, so a balance that changed under the operator changed with no
+          sign the page had moved. */}
+      <PageBar
+        title="Agent Dashboard"
+        titleAs={false}
+        showHelp={false}
+        metrics={[
+          { label: 'Role', value: role.toUpperCase() },
+          { label: 'Players', value: fmt(players.length) },
+          { label: 'Online Now', value: fmt(onlinePlayers.length), tone: 'live' },
+          {
+            label: 'Pending Cashouts',
+            value: cashoutsAvailable ? fmt(pendingCashouts.length) : 'Unavailable',
+            tone: cashoutsAvailable && pendingCashouts.length > 0 ? 'attention' : 'default',
+          },
+        ]}
+      >
+        {isRefreshing && (
+          <p className="arena-ops-live" aria-live="polite">
+            Refreshing...
+          </p>
+        )}
+      </PageBar>
 
-        {/* Transfer Modal */}
-        {showTransfer && (
-          <div className="admin-modal-overlay" onClick={() => setShowTransfer(false)}>
-            <div
-              className="admin-card"
-              style={{ maxWidth: '420px', margin: '60px auto' }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h3
-                className="admin-card-title"
-                style={{ display: 'flex', justifyContent: 'space-between' }}
-              >
-                <span>Agent-To-Agent Transfer</span>
-                <button
-                  onClick={() => setShowTransfer(false)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--text-secondary)',
-                    cursor: 'pointer',
-                    fontSize: '18px',
-                  }}
-                >
+      {/* Banners */}
+      {error && (
+        <p className="agent-dash-banner" data-tone="danger">
+          {error}
+        </p>
+      )}
+      {success && (
+        <p className="agent-dash-banner" data-tone="live">
+          {success}
+        </p>
+      )}
+
+      {/* Transfer Modal */}
+      {showTransfer && (
+        <div className="agent-dash-overlay" onClick={() => setShowTransfer(false)}>
+          <div
+            className="arena-case arena-ops-case agent-dash-dialog"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="arena-section-title">
+              Agent-To-Agent Transfer
+              <span className="arena-switch">
+                <button type="button" aria-label="Close" onClick={() => setShowTransfer(false)}>
                   ✕
                 </button>
-              </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <div>
-                  <label className="admin-label">Recipient Agent User ID</label>
-                  <input
-                    className="admin-input"
-                    value={transferTarget}
-                    onChange={(e) => setTransferTarget(e.target.value)}
-                    placeholder="UUID Of Receiving Agent"
-                  />
-                </div>
-                <div>
-                  <label className="admin-label" htmlFor="agent-transfer-recipient-wallet">
-                    Recipient Wallet
-                  </label>
-                  <select
-                    id="agent-transfer-recipient-wallet"
-                    className="admin-input"
-                    value={transferDestination}
-                    disabled={processing}
-                    onChange={(event) =>
-                      setTransferDestination(event.target.value as ClubBankRecipientWallet)
-                    }
-                  >
-                    {(['agent_wallet', 'promo_wallet', 'player_wallet'] as const).map((wallet) => (
-                      <option key={wallet} value={wallet}>
-                        {SEND_DESTINATION_LABELS[wallet]}
-                      </option>
-                    ))}
-                  </select>
-                  {transferDestination === 'promo_wallet' && (
-                    <>
-                      <p className="admin-hint" style={{ marginTop: 6, fontSize: 12 }}>
-                        {PROMO_PLAY_THROUGH_SENDER_TERMS}
-                      </p>
-                      <p className="admin-hint" style={{ marginTop: 4, fontSize: 12 }}>
-                        Each Downline Can Receive 50 Promo Chips Total From All Agents In Any 7
-                        Days. All Funding And Destination Wallets Share This Limit.
-                      </p>
-                    </>
-                  )}
-                </div>
-                <div>
-                  <label className="admin-label">Amount (Chips)</label>
-                  <input
-                    className="admin-input"
-                    type="number"
-                    value={transferAmount}
-                    onChange={(e) => setTransferAmount(e.target.value)}
-                    placeholder="0"
-                    min="1"
-                  />
-                </div>
-                <div>
-                  <label className="admin-label">Notes (Optional)</label>
-                  <input
-                    className="admin-input"
-                    value={transferNotes}
-                    onChange={(e) => setTransferNotes(e.target.value)}
-                    placeholder="Transfer Reason..."
-                  />
-                </div>
+              </span>
+            </h3>
+            <div className="agent-dash-form">
+              <label className="agent-dash-field">
+                <span>Recipient Agent User ID</span>
+                <input
+                  className="arena-ops-well"
+                  value={transferTarget}
+                  onChange={(e) => setTransferTarget(e.target.value)}
+                  placeholder="UUID Of Receiving Agent"
+                />
+              </label>
+              <div className="agent-dash-field">
+                <label htmlFor="agent-transfer-recipient-wallet">Recipient Wallet</label>
+                <select
+                  id="agent-transfer-recipient-wallet"
+                  className="arena-ops-well"
+                  value={transferDestination}
+                  disabled={processing}
+                  onChange={(event) =>
+                    setTransferDestination(event.target.value as ClubBankRecipientWallet)
+                  }
+                >
+                  {(['agent_wallet', 'promo_wallet', 'player_wallet'] as const).map((wallet) => (
+                    <option key={wallet} value={wallet}>
+                      {SEND_DESTINATION_LABELS[wallet]}
+                    </option>
+                  ))}
+                </select>
+                {transferDestination === 'promo_wallet' && (
+                  <>
+                    <p className="arena-ops-copy">{PROMO_PLAY_THROUGH_SENDER_TERMS}</p>
+                    <p className="arena-ops-copy">
+                      Each Downline Can Receive 50 Promo Chips Total From All Agents In Any 7 Days.
+                      All Funding And Destination Wallets Share This Limit.
+                    </p>
+                  </>
+                )}
+              </div>
+              <label className="agent-dash-field">
+                <span>Amount (Chips)</span>
+                <input
+                  className="arena-ops-well"
+                  type="number"
+                  value={transferAmount}
+                  onChange={(e) => setTransferAmount(e.target.value)}
+                  placeholder="0"
+                  min="1"
+                />
+              </label>
+              <label className="agent-dash-field">
+                <span>Notes (Optional)</span>
+                <input
+                  className="arena-ops-well"
+                  value={transferNotes}
+                  onChange={(e) => setTransferNotes(e.target.value)}
+                  placeholder="Transfer Reason..."
+                />
+              </label>
+              <div className="arena-switch arena-ops-primary">
                 <button
+                  type="button"
                   onClick={executeTransfer}
                   disabled={processing || !transferTarget || !transferAmount}
-                  className="admin-btn admin-btn-primary"
-                  style={{ width: '100%' }}
                 >
                   {processing
                     ? 'Processing...'
@@ -1109,939 +1139,675 @@ function AgentDashboardContent() {
               </div>
             </div>
           </div>
-        )}
-
-        {/* Header */}
-        <div className="admin-page-header">
-          <div className="admin-page-title">
-            Agent Dashboard
-            <span className="admin-badge" style={{ marginLeft: '12px' }}>
-              {role.toUpperCase()}
-            </span>
-            {/* Bus-driven reloads were invisible: isRefreshing was set and
-                never read, so a balance that changed under the operator
-                changed with no sign the page had moved. */}
-            {isRefreshing && (
-              <span className="admin-badge" style={{ marginLeft: '8px' }} aria-live="polite">
-                Refreshing...
-              </span>
-            )}
-          </div>
-          <div className="admin-header-actions">
-            <button onClick={() => navigate('/')} className="admin-btn admin-btn-ghost">
-              Lobby
-            </button>
-            <button onClick={() => setShowTransfer(true)} className="admin-btn admin-btn-ghost">
-              Transfer
-            </button>
-            <button
-              onClick={() => loadDashboard(clubId)}
-              className="admin-btn admin-btn-ghost"
-              disabled={processing}
-            >
-              ↻ Refresh
-            </button>
-            <button
-              className="admin-btn admin-btn-ghost"
-              onClick={() => {
-                try {
-                  if (tab === 'players' && players.length > 0) {
-                    exportToCSV(
-                      players.map((p) => ({
-                        username: p.profile ? playerDisplayName(p.profile) : p.user_id,
-                        role: p.role,
-                        chip_balance: p.chip_balance,
-                        status: p.status,
-                        joined: p.created_at,
-                      })),
-                      'agent_players.csv',
-                      [
-                        { key: 'username', label: 'Player' },
-                        { key: 'role', label: 'Role' },
-                        { key: 'chip_balance', label: 'Balance' },
-                        { key: 'status', label: 'Status' },
-                        { key: 'joined', label: 'Joined' },
-                      ]
-                    );
-                  } else if (
-                    tab === 'cashouts' &&
-                    cashoutsAvailable &&
-                    pendingCashouts.length > 0
-                  ) {
-                    exportToCSV(pendingCashouts, 'agent_cashouts.csv', [
-                      { key: 'player_id', label: 'Player ID' },
-                      { key: 'amount', label: 'Amount' },
-                      { key: 'status', label: 'Status' },
-                      { key: 'created_at', label: 'Requested' },
-                    ]);
-                  } else if (tab === 'commissions' && commissions.length > 0) {
-                    exportToCSV(commissions, 'agent_commissions.csv', [
-                      { key: 'amount', label: 'Amount' },
-                      // The export carries the same fact the table now shows:
-                      // a claimed row and an owed row are not the same money.
-                      { key: 'settled_at', label: 'Claimed At' },
-                      { key: 'source_type', label: 'Source' },
-                      { key: 'notes', label: 'Notes' },
-                      { key: 'created_at', label: 'Date' },
-                    ]);
-                  } else if (tab === 'overview' && recentTx.length > 0) {
-                    exportToCSV(recentTx, 'agent_transactions.csv', [
-                      { key: 'transaction_type', label: 'Type' },
-                      { key: 'amount', label: 'Amount' },
-                      { key: 'from_user_id', label: 'From' },
-                      { key: 'to_user_id', label: 'To' },
-                      { key: 'created_at', label: 'Date' },
-                    ]);
-                  }
-                } catch (e) {
-                  reportError(e, 'AgentDashboardPage');
-                  /* silent */
-                }
-              }}
-            >
-              Export
-            </button>
-          </div>
-        </div>
-
-        {/* Pending Cashouts Alert */}
-        {cashoutsAvailable && pendingCashouts.length > 0 && tab !== 'cashouts' && (
-          <div
-            className="admin-error-banner"
-            style={{
-              background: 'rgba(245,166,35,0.1)',
-              borderColor: 'rgba(245,166,35,0.3)',
-              color: '#F5A623',
-              cursor: 'pointer',
-              marginBottom: '16px',
-            }}
-            onClick={() => setTab('cashouts')}
-          >
-            <strong>{pendingCashouts.length}</strong> Pending Cashout Request
-            {pendingCashouts.length !== 1 ? 's' : ''} -{' '}
-            {fmtChips(sumChips(pendingCashouts.map((c: CashoutRequest) => c.amount || 0)))} Chips
-            Waiting
-          </div>
-        )}
-
-        {/* Tabs */}
-        <div className="admin-tabs">
-          {[
-            { id: 'overview' as AgentTab, label: 'Overview' },
-            { id: 'players' as AgentTab, label: 'Players', badge: players.length },
-            {
-              id: 'cashouts' as AgentTab,
-              label: 'Cashouts',
-              badge: cashoutsAvailable ? pendingCashouts.length || undefined : undefined,
-            },
-            { id: 'commissions' as AgentTab, label: 'Commissions' },
-            { id: 'statement' as AgentTab, label: 'Statement' },
-            { id: 'analytics' as AgentTab, label: 'Analytics' },
-            { id: 'score' as AgentTab, label: 'Score' },
-            ...(isOwnerOrAdmin ? [{ id: 'promo' as AgentTab, label: 'Promo' }] : []),
-            ...(isOwner ? [{ id: 'credit' as AgentTab, label: 'Credit' }] : []),
-          ].map((t) => (
-            <button
-              key={t.id}
-              className={`admin-tab ${tab === t.id ? 'active' : ''}`}
-              onClick={() => setTab(t.id)}
-            >
-              {t.label}
-              {t.badge ? (
-                <span
-                  style={{
-                    marginLeft: '6px',
-                    background: 'rgba(69,153,255,0.15)',
-                    padding: '2px 6px',
-                    borderRadius: '8px',
-                    fontSize: '11px',
-                  }}
-                >
-                  {t.badge}
-                </span>
-              ) : null}
-            </button>
-          ))}
-        </div>
-
-        {/* ══════ TAB: OVERVIEW ══════ */}
-        {tab === 'overview' && (
-          <div className="admin-tab-content">
-            <div className="admin-stats-grid" style={{ marginBottom: '16px' }}>
-              <div className="admin-stat-card">
-                <div className="admin-stat-value" style={{ color: '#4599FF' }}>
-                  {fmt(players.length)}
-                </div>
-                <div className="admin-stat-label">Total Players</div>
-              </div>
-              <div className="admin-stat-card">
-                <div className="admin-stat-value" style={{ color: '#31A24C' }}>
-                  {fmt(onlinePlayers.length)}
-                </div>
-                <div className="admin-stat-label">Online Now</div>
-              </div>
-              <div className="admin-stat-card">
-                <div className="admin-stat-value">{fmtChips(totalPlayerChips)}</div>
-                <div className="admin-stat-label">Player Chips</div>
-              </div>
-              <div className="admin-stat-card">
-                <div className="admin-stat-value" style={{ color: '#F7C52A' }}>
-                  {cashoutsAvailable ? fmt(pendingCashouts.length) : 'Unavailable'}
-                </div>
-                <div className="admin-stat-label">Pending Cashouts</div>
-              </div>
-              <div className="admin-stat-card">
-                <div className="admin-stat-value" style={{ color: '#FA383E' }}>
-                  {cashoutsAvailable
-                    ? fmtChips(sumChips(pendingCashouts.map((c: CashoutRequest) => c.amount)))
-                    : 'Unavailable'}
-                </div>
-                <div className="admin-stat-label">Cashout Amount</div>
-              </div>
-            </div>
-
-            {/* Recent Transactions */}
-            <h3 className="admin-section-title">Recent Transactions</h3>
-            {recentTx.length === 0 ? (
-              <div className="admin-empty-state">
-                <span className="admin-empty-icon">▤</span>
-                <span>No Recent Transactions</span>
-              </div>
-            ) : (
-              <>
-                <div className="admin-table-scroll">
-                  <table className="admin-data-table">
-                    <thead>
-                      <tr>
-                        <th>Type</th>
-                        <th>Amount</th>
-                        <th>From / To</th>
-                        <th>Time</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {recentTx.map((tx, i: number) => (
-                        <tr key={tx.id || i}>
-                          <td>
-                            <span className="admin-badge">{tx.transaction_type || 'Transfer'}</span>
-                          </td>
-                          <td style={{ fontWeight: 600 }}>{fmtChips(tx.amount)}</td>
-                          <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                            {tx.from_user_id?.substring(0, 8) || '-'}.. →{' '}
-                            {tx.to_user_id?.substring(0, 8) || '-'}..
-                          </td>
-                          <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                            {timeAgo(tx.created_at)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {txHasMore ? (
-                  <button
-                    onClick={() => void loadMoreTransactions()}
-                    disabled={txLoadingMore}
-                    className="admin-btn admin-btn-ghost"
-                    style={{ width: '100%', marginTop: '12px' }}
-                  >
-                    {txLoadingMore ? 'Loading...' : `Load ${fmt(TX_PAGE)} More`}
-                  </button>
-                ) : (
-                  <p className="admin-list-end">All {fmt(recentTx.length)} Transactions Loaded</p>
-                )}
-              </>
-            )}
-          </div>
-        )}
-
-        {/* ══════ TAB: PLAYERS ══════ */}
-        {tab === 'players' && (
-          <div className="admin-tab-content">
-            <input
-              className="admin-input"
-              style={{ marginBottom: '16px' }}
-              placeholder="Search Players By Name..."
-              value={playerSearch}
-              onChange={(e) => setPlayerSearch(e.target.value)}
-            />
-            <div className="admin-stats-grid" style={{ marginBottom: '16px' }}>
-              <div className="admin-stat-card">
-                <div className="admin-stat-value" style={{ color: '#4599FF' }}>
-                  {filteredPlayers.length}
-                </div>
-                <div className="admin-stat-label">
-                  {playerSearch ? 'Matching' : 'Total'} Players
-                </div>
-              </div>
-              <div className="admin-stat-card">
-                <div className="admin-stat-value" style={{ color: '#31A24C' }}>
-                  {filteredPlayers.filter((p) => p.profile?.online === true).length}
-                </div>
-                <div className="admin-stat-label">Online Now</div>
-              </div>
-              <div className="admin-stat-card">
-                <div className="admin-stat-value">
-                  {fmtChips(
-                    sumChips(filteredPlayers.map((p: DownlineMember) => p.chip_balance || 0))
-                  )}
-                </div>
-                <div className="admin-stat-label">Total Chips</div>
-              </div>
-            </div>
-
-            {filteredPlayers.length === 0 ? (
-              <div className="admin-empty-state">
-                <span className="admin-empty-icon">◉</span>
-                <span>
-                  {playerSearch
-                    ? 'No Players Match Your Search'
-                    : 'No Players In Your Downline Yet'}
-                </span>
-              </div>
-            ) : (
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-                  gap: '12px',
-                }}
-              >
-                {filteredPlayers.map((p) => {
-                  const name = p.profile
-                    ? playerDisplayName(p.profile)
-                    : p.user_id?.substring(0, 8);
-                  const isOnline = p.profile?.online === true;
-                  return (
-                    <div key={p.user_id} className="admin-card" style={{ padding: '14px 16px' }}>
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          marginBottom: '8px',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div
-                            style={{
-                              width: '10px',
-                              height: '10px',
-                              borderRadius: '50%',
-                              background: isOnline ? '#31A24C' : '#6B7280',
-                              boxShadow: isOnline ? '0 0 6px rgba(49,162,76,0.5)' : 'none',
-                            }}
-                          />
-                          <span style={{ fontWeight: 600, fontSize: '14px' }}>{name}</span>
-                        </div>
-                        <span
-                          className="admin-badge"
-                          style={
-                            ['agent', 'super_agent', 'sub_agent'].includes(p.role)
-                              ? { background: 'rgba(168,85,247,0.15)', color: '#C084FC' }
-                              : undefined
-                          }
-                        >
-                          {p.role}
-                        </span>
-                      </div>
-                      <div
-                        style={{
-                          display: 'flex',
-                          gap: '12px',
-                          fontSize: '12px',
-                          color: 'var(--text-secondary)',
-                        }}
-                      >
-                        <span>
-                          {' '}
-                          {p.chip_balance !== undefined ? formatWalletChips(p.chip_balance) : '...'}
-                        </span>
-                        <span> {timeAgo(p.profile?.last_played)}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        <CashoutReceiptChecks checks={receiptChecks} />
-        {/* ══════ TAB: CASHOUTS ══════ */}
-        {tab === 'cashouts' && (
-          <div className="admin-tab-content">
-            <h3 className="admin-section-title">
-              Pending Cashout Requests
-              <span className="admin-badge" style={{ marginLeft: '8px' }}>
-                {cashoutsAvailable ? `${pendingCashouts.length} Pending` : 'Unavailable'}
-              </span>
-            </h3>
-
-            {decisions.error && <p role="status">{decisions.error}</p>}
-            {!cashoutsAvailable ? (
-              <div className="admin-empty-state" role="status">
-                <span>Pending Cashouts Could Not Be Verified.</span>
-                <button onClick={() => void loadDashboard(clubId)}>Refresh Cashouts</button>
-              </div>
-            ) : pendingCashouts.length === 0 ? (
-              <div className="admin-empty-state">
-                <span className="admin-empty-icon">✓</span>
-                <span>No Pending Cashout Requests</span>
-              </div>
-            ) : (
-              <div className="admin-table-scroll">
-                <table className="admin-data-table">
-                  <thead>
-                    <tr>
-                      <th>Player</th>
-                      <th>Amount</th>
-                      <th>Note</th>
-                      <th>Requested</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pendingCashouts.map((c) => (
-                      <tr key={c.id}>
-                        <td>{c.player_id?.substring(0, 8)}..</td>
-                        <td style={{ fontWeight: 700, color: '#F7C52A' }}>{fmtChips(c.amount)}</td>
-                        <td
-                          style={{
-                            fontSize: '12px',
-                            color: 'var(--text-secondary)',
-                            maxWidth: '200px',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}
-                        >
-                          {c.player_note || '-'}
-                        </td>
-                        <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                          {timeAgo(c.created_at)}
-                        </td>
-                        <td>
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            <button
-                              onClick={() => approveCashout(c.id)}
-                              className="admin-btn admin-btn-success admin-btn-sm"
-                              disabled={
-                                processing || !decisions.get(`${c.id}:approve`, 'cashout_approve')
-                              }
-                            >
-                              Approve
-                            </button>
-                            <button
-                              onClick={() => denyCashout(c.id)}
-                              className="admin-btn admin-btn-danger admin-btn-sm"
-                              disabled={
-                                processing || !decisions.get(`${c.id}:reject`, 'cashout_decline')
-                              }
-                            >
-                              Deny
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            <div className="admin-stats-grid" style={{ marginTop: '16px' }}>
-              <div className="admin-stat-card">
-                <div className="admin-stat-value" style={{ color: '#F7C52A' }}>
-                  {cashoutsAvailable ? fmt(pendingCashouts.length) : 'Unavailable'}
-                </div>
-                <div className="admin-stat-label">Pending</div>
-              </div>
-              <div className="admin-stat-card">
-                <div className="admin-stat-value" style={{ color: '#FA383E' }}>
-                  {cashoutsAvailable
-                    ? fmtChips(sumChips(pendingCashouts.map((c: CashoutRequest) => c.amount)))
-                    : 'Unavailable'}
-                </div>
-                <div className="admin-stat-label">Total Amount</div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ══════ TAB: COMMISSIONS ══════ */}
-        {tab === 'commissions' && (
-          <div className="admin-tab-content">
-            <h3 className="admin-section-title">Commission History</h3>
-            {commissions.length === 0 ? (
-              <div className="admin-empty-state">
-                <span className="admin-empty-icon">◆</span>
-                <span>No Commission Records Yet</span>
-              </div>
-            ) : (
-              <div className="admin-table-scroll">
-                <table className="admin-data-table">
-                  <thead>
-                    <tr>
-                      <th>Amount</th>
-                      <th>Status</th>
-                      <th>Type</th>
-                      <th>Notes</th>
-                      <th>Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {commissions.map((c: AgentCommission, i: number) => (
-                      <tr key={c.id || i}>
-                        <td style={{ fontWeight: 700, color: '#31A24C' }}>{fmtChips(c.amount)}</td>
-                        {/* Claimed or not. Until phase 6 there was no way to claim
-                            commission at all, so every row here meant the same
-                            thing; now they do not, and a list that cannot tell
-                            them apart is a list of two different numbers. */}
-                        <td>
-                          <span
-                            className="admin-badge"
-                            style={{ color: c.settled_at ? '#31A24C' : '#f59e0b' }}
-                          >
-                            {c.settled_at ? 'Claimed' : 'Unclaimed'}
-                          </span>
-                        </td>
-                        <td>
-                          <span className="admin-badge">{c.source_type || 'Rake'}</span>
-                        </td>
-                        <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                          {c.notes || '-'}
-                        </td>
-                        <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                          {timeAgo(c.created_at)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            {commissions.length > 0 &&
-              (commissionsHasMore ? (
-                <button
-                  onClick={() => void loadMoreCommissions()}
-                  disabled={commissionsLoadingMore}
-                  className="admin-btn admin-btn-ghost"
-                  style={{ width: '100%', marginTop: '12px' }}
-                >
-                  {commissionsLoadingMore ? 'Loading...' : `Load ${fmt(COMMISSION_PAGE)} More`}
-                </button>
-              ) : (
-                <p className="admin-list-end">
-                  All {fmt(commissions.length)} Commission Rows Loaded
-                </p>
-              ))}
-          </div>
-        )}
-
-        {/* ══════ TAB: ANALYTICS ══════ */}
-        {tab === 'analytics' && (
-          <div className="admin-tab-content">
-            <div className="admin-stats-grid" style={{ marginBottom: '16px' }}>
-              <div className="admin-stat-card">
-                <div className="admin-stat-value" style={{ color: '#4599FF' }}>
-                  {fmt(players.length)}
-                </div>
-                <div className="admin-stat-label">Total Players</div>
-              </div>
-              <div className="admin-stat-card">
-                <div className="admin-stat-value" style={{ color: '#31A24C' }}>
-                  {fmt(onlinePlayers.length)}
-                </div>
-                <div className="admin-stat-label">Active (5Min)</div>
-              </div>
-              <div className="admin-stat-card">
-                <div className="admin-stat-value" style={{ color: '#F7C52A' }}>
-                  {fmt(
-                    players.filter((p: DownlineMember) => {
-                      const ls = p.profile?.last_played;
-                      if (!ls) return false;
-                      const days = (Date.now() - new Date(ls).getTime()) / 86400000;
-                      return days >= 5 && days < 14;
-                    }).length
-                  )}
-                </div>
-                <div className="admin-stat-label">At-Risk (5-14D)</div>
-              </div>
-              <div className="admin-stat-card">
-                <div className="admin-stat-value" style={{ color: '#FA383E' }}>
-                  {fmt(
-                    players.filter((p: DownlineMember) => {
-                      const ls = p.profile?.last_played;
-                      if (!ls) return true;
-                      return (Date.now() - new Date(ls).getTime()) / 86400000 >= 14;
-                    }).length
-                  )}
-                </div>
-                <div className="admin-stat-label">Churned (14D+)</div>
-              </div>
-            </div>
-
-            <h3 className="admin-section-title">Player Activity</h3>
-            {players.length === 0 ? (
-              <div className="admin-empty-state">
-                <span className="admin-empty-icon">▦</span>
-                <span>No Player Data</span>
-              </div>
-            ) : (
-              <div className="admin-table-scroll">
-                <table className="admin-data-table">
-                  <thead>
-                    <tr>
-                      <th>Status</th>
-                      <th>Player</th>
-                      <th>Chips</th>
-                      <th>Last Played</th>
-                      <th>Days</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {players.map((p: DownlineMember, i: number) => {
-                      const lastSeen = p.profile?.last_played;
-                      const daysSince = lastSeen
-                        ? Math.floor((Date.now() - new Date(lastSeen).getTime()) / 86400000)
-                        : 999;
-                      const color =
-                        daysSince <= 5 ? '#31A24C' : daysSince <= 14 ? '#F7C52A' : '#FA383E';
-                      return (
-                        <tr key={p.user_id || i}>
-                          <td>
-                            <span
-                              style={{
-                                display: 'inline-block',
-                                width: '10px',
-                                height: '10px',
-                                borderRadius: '50%',
-                                background: color,
-                                marginRight: '6px',
-                              }}
-                            />
-                            {daysSince <= 5 ? 'Active' : daysSince <= 14 ? 'At Risk' : 'Churned'}
-                          </td>
-                          <td style={{ fontWeight: 600 }}>
-                            {p.profile ? playerDisplayName(p.profile) : p.user_id?.substring(0, 8)}
-                          </td>
-                          <td>
-                            {p.chip_balance !== undefined
-                              ? formatWalletChips(p.chip_balance)
-                              : '...'}
-                          </td>
-                          <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                            {timeAgo(lastSeen)}
-                          </td>
-                          <td style={{ fontWeight: 600, color }}>{daysSince}d</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ══════ TAB: SCORE ══════ */}
-        {tab === 'score' && user && (
-          <div className="admin-tab-content">
-            <AgentScoreCard userId={user.id} clubId={clubId || ''} />
-          </div>
-        )}
-
-        {/* ══════ TAB: PROMO ══════ */}
-        {tab === 'promo' && isOwnerOrAdmin && (
-          <div className="admin-tab-content">
-            <div className="admin-card" style={{ marginBottom: '20px', padding: '16px 20px' }}>
-              <h3 className="admin-card-title">Grant Promo To Agent</h3>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <select
-                  className="admin-input"
-                  style={{ flex: '1 1 200px' }}
-                  value={creditTarget}
-                  onChange={(e) => {
-                    promoOpIdRef.current = null;
-                    setCreditTarget(e.target.value);
-                  }}
-                >
-                  <option value="">Select Agent...</option>
-                  {agents.map((a: DownlineMember) => (
-                    <option key={a.user_id} value={a.user_id}>
-                      {a.profile ? playerDisplayName(a.profile) : a.user_id?.slice(0, 8)} (
-                      {a.chip_balance !== undefined ? formatWalletChips(a.chip_balance) : '...'}{' '}
-                      Chips)
-                    </option>
-                  ))}
-                </select>
-                <input
-                  className="admin-input"
-                  style={{ flex: '0 0 120px' }}
-                  type="number"
-                  placeholder="Amount"
-                  min="1"
-                  value={creditAmount}
-                  onChange={(e) => {
-                    promoOpIdRef.current = null;
-                    setCreditAmount(e.target.value);
-                  }}
-                />
-                <button
-                  className="admin-btn admin-btn-primary"
-                  disabled={processing || !creditTarget || !creditAmount}
-                  onClick={async () => {
-                    setProcessing(true);
-                    setError(null);
-                    try {
-                      const promoAmt = Number(creditAmount);
-                      if (isNaN(promoAmt) || promoAmt <= 0) {
-                        setError('Enter a valid chip amount');
-                        setProcessing(false);
-                        return;
-                      }
-                      // Promo is disbursed by the owner of the float: the union
-                      // when this club is in one, the club itself when it is not.
-                      // WalletService.disbursePromo resolves that and the database
-                      // refuses anyone who is not that owner.
-                      const resolvedClub = await resolveClubUUID(clubId || '');
-                      if (!promoOpIdRef.current) promoOpIdRef.current = uuid();
-                      await WalletService.disbursePromo(
-                        resolvedClub,
-                        creditTarget,
-                        promoAmt,
-                        'Promo granted from the club dashboard',
-                        promoOpIdRef.current
-                      );
-                      promoOpIdRef.current = null;
-                      setSuccess(`Granted ${fmtChips(promoAmt)} promo chips!`);
-                      setCreditTarget('');
-                      setCreditAmount('');
-                      loadDashboard(clubId);
-                    } catch (err: unknown) {
-                      setError(safeErrorMessage(err));
-                    } finally {
-                      setProcessing(false);
-                    }
-                  }}
-                >
-                  {processing ? 'Granting...' : 'Grant Promo'}
-                </button>
-              </div>
-            </div>
-
-            {agents.length > 0 && (
-              <>
-                <h3 className="admin-section-title">Agent Breakdown</h3>
-                <div className="admin-table-scroll">
-                  <table className="admin-data-table">
-                    <thead>
-                      <tr>
-                        <th>Agent</th>
-                        <th>Role</th>
-                        <th style={{ textAlign: 'right' }}>Chip Balance</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {agents.map((a: DownlineMember) => (
-                        <tr key={a.user_id}>
-                          <td style={{ fontWeight: 600 }}>
-                            {a.profile ? playerDisplayName(a.profile) : a.user_id?.substring(0, 8)}
-                          </td>
-                          <td>
-                            <span className="admin-badge">{a.role}</span>
-                          </td>
-                          <td
-                            style={{
-                              textAlign: 'right',
-                              fontWeight: 700,
-                              color:
-                                a.chip_balance !== undefined && a.chip_balance > 0
-                                  ? '#31A24C'
-                                  : 'var(--text-secondary)',
-                            }}
-                          >
-                            {a.chip_balance !== undefined
-                              ? formatWalletChips(a.chip_balance)
-                              : '...'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* ══════ TAB: CREDIT ══════ */}
-        {tab === 'credit' && isOwner && (
-          <div className="admin-tab-content">
-            <div className="admin-card" style={{ padding: '20px' }}>
-              <h3 className="admin-card-title">Agent Funding</h3>
-              <div
-                className="admin-text-secondary"
-                style={{ marginBottom: '16px', lineHeight: 1.5 }}
-              >
-                Send Funded Chips Into An Agent Wallet. Credit Lines Track Advances Separately.
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div>
-                  <label className="admin-label">Agent</label>
-                  <select
-                    className="admin-input"
-                    value={creditTarget}
-                    onChange={(e) => {
-                      invalidateCreditInput();
-                      setCreditTarget(e.target.value);
-                    }}
-                  >
-                    <option value="">Select Agent...</option>
-                    {agents.map((a: DownlineMember) => (
-                      <option key={a.user_id} value={a.user_id}>
-                        {a.profile ? playerDisplayName(a.profile) : a.user_id?.slice(0, 8)} -{' '}
-                        {a.role}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="admin-label">Amount</label>
-                  <input
-                    className="admin-input"
-                    type="number"
-                    value={creditAmount}
-                    onChange={(e) => {
-                      invalidateCreditInput();
-                      setCreditAmount(e.target.value);
-                    }}
-                    placeholder="0"
-                    min="1"
-                  />
-                </div>
-                <div>
-                  <label className="admin-label">Notes (Optional)</label>
-                  <input
-                    className="admin-input"
-                    value={creditNotes}
-                    onChange={(e) => {
-                      invalidateCreditInput();
-                      setCreditNotes(e.target.value);
-                    }}
-                    placeholder="Reason..."
-                  />
-                </div>
-                <button
-                  className="admin-btn admin-btn-primary"
-                  disabled={processing || !creditTarget || !creditAmount}
-                  style={{ marginTop: '4px' }}
-                  onClick={async () => {
-                    if (!user?.id || !clubId || walletOperationInFlightRef.current) return;
-                    walletOperationInFlightRef.current = true;
-                    setProcessing(true);
-                    setError(null);
-                    try {
-                      const amt = Number(creditAmount);
-                      assertChipAmount(amt);
-                      /* Funding moves existing chips into the Agent Wallet.
-                         A tracking line never supplies chips to this send. */
-                      const resolvedCreditClub = await resolveClubUUID(clubId || '');
-                      const note = creditNotes.trim() || undefined;
-                      await runAgentWalletOperation(
-                        {
-                          userId: user.id,
-                          clubId: resolvedCreditClub,
-                          targetId: creditTarget,
-                          kind: 'agent_send',
-                          destination: 'agent_wallet',
-                          amount: amt,
-                        },
-                        async (operation) => {
-                          const { data, error: fundError } = await supabase.rpc(
-                            'fn_agent_wallet_send',
-                            {
-                              p_club_id: resolvedCreditClub,
-                              p_to_user_id: creditTarget,
-                              p_amount: amt,
-                              p_destination: 'agent_wallet',
-                              p_reason: note || 'Prepaid funding',
-                              p_op_id: operation.operationId,
-                            }
-                          );
-                          if (fundError) throw fundError;
-                          if (
-                            !confirmedAgentWalletReceipt(data, amt, 'agent_send', 'agent_wallet')
-                          ) {
-                            throw new Error(
-                              data?.error || 'The Cashier Did Not Confirm That Funding'
-                            );
-                          }
-                        }
-                      );
-                      setSuccess(`Prepaid Chips Sent - ${fmtChips(amt)} Chips`);
-                      masterBus.emit('CREDIT_UPDATED', {
-                        clubId: clubId || '',
-                        userId: creditTarget,
-                      });
-                      setCreditAmount('');
-                      setCreditNotes('');
-                      loadDashboard(clubId);
-                    } catch (err: unknown) {
-                      setError(safeErrorMessage(err));
-                    } finally {
-                      walletOperationInFlightRef.current = false;
-                      setProcessing(false);
-                    }
-                  }}
-                >
-                  {processing ? 'Processing...' : 'Send Prepaid Chips'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {tab === 'statement' && (
-        <div style={{ padding: '0 16px 16px', maxWidth: '1100px', margin: '0 auto' }}>
-          <div
-            style={{
-              background: 'rgba(255,255,255,0.03)',
-              borderRadius: '12px',
-              padding: '16px',
-              border: '1px solid rgba(255,255,255,0.08)',
-            }}
-          >
-            <AgentBackOffice
-              key={`${user?.id}:${clubId}`}
-              clubId={clubId ?? undefined}
-              title="Weekly Statement & Roster"
-            />
-          </div>
         </div>
       )}
 
-      {/* TRANSACTION HISTORY — chip_ledger entries for this agent */}
-      <div style={{ padding: '0 16px 16px', maxWidth: '800px', margin: '0 auto' }}>
-        <div
-          style={{
-            background: 'rgba(255,255,255,0.03)',
-            borderRadius: '12px',
-            padding: '16px',
-            border: '1px solid rgba(255,255,255,0.08)',
+      {/* Header keys */}
+      <div className="arena-switch arena-ops-keys">
+        <button type="button" onClick={() => navigate('/')}>
+          Lobby
+        </button>
+        <button type="button" onClick={() => setShowTransfer(true)}>
+          Transfer
+        </button>
+        <button type="button" onClick={() => loadDashboard(clubId)} disabled={processing}>
+          ↻ Refresh
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            try {
+              if (tab === 'players' && players.length > 0) {
+                exportToCSV(
+                  players.map((p) => ({
+                    username: p.profile ? playerDisplayName(p.profile) : p.user_id,
+                    role: p.role,
+                    chip_balance: p.chip_balance,
+                    status: p.status,
+                    joined: p.created_at,
+                  })),
+                  'agent_players.csv',
+                  [
+                    { key: 'username', label: 'Player' },
+                    { key: 'role', label: 'Role' },
+                    { key: 'chip_balance', label: 'Balance' },
+                    { key: 'status', label: 'Status' },
+                    { key: 'joined', label: 'Joined' },
+                  ]
+                );
+              } else if (tab === 'cashouts' && cashoutsAvailable && pendingCashouts.length > 0) {
+                exportToCSV(pendingCashouts, 'agent_cashouts.csv', [
+                  { key: 'player_id', label: 'Player ID' },
+                  { key: 'amount', label: 'Amount' },
+                  { key: 'status', label: 'Status' },
+                  { key: 'created_at', label: 'Requested' },
+                ]);
+              } else if (tab === 'commissions' && commissions.length > 0) {
+                exportToCSV(commissions, 'agent_commissions.csv', [
+                  { key: 'amount', label: 'Amount' },
+                  // The export carries the same fact the table now shows:
+                  // a claimed row and an owed row are not the same money.
+                  { key: 'settled_at', label: 'Claimed At' },
+                  { key: 'source_type', label: 'Source' },
+                  { key: 'notes', label: 'Notes' },
+                  { key: 'created_at', label: 'Date' },
+                ]);
+              } else if (tab === 'overview' && recentTx.length > 0) {
+                exportToCSV(recentTx, 'agent_transactions.csv', [
+                  { key: 'transaction_type', label: 'Type' },
+                  { key: 'amount', label: 'Amount' },
+                  { key: 'from_user_id', label: 'From' },
+                  { key: 'to_user_id', label: 'To' },
+                  { key: 'created_at', label: 'Date' },
+                ]);
+              }
+            } catch (e) {
+              reportError(e, 'AgentDashboardPage');
+              /* silent */
+            }
           }}
         >
-          <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: 700, color: '#e0e0e0' }}>
-            Transaction History
-          </h3>
-          <TransactionLedgerView
-            userId={user?.id || undefined}
-            clubId={clubId || undefined}
-            limit={20}
-          />
-        </div>
+          Export
+        </button>
       </div>
+
+      {/* Pending Cashouts Alert */}
+      {cashoutsAvailable && pendingCashouts.length > 0 && tab !== 'cashouts' && (
+        <button type="button" className="agent-dash-alert" onClick={() => setTab('cashouts')}>
+          <strong>{pendingCashouts.length}</strong> Pending Cashout Request
+          {pendingCashouts.length !== 1 ? 's' : ''} - {fmtChips(pendingCashoutTotal)} Chips Waiting
+        </button>
+      )}
+
+      {/* Tabs: one chrome switch; the open view lights blue. */}
+      <nav className="arena-switch arena-ops-keys" aria-label="Agent Dashboard Views">
+        {[
+          { id: 'overview' as AgentTab, label: 'Overview' },
+          { id: 'players' as AgentTab, label: 'Players', badge: players.length },
+          {
+            id: 'cashouts' as AgentTab,
+            label: 'Cashouts',
+            badge: cashoutsAvailable ? pendingCashouts.length || undefined : undefined,
+          },
+          { id: 'commissions' as AgentTab, label: 'Commissions' },
+          { id: 'statement' as AgentTab, label: 'Statement' },
+          { id: 'analytics' as AgentTab, label: 'Analytics' },
+          { id: 'score' as AgentTab, label: 'Score' },
+          ...(isOwnerOrAdmin ? [{ id: 'promo' as AgentTab, label: 'Promo' }] : []),
+          ...(isOwner ? [{ id: 'credit' as AgentTab, label: 'Credit' }] : []),
+        ].map((t) => (
+          <button key={t.id} type="button" aria-pressed={tab === t.id} onClick={() => setTab(t.id)}>
+            {t.label}
+            {t.badge ? <span className="agent-dash-count">{t.badge}</span> : null}
+          </button>
+        ))}
+      </nav>
+
+      {/* ══════ TAB: OVERVIEW ══════ */}
+      {tab === 'overview' && (
+        <section className="arena-case arena-ops-case" aria-label="Overview">
+          <ArenaReadings
+            label="Agent Overview"
+            readings={[
+              { id: 'players', label: 'Total Players', value: fmt(players.length) },
+              {
+                id: 'online',
+                label: 'Online Now',
+                value: fmt(onlinePlayers.length),
+                tone: 'live',
+              },
+              { id: 'chips', label: 'Player Chips', value: fmtChips(totalPlayerChips) },
+              {
+                id: 'pending',
+                label: 'Pending Cashouts',
+                value: cashoutsAvailable ? fmt(pendingCashouts.length) : 'Unavailable',
+                tone: 'attention',
+              },
+              {
+                id: 'amount',
+                label: 'Cashout Amount',
+                value: cashoutsAvailable
+                  ? fmtChips(sumChips(pendingCashouts.map((c: CashoutRequest) => c.amount)))
+                  : 'Unavailable',
+                tone: 'danger',
+              },
+            ]}
+          />
+
+          {/* Recent Transactions */}
+          <h2 className="arena-section-title">Recent Transactions</h2>
+          {recentTx.length === 0 ? (
+            <ArenaState tone="empty" title="No Recent Transactions" />
+          ) : (
+            <>
+              <ul className="arena-ops-rows arena-ops-rows--single">
+                {recentTx.map((tx, i: number) => (
+                  <li key={tx.id || i}>
+                    <ArenaRow
+                      title={tx.transaction_type || 'Transfer'}
+                      line={`${tx.from_user_id?.substring(0, 8) || '-'}.. → ${tx.to_user_id?.substring(0, 8) || '-'}.. - ${timeAgo(tx.created_at)}`}
+                      signal={fmtChips(tx.amount)}
+                      signalTone="attention"
+                    />
+                  </li>
+                ))}
+              </ul>
+              {txHasMore ? (
+                <div className="arena-switch">
+                  <button
+                    type="button"
+                    onClick={() => void loadMoreTransactions()}
+                    disabled={txLoadingMore}
+                  >
+                    {txLoadingMore ? 'Loading...' : `Load ${fmt(TX_PAGE)} More`}
+                  </button>
+                </div>
+              ) : (
+                <p className="arena-ops-copy">All {fmt(recentTx.length)} Transactions Loaded</p>
+              )}
+            </>
+          )}
+        </section>
+      )}
+
+      {/* ══════ TAB: PLAYERS ══════ */}
+      {tab === 'players' && (
+        <section className="arena-case arena-ops-case" aria-label="Players">
+          <input
+            className="arena-ops-well"
+            placeholder="Search Players By Name..."
+            value={playerSearch}
+            onChange={(e) => setPlayerSearch(e.target.value)}
+          />
+          <ArenaReadings
+            label="Player Summary"
+            readings={[
+              {
+                id: 'players',
+                label: `${playerSearch ? 'Matching' : 'Total'} Players`,
+                value: filteredPlayers.length,
+              },
+              {
+                id: 'online',
+                label: 'Online Now',
+                value: filteredPlayers.filter((p) => p.profile?.online === true).length,
+                tone: 'live',
+              },
+              {
+                id: 'chips',
+                label: 'Total Chips',
+                value: fmtChips(
+                  sumChips(filteredPlayers.map((p: DownlineMember) => p.chip_balance || 0))
+                ),
+                tone: 'attention',
+              },
+            ]}
+          />
+
+          {filteredPlayers.length === 0 ? (
+            <ArenaState
+              tone="empty"
+              title={
+                playerSearch ? 'No Players Match Your Search' : 'No Players In Your Downline Yet'
+              }
+            />
+          ) : (
+            <ul className="arena-ops-rows">
+              {filteredPlayers.map((p) => {
+                const name = p.profile ? playerDisplayName(p.profile) : p.user_id?.substring(0, 8);
+                const isOnline = p.profile?.online === true;
+                return (
+                  <li key={p.user_id}>
+                    <ArenaRow
+                      title={name}
+                      line={`${p.role} - ${p.chip_balance !== undefined ? formatWalletChips(p.chip_balance) : '...'} - ${timeAgo(p.profile?.last_played)}`}
+                      signal={isOnline ? 'Online' : undefined}
+                      signalTone="live"
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
+
+      <CashoutReceiptChecks checks={receiptChecks} />
+      {/* ══════ TAB: CASHOUTS ══════ */}
+      {tab === 'cashouts' && (
+        <section className="arena-case arena-ops-case" aria-label="Pending Cashout Requests">
+          <h2 className="arena-section-title">
+            Pending Cashout Requests
+            <small>{cashoutsAvailable ? `${pendingCashouts.length} Pending` : 'Unavailable'}</small>
+          </h2>
+
+          {decisions.error && <p role="status">{decisions.error}</p>}
+          {!cashoutsAvailable ? (
+            <ArenaState
+              tone="error"
+              title="Pending Cashouts Could Not Be Verified."
+              actions={
+                <button type="button" onClick={() => void loadDashboard(clubId)}>
+                  Refresh Cashouts
+                </button>
+              }
+            />
+          ) : pendingCashouts.length === 0 ? (
+            <ArenaState tone="empty" title="No Pending Cashout Requests" />
+          ) : (
+            <ul className="arena-ops-rows arena-ops-rows--single">
+              {pendingCashouts.map((c) => (
+                <li key={c.id} className="arena-ledger-row agent-dash-row">
+                  <span className="agent-dash-row-head">
+                    <strong>{c.player_id?.substring(0, 8)}..</strong>
+                    <span className="agent-dash-gold">{fmtChips(c.amount)}</span>
+                  </span>
+                  <small>
+                    {c.player_note || '-'} - {timeAgo(c.created_at)}
+                  </small>
+                  <div className="arena-switch arena-ops-keys">
+                    <button
+                      type="button"
+                      onClick={() => approveCashout(c.id)}
+                      disabled={processing || !decisions.get(`${c.id}:approve`, 'cashout_approve')}
+                    >
+                      Approve
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => denyCashout(c.id)}
+                      disabled={processing || !decisions.get(`${c.id}:reject`, 'cashout_decline')}
+                    >
+                      Deny
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <ArenaReadings
+            label="Cashout Totals"
+            readings={[
+              {
+                id: 'pending',
+                label: 'Pending',
+                value: cashoutsAvailable ? fmt(pendingCashouts.length) : 'Unavailable',
+                tone: 'attention',
+              },
+              {
+                id: 'amount',
+                label: 'Total Amount',
+                value: cashoutsAvailable
+                  ? fmtChips(sumChips(pendingCashouts.map((c: CashoutRequest) => c.amount)))
+                  : 'Unavailable',
+                tone: 'danger',
+              },
+            ]}
+          />
+        </section>
+      )}
+
+      {/* ══════ TAB: COMMISSIONS ══════ */}
+      {tab === 'commissions' && (
+        <section className="arena-case arena-ops-case" aria-label="Commission History">
+          <h2 className="arena-section-title">Commission History</h2>
+          {commissions.length === 0 ? (
+            <ArenaState tone="empty" title="No Commission Records Yet" />
+          ) : (
+            <ul className="arena-ops-rows arena-ops-rows--single">
+              {commissions.map((c: AgentCommission, i: number) => (
+                /* Claimed or not. Until phase 6 there was no way to claim
+                   commission at all, so every row here meant the same thing;
+                   now they do not, and a list that cannot tell them apart is
+                   a list of two different numbers. */
+                <li key={c.id || i}>
+                  <ArenaRow
+                    title={c.source_type || 'Rake'}
+                    line={
+                      <>
+                        {c.settled_at ? 'Claimed' : 'Unclaimed'} - {c.notes || '-'} -{' '}
+                        {timeAgo(c.created_at)}
+                      </>
+                    }
+                    signal={fmtChips(c.amount)}
+                    signalTone={c.settled_at ? 'live' : 'attention'}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+          {commissions.length > 0 &&
+            (commissionsHasMore ? (
+              <div className="arena-switch">
+                <button
+                  type="button"
+                  onClick={() => void loadMoreCommissions()}
+                  disabled={commissionsLoadingMore}
+                >
+                  {commissionsLoadingMore ? 'Loading...' : `Load ${fmt(COMMISSION_PAGE)} More`}
+                </button>
+              </div>
+            ) : (
+              <p className="arena-ops-copy">All {fmt(commissions.length)} Commission Rows Loaded</p>
+            ))}
+        </section>
+      )}
+
+      {/* ══════ TAB: ANALYTICS ══════ */}
+      {tab === 'analytics' && (
+        <section className="arena-case arena-ops-case" aria-label="Player Activity">
+          <ArenaReadings
+            label="Downline Activity"
+            readings={[
+              { id: 'players', label: 'Total Players', value: fmt(players.length) },
+              {
+                id: 'active',
+                label: 'Active (5Min)',
+                value: fmt(onlinePlayers.length),
+                tone: 'live',
+              },
+              {
+                id: 'risk',
+                label: 'At-Risk (5-14D)',
+                value: fmt(
+                  players.filter((p: DownlineMember) => {
+                    const ls = p.profile?.last_played;
+                    if (!ls) return false;
+                    const days = (Date.now() - new Date(ls).getTime()) / 86400000;
+                    return days >= 5 && days < 14;
+                  }).length
+                ),
+                tone: 'attention',
+              },
+              {
+                id: 'churned',
+                label: 'Churned (14D+)',
+                value: fmt(
+                  players.filter((p: DownlineMember) => {
+                    const ls = p.profile?.last_played;
+                    if (!ls) return true;
+                    return (Date.now() - new Date(ls).getTime()) / 86400000 >= 14;
+                  }).length
+                ),
+                tone: 'danger',
+              },
+            ]}
+          />
+
+          <h2 className="arena-section-title">Player Activity</h2>
+          {players.length === 0 ? (
+            <ArenaState tone="empty" title="No Player Data" />
+          ) : (
+            <ul className="arena-ops-rows">
+              {players.map((p: DownlineMember, i: number) => {
+                const lastSeen = p.profile?.last_played;
+                const daysSince = lastSeen
+                  ? Math.floor((Date.now() - new Date(lastSeen).getTime()) / 86400000)
+                  : 999;
+                const tone = daysSince <= 5 ? 'live' : daysSince <= 14 ? 'attention' : 'danger';
+                return (
+                  <li key={p.user_id || i}>
+                    <ArenaRow
+                      title={p.profile ? playerDisplayName(p.profile) : p.user_id?.substring(0, 8)}
+                      line={`${daysSince <= 5 ? 'Active' : daysSince <= 14 ? 'At Risk' : 'Churned'} - ${p.chip_balance !== undefined ? formatWalletChips(p.chip_balance) : '...'} - ${timeAgo(lastSeen)}`}
+                      signal={`${daysSince}d`}
+                      signalTone={tone}
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {/* ══════ TAB: SCORE ══════ */}
+      {tab === 'score' && user && (
+        <section className="arena-case arena-ops-case" aria-label="Score">
+          <AgentScoreCard userId={user.id} clubId={clubId || ''} />
+        </section>
+      )}
+
+      {/* ══════ TAB: PROMO ══════ */}
+      {tab === 'promo' && isOwnerOrAdmin && (
+        <section className="arena-case arena-ops-case" aria-label="Grant Promo To Agent">
+          <h2 className="arena-section-title">Grant Promo To Agent</h2>
+          <div className="agent-dash-inline">
+            <select
+              className="arena-ops-well"
+              value={creditTarget}
+              onChange={(e) => {
+                promoOpIdRef.current = null;
+                setCreditTarget(e.target.value);
+              }}
+            >
+              <option value="">Select Agent...</option>
+              {agents.map((a: DownlineMember) => (
+                <option key={a.user_id} value={a.user_id}>
+                  {a.profile ? playerDisplayName(a.profile) : a.user_id?.slice(0, 8)} (
+                  {a.chip_balance !== undefined ? formatWalletChips(a.chip_balance) : '...'} Chips)
+                </option>
+              ))}
+            </select>
+            <input
+              className="arena-ops-well"
+              type="number"
+              placeholder="Amount"
+              min="1"
+              value={creditAmount}
+              onChange={(e) => {
+                promoOpIdRef.current = null;
+                setCreditAmount(e.target.value);
+              }}
+            />
+          </div>
+          <div className="arena-switch arena-ops-primary">
+            <button
+              type="button"
+              disabled={processing || !creditTarget || !creditAmount}
+              onClick={async () => {
+                setProcessing(true);
+                setError(null);
+                try {
+                  const promoAmt = Number(creditAmount);
+                  if (isNaN(promoAmt) || promoAmt <= 0) {
+                    setError('Enter a valid chip amount');
+                    setProcessing(false);
+                    return;
+                  }
+                  // Promo is disbursed by the owner of the float: the union
+                  // when this club is in one, the club itself when it is not.
+                  // WalletService.disbursePromo resolves that and the database
+                  // refuses anyone who is not that owner.
+                  const resolvedClub = await resolveClubUUID(clubId || '');
+                  if (!promoOpIdRef.current) promoOpIdRef.current = uuid();
+                  await WalletService.disbursePromo(
+                    resolvedClub,
+                    creditTarget,
+                    promoAmt,
+                    'Promo granted from the club dashboard',
+                    promoOpIdRef.current
+                  );
+                  promoOpIdRef.current = null;
+                  setSuccess(`Granted ${fmtChips(promoAmt)} promo chips!`);
+                  setCreditTarget('');
+                  setCreditAmount('');
+                  loadDashboard(clubId);
+                } catch (err: unknown) {
+                  setError(safeErrorMessage(err));
+                } finally {
+                  setProcessing(false);
+                }
+              }}
+            >
+              {processing ? 'Granting...' : 'Grant Promo'}
+            </button>
+          </div>
+
+          {agents.length > 0 && (
+            <>
+              <h2 className="arena-section-title">Agent Breakdown</h2>
+              <ul className="arena-ops-rows arena-ops-rows--single">
+                {agents.map((a: DownlineMember) => (
+                  <li key={a.user_id}>
+                    <ArenaRow
+                      title={a.profile ? playerDisplayName(a.profile) : a.user_id?.substring(0, 8)}
+                      line={a.role}
+                      signal={
+                        a.chip_balance !== undefined ? formatWalletChips(a.chip_balance) : '...'
+                      }
+                      signalTone={
+                        a.chip_balance !== undefined && a.chip_balance > 0 ? 'live' : undefined
+                      }
+                    />
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </section>
+      )}
+
+      {/* ══════ TAB: CREDIT ══════ */}
+      {tab === 'credit' && isOwner && (
+        <section className="arena-case arena-ops-case" aria-label="Agent Funding">
+          <h2 className="arena-section-title">Agent Funding</h2>
+          <p className="arena-ops-copy">
+            Send Funded Chips Into An Agent Wallet. Credit Lines Track Advances Separately.
+          </p>
+          <div className="agent-dash-form">
+            <label className="agent-dash-field">
+              <span>Agent</span>
+              <select
+                className="arena-ops-well"
+                value={creditTarget}
+                onChange={(e) => {
+                  invalidateCreditInput();
+                  setCreditTarget(e.target.value);
+                }}
+              >
+                <option value="">Select Agent...</option>
+                {agents.map((a: DownlineMember) => (
+                  <option key={a.user_id} value={a.user_id}>
+                    {a.profile ? playerDisplayName(a.profile) : a.user_id?.slice(0, 8)} - {a.role}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="agent-dash-field">
+              <span>Amount</span>
+              <input
+                className="arena-ops-well"
+                type="number"
+                value={creditAmount}
+                onChange={(e) => {
+                  invalidateCreditInput();
+                  setCreditAmount(e.target.value);
+                }}
+                placeholder="0"
+                min="1"
+              />
+            </label>
+            <label className="agent-dash-field">
+              <span>Notes (Optional)</span>
+              <input
+                className="arena-ops-well"
+                value={creditNotes}
+                onChange={(e) => {
+                  invalidateCreditInput();
+                  setCreditNotes(e.target.value);
+                }}
+                placeholder="Reason..."
+              />
+            </label>
+            <div className="arena-switch arena-ops-primary">
+              <button
+                type="button"
+                disabled={processing || !creditTarget || !creditAmount}
+                onClick={async () => {
+                  if (!user?.id || !clubId || walletOperationInFlightRef.current) return;
+                  walletOperationInFlightRef.current = true;
+                  setProcessing(true);
+                  setError(null);
+                  try {
+                    const amt = Number(creditAmount);
+                    assertChipAmount(amt);
+                    /* Funding moves existing chips into the Agent Wallet.
+                         A tracking line never supplies chips to this send. */
+                    const resolvedCreditClub = await resolveClubUUID(clubId || '');
+                    const note = creditNotes.trim() || undefined;
+                    await runAgentWalletOperation(
+                      {
+                        userId: user.id,
+                        clubId: resolvedCreditClub,
+                        targetId: creditTarget,
+                        kind: 'agent_send',
+                        destination: 'agent_wallet',
+                        amount: amt,
+                      },
+                      async (operation) => {
+                        const { data, error: fundError } = await supabase.rpc(
+                          'fn_agent_wallet_send',
+                          {
+                            p_club_id: resolvedCreditClub,
+                            p_to_user_id: creditTarget,
+                            p_amount: amt,
+                            p_destination: 'agent_wallet',
+                            p_reason: note || 'Prepaid funding',
+                            p_op_id: operation.operationId,
+                          }
+                        );
+                        if (fundError) throw fundError;
+                        if (!confirmedAgentWalletReceipt(data, amt, 'agent_send', 'agent_wallet')) {
+                          throw new Error(
+                            data?.error || 'The Cashier Did Not Confirm That Funding'
+                          );
+                        }
+                      }
+                    );
+                    setSuccess(`Prepaid Chips Sent - ${fmtChips(amt)} Chips`);
+                    masterBus.emit('CREDIT_UPDATED', {
+                      clubId: clubId || '',
+                      userId: creditTarget,
+                    });
+                    setCreditAmount('');
+                    setCreditNotes('');
+                    loadDashboard(clubId);
+                  } catch (err: unknown) {
+                    setError(safeErrorMessage(err));
+                  } finally {
+                    walletOperationInFlightRef.current = false;
+                    setProcessing(false);
+                  }
+                }}
+              >
+                {processing ? 'Processing...' : 'Send Prepaid Chips'}
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {tab === 'statement' && (
+        <section className="arena-case arena-ops-case" aria-label="Weekly Statement">
+          <AgentBackOffice
+            key={`${user?.id}:${clubId}`}
+            clubId={clubId ?? undefined}
+            title="Weekly Statement & Roster"
+          />
+        </section>
+      )}
+
+      {/* TRANSACTION HISTORY - chip_ledger entries for this agent */}
+      <section className="arena-case arena-ops-case" aria-label="Transaction History">
+        <h2 className="arena-section-title">Transaction History</h2>
+        <TransactionLedgerView
+          userId={user?.id || undefined}
+          clubId={clubId || undefined}
+          limit={20}
+        />
+      </section>
     </div>
   );
 }
@@ -2182,33 +1948,35 @@ export function CreditReductionControls(props: {
       {props.enabled && (
         <>
           {preparationError && <p role="alert">{preparationError}</p>}
-          <button
-            className="admin-btn admin-btn-primary"
-            disabled={!canStart}
-            onClick={async () => {
-              if (!canStart || !prepared || busy.current) return;
-              busy.current = true;
-              setWorking(true);
-              setError(null);
-              try {
-                // Capture before any wait. A capture refusal is shown without dispatching.
-                const start = captureCreditReduction(prepared.value);
-                const value = await CreditService.lowerCreditLine(start);
-                assertCreditReductionCurrent(start);
-                showResult(value);
-              } catch (err) {
-                if (receiptCurrent()) {
-                  setError(safeErrorMessage(err));
-                  setRefresh((value) => value + 1);
+          <div className="arena-switch arena-ops-primary">
+            <button
+              type="button"
+              disabled={!canStart}
+              onClick={async () => {
+                if (!canStart || !prepared || busy.current) return;
+                busy.current = true;
+                setWorking(true);
+                setError(null);
+                try {
+                  // Capture before any wait. A capture refusal is shown without dispatching.
+                  const start = captureCreditReduction(prepared.value);
+                  const value = await CreditService.lowerCreditLine(start);
+                  assertCreditReductionCurrent(start);
+                  showResult(value);
+                } catch (err) {
+                  if (receiptCurrent()) {
+                    setError(safeErrorMessage(err));
+                    setRefresh((value) => value + 1);
+                  }
+                } finally {
+                  busy.current = false;
+                  if (receiptCurrent()) setWorking(false);
                 }
-              } finally {
-                busy.current = false;
-                if (receiptCurrent()) setWorking(false);
-              }
-            }}
-          >
-            {working ? 'Checking Credit Change...' : 'Reduce Credit Line'}
-          </button>
+              }}
+            >
+              {working ? 'Checking Credit Change...' : 'Reduce Credit Line'}
+            </button>
+          </div>
         </>
       )}
       {error && <p role="alert">{error}</p>}
@@ -2221,34 +1989,36 @@ export function CreditReductionControls(props: {
           {rows.map((row, index) => (
             <div key={row.operationId}>
               <span>Pending Credit Change {index + 1}</span>
-              {(['check', 'cancel'] as const).map((action) => (
-                <button
-                  key={action}
-                  disabled={working}
-                  onClick={async () => {
-                    if (busy.current || !receiptCurrent()) return;
-                    busy.current = true;
-                    setWorking(true);
-                    setError(null);
-                    try {
-                      const start = capturePendingCreditReduction(row);
-                      const value =
-                        action === 'check'
-                          ? await recoverCreditReduction(start)
-                          : await retireCreditReduction(start);
-                      assertCreditReductionCurrent(start);
-                      showResult(value);
-                    } catch (err) {
-                      if (receiptCurrent()) setError(safeErrorMessage(err));
-                    } finally {
-                      busy.current = false;
-                      if (receiptCurrent()) setWorking(false);
-                    }
-                  }}
-                >
-                  {action === 'check' ? 'Check Receipt' : 'Cancel Pending Change'}
-                </button>
-              ))}
+              <div className="arena-switch arena-ops-keys">
+                {(['check', 'cancel'] as const).map((action) => (
+                  <button
+                    key={action}
+                    disabled={working}
+                    onClick={async () => {
+                      if (busy.current || !receiptCurrent()) return;
+                      busy.current = true;
+                      setWorking(true);
+                      setError(null);
+                      try {
+                        const start = capturePendingCreditReduction(row);
+                        const value =
+                          action === 'check'
+                            ? await recoverCreditReduction(start)
+                            : await retireCreditReduction(start);
+                        assertCreditReductionCurrent(start);
+                        showResult(value);
+                      } catch (err) {
+                        if (receiptCurrent()) setError(safeErrorMessage(err));
+                      } finally {
+                        busy.current = false;
+                        if (receiptCurrent()) setWorking(false);
+                      }
+                    }}
+                  >
+                    {action === 'check' ? 'Check Receipt' : 'Cancel Pending Change'}
+                  </button>
+                ))}
+              </div>
             </div>
           ))}
         </div>

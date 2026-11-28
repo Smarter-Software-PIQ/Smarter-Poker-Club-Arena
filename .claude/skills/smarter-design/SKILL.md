@@ -463,3 +463,4 @@ Requirements: `playwright-core` (already a dependency) and Chrome at `/usr/bin/g
 - A page that waits on a read the fixtures lack shows its empty or error state. Add the RPC or table to `fixtures.ts` (shapes are in the page's own tests).
 - The server runs with no file watcher, so restart it (`run.sh`) after editing source.
 - Fixture keys must match what the page reads (the activity series uses `d` for the day).
+- A page showing "Could Not Render" with `Invalid hook call` in `harness/probe.mjs` output means two copies of React were pre-bundled. The harness gives each checkout its own dependency cache for this reason; if it happens anyway, restart with `run.sh` (it passes `--force`).

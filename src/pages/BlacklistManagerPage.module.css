@@ -1,628 +1,130 @@
-/* #SMARTERCASINOREALISM - the material layer. The tokens live once on :root in
-   src/styles/club-engine.css, which main.tsx loads; this sheet only consumes
-   them. The page is the club's exclusion register: an operator names a member,
-   records a reason and an optional expiry, and the ledger below lists every
-   exclusion the club has written. The reds here carry meaning rather than
-   decoration - an active exclusion, the remove control and the failure panel
-   all stay red - so only the greys, the surfaces and the blue accents move onto
-   the shared vocabulary. The cut corners are this page's own idiom and stay: a
-   clip-path clips outer shadows away, so the clipped panels carry the bevel and
-   cavity insets rather than the lift. */
+/* Club Exclusion Control in #SmarterDesign (Dan 2026-11-27). The page root is
+   an arena workspace; the cases, switches, wells, readings and ledger rows come
+   from ArenaWorkspace.css and ArenaOps.css. This sheet only lays the register
+   out. Red still carries meaning: an active exclusion reads red. */
 
 .page {
   min-height: 100vh;
   min-height: 100dvh;
   padding-bottom: var(--bottom-nav-clearance, 74px);
   overflow-x: clip;
-  background: var(--realism-obsidian);
-  color: var(--realism-chrome-hot);
-  font-family: 'Roboto Condensed', system-ui, sans-serif;
+  color: #f1f5fc;
+  background: #050d17;
+  font-family: 'Arial Narrow', Arial, sans-serif;
 }
 .workspace {
-  width: min(100%, 1180px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(100%, 1100px);
   margin: 0 auto;
-  padding: clamp(24px, 4vw, 48px) clamp(14px, 4vw, 44px) 54px;
+  padding: 10px 12px 54px;
   box-sizing: border-box;
 }
 .workspaceHeading,
 .panelHeader {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 16px;
-}
-.workspaceHeading {
-  margin-bottom: 18px;
+  gap: 10px;
 }
 .workspaceHeading h2,
 .panelHeader h2 {
   margin: 0;
-  font-family: 'Rajdhani', system-ui, sans-serif;
-  font-size: clamp(1.35rem, 3vw, 2rem);
-  letter-spacing: -0.02em;
+}
+.required,
+.total {
+  color: #ffd700;
+  font:
+    800 12px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-.workspaceHeading > a {
-  min-height: 44px;
-  display: inline-flex;
-  align-items: center;
-  color: var(--realism-cyan);
-  font-size: 0.82rem;
-  text-decoration: none;
-}
-.workspaceHeading > a:focus-visible,
-.page button:focus-visible,
-.page input:focus-visible,
-.tableScroll:focus-visible {
-  outline: 2px solid var(--realism-cyan);
-  outline-offset: 3px;
-}
-.kicker {
-  margin: 0 0 3px;
-  color: var(--realism-muted);
-  font-family: 'Rajdhani', system-ui, sans-serif;
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-.addButton,
-.dangerButton,
-.secondaryButton,
-.removeButton,
-.errorPanel button {
-  min-height: 44px;
-  padding: 9px 15px;
-  border: 1px solid var(--realism-gunmetal);
-  border-radius: 2px;
-  box-shadow:
-    var(--realism-bevel),
-    0 1px 2px rgba(0, 0, 0, 0.55);
-  font-family: 'Rajdhani', system-ui, sans-serif;
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  cursor: pointer;
-  touch-action: manipulation;
-}
-/* On a phone the press is the only feedback there is (no-hover-effects.law):
-   the control drops into its own cavity and the lit top edge goes out. */
-.addButton:active:not(:disabled),
-.dangerButton:active:not(:disabled),
-.secondaryButton:active:not(:disabled),
-.removeButton:active:not(:disabled),
-.errorPanel button:active:not(:disabled) {
-  transform: translateY(1px);
-  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.7);
-}
-.addButton {
-  border-color: var(--realism-cyan);
-  background: #0a2740;
-  color: var(--realism-chrome-hot);
-  box-shadow:
-    var(--realism-bevel),
-    inset 0 -2px 0 var(--realism-cyan),
-    0 0 16px rgba(59, 167, 255, 0.16);
-}
-.formPanel,
-.ledger,
-.errorPanel {
-  border: 1px solid var(--realism-gunmetal);
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  box-shadow: var(--realism-bevel), var(--realism-cavity);
-  clip-path: polygon(
-    0 0,
-    calc(100% - 10px) 0,
-    100% 10px,
-    100% 100%,
-    10px 100%,
-    0 calc(100% - 10px)
-  );
-}
-.formPanel {
-  padding: clamp(18px, 3vw, 28px);
-  margin-bottom: 18px;
-}
-.ledger {
-  padding: clamp(16px, 3vw, 26px);
-}
-.panelHeader {
-  padding-bottom: 15px;
-  border-bottom: 1px solid var(--realism-gunmetal);
-}
-.panelHeader > span {
-  color: var(--realism-muted);
-  font-size: 0.76rem;
-  text-transform: uppercase;
-}
-.formGrid {
-  display: grid;
-  grid-template-columns: 1fr 1.6fr 0.8fr;
-  gap: 14px;
-  margin-top: 20px;
-}
-.field {
-  display: grid;
-  gap: 7px;
-  min-width: 0;
-}
-.field label {
-  color: var(--realism-chrome);
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-.field input {
-  width: 100%;
-  min-height: 46px;
-  padding: 10px 12px;
-  box-sizing: border-box;
-  border: 1px solid var(--realism-gunmetal);
-  border-radius: 2px;
-  /* The inverse of a panel: a cavity cut into it, so the field reads as a slot
-     rather than another raised face. */
-  background: var(--realism-obsidian);
-  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.65);
-  color: var(--realism-chrome-hot);
-  font: inherit;
-  font-size: 16px;
-}
-.formActions,
-.confirmActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.formActions {
-  margin-top: 18px;
-}
-.dangerButton {
-  border-color: #7f3036;
-  background: #351116;
-  color: #ffb7ba;
-}
-.secondaryButton {
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  color: var(--realism-chrome);
-}
-.removeButton {
-  border-color: #543039;
-  background: transparent;
-  color: #ff979d;
-}
-.page button:disabled {
-  opacity: 0.48;
-  cursor: not-allowed;
-}
-.errorPanel {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 18px;
-  padding: 17px;
-  border-left: 3px solid #ff5a5f;
-}
-.errorPanel strong {
-  color: #ffd4d6;
-}
-.errorPanel p {
-  margin: 4px 0 0;
-  color: #ad9295;
-}
-.errorPanel button {
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  color: var(--realism-chrome-hot);
-}
-.state {
-  min-height: 180px;
-  display: grid;
-  place-content: center;
-  gap: 6px;
-  padding: 25px;
-  color: var(--realism-muted);
-  text-align: center;
-}
-.state strong {
-  color: var(--realism-chrome-hot);
-  font-family: 'Rajdhani', system-ui, sans-serif;
-  text-transform: uppercase;
-}
-.state p {
-  margin: 0;
-}
-.tableScroll {
-  max-width: 100%;
-  overflow-x: auto;
-  margin-top: 14px;
-}
-.tableScroll table {
-  width: 100%;
-  min-width: 780px;
-  border-collapse: collapse;
-}
-.tableScroll th,
-.tableScroll td {
-  padding: 13px 11px;
-  border-bottom: 1px solid var(--realism-gunmetal);
-  text-align: left;
-  vertical-align: middle;
-}
-.tableScroll th {
-  color: var(--realism-muted);
-  font-size: 0.68rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-.tableScroll td {
-  color: var(--realism-chrome);
-  font-size: 0.85rem;
-}
-.tableScroll code {
-  color: var(--realism-cyan);
-  font-family: ui-monospace, monospace;
-  font-size: 0.72rem;
-}
-.activeBadge,
-.expiredBadge {
-  display: inline-block;
-  padding: 5px 8px;
-  border: 1px solid;
-  font-size: 0.68rem;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-.activeBadge {
-  border-color: #7e3036;
-  color: #ff8e93;
-  background: #2c1014;
-}
-.expiredBadge {
-  border-color: var(--realism-gunmetal-lit);
-  color: var(--realism-muted);
-  background: var(--realism-panel-raised);
-}
-.srOnly {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-@media (max-width: 760px) {
-  .formGrid {
-    grid-template-columns: 1fr;
-  }
-  .workspaceHeading {
-    align-items: flex-start;
-  }
-}
-@media (max-width: 620px) {
-  .workspace {
-    padding-inline: 10px;
-  }
-  .workspaceHeading {
-    padding-inline: 5px;
-  }
-  .errorPanel {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .tableScroll {
-    overflow: visible;
-  }
-  .tableScroll table,
-  .tableScroll tbody,
-  .tableScroll tr,
-  .tableScroll td {
-    display: block;
-    width: 100%;
-    min-width: 0;
-    box-sizing: border-box;
-  }
-  .tableScroll thead {
-    display: none;
-  }
-  .tableScroll tr {
-    margin-bottom: 12px;
-    border: 1px solid var(--realism-gunmetal);
-    background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-    box-shadow: var(--realism-bevel), var(--realism-cavity), var(--realism-lift);
-  }
-  .tableScroll td {
-    display: grid;
-    grid-template-columns: 100px minmax(0, 1fr);
-    gap: 10px;
-    border-bottom: 1px solid #1b252d;
-    overflow-wrap: anywhere;
-  }
-  .tableScroll td::before {
-    content: attr(data-label);
-    color: var(--realism-muted);
-    font-size: 0.67rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-  .tableScroll code {
-    overflow-wrap: anywhere;
-  }
-}
-
-/* ── Phase 2: a person, not a uuid ──────────────────────────────────────────
-   The form took a raw uuid typed by hand and the ledger printed one back. An
-   exclusion is a decision about a person, so both ends now name them. */
-.fieldHelp {
-  margin: 6px 0 0;
-  color: var(--realism-muted);
-  font-size: 0.78rem;
-  letter-spacing: 0.02em;
-}
-
-.memberOptions {
-  display: grid;
-  gap: 4px;
-  margin: 8px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.memberOptions button {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 9px 12px;
-  color: var(--realism-chrome);
-  font: inherit;
-  text-align: left;
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  border: 1px solid var(--realism-gunmetal);
-  border-radius: 4px;
-  box-shadow:
-    var(--realism-bevel),
-    0 1px 2px rgba(0, 0, 0, 0.55);
-  cursor: pointer;
-}
-
-/* No :hover anywhere in Club Arena (tests/no-hover-effects.law.test.ts): a
-   hover state on a touch surface either never fires or sticks after a tap. */
-.memberOptions button:focus-visible {
-  border-color: var(--realism-cyan);
-  outline: 2px solid var(--realism-cyan);
-  outline-offset: -2px;
-}
-
-.memberOptions button:active {
-  transform: translateY(1px);
-  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.7);
-}
-
-.selectedMember {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 9px 12px;
-  color: var(--realism-chrome-hot);
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  border: 1px solid var(--realism-cyan);
-  border-radius: 4px;
-  box-shadow: var(--realism-bevel), var(--realism-cavity);
-}
-
-.playerCell {
-  display: grid;
-  gap: 2px;
-}
-
-.playerCell code {
-  color: var(--realism-muted);
-  font-size: 0.72rem;
-}
-
 .ledgerTools {
   display: flex;
   align-items: center;
   gap: 10px;
 }
-
-/* An exclusion stops every future entry and empties no seat. When the excluded
-   player is still sitting, the operator is told, and offered the engine's own
-   removal rather than a direct seat write. */
-.seatedPanel {
+.formGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.4fr) minmax(0, 0.8fr);
+  gap: 10px;
+}
+.field {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  margin-bottom: 14px;
-  padding: 14px 16px;
-  color: #f0d7ae;
-  background: rgba(78, 51, 20, 0.24);
-  border: 1px solid rgba(214, 158, 92, 0.4);
-  border-radius: 5px;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
 }
-
-.seatedPanel strong {
-  display: block;
-  margin-bottom: 4px;
-  color: #f7e6c8;
-}
-
-.seatedPanel p {
-  max-width: 62ch;
-  margin: 0;
-  color: #cdb896;
-  font-size: 0.86rem;
-}
-
-/* Motion collapses under the OS setting, meaning never does (CLAUDE.md 10.6).
-   Listed selector by selector rather than through a descendant wildcard, so
-   this block can only reach the controls this sheet owns and never an animation
-   belonging to a component rendered inside the page. The 1px press travel goes;
-   the pressed cavity that confirms the tap stays. */
-@media (prefers-reduced-motion: reduce) {
-  .addButton:active:not(:disabled),
-  .dangerButton:active:not(:disabled),
-  .secondaryButton:active:not(:disabled),
-  .removeButton:active:not(:disabled),
-  .errorPanel button:active:not(:disabled),
-  .memberOptions button:active {
-    transform: none;
-  }
-}
-
-/* ── #SmarterDesign (Dan 2026-11-27) ──────────────────────────────────────
-   The page body moves from its own cut-corner panels onto the arena
-   workspace language the integrity mast above it already wears: the form,
-   the alerts and the ledger are thin chrome cases, every control a chrome
-   key (Add Exclusion lit), fields dark wells, each exclusion and each roster
-   match a chrome ledger row. The reds keep their meaning: Apply Exclusion,
-   Remove From Play, Confirm and Remove Access Control print red, and an
-   active exclusion keeps its red badge. */
-.page:global(.arena-workspace.arena-workspace) {
-  padding-inline: 0;
-  padding-bottom: calc(var(--bottom-nav-clearance, 74px) + 24px);
-  background: #050d17;
-}
-.page:global(.arena-workspace) .workspace {
-  padding: 4px 6px 24px;
-}
-.page:global(.arena-workspace) .workspaceHeading h2,
-.page:global(.arena-workspace) .panelHeader h2 {
-  color: #f1f5fc;
-  font:
-    800 20px/1.05 'Arial Narrow',
-    Arial,
-    sans-serif;
-  letter-spacing: -0.35px;
-  text-transform: none;
-}
-.page:global(.arena-workspace) .kicker {
+.field label {
   color: #74dfff;
   font:
     700 10px/1.2 'Arial Narrow',
     Arial,
     sans-serif;
   letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
-.page:global(.arena-workspace) .workspaceHeading > a {
-  color: #74dfff;
-}
-.page:global(.arena-workspace) :is(.formPanel, .ledger, .errorPanel, .seatedPanel) {
-  clip-path: none;
-  border: 0;
-  box-shadow: none;
-}
-.page:global(.arena-workspace) :is(.formPanel, .ledger, .errorPanel, .seatedPanel) > * {
-  position: relative;
-  z-index: 2;
-}
-.page:global(.arena-workspace) .panelHeader {
-  padding-bottom: 6px;
-  border-bottom: 1px solid #253e57;
-}
-.page:global(.arena-workspace) .panelHeader > span,
-.page:global(.arena-workspace) .ledgerTools > span {
-  color: #9fbacc;
-  font:
-    11px/1.3 Arial,
-    sans-serif;
-}
-.page:global(.arena-workspace) .field label {
-  color: #9fbacc;
-  font:
-    700 11px/1.2 'Arial Narrow',
-    Arial,
-    sans-serif;
-  letter-spacing: 0.04em;
-}
-.page:global(.arena-workspace) .field input {
+.selectedMember {
   min-height: 44px;
-  padding: 0 8px;
-  border: 1px solid #476079;
-  border-radius: 0;
-  background: #040d17;
-  box-shadow: none;
-  color: #f1f5fc;
-  color-scheme: dark;
-  font:
-    16px/1.2 Arial,
-    sans-serif;
 }
-.page:global(.arena-workspace)
-  :global(.arena-switch)
-  > :is(.addButton, .dangerButton, .secondaryButton, .removeButton) {
-  padding: 6px 14px;
+.optionRow {
+  min-height: 44px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.optionRow:active {
+  transform: translateY(1px);
+}
+.seatedTitle {
+  color: #ff5a6a;
   font:
-    700 12px/1.1 'Arial Narrow',
+    800 15px/1.2 'Arial Narrow',
     Arial,
     sans-serif;
-  letter-spacing: 0.04em;
-  text-transform: none;
 }
-.page:global(.arena-workspace) :global(.arena-switch) > :is(.dangerButton, .removeButton) {
-  color: #ff5b6e;
+.entryRow {
+  flex-wrap: wrap;
 }
-.page:global(.arena-workspace) .addKeys {
+.entryKeys {
+  flex: 0 1 260px;
   margin: 0;
 }
-.page:global(.arena-workspace) :is(.formActions, .confirmActions, .selectedMember, .ledgerTools) {
-  margin: 8px 0 0;
-}
-.page:global(.arena-workspace) .selectedMember {
-  align-items: center;
-  padding: 0;
-  border: 0;
-  background: none;
-  box-shadow: none;
-}
-.page:global(.arena-workspace) .selectedMember > span {
-  flex: 1 1 auto;
-  color: #f1f5fc;
-}
-.page:global(.arena-workspace) .selectedMember > .secondaryButton {
-  flex: 0 0 auto;
-}
-.page:global(.arena-workspace) .ledgerTools {
-  align-items: center;
-  justify-content: flex-end;
-}
-.page:global(.arena-workspace) .ledgerTools > .secondaryButton {
-  flex: 0 0 auto;
-}
-.page:global(.arena-workspace) .memberOptions button:global(.arena-ledger-row) {
-  border-radius: 0;
-  box-shadow: none;
-  color: #dce5ef;
-}
-.page:global(.arena-workspace) .tableScroll table {
-  border-collapse: separate;
-  border-spacing: 0 4px;
-}
-.page:global(.arena-workspace) .tableScroll th {
+.playerId {
   color: #9fbacc;
-  border-bottom: 1px solid #253e57;
+  font:
+    11px/1 ui-monospace,
+    monospace;
 }
-.page:global(.arena-workspace) .tableScroll td {
-  border-bottom: 0;
-  color: #dce5ef;
+@media (max-width: 720px) {
+  .formGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .entryKeys {
+    flex: 1 1 100%;
+  }
 }
-.page:global(.arena-workspace) .tableScroll td :global(.arena-switch) {
+
+/* A player still seated when the exclusion lands: an attention line in gold. */
+.seatedPanel {
+  flex-flow: row wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.seatedPanel strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #ffd700;
+}
+.seatedPanel p {
+  max-width: 62ch;
   margin: 0;
-}
-.page:global(.arena-workspace) .seatedPanel {
-  border-radius: 0;
-  color: #ffe98a;
-}
-.page:global(.arena-workspace) .errorPanel {
-  border-radius: 0;
+  color: #9fbacc;
+  font-size: 12px;
 }

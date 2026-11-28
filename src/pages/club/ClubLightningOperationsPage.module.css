@@ -1,229 +1,252 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   LIGHTNING OPERATIONS - on the spade and riveted consoles (#ClubArenaConsole)
+   LIGHTNING OPERATIONS in #SmarterDesign (Dan 2026-11-27)
 
-   PAINT WHAT NEVER CHANGES. PRINT WHAT DOES. The chassis is Dan's approved
-   master (components/console/SpadeConsole.css); this file lays the Lightning
-   readings on the black glass between the rails: every Cluster as a record
-   between engraved rules with its figures beneath, every table of the detail
-   as rows (label in lit blue, value in silver), choices as lit words. Nothing
-   is drawn but the underline of a text field and the latency chart's lines,
-   which the art does not paint. Sizes are cqw against the console. No :hover.
+   The page wears the arena workspace (ArenaWorkspace.css, ArenaOps.css): the
+   chrome mast, chrome meters, chrome keys, thin chrome cases and chrome
+   ledger rows. This sheet only lays out the Lightning readings inside them:
+   a Cluster as a ledger row with its figures as chrome meters, every table of
+   the detail as rows (label in chrome blue, value in white), and the inks.
+   Inks are the smarter.poker schema only: chrome blues, gold, red. No :hover.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .page {
-  --lops-rule: 1px solid #000;
-  --lops-rule-lit: inset 0 1px 0 rgb(255 255 255 / 8%);
+  --lops-rule: 1px solid #253e57;
   min-height: 100vh;
   min-height: 100dvh;
   width: 100%;
   max-width: 100vw;
-  padding: 12px 8px max(70px, env(safe-area-inset-bottom));
   overflow-x: hidden;
   overflow-x: clip;
-  background: #020305;
-  color: #e6e9ee;
-  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
+  font-family: 'Arial Narrow', Arial, sans-serif;
   color-scheme: dark;
 }
 
-.console {
-  --sc-max: 760px;
-  filter: drop-shadow(0 18px 34px rgb(0 0 0 / 85%));
+/* The arena workspace pads its root; the page keeps its foot clearance. */
+:global(.arena-workspace.arena-workspace).page {
+  padding-bottom: max(70px, env(safe-area-inset-bottom));
 }
 
+/* ── Inks ───────────────────────────────────────────────────────────────── */
+
+.ink_silver {
+  color: #f1f5fc;
+}
+.ink_white {
+  color: #fff;
+}
+.ink_blue,
+.ink_green {
+  color: #74dfff;
+}
+.ink_gold {
+  color: #ffd700;
+}
+.ink_red {
+  color: #ff5a6a;
+}
+.ink_muted {
+  color: #9fbacc;
+}
+
+/* ── Type ───────────────────────────────────────────────────────────────── */
+
+.copy {
+  margin: 0;
+  font:
+    12px/1.45 Arial,
+    sans-serif;
+}
+.center {
+  text-align: center;
+}
+.label {
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 .state {
   margin: 0;
-  padding: 3cqw 0;
+  padding: 8px 0;
+}
+.freshness {
+  margin: 0;
+  font:
+    700 11px/1.3 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
-/* ── Lit words: choices, back-outs, actions ─────────────────────────────── */
+/* ── Keys: chrome switch keys (arena-switch); the words only add inks ───── */
 
 .words {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0 2cqw;
-}
-
-.word {
-  appearance: none;
-  min-height: 44px;
   margin: 0;
-  padding: 1.2cqw 1.6cqw;
-  border: 0;
-  background: transparent;
-  font:
-    800 3.2cqw/1 'Roboto Condensed',
-    Inter,
-    system-ui,
-    sans-serif;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  cursor: pointer;
-  touch-action: manipulation;
 }
-
-.word:active {
+.word:disabled {
+  cursor: default;
+}
+/* A key that stops a Cluster keeps its red ink on the chrome. */
+:global(.arena-workspace) .words > .word.ink_red {
+  color: #ff5a6a;
+}
+/* A lit word inside a grid cell sits on its own line, flush left. */
+.cellWord {
+  display: block;
+  min-height: 36px;
+  padding: 0;
+  color: #74dfff;
+  background: none;
+  border: 0;
+  font:
+    700 11px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.cellWord:focus-visible {
+  outline: 2px solid #45adff;
+  outline-offset: 2px;
+}
+.cellWord:active {
   filter: brightness(1.25);
 }
 
-.word:focus-visible {
-  outline: 0.6cqw solid #8fd4ff;
-  outline-offset: 0.4cqw;
-}
-
-.word:disabled {
-  cursor: default;
-  opacity: 0.45;
-}
-
-.freshness {
-  margin: 0;
-  padding: 0 0 2cqw;
-  font-size: 2.8cqw;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-align: center;
-  text-transform: uppercase;
-}
-
-/* ── Sections: rows on the glass ────────────────────────────────────────── */
+/* ── Sections: thin chrome cases (arena-case) ───────────────────────────── */
 
 .section {
-  display: grid;
-  gap: 0;
-  margin: 0;
-  padding: 2.4cqw 0 1.2cqw;
-  border-top: var(--lops-rule);
-  box-shadow: var(--lops-rule-lit);
+  gap: 4px;
 }
-
 .sectionTitle {
-  margin: 0 0 1cqw;
-  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
-  font-size: 3cqw;
+  font-size: 17px;
 }
-
 .empty {
   margin: 0;
-  padding: 1.6cqw 0;
-  font-size: 3cqw;
+  padding: 6px 0;
 }
 
 .row {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 3cqw;
-  min-height: 8cqw;
-  padding: 1.6cqw 0;
+  gap: 12px;
+  min-height: 32px;
+  padding: 6px 2px;
 }
-
 .row + .row {
   border-top: var(--lops-rule);
-  box-shadow: var(--lops-rule-lit);
 }
-
 .rowLabel {
   min-width: 0;
-  font-size: 2.9cqw;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  font:
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-
 .rowValue {
-  font-size: 3.8cqw;
-  font-weight: 800;
-  letter-spacing: 0.03em;
+  font:
+    800 14px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
   font-variant-numeric: tabular-nums;
   text-align: right;
   overflow-wrap: anywhere;
 }
 
-/* ── Records: a Cluster, a signal ───────────────────────────────────────── */
+/* ── Records: a Cluster, a signal, each a chrome ledger row ─────────────── */
 
 .records {
   display: grid;
+  gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-
 .record {
   display: grid;
-  gap: 1.4cqw;
-  padding: 2.4cqw 0;
-  border-top: var(--lops-rule);
-  box-shadow: var(--lops-rule-lit);
+  gap: 6px;
+  padding: 10px;
 }
-
 .recordHead {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 2cqw;
+  gap: 8px;
 }
-
 .recordName {
   min-width: 0;
-  font-size: 4cqw;
-  font-weight: 800;
-  letter-spacing: 0.03em;
+  font:
+    800 16px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
   overflow-wrap: anywhere;
 }
-
 .recordMeta {
-  font-size: 2.7cqw;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  font:
+    700 10px/1.3 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-
 .mode {
   flex: none;
-  font-size: 3.2cqw;
-  font-weight: 800;
-  letter-spacing: 0.14em;
+  font:
+    800 13px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   white-space: nowrap;
 }
-
-.warning {
+.warning,
+.notice {
   margin: 0;
-  font-size: 3cqw;
-  font-weight: 800;
-  letter-spacing: 0.1em;
+  font:
+    800 12px/1.3 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
+/* Figures: chrome meters (arena-meter), four across, two on a phone. */
 .figures {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  align-items: end;
-  gap: 1.6cqw 2cqw;
+  gap: 4px;
   margin: 0;
 }
-
+@media (max-width: 480px) {
+  .figures {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 .figure {
   display: grid;
-  gap: 0.4cqw;
-  min-width: 0;
+  gap: 2px;
 }
-
 .figureLabel {
-  font-size: 2.3cqw;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
-
 .figureValue {
   margin: 0;
-  font-size: 3.5cqw;
-  font-weight: 800;
-  letter-spacing: 0.03em;
+  font:
+    800 16px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
@@ -236,118 +259,90 @@
   padding: 0;
   list-style: none;
 }
-
 .gridRow {
   display: grid;
   grid-template-columns: minmax(0, 1.7fr) repeat(3, minmax(0, 1fr));
   align-items: baseline;
-  gap: 2cqw;
-  padding: 1.4cqw 0;
+  gap: 8px;
+  padding: 6px 2px;
 }
-
 .gridRow + .gridRow {
   border-top: var(--lops-rule);
-  box-shadow: var(--lops-rule-lit);
 }
-
-.gridHead {
-  font-size: 2.4cqw;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
 .gridCell {
   min-width: 0;
-  font-size: 3.2cqw;
-  font-weight: 800;
+  font:
+    800 13px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
   font-variant-numeric: tabular-nums;
   text-align: right;
   overflow-wrap: anywhere;
 }
-
-/* A column head never breaks inside a word: it is one short word, sized to
-   fit its column at 393px ("Candidate", "Exposure"). Declared after
-   .gridCell so it wins where a head is also a cell. */
+/* A column head never breaks inside a word. Declared after .gridCell so it
+   wins where a head is also a cell. */
 .gridHead {
-  font-size: 2.1cqw;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
   letter-spacing: 0.06em;
+  text-transform: uppercase;
   overflow-wrap: normal;
   word-break: normal;
 }
-
 .gridName {
   min-width: 0;
-  font-size: 2.8cqw;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  font:
+    700 11px/1.25 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   overflow-wrap: anywhere;
 }
 
-/* A lit word inside a grid cell sits on its own line, flush left. */
-.cellWord {
-  display: block;
-  min-height: 36px;
-  padding-left: 0;
-  font-size: 2.8cqw;
-}
-
-/* ── Fields: the only thing drawn is an underline ───────────────────────── */
+/* ── Fields: a label over a dark well (arena-ops-well) ──────────────────── */
 
 .field {
   display: grid;
-  gap: 0.8cqw;
-  padding: 1.6cqw 0;
+  gap: 4px;
+  padding: 4px 0;
 }
-
 .fieldInput {
-  width: 100%;
-  min-height: 40px;
-  padding: 0.3rem 0;
-  border: 0;
-  border-bottom: 1px solid #45adff;
-  background: transparent;
-  color: #e4e7ec;
-  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
-  font-size: 3.8cqw;
   font-weight: 700;
-  box-shadow: 0 1px 0 rgb(0 0 0 / 80%);
 }
-
-.fieldInput:focus-visible {
-  outline: none;
-  border-radius: 0;
-  border-bottom-color: #8fd4ff;
-  /* The global input:focus-visible ring is a rounded box; the field stays an
-     underline, lit brighter and doubled for the keyboard. */
-  box-shadow: 0 1px 0 #8fd4ff;
+.fieldHint {
+  font:
+    700 10px/1.3 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
-
 .review {
   display: grid;
-  gap: 1cqw;
-  padding: 1cqw 0 0;
+  gap: 4px;
 }
 
 /* ── The latency chart ──────────────────────────────────────────────────── */
 
 .chart {
   width: 100%;
-  height: 46cqw;
-  min-height: 160px;
+  height: 200px;
 }
-
 .legend {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 0 4cqw;
+  gap: 0 16px;
   margin: 0;
-  padding: 1cqw 0 2cqw;
-  font-size: 2.6cqw;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  padding: 4px 0 8px;
+  font:
+    700 10px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
@@ -359,217 +354,105 @@
   padding: 0;
   list-style: none;
 }
-
 .trailStep {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2cqw;
-  padding: 1.4cqw 0;
+  gap: 8px;
+  padding: 6px 2px;
   border-top: var(--lops-rule);
-  box-shadow: var(--lops-rule-lit);
 }
 
-/* ── Phase 13: operator controls ────────────────────────────────────────────
-   Printed on the same glass: state as rows, controls as lit words (red ink
-   for the three that stop a Cluster), the flags as a three-column grid. The
-   confirm dialog is its own spade console on a black backdrop; this sheet
-   only places it. data-popup-chassis="none" keeps metallic-popups.css off
-   its content, and SpadeConsole.css already switches that chassis off the
-   painted plates inside any dialog. */
+/* ── Phase 13: operator controls ────────────────────────────────────────── */
 
 .subhead {
-  padding-top: 2cqw;
+  padding-top: 8px;
 }
-
-.notice {
-  margin: 0;
-  font-size: 3cqw;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
 .flagRow {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.7fr) minmax(0, 1fr);
   align-items: center;
-  gap: 2cqw;
-  padding: 0.6cqw 0;
+  gap: 8px;
+  padding: 2px;
 }
-
 .flagRow + .flagRow {
   border-top: var(--lops-rule);
-  box-shadow: var(--lops-rule-lit);
 }
-
 .flagWord {
   justify-self: end;
-  padding-right: 0;
-  font-size: 2.8cqw;
 }
-
 .changeRow {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1.2fr);
   align-items: baseline;
-  gap: 2cqw;
-  padding: 1.4cqw 0;
+  gap: 8px;
+  padding: 6px 2px;
 }
-
 .changeRow + .changeRow {
   border-top: var(--lops-rule);
-  box-shadow: var(--lops-rule-lit);
 }
-
 .reasons {
   display: grid;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-
 .reason {
-  padding: 1.4cqw 0;
+  padding: 6px 2px;
   border-top: var(--lops-rule);
-  box-shadow: var(--lops-rule-lit);
-  font-family: Inter, system-ui, sans-serif;
-  font-size: 3.2cqw;
-  font-weight: 600;
-  line-height: 1.35;
+  font:
+    600 12px/1.35 Arial,
+    sans-serif;
 }
-
 .reasonSeverity {
   display: block;
-  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
-  font-size: 2.4cqw;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.fieldHint {
-  font-size: 2.4cqw;
-  font-weight: 700;
+  font:
+    800 10px 'Arial Narrow',
+    Arial,
+    sans-serif;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
-.dialogBackdrop {
-  --lops-rule: 1px solid #000;
-  --lops-rule-lit: inset 0 1px 0 rgb(255 255 255 / 8%);
+/* The confirm dialog: a chrome case on its own arena workspace backdrop.
+   data-popup-chassis="none" keeps metallic-popups.css off its content. */
+:global(.arena-workspace.arena-workspace).dialogBackdrop {
+  --lops-rule: 1px solid #253e57;
   position: fixed;
   inset: 0;
   z-index: 10000;
   display: flex;
   align-items: flex-start;
   justify-content: center;
+  max-width: none;
+  margin: 0;
   padding: 16px;
   overflow-y: auto;
-  background: rgb(0 0 0 / 90%);
-  color: #e6e9ee;
-  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
+  background: rgb(2 6 12 / 88%);
+  font-family: 'Arial Narrow', Arial, sans-serif;
   color-scheme: dark;
 }
-
 .dialog {
   width: min(100%, 440px);
   margin: auto;
 }
-
-.dialogCopy {
-  margin: 0;
-  padding: 1cqw 1cqw 2cqw;
-  font-size: 3.6cqw;
-  color: #dbe2ea;
+.dialogHead {
+  display: grid;
+  gap: 2px;
 }
-
-/* ── #SmarterDesign (Dan 2026-11-27) ──────────────────────────────────────
-   The painted consoles were the old style for a page section. The overview
-   and the Cluster detail now print in the arena workspace's thin chrome case
-   (ClubPageSection's `arena`): choices and actions are chrome switches (the
-   choice lit by aria-pressed, a lone action lit as the primary), each Cluster
-   and signal a chrome ledger row, sections under chrome titles. Everything
-   below is scoped to the workspace, so the confirmation dialogs, which portal
-   to the body on their own popup chassis, keep their look. The case is the
-   container the cqw type above reads. */
-.page:global(.arena-workspace.arena-workspace) {
-  padding-bottom: calc(var(--bottom-nav-clearance, 74px) + 24px);
-}
-
-.page:global(.arena-workspace) .console {
-  container-type: inline-size;
-  width: 100%;
-  max-width: 880px;
-  margin: 8px auto 0;
-  filter: none;
-}
-
-:global(.arena-workspace) .console [class*='sc-ink--'] {
-  text-shadow: none;
-}
-
-:global(.arena-workspace) .console :global(.arena-section-title) small {
-  color: #74dfff;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+.pill {
+  font:
+    800 11px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
-
-:global(.arena-workspace) .words:global(.arena-switch) {
-  justify-content: stretch;
-  margin: 4px 0;
+.dialogCopy {
+  padding: 2px 0 6px;
+  color: #b6c8d6;
 }
-
-:global(.arena-workspace) :global(.arena-switch) > .word {
-  font:
-    700 12px/1.1 'Arial Narrow',
-    Arial,
-    sans-serif;
-  letter-spacing: 0.04em;
-  white-space: normal;
-}
-
-:global(.arena-workspace) .section {
-  padding: 8px 0 4px;
-  border-top: 1px solid #253e57;
-  box-shadow: none;
-}
-
-:global(.arena-workspace) .sectionTitle {
-  margin: 0 0 4px;
-  color: #f1f5fc;
-  font:
-    800 16px/1.1 'Arial Narrow',
-    Arial,
-    sans-serif;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-:global(.arena-workspace) .row + .row,
-:global(.arena-workspace) .gridRow + .gridRow,
-:global(.arena-workspace) .flagRow + .flagRow,
-:global(.arena-workspace) .changeRow + .changeRow {
-  border-top: 1px solid rgb(37 62 87 / 70%);
-  box-shadow: none;
-}
-
-:global(.arena-workspace) .records {
-  gap: 4px;
-}
-
-:global(.arena-workspace) .record:global(.arena-ledger-row) {
-  padding: 8px 10px;
-  border-top: 4px solid transparent;
-  box-shadow: none;
-}
-
-:global(.arena-workspace) .fieldInput {
-  box-sizing: border-box;
-  padding: 8px 10px;
-  background: #030b14;
-  border: 1px solid #253e57;
-  border-radius: 4px;
-  box-shadow: none;
-  color: #f1f5fc;
+/* The action key lights blue (the switch's own lit state), or prints red
+   when it stops the Cluster. */
+:global(.arena-workspace) :global(.arena-switch) > .dangerKey:not(:disabled) {
+  color: #ff5a6a;
 }

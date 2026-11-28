@@ -1,616 +1,92 @@
 /**
- * ═══════════════════════════════════════════════════════════════════════════════
- *  SUPER AGENT DASHBOARD - #SMARTERCASINOREALISM
- * ═══════════════════════════════════════════════════════════════════════════════
+ * AGENT NETWORK IN #SMARTERDESIGN (Dan 2026-11-27)
  *
- * What a super agent sees of their own network: the headline stats, the tabbed
- * balances and rate card, the sub-agent and player rosters, the commission
- * breakdown and the chip transfer form.
- *
- * Colour and material come from the --realism-* tokens on :root in
- * src/styles/club-engine.css, so this page has no palette of its own. A card is
- * a panel gradient inside a gunmetal frame with a lit top edge and a cavity
- * under it; a control presses on :active, because on a phone the press is the
- * only confirmation there is. No :hover rules here and none may be added
- * (tests/no-hover-effects.law.test.ts).
- *
- * Money keeps its own colours: rake and positive commission read green, a
- * negative commission stays red, and a player balance is gold. Those carry
- * meaning a surface token would erase.
+ * What a super agent sees of their own network, in the arena workspace
+ * language from ArenaWorkspace.css and ArenaOps.css: the chrome mast, chrome
+ * meters, a chrome switch for the views, thin chrome cases and chrome ledger
+ * rows. This sheet only lays out what those pieces do not: the page column,
+ * the form fields and the player portrait with its online light. Everything
+ * is scoped under .arena-workspace. No :hover (phones do not hover).
  */
 
-.super-agent-dashboard {
-  min-height: 100vh;
-  min-height: 100dvh; /* the visible viewport on a phone; vh above is the toolbar-hidden one */
-  background: linear-gradient(
-    180deg,
-    var(--realism-obsidian) 0%,
-    var(--realism-carbon) 50%,
-    var(--realism-obsidian) 100%
-  );
+.arena-workspace.super-agent-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   width: 100%;
-  max-width: 100vw;
-  /* clip, not hidden — see src/styles/design-system.css on body. `hidden` on
-     one axis computes the other to `auto`, which makes this a scroll container,
-     and WebKit then resolves the fixed ClubBottomNav against IT instead of the
-     viewport. The bar leaves the bottom of the screen and rides up the page. */
-  overflow-x: hidden;
-  overflow-x: clip;
-  /* Dan 2026-08-25: was max(70px, env(safe-area-inset-bottom)). The bar is
-     74px PLUS the home-indicator inset (additive), and max() picks one or
-     the other - so this reserved 70px on every phone and hid the last row
-     of content under the footer, by 4px on a flat screen and ~38px on a
-     notched one. --bottom-nav-clearance is the token the bar itself is
-     pinned to. */
-  padding-bottom: max(var(--bottom-nav-clearance, 74px), env(safe-area-inset-bottom));
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 8px max(var(--bottom-nav-clearance, 74px), env(safe-area-inset-bottom));
+  box-sizing: border-box;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   HEADER - Machined Frame
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.dashboard-header {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 1rem 1.25rem;
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  border-bottom: 2px solid var(--realism-gunmetal);
-  box-shadow: var(--realism-bevel), var(--realism-cavity), var(--realism-lift);
-}
-
-.dashboard-header .back-btn {
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  border: 1px solid var(--realism-gunmetal-lit);
-  border-radius: 10px;
-  box-shadow:
-    var(--realism-bevel),
-    0 1px 2px rgba(0, 0, 0, 0.55);
-  font-size: 1.25rem;
-  color: var(--realism-chrome);
-  cursor: pointer;
-  padding: 0.5rem 0.75rem;
-  transition: all 0.2s ease;
-}
-
-/* The press. On a phone there is no hover, so this is the confirmation. */
-.dashboard-header .back-btn:active {
-  transform: translateY(1px);
-  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.7);
-}
-
-.dashboard-header .back-btn:focus-visible {
-  outline: 2px solid var(--realism-cyan);
-  outline-offset: 2px;
-}
-
-.header-info {
-  flex: 1;
-}
-
-.header-info h1 {
-  margin: 0;
-  font-size: 1.25rem;
-  color: var(--realism-chrome-hot);
-  font-weight: 600;
-}
-
-.agent-role {
-  font-size: 0.85rem;
-  color: var(--realism-cyan);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  font-weight: 600;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   STATES
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.loading-state,
-.empty-state {
+.arena-workspace .super-agent-field {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 50vh;
-  color: var(--realism-muted);
-}
-
-.empty-icon {
-  font-size: 3rem;
-  margin-bottom: 1rem;
-  opacity: 0.4;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   STATS GRID - Machined Cards
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0.75rem;
-  padding: 1rem;
-}
-
-.stat-card {
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  backdrop-filter: blur(16px) saturate(1.2);
-  -webkit-backdrop-filter: blur(16px) saturate(1.2);
-  border: 1px solid var(--realism-gunmetal);
-  border-radius: var(--realism-radius);
-  padding: 1rem;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  box-shadow: var(--realism-bevel), var(--realism-cavity), var(--realism-lift);
-  transition: all 0.25s var(--ease-spring, cubic-bezier(0.175, 0.885, 0.32, 1.275));
-}
-.stat-card.highlight {
-  border-color: rgba(0, 212, 255, 0.4);
-  background: linear-gradient(145deg, rgba(0, 212, 255, 0.12) 0%, rgba(0, 212, 255, 0.04) 100%);
-  box-shadow:
-    var(--realism-bevel),
-    var(--realism-cavity),
-    0 0 15px rgba(0, 212, 255, 0.2);
-}
-
-.stat-icon {
-  font-size: 1.5rem;
-}
-
-.stat-info {
-  display: flex;
-  flex-direction: column;
-}
-
-.stat-value {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: var(--realism-cyan);
-  font-family: 'Rajdhani', monospace;
-  text-shadow: 0 0 8px rgba(0, 212, 255, 0.3);
-}
-
-.stat-label {
-  font-size: 0.7rem;
-  color: var(--realism-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   TABS - Milled Chips
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.dashboard-tabs {
-  display: flex;
-  gap: 0.25rem;
-  padding: 0 1rem;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-  border-bottom: 2px solid var(--realism-gunmetal);
-  background: rgba(0, 0, 0, 0.2);
-}
-
-.dashboard-tabs::-webkit-scrollbar {
-  display: none;
-}
-
-.dashboard-tabs button {
-  padding: 0.75rem 1rem;
-  border: none;
-  background: none;
-  color: var(--realism-muted);
-  font-size: 0.85rem;
-  font-weight: 500;
-  cursor: pointer;
-  touch-action: manipulation;
-  min-height: 44px;
-  flex-shrink: 0;
-  border-bottom: 2px solid transparent;
-  white-space: nowrap;
-  transition: all 0.2s ease;
-}
-
-.dashboard-tabs button.active {
-  color: var(--realism-cyan);
-  border-bottom-color: var(--realism-cyan);
-  text-shadow: 0 0 8px rgba(0, 212, 255, 0.3);
-}
-
-.dashboard-tabs button:active {
-  transform: translateY(1px);
-}
-
-.dashboard-tabs button:focus-visible {
-  outline: 2px solid var(--realism-cyan);
-  outline-offset: -2px;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   CONTENT
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.dashboard-content {
-  padding: 1rem;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   BALANCE CARDS
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.balance-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  margin-bottom: 1.5rem;
-}
-
-.balance-card {
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  backdrop-filter: blur(16px) saturate(1.2);
-  -webkit-backdrop-filter: blur(16px) saturate(1.2);
-  border: 1px solid var(--realism-gunmetal);
-  border-radius: var(--realism-radius);
-  padding: 1rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  transition: all 0.25s var(--ease-spring, cubic-bezier(0.175, 0.885, 0.32, 1.275));
-  box-shadow: var(--realism-bevel), var(--realism-cavity), var(--realism-lift);
-}
-.balance-card .label {
-  color: var(--realism-chrome);
-}
-
-.balance-card .value {
-  font-weight: 700;
-  font-size: 1.125rem;
-  color: var(--realism-cyan);
-  font-family: 'Rajdhani', monospace;
-  text-shadow: 0 0 8px rgba(0, 212, 255, 0.3);
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   RATES CARD
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.rates-card {
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  border: 1px solid var(--realism-gunmetal);
-  border-radius: var(--realism-radius);
-  box-shadow: var(--realism-bevel), var(--realism-cavity), var(--realism-lift);
-  padding: 1rem;
-}
-
-.rates-card h3 {
-  margin: 0 0 1rem;
-  font-size: 0.9rem;
-  color: var(--realism-cyan);
-  font-family: 'Rajdhani', 'Rajdhani', sans-serif;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-
-.rate-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  color: var(--realism-chrome);
-}
-
-.rate-row:last-child {
-  border-bottom: none;
-}
-
-.rate-value {
-  font-weight: 600;
-  color: var(--realism-cyan);
-}
-
-.rate-edit {
-  margin: 0.75rem 0 0;
-}
-
-.rate-edit__controls {
-  display: flex;
-  gap: 0.5rem;
-  align-items: stretch;
-}
-
-.rate-edit__controls input {
-  flex: 1 1 auto;
+  gap: 5px;
   min-width: 0;
 }
 
-.rate-edit__controls .btn {
-  flex: 0 0 auto;
+.arena-workspace .super-agent-field > label {
+  color: #9fbacc;
+  font:
+    700 11px/1.3 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-.rate-edit__note {
-  margin: 0.5rem 0 0;
-  font-size: 0.75rem;
-  color: var(--realism-muted);
+.arena-workspace .super-agent-inline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   AGENT/PLAYER LISTS
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.agent-list,
-.player-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.agent-row,
-.player-row {
+/* One player: portrait, name and rakeback, gold balance. */
+.arena-workspace .super-agent-player {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 1rem;
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  border: 1px solid var(--realism-gunmetal);
-  border-radius: var(--realism-radius);
-  box-shadow: var(--realism-bevel), var(--realism-cavity), var(--realism-lift);
-  transition: all 0.2s ease;
+  gap: 8px;
+  width: 100%;
+  min-height: 52px;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  color: #f1f5fc;
 }
 
-.agent-info,
-.player-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-
-.agent-name,
-.player-name {
-  font-weight: 500;
-  color: var(--realism-chrome-hot);
-}
-
-.player-rakeback {
-  font-size: 0.75rem;
-  color: var(--realism-muted);
-}
-
-.agent-stats {
-  text-align: right;
-  font-size: 0.85rem;
-  color: var(--realism-muted);
-}
-
-.rake {
-  display: block;
-  font-weight: 700;
-  color: var(--realism-green);
-  text-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
-}
-
-/* SCOPED 2026-09-05. This was a bare selector, and the same class name is
-   defined bare in several other stylesheets. Every stylesheet here is global
-   once imported, so whichever file loaded last won any property the owning
-   page did not itself declare - which is how a 32px admin icon button ended
-   up sizing the public dossier's player actions in production. Scoped to
-   this component's own container; its own appearance is unchanged. */
-.super-agent-dashboard .player-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: linear-gradient(145deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  border: 2px solid var(--realism-gunmetal-lit);
+.arena-workspace .super-agent-avatar {
+  position: relative;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
-  position: relative;
-  overflow: hidden;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #07111c;
+  color: #74dfff;
+  font:
+    800 15px/1 'Arial Narrow',
+    Arial,
+    sans-serif;
 }
 
-.super-agent-dashboard .player-avatar img {
+.arena-workspace .super-agent-avatar img {
   width: 100%;
   height: 100%;
+  border-radius: 50%;
   object-fit: cover;
 }
 
-.online-dot {
+.arena-workspace .super-agent-online {
   position: absolute;
-  bottom: 0;
   right: 0;
-  width: 12px;
-  height: 12px;
-  background: var(--realism-green);
+  bottom: 0;
+  width: 9px;
+  height: 9px;
+  border: 2px solid #050d17;
   border-radius: 50%;
-  border: 2px solid var(--realism-panel);
-  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
-}
-
-.player-balance {
-  font-weight: 700;
-  color: var(--realism-gold);
-  font-family: 'Rajdhani', monospace;
-  text-shadow: 0 0 8px rgba(255, 215, 0, 0.4);
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   COMMISSION
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.commission-summary {
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  border: 1px solid var(--realism-gunmetal);
-  border-radius: var(--realism-radius);
-  box-shadow: var(--realism-bevel), var(--realism-cavity), var(--realism-lift);
-  padding: 1rem;
-}
-
-.commission-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 0.75rem 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  color: var(--realism-chrome);
-}
-
-.commission-row:last-child {
-  border-bottom: none;
-}
-
-.commission-row.total {
-  font-weight: 600;
-  color: var(--realism-chrome-hot);
-}
-
-.commission-row .value {
-  color: var(--realism-green);
-}
-
-/* Owed back, not earned: red, and it stays red. */
-.commission-row .value.negative {
-  color: #ef4444;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   TRANSFER FORM
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.transfers-section h3 {
-  margin-bottom: 1rem;
-  font-size: 0.9rem;
-  color: var(--realism-cyan);
-  font-family: 'Rajdhani', 'Rajdhani', sans-serif;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-
-.transfer-form {
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  border: 1px solid var(--realism-gunmetal);
-  border-radius: var(--realism-radius);
-  box-shadow: var(--realism-bevel), var(--realism-cavity), var(--realism-lift);
-  padding: 1.5rem;
-}
-
-.form-row {
-  margin-bottom: 1rem;
-}
-
-.form-row label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-size: 0.85rem;
-  color: var(--realism-chrome);
-}
-
-/* A field is a cavity, not a panel: the light comes from the top edge and
-   falls INTO it, which is the opposite of the cards above. */
-.form-row select,
-.form-row input {
-  width: 100%;
-  padding: 0.75rem 1rem;
-  background: linear-gradient(180deg, var(--realism-panel) 0%, var(--realism-panel-raised) 100%);
-  border: 1px solid var(--realism-gunmetal);
-  border-radius: 8px;
-  box-shadow: inset 0 1px 8px rgba(0, 0, 0, 0.5);
-  color: var(--realism-chrome-hot);
-  font-size: 16px; /* was 0.9rem; under 16px makes iOS zoom the page on focus */
-  transition: all 0.2s ease;
-}
-
-.form-row select:focus,
-.form-row input:focus {
-  outline: none;
-  border-color: var(--realism-cyan);
-  box-shadow: 0 0 15px rgba(0, 212, 255, 0.3);
-}
-
-.form-row select:focus-visible,
-.form-row input:focus-visible {
-  outline: 2px solid var(--realism-cyan);
-  outline-offset: 1px;
-}
-
-.empty-text {
-  color: var(--realism-muted);
-  text-align: center;
-  padding: 2rem;
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════════
-   MOBILE RESPONSIVE
-   ═══════════════════════════════════════════════════════════════════════════════ */
-
-@media (max-width: 480px) {
-  .dashboard-header {
-    padding: 0.75rem;
-  }
-
-  .stats-grid {
-    gap: 0.5rem;
-    padding: 0.75rem;
-  }
-
-  .stat-card {
-    padding: 0.75rem;
-  }
-
-  .stat-value {
-    font-size: 1rem;
-  }
-
-  .dashboard-content {
-    padding: 0.75rem;
-  }
-}
-
-/* ═══════════════════ Supplemental mobile touch targets ═══════════════════ */
-
-@media (max-width: 480px) {
-  .dashboard-tabs button {
-    min-height: 44px;
-    font-size: 0.78rem;
-  }
-
-  .form-row select,
-  .form-row input {
-    font-size: 16px;
-    min-height: 44px;
-  }
-
-  .stats-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .dashboard-header .back-btn {
-    min-height: 44px;
-    min-width: 44px;
-    touch-action: manipulation;
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════════
-   REDUCED MOTION
-
-   Motion collapses, meaning does not (CLAUDE.md 10.6). Everything that moves
-   on this page is a transition on a surface or a control, so dropping the
-   transitions leaves every border, bevel, colour and value exactly where it
-   was. Scoped to this sheet's own selectors rather than a universal rule, so
-   it cannot reach an animation another component owns.
-   ═══════════════════════════════════════════════════════════════════════════════ */
-
-@media (prefers-reduced-motion: reduce) {
-  .dashboard-header .back-btn,
-  .stat-card,
-  .dashboard-tabs button,
-  .balance-card,
-  .agent-row,
-  .player-row,
-  .form-row select,
-  .form-row input {
-    transition: none;
-  }
+  background: #74dfff;
 }
