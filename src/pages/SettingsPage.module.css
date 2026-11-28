@@ -1,220 +1,80 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   SETTINGS — Control Room  (#SmarterCasinoRealism, 2026-09-04)
-   Obsidian console, machined section index, chrome toggles with a blue core.
-   Light mode is brushed silver.
+   SETTINGS - Control Room in #SmarterDesign (Dan 2026-11-27)
+   The page wears the arena workspace (src/components/lobby/ArenaWorkspace.css
+   and src/components/ops/ArenaOps.css): the chrome mast, the section index a
+   chrome switch lit by the section in view, each section a thin chrome case
+   under a section title, every setting a chrome ledger row, its keys chrome
+   keys (Open Studio and Retry Account Sync lit), the selects dark wells. This
+   sheet lays those pieces out and dresses their insides with the workspace's
+   own inks; it draws no frame. The arena reads dark in either theme. The
+   account dialogs keep their own dress below.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .page {
-  --control-bg: #030609;
-  --control-panel: #080d12;
-  --control-raised: #0d141b;
-  --control-line: #26333d;
-  --control-steel: #b9cad7;
-  --control-blue: #3aa8ff;
-  padding-top: 1rem;
-  padding-right: 1rem;
-  padding-left: 1rem;
-  background:
-    radial-gradient(circle at 50% 0, rgba(58, 168, 255, 0.1), transparent 33rem), var(--control-bg);
-  color: #f4f8fb;
+  min-height: 100vh;
+  min-height: 100dvh;
 }
 
+/* ── The section index: a chrome switch ─────────────────────────────── */
 .controlIndex {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  border: 1px solid var(--control-line);
-  border-radius: 3px;
-  background: #05090c;
+  margin: 7px 0;
 }
 
-.controlIndex button {
-  position: relative;
-  min-height: 46px;
-  padding: 0.65rem 0.4rem;
-  border: 0;
-  border-right: 1px solid var(--control-line);
-  background: transparent;
-  color: #91a3af;
-  font:
-    800 0.67rem/1 'Rajdhani',
-    Inter,
-    sans-serif;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
+.controlIndex > button {
+  min-width: 0;
   cursor: pointer;
 }
 
-.controlIndex button:last-child {
-  border-right: 0;
+.controlIndex > .controlIndexActive {
+  cursor: default;
 }
 
-.controlIndex button::after {
-  content: '';
-  position: absolute;
-  right: 24%;
-  bottom: -1px;
-  left: 24%;
-  height: 2px;
-}
-
-.controlIndex button:focus-visible,
-.controlIndexActive {
-  color: #f4f8fb !important;
-  background: linear-gradient(180deg, rgba(58, 168, 255, 0.12), transparent) !important;
-  outline: none;
-}
-
-.controlIndex button:focus-visible {
-  box-shadow: inset 0 0 0 2px #77c9ff;
-}
-
-.controlIndexActive::after {
-  background: var(--control-blue);
-  box-shadow: 0 0 12px rgba(58, 168, 255, 0.8);
-}
-
-.headerActions {
-  display: flex;
-  min-height: 58px;
+/* ── The sync line: a case with its keys ───────────────────────────── */
+.page .headerActions.headerActions {
+  flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 0.55rem 0.75rem;
-  border: 1px solid var(--control-line);
-  border-radius: 3px;
-  background: linear-gradient(145deg, #0c1319, #060a0d);
-}
-
-.headerActions > div {
-  display: flex;
-  gap: 0.5rem;
+  gap: 10px;
 }
 
 .changeState {
-  color: #91a3af;
-  font-size: 0.72rem;
-  line-height: 1.35;
-}
-
-.saveButton,
-.resetButton,
-.actionButton,
-.actionButtonSecondary,
-.dangerButton,
-.studioButton,
-.cancelBtn,
-.saveBtn {
-  min-height: 44px;
-  padding: 0.6rem 0.9rem;
-  border: 1px solid #466071;
-  border-radius: 3px;
-  background: linear-gradient(180deg, #15212a, #080d12);
-  color: #dce8f0;
+  min-width: 0;
+  flex: 1;
+  color: #9fbacc;
   font:
-    800 0.72rem/1 'Rajdhani',
-    Inter,
+    12px/1.4 Arial,
     sans-serif;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+}
+
+.syncKeys {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.page .syncKeys > :is(.saveButton, .resetButton) {
+  min-width: 96px;
+  padding: 6px 12px;
   cursor: pointer;
-  transition:
-    border-color 160ms ease,
-    box-shadow 160ms ease,
-    color 160ms ease;
 }
 
-.saveButton,
-.studioButton,
-.saveBtn {
-  border-color: #77c9ff;
-  background: linear-gradient(180deg, #66c8ff, #238fc5);
-  color: #031019;
-  box-shadow:
-    inset 0 1px rgba(255, 255, 255, 0.55),
-    0 0 18px rgba(58, 168, 255, 0.14);
-}
-
-.resetButton,
-.actionButtonSecondary,
-.cancelBtn {
-  color: #a9bac5;
-  background: #070b0f;
-}
-
-.dangerButton {
-  border-color: rgba(255, 124, 124, 0.55);
-  background: rgba(110, 20, 24, 0.18);
-  color: #ff9a9a;
-}
-
-.saveButton:focus-visible,
-.resetButton:focus-visible,
-.actionButton:focus-visible,
-.actionButtonSecondary:focus-visible,
-.dangerButton:focus-visible,
-.studioButton:focus-visible,
-.cancelBtn:focus-visible,
-.saveBtn:focus-visible {
-  border-color: #b7e6ff;
-  outline: none;
-  box-shadow: 0 0 18px rgba(58, 168, 255, 0.18);
-}
-
-.saveButton:disabled,
-.actionButton:disabled,
-.actionButtonSecondary:disabled,
-.dangerButton:disabled,
-.saveBtn:disabled {
-  opacity: 0.48;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
+/* ── Sections and rows ─────────────────────────────────────────────── */
 .content {
   display: flex;
   flex-direction: column;
-  gap: 0.8rem;
 }
 
 .section {
-  scroll-margin-top: 1rem;
-  overflow: hidden;
-  padding: 1.15rem;
-  border: 1px solid var(--control-line);
-  border-radius: 4px;
-  background:
-    linear-gradient(115deg, rgba(58, 168, 255, 0.035), transparent 35%),
-    linear-gradient(145deg, var(--control-raised), var(--control-panel));
-  box-shadow: inset 0 1px rgba(185, 202, 215, 0.07);
-}
-
-.section h2 {
-  margin: 0;
-  padding-bottom: 0.85rem;
-  border-bottom: 1px solid rgba(58, 168, 255, 0.2);
-  color: #77c9ff;
-  font:
-    800 0.75rem/1.2 ui-monospace,
-    'SFMono-Regular',
-    Consolas,
-    monospace;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  scroll-margin-top: 64px;
 }
 
 .settingRow {
   display: flex;
-  min-height: 70px;
+  min-height: 60px;
+  box-sizing: border-box;
   align-items: center;
   justify-content: space-between;
-  gap: 1.5rem;
-  padding: 0.82rem 0;
-  border-bottom: 1px solid #1c2730;
-}
-
-.settingRow:last-child {
-  border-bottom: 0;
-  padding-bottom: 0;
+  gap: 12px;
+  padding: 8px 10px;
 }
 
 .settingInfo {
@@ -224,47 +84,60 @@
 
 .settingLabel {
   display: block;
-  color: #f0f5f8;
-  font-size: 0.88rem;
-  font-weight: 700;
-  line-height: 1.3;
+  color: #f1f5fc;
+  font:
+    700 14px/1.25 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
 }
 
 .settingDesc {
   display: block;
-  margin-top: 0.25rem;
-  color: #91a3af;
-  font-size: 0.72rem;
-  line-height: 1.45;
+  margin-top: 3px;
+  color: #9fbacc;
+  font:
+    12px/1.4 Arial,
+    sans-serif;
+  overflow-wrap: anywhere;
 }
 
 .settingEyebrow {
   display: block;
-  margin-bottom: 0.3rem;
-  color: #77c9ff;
+  margin-bottom: 3px;
+  color: #74dfff;
   font:
-    800 0.56rem/1 ui-monospace,
-    'SFMono-Regular',
-    Consolas,
-    monospace;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.08em;
 }
 
-.studioRow {
-  position: relative;
-  margin: 0.65rem 0;
-  padding: 1rem;
-  border: 1px solid rgba(119, 201, 255, 0.38);
-  border-left: 2px solid var(--control-blue);
-  background: linear-gradient(105deg, rgba(58, 168, 255, 0.12), transparent 46%), #070c10;
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.05);
+/* A row's own keys: one chrome key, or the lit Open Studio. */
+.rowKeys {
+  flex: 0 0 auto;
+  margin: 0;
 }
 
+.page .rowKeys > :is(.actionButton, .actionButtonSecondary, .dangerButton, .studioButton) {
+  min-width: 104px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.page .rowKeys > .dangerButton.dangerButton {
+  color: #ff5b6e;
+}
+
+.rowKeys > button:disabled {
+  cursor: default;
+}
+
+/* ── Toggles: a chrome key that lights blue when on ────────────────── */
 .toggle {
   position: relative;
   display: inline-flex;
-  min-width: 52px;
+  min-width: 56px;
   min-height: 44px;
   flex: 0 0 auto;
   align-items: center;
@@ -281,95 +154,269 @@
 
 .toggleSlider {
   position: relative;
-  width: 48px;
-  height: 26px;
-  border: 1px solid #4a5c68;
-  border-radius: 13px;
-  background: #101820;
-  transition:
-    background 180ms ease,
-    border-color 180ms ease;
+  width: 52px;
+  height: 30px;
+  box-sizing: border-box;
+  border-radius: 6px;
+  background: linear-gradient(#152639, #06111e 65%);
+  transition: background 180ms ease;
+}
+
+.toggleSlider::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-image: var(--arena-stat) 11 / 6px stretch;
 }
 
 .toggleSlider::after {
   content: '';
   position: absolute;
-  top: 3px;
-  left: 3px;
+  top: 6px;
+  left: 6px;
   width: 18px;
   height: 18px;
-  border-radius: 50%;
-  background: linear-gradient(145deg, #b9cad7, #647985);
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
-  transition:
-    transform 180ms ease,
-    background 180ms ease;
+  border-radius: 3px;
+  background: linear-gradient(#dce5ef, #7d93a6 70%);
+  transition: transform 180ms ease;
 }
 
 .toggle input:checked + .toggleSlider {
-  border-color: #77c9ff;
-  background: #126b9c;
-  box-shadow: 0 0 14px rgba(58, 168, 255, 0.26);
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
+}
+
+.toggle input:checked + .toggleSlider::before {
+  border-image-source: var(--arena-active);
 }
 
 .toggle input:checked + .toggleSlider::after {
   transform: translateX(22px);
-  background: #f4f8fb;
+  background: linear-gradient(#ffffff, #b9d6f2 70%);
 }
 
 .toggle input:focus-visible + .toggleSlider {
-  outline: 2px solid #77c9ff;
-  outline-offset: 3px;
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
 }
 
+/* ── The volume slider ─────────────────────────────────────────────── */
 .sliderContainer {
   display: flex;
   min-width: min(220px, 42vw);
   align-items: center;
-  gap: 0.65rem;
+  gap: 10px;
 }
 
 .sliderContainer.disabled {
-  opacity: 0.46;
+  opacity: 0.5;
 }
 
 .slider {
   flex: 1;
   height: 6px;
-  border: 1px solid #3d4d58;
-  border-radius: 3px;
+  border: 1px solid #476079;
+  border-radius: 0;
   appearance: none;
-  background: #0a1015;
+  background: #040d17;
   cursor: pointer;
 }
 
 .slider::-webkit-slider-thumb {
   width: 20px;
   height: 20px;
-  border: 1px solid #b7e6ff;
-  border-radius: 50%;
+  border: 0;
+  border-radius: 3px;
   appearance: none;
-  background: var(--control-blue);
-  box-shadow: 0 0 12px rgba(58, 168, 255, 0.45);
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
 }
 
 .slider:focus-visible {
-  outline: 2px solid #77c9ff;
+  outline: 2px solid #9ae5ff;
   outline-offset: 5px;
 }
 
 .sliderValue {
-  min-width: 3.2rem;
-  color: #77c9ff;
+  min-width: 3rem;
+  color: #74dfff;
   font:
-    800 0.85rem/1 ui-monospace,
-    'SFMono-Regular',
-    Consolas,
-    monospace;
+    800 16px/1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
   text-align: right;
 }
 
-.select,
+/* ── Selects: dark wells ───────────────────────────────────────────── */
+.page .settingRow > .select {
+  width: auto;
+  min-width: 150px;
+  padding-right: 2.3rem;
+  appearance: none;
+  color-scheme: dark;
+  font-size: 16px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #74dfff 50%),
+    linear-gradient(135deg, #74dfff 50%, transparent 50%);
+  background-position:
+    calc(100% - 15px) 19px,
+    calc(100% - 10px) 19px;
+  background-repeat: no-repeat;
+  background-size:
+    5px 5px,
+    5px 5px;
+}
+
+/* Table Studio: the same ledger row, its key the lit primary. */
+.studioRow {
+  position: relative;
+}
+
+/* Account Data & Closure keeps the error ink on its title. */
+.dangerZone > h2 {
+  color: #ff5b6e;
+}
+
+/* ── The Action Controller picker inside Table & Display ───────────── */
+/* The controller previews are approved artwork and are never repainted
+   (ActionController.css). Its two view tabs become a chrome switch here,
+   on this page only; the shared sheet pins their dialog dress with
+   !important, so the page answers in kind, scoped to its own sections. */
+.page .section :global(.action-controller-settings) {
+  padding: 0;
+  color: #dce5ef;
+}
+
+.page .section :global(.action-controller-settings) > p {
+  color: #9fbacc;
+  font:
+    12px/1.4 Arial,
+    sans-serif;
+}
+
+.page .section :global(.action-controller-settings) :global(.action-controller-tabs) {
+  gap: 4px;
+  margin: 0 0 10px;
+  border-bottom: 0;
+}
+
+.page .section :global(.action-controller-settings) :global(.action-controller-tab) {
+  position: relative;
+  min-height: 44px;
+  padding: 6px 5px !important;
+  border: 0 !important;
+  border-radius: 6px !important;
+  background: linear-gradient(#152639, #06111e 65%) !important;
+  color: #dce5ef;
+  font:
+    700 12px/1.1 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.page .section :global(.action-controller-settings) :global(.action-controller-tab)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+}
+
+.page
+  .section
+  :global(.action-controller-settings)
+  :global(.action-controller-tab)[aria-selected='true'] {
+  color: white;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
+}
+
+.page
+  .section
+  :global(.action-controller-settings)
+  :global(.action-controller-tab)[aria-selected='true']::after {
+  border-image-source: var(--arena-active);
+}
+
+.page .section :global(.action-controller-settings) :global(.action-controller-tab):focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+
+.page .section :global(.action-controller-presets) {
+  border: 4px solid transparent;
+  border-image: var(--arena-row) 13 / 6px stretch;
+  border-radius: 0;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+  color: #dce5ef;
+}
+
+.page .section :global(.action-controller-presets) legend {
+  color: #74dfff;
+}
+
+.page .section :global(.action-controller-preset-fields) input {
+  min-height: 44px;
+  box-sizing: border-box;
+  border: 1px solid #476079;
+  border-radius: 0;
+  background: #040d17;
+  color: #f1f5fc;
+  color-scheme: dark;
+  font:
+    16px/1.2 Arial,
+    sans-serif;
+}
+
+.page .section :global(.action-controller-preset-error) {
+  color: #ff5b6e;
+}
+
+/* ── The account dialogs keep their own dress ──────────────────────── */
+.modalOverlay {
+  --control-steel: #b9cad7;
+}
+
+.cancelBtn,
+.saveBtn {
+  min-height: 44px;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid #466071;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #15212a, #080d12);
+  color: #dce8f0;
+  font:
+    800 0.72rem/1 'Rajdhani',
+    Inter,
+    sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.saveBtn {
+  border-color: #77c9ff;
+  background: linear-gradient(180deg, #66c8ff, #238fc5);
+  color: #031019;
+}
+
+.cancelBtn {
+  color: #a9bac5;
+  background: #070b0f;
+}
+
+.cancelBtn:focus-visible,
+.saveBtn:focus-visible {
+  border-color: #b7e6ff;
+  outline: none;
+  box-shadow: 0 0 18px rgba(58, 168, 255, 0.18);
+}
+
+.saveBtn:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
 .input {
   min-height: 44px;
   box-sizing: border-box;
@@ -380,39 +427,10 @@
   font-size: 16px;
 }
 
-.select {
-  min-width: 150px;
-  padding: 0.55rem 2.3rem 0.55rem 0.75rem;
-  appearance: none;
-  background-image:
-    linear-gradient(45deg, transparent 50%, #77c9ff 50%),
-    linear-gradient(135deg, #77c9ff 50%, transparent 50%);
-  background-position:
-    calc(100% - 15px) 19px,
-    calc(100% - 10px) 19px;
-  background-repeat: no-repeat;
-  background-size:
-    5px 5px,
-    5px 5px;
-}
-
-.select:focus-visible,
 .input:focus-visible {
   border-color: #77c9ff;
   outline: 2px solid rgba(119, 201, 255, 0.35);
   outline-offset: 2px;
-}
-
-.dangerZone {
-  border-color: rgba(255, 124, 124, 0.4);
-  background:
-    linear-gradient(115deg, rgba(130, 30, 34, 0.1), transparent 42%),
-    linear-gradient(145deg, #110d10, #07090b);
-}
-
-.dangerZone h2 {
-  color: #ff9a9a;
-  border-bottom-color: rgba(255, 124, 124, 0.24);
 }
 
 .modalOverlay {
@@ -485,92 +503,13 @@
   margin-top: 1rem;
 }
 
-/* ── Light mode: brushed silver ──────────────────────────────────────── */
-
-:global([data-theme='light']) .page {
-  --control-bg: #e6ebef;
-  --control-panel: #f3f6f8;
-  --control-raised: #fbfcfd;
-  --control-line: #b7c3cc;
-  --control-steel: #3f5261;
-  --control-blue: #1878c8;
-  background:
-    radial-gradient(circle at 50% 0, rgba(24, 120, 200, 0.12), transparent 33rem), var(--control-bg);
-  color: #0d161d;
-}
-
-:global([data-theme='light']) .controlIndex,
-:global([data-theme='light']) .headerActions {
-  background: linear-gradient(145deg, #ffffff, #e9eef2);
-}
-
-:global([data-theme='light']) .controlIndex button {
-  color: #4d6272;
-}
-
-:global([data-theme='light']) .controlIndex button:focus-visible,
-:global([data-theme='light']) .controlIndexActive {
-  color: #0d161d !important;
-}
-
-:global([data-theme='light']) .changeState,
-:global([data-theme='light']) .settingDesc {
-  color: #55697a;
-}
-
-:global([data-theme='light']) .settingLabel,
-:global([data-theme='light']) .modal h3 {
-  color: #0d161d;
-}
-
-:global([data-theme='light']) .section h2,
-:global([data-theme='light']) .settingEyebrow,
-:global([data-theme='light']) .sliderValue {
-  color: #146bb3;
-}
-
-:global([data-theme='light']) .settingRow {
-  border-bottom-color: #d5dde3;
-}
-
-:global([data-theme='light']) .resetButton,
-:global([data-theme='light']) .actionButton,
-:global([data-theme='light']) .actionButtonSecondary,
-:global([data-theme='light']) .cancelBtn {
-  border-color: #9fb0bc;
-  background: linear-gradient(180deg, #ffffff, #dfe6eb);
-  color: #1c2a35;
-}
-
-:global([data-theme='light']) .studioRow {
-  background: linear-gradient(105deg, rgba(24, 120, 200, 0.12), transparent 46%), #fbfcfd;
-}
-
-:global([data-theme='light']) .toggleSlider {
-  border-color: #9fb0bc;
-  background: #dfe6eb;
-}
-
-:global([data-theme='light']) .select,
-:global([data-theme='light']) .input {
-  border-color: #9fb0bc;
-  background: #ffffff;
-  color: #0d161d;
-}
-
-:global([data-theme='light']) .slider {
-  border-color: #9fb0bc;
-  background: #dfe6eb;
-}
-
-:global([data-theme='light']) .dangerZone {
-  background:
-    linear-gradient(115deg, rgba(194, 61, 61, 0.08), transparent 42%),
-    linear-gradient(145deg, #fbf5f5, #f3eeee);
-}
-
+/* The dialogs in light mode. */
 :global([data-theme='light']) .modal {
   background: linear-gradient(145deg, #ffffff, #eef2f5);
+  color: #0d161d;
+}
+
+:global([data-theme='light']) .modal h3 {
   color: #0d161d;
 }
 
@@ -579,55 +518,27 @@
   color: #3f5261;
 }
 
-@media (max-width: 768px) {
-  .page {
-    padding-top: 0;
-  }
+:global([data-theme='light']) .cancelBtn {
+  border-color: #9fb0bc;
+  background: linear-gradient(180deg, #ffffff, #dfe6eb);
+  color: #1c2a35;
+}
 
-  .controlIndex,
-  .headerActions,
-  .section {
-    border-right: 0;
-    border-left: 0;
-    border-radius: 0;
-  }
-
-  .content {
-    gap: 0;
-  }
-
-  .settingRow {
-    min-height: 78px;
-  }
+:global([data-theme='light']) .input {
+  border-color: #9fb0bc;
+  background: #ffffff;
+  color: #0d161d;
 }
 
 @media (max-width: 560px) {
-  .controlIndex {
-    overflow-x: auto;
-    grid-template-columns: repeat(5, minmax(98px, 1fr));
-    scrollbar-width: none;
-  }
-
-  .controlIndex::-webkit-scrollbar {
-    display: none;
-  }
-
-  .headerActions {
-    align-items: flex-start;
-  }
-
-  .changeState {
-    max-width: 11rem;
-  }
-
   .settingRow {
-    align-items: flex-start;
-    gap: 0.8rem;
+    flex-wrap: wrap;
   }
 
   .settingRow:has(.sliderContainer),
   .studioRow {
     flex-direction: column;
+    align-items: stretch;
   }
 
   .sliderContainer {
@@ -635,35 +546,12 @@
     min-width: 0;
   }
 
-  .studioButton {
+  .studioRow .rowKeys {
     width: 100%;
-  }
-}
-
-@media (max-width: 390px) {
-  .headerActions {
-    flex-direction: column;
-  }
-
-  .headerActions > div {
-    width: 100%;
-  }
-
-  .saveButton,
-  .resetButton {
-    flex: 1;
-  }
-
-  .settingRow {
-    flex-wrap: wrap;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .saveButton,
-  .resetButton,
-  .actionButton,
-  .dangerButton,
   .toggleSlider,
   .toggleSlider::after {
     transition: none;
