@@ -113,6 +113,8 @@ const BRAIN_FILES = [
   // PLO-LEAD-6 (2026-11-24, default off): the out-of-position 3-bet range rule reads its two options and the cap and
   // fires its own receipts in its route.
   'engine/HorseOopReraiseRangeHoldsWiring.ts',
+  // lead-8 lane tenhand (2026-11-27): the one read site of vpipFloorLimpOnlyTenHandWindow and its game list.
+  'engine/HorseVpipFloorTenHandWindowGames.ts',
 ];
 const BRAIN_SOURCE = BRAIN_FILES.map(read).join('\n');
 // Layer receipts (2026-11-05): layers that run outside the brain modules emit

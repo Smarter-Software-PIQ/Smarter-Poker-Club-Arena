@@ -383,3 +383,198 @@ describe('the ring stylesheet drains linearly and never hides the arc (owner 202
     );
   });
 });
+
+describe('enlarged mobile frame never buries or detaches the neon countdown box (owner 2026-11-27)', () => {
+  const CSS = readFileSync(resolve(__dirname, '../src/components/table/SeatSlot.css'), 'utf8');
+  const CODE = CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+  const block = (selector: string) => {
+    const at = CODE.indexOf(selector);
+    expect(at, `${selector} rule missing`).toBeGreaterThan(-1);
+    return CODE.slice(at, CODE.indexOf('}', at) + 1);
+  };
+  const zIndexOf = (rule: string) => {
+    const match = rule.match(/z-index:\s*(-?\d+)/);
+    expect(match, `z-index missing in rule: ${rule}`).not.toBeNull();
+    return Number(match![1]);
+  };
+
+  it('every .seat__info ::before plate sits strictly below .seat__timer-ring and ::after sits above it', () => {
+    const ringZ = zIndexOf(block('.seat--active .seat__timer-ring {'));
+    const afterZ = zIndexOf(block('.seat--active .seat__info::after {'));
+    expect(afterZ).toBeGreaterThan(ringZ);
+
+    // Inspect EVERY ::before rule attached to .seat__info (including attribute selectors
+    // such as .seat__info[style*='--sp-frame-w']::before). A z-index >= ringZ buries the
+    // left, right, and bottom edges of the neon countdown box behind the enlarged plate.
+    const beforeRules = [...CODE.matchAll(/\.seat__info[^,{]*::before\s*\{[^}]*\}/g)].map(
+      (m) => m[0]
+    );
+    expect(beforeRules.length).toBeGreaterThan(0);
+    for (const rule of beforeRules) {
+      expect(
+        zIndexOf(rule),
+        `rule must stay below .seat__timer-ring (${ringZ}): ${rule}`
+      ).toBeLessThan(ringZ);
+    }
+  });
+
+  it('enlarged mobile timer ring and inner cutout track --sp-frame-* and theme background', () => {
+    const baseAfter = block('.seat--active .seat__info::after {');
+    expect(baseAfter).toMatch(/background:\s*var\(--seat-bg,\s*rgba\(15,\s*20,\s*35,\s*0\.92\)\)/);
+
+    const enlargedRing = block(
+      ".table-page .seat--active .seat__info[style*='--sp-frame-w'] > .seat__timer-ring {"
+    );
+    expect(enlargedRing).toMatch(
+      /left:\s*calc\(var\(--sp-frame-x\)\s*\+\s*var\(--sp-frame-bw,\s*1\.5px\)\s*-\s*3px\)/
+    );
+    expect(enlargedRing).toMatch(
+      /top:\s*calc\(var\(--sp-frame-y\)\s*\+\s*var\(--sp-frame-bw,\s*1\.5px\)\s*-\s*3px\)/
+    );
+    expect(enlargedRing).toMatch(
+      /width:\s*calc\(var\(--sp-frame-w\)\s*-\s*2\s*\*\s*var\(--sp-frame-bw,\s*1\.5px\)\s*\+\s*6px\)/
+    );
+    expect(enlargedRing).toMatch(
+      /height:\s*calc\(var\(--sp-frame-h\)\s*-\s*2\s*\*\s*var\(--sp-frame-bw,\s*1\.5px\)\s*\+\s*6px\)/
+    );
+    expect(enlargedRing).toMatch(/right:\s*auto/);
+    expect(enlargedRing).toMatch(/bottom:\s*auto/);
+
+    const enlargedAfter = block(
+      ".table-page .seat--active .seat__info[style*='--sp-frame-w']::after {"
+    );
+    expect(enlargedAfter).toMatch(
+      /left:\s*calc\(var\(--sp-frame-x\)\s*\+\s*var\(--sp-frame-bw,\s*1\.5px\)\)/
+    );
+    expect(enlargedAfter).toMatch(
+      /top:\s*calc\(var\(--sp-frame-y\)\s*\+\s*var\(--sp-frame-bw,\s*1\.5px\)\)/
+    );
+    expect(enlargedAfter).toMatch(
+      /width:\s*calc\(var\(--sp-frame-w\)\s*-\s*2\s*\*\s*var\(--sp-frame-bw,\s*1\.5px\)\)/
+    );
+    expect(enlargedAfter).toMatch(
+      /height:\s*calc\(var\(--sp-frame-h\)\s*-\s*2\s*\*\s*var\(--sp-frame-bw,\s*1\.5px\)\)/
+    );
+    expect(enlargedAfter).toMatch(
+      /border-radius:\s*calc\(var\(--sp-frame-radius,\s*8px\)\s*-\s*var\(--sp-frame-bw,\s*1\.5px\)\)/
+    );
+    expect(enlargedAfter).toMatch(
+      /background:\s*var\(--sp-frame-background,\s*var\(--seat-bg,\s*rgba\(15,\s*20,\s*35,\s*0\.92\)\)\)/
+    );
+  });
+
+  it('keeps .seat__info mounted (preserving --sp-frame-*) while remounting ActionTimerRing per turn for Hero and Villain', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    try {
+      for (const isHero of [true, false]) {
+        const seatPlayer = { ...player, id: isHero ? 'hero-1' : 'villain-1', isHero };
+        const { container, rerender } = render(
+          <SeatSlot
+            seatNumber={isHero ? 1 : 2}
+            player={seatPlayer}
+            position={'BTN' as never}
+            isActive={false}
+            lastAction={null as never}
+          />
+        );
+
+        const info0 = container.querySelector('.seat__info') as HTMLElement;
+        expect(info0).not.toBeNull();
+        // Simulate mobileAvatarEnlargement writing imperative frame geometry onto .seat__info.
+        info0.style.setProperty('--sp-frame-x', '-6px');
+        info0.style.setProperty('--sp-frame-y', '-1px');
+        info0.style.setProperty('--sp-frame-w', '128px');
+        info0.style.setProperty('--sp-frame-h', '60px');
+        info0.style.setProperty('--sp-frame-bw', '1.5px');
+        info0.style.setProperty('--sp-frame-background', 'rgba(10, 10, 14, 0.95)');
+
+        // Turn 1 starts.
+        rerender(
+          <SeatSlot
+            seatNumber={isHero ? 1 : 2}
+            player={seatPlayer}
+            position={'BTN' as never}
+            isActive
+            lastAction={null as never}
+            turnStartTimeMs={NOW}
+            turnDeadlineMs={NOW + 15_000}
+          />
+        );
+        const info1 = container.querySelector('.seat__info') as HTMLElement;
+        const ring1 = container.querySelector('.seat__timer-ring') as HTMLElement;
+        expect(info1).toBe(info0);
+        expect(info1.style.getPropertyValue('--sp-frame-w')).toBe('128px');
+        expect(info1.style.getPropertyValue('--sp-frame-bw')).toBe('1.5px');
+        expect(ring1).not.toBeNull();
+
+        // Time-bank extension on the same turn keeps BOTH .seat__info and ActionTimerRing mounted.
+        rerender(
+          <SeatSlot
+            seatNumber={isHero ? 1 : 2}
+            player={seatPlayer}
+            position={'BTN' as never}
+            isActive
+            lastAction={null as never}
+            turnStartTimeMs={NOW}
+            turnDeadlineMs={NOW + 35_000}
+          />
+        );
+        expect(container.querySelector('.seat__info')).toBe(info0);
+        expect(container.querySelector('.seat__timer-ring')).toBe(ring1);
+
+        // Next street (same seat acts again with a new turnStartTimeMs) keeps .seat__info
+        // mounted and remounts ActionTimerRing so the countdown restarts cleanly.
+        rerender(
+          <SeatSlot
+            seatNumber={isHero ? 1 : 2}
+            player={seatPlayer}
+            position={'BTN' as never}
+            isActive
+            lastAction={null as never}
+            turnStartTimeMs={NOW + 20_000}
+            turnDeadlineMs={NOW + 35_000}
+          />
+        );
+        const ring2 = container.querySelector('.seat__timer-ring') as HTMLElement;
+        expect(container.querySelector('.seat__info')).toBe(info0);
+        expect(info0.style.getPropertyValue('--sp-frame-w')).toBe('128px');
+        expect(ring2).not.toBeNull();
+        expect(ring2).not.toBe(ring1);
+
+        // Turn ends -> inactive -> Turn 3 starts: .seat__info stays mounted and keeps --sp-frame-*.
+        rerender(
+          <SeatSlot
+            seatNumber={isHero ? 1 : 2}
+            player={seatPlayer}
+            position={'BTN' as never}
+            isActive={false}
+            lastAction={null as never}
+          />
+        );
+        expect(container.querySelector('.seat__info')).toBe(info0);
+        expect(container.querySelector('.seat__timer-ring')).toBeNull();
+        expect(info0.style.getPropertyValue('--sp-frame-w')).toBe('128px');
+
+        rerender(
+          <SeatSlot
+            seatNumber={isHero ? 1 : 2}
+            player={seatPlayer}
+            position={'BTN' as never}
+            isActive
+            lastAction={null as never}
+            turnStartTimeMs={NOW + 40_000}
+            turnDeadlineMs={NOW + 55_000}
+          />
+        );
+        const ring3 = container.querySelector('.seat__timer-ring') as HTMLElement;
+        expect(container.querySelector('.seat__info')).toBe(info0);
+        expect(info0.style.getPropertyValue('--sp-frame-w')).toBe('128px');
+        expect(ring3).not.toBeNull();
+        expect(ring3).not.toBe(ring2);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

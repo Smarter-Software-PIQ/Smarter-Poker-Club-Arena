@@ -379,6 +379,20 @@
       "status": "found",
       "verifiedOn": "2026-11-26",
       "where": "lane-folder relative (/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead7-01TLQer8/plo-preflop/), not a repository path"
+    },
+    {
+      "doc": "omahaFlopRaiseIsPriced.md",
+      "path": "src/ev-score.mjs",
+      "status": "found",
+      "verifiedOn": "2026-11-27",
+      "where": "lane-folder relative (/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead7-01TLQer8/l8-flopraise/), not a repository path"
+    },
+    {
+      "doc": "omahaFlopRaiseIsPriced.md",
+      "path": "src/m1.mjs",
+      "status": "found",
+      "verifiedOn": "2026-11-27",
+      "where": "lane-folder relative (/Volumes/SmarterWork/agent-work/shared-capacity/plo-lead7-01TLQer8/l8-flopraise/), not a repository path"
     }
   ]
 }
