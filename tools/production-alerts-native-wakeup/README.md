@@ -111,6 +111,23 @@ review rejection remains a rejection: no tool/identity substitution or replay;
 an explicit failed-attempt record is separately reviewed and remains unread.
 Partial per-record outcomes do not release or resubmit the accepted batch.
 
+## Explicit recovery of a terminated reader turn
+
+An accepted operation waits for its deliveries' acknowledgement. If the reader
+chat's turn for that exact queued message ended (for example the 2026-11-14
+turn that failed with "application network permission was revoked") while its
+deliveries remain unacknowledged, nothing else will ever wake it: ordinary
+events never requeue an accepted operation. After inspecting the native chat
+and the recorded operation, call
+`openclaw gateway call production-alerts-native-wakeup.recover --params
+'{"operationId":"…","messageId":"…","reason":"…"}'` with the exact values from
+`.status`. It is refused unless the operation is `queued` with wake `requested`,
+both IDs match, a concrete reason is given and the database still reports the
+operation unacknowledged. It retires only that one operation; the ordinary event
+path then queues the still-pending deliveries once and wakes the chat once.
+There is no timer and no automatic call; `submitting`/`uncertain` operations
+and uncertain wakes are never recoverable this way.
+
 ## Tournament investigation authority
 
 The owner explicitly instructed this chat on October29,2026 to investigate and
