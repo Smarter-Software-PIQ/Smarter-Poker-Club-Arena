@@ -1,3 +1,4 @@
+import { cutFixed } from '../../utils/format';
 /**
  * findLeaks — turn a stats page into a coach.
  *
@@ -71,7 +72,7 @@ const SEVERITY_RANK: Record<LeakSeverity, number> = { high: 0, medium: 1, low: 2
 export const LEAK_MIN_HANDS = 500;
 
 const pct = (fraction: number): number => fraction * 100;
-const f1 = (n: number): string => n.toFixed(1);
+const f1 = (n: number): string => cutFixed(n, 1);
 
 /**
  * @param overall   `ca_player_stats_full.overall` — rates are FRACTIONS.
@@ -212,9 +213,7 @@ export function findLeaks(
       id: 'passive_postflop',
       severity: 'high',
       title: 'You Check And Call Far More Than You Bet',
-      evidence: `Aggression factor ${overall.aggression_factor.toFixed(
-        2
-      )} - you take a passive action more often than an aggressive one.`,
+      evidence: `Aggression factor ${cutFixed(overall.aggression_factor, 2)} - you take a passive action more often than an aggressive one.`,
       action:
         'Bet your strong hands for value instead of trapping, and give up outright on the weak ones instead of calling. Calling wins only when you are ahead; betting can also win when you are behind.',
     });

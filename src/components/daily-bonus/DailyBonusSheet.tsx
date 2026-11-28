@@ -57,6 +57,7 @@ import { formatCountdown, useDailyBonus } from './useDailyBonus';
    itself rather than trusting the chunk to carry it. */
 import '../console/SpadeConsole.css';
 import './DailyBonusSheet.css';
+import { cutFixed } from '../../utils/format';
 
 export interface DailyBonusSheetProps {
   /** `modal` floats over the page with a backdrop; `inline` renders as a page section. */
@@ -420,7 +421,7 @@ export function weekDayDisplay(d: DailyBonusWeekDay): {
 /** ×2 rather than ×2.0; a streak multiplier of 1.5 keeps its one decimal because it is one. */
 function formatMultiplier(m: number): string {
   const n = Number(m) || 1;
-  return Number.isInteger(n) ? `×${n}` : `×${n.toFixed(1)}`;
+  return Number.isInteger(n) ? `×${n}` : `×${cutFixed(n, 1)}`;
 }
 
 function shortDate(iso: string | null | undefined): string {

@@ -37,6 +37,7 @@ import { CHIP_STATS, type StatsClubId, type StatsScope } from '../../services/st
 import { buildStatsHandEvidencePath } from '../../lib/statsEvidenceNavigation';
 import StatsEvidenceLink from './StatsEvidenceLink';
 import './HoleCardHeatmap.css';
+import { cutFixed } from '../../utils/format';
 
 interface Props {
   userId?: string;
@@ -410,7 +411,7 @@ export default function HoleCardHeatmap({
                 <span>Played {(n(hoveredCell.vpip_pct) * 100).toFixed(0)}%</span>
                 <span className={hoveredCell.net_bb >= 0 ? 'is-up' : 'is-down'}>
                   {hoveredCell.net_bb >= 0 ? '+' : ''}
-                  {n(hoveredCell.net_bb).toFixed(1)} BB
+                  {cutFixed(n(hoveredCell.net_bb), 1)} BB
                 </span>
                 {hoveredCell.hands >= MIN_CONFIDENT_HANDS ? (
                   <span className={hoveredCell.bb100 >= 0 ? 'is-up' : 'is-down'}>
@@ -470,7 +471,7 @@ export default function HoleCardHeatmap({
                       </span>
                       <span className={h.net_bb >= 0 ? 'is-up' : 'is-down'}>
                         {h.net_bb >= 0 ? '+' : ''}
-                        {n(h.net_bb).toFixed(1)} BB
+                        {cutFixed(n(h.net_bb), 1)} BB
                       </span>
                       <StatsEvidenceLink
                         className="stats-evidence-action"

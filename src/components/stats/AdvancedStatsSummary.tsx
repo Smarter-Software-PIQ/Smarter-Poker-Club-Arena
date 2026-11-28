@@ -14,7 +14,7 @@
 import React, { useState, useMemo } from 'react';
 import { aggressionFactorLabel } from '../../pages/stats/format';
 import { chipCents } from '../../utils/cashierAmount';
-import { compactChips } from '../../utils/format';
+import { compactChips, cutFixed } from '../../utils/format';
 import './AdvancedStatsSummary.css';
 import type { StatsMetricAvailabilityContract } from '../../services/statsContract';
 import { NOT_YET_MEASURED } from '../../pages/stats/format';
@@ -91,7 +91,7 @@ function buildStats(d: AdvancedStatsInput): AdvancedStat[] {
       measured: showdownsTotal > 0,
       label: 'Showdown Win %',
       value: showdownWinPct,
-      format: (val) => `${val.toFixed(1)}%`,
+      format: (val) => `${cutFixed(val, 1)}%`,
       description: `Won ${showdownsWon.toLocaleString()} Of ${showdownsTotal.toLocaleString()} Showdowns`,
     },
     {
@@ -99,7 +99,7 @@ function buildStats(d: AdvancedStatsInput): AdvancedStat[] {
       measured: d.metric_availability?.aggression_factor === true,
       label: aggressionFactorLabel(d.aggression_factor_basis),
       value: n(d.aggression_factor),
-      format: (val) => val.toFixed(1),
+      format: (val) => cutFixed(val, 1),
       description:
         d.aggression_factor_basis === 'postflop'
           ? 'Bets And Raises Divided By Calls, Flop Through River'
@@ -110,7 +110,7 @@ function buildStats(d: AdvancedStatsInput): AdvancedStat[] {
       measured: d.metric_availability?.three_bet_percent === true,
       label: '3-Bet %',
       value: n(d.three_bet_percent) * 100,
-      format: (val) => `${val.toFixed(1)}%`,
+      format: (val) => `${cutFixed(val, 1)}%`,
       description: 'How Often You Re-Raise Preflop When You Have The Chance',
     },
     {
@@ -118,7 +118,7 @@ function buildStats(d: AdvancedStatsInput): AdvancedStat[] {
       measured: d.metric_availability?.fold_to_three_bet === true,
       label: 'Fold To 3-Bet %',
       value: n(d.fold_to_three_bet) * 100,
-      format: (val) => `${val.toFixed(1)}%`,
+      format: (val) => `${cutFixed(val, 1)}%`,
       description: 'How Often You Fold After Being Re-Raised Preflop',
     },
     {
@@ -126,7 +126,7 @@ function buildStats(d: AdvancedStatsInput): AdvancedStat[] {
       measured: d.metric_availability?.cbet_flop === true,
       label: 'C-Bet Frequency',
       value: n(d.cbet_flop) * 100,
-      format: (val) => `${val.toFixed(1)}%`,
+      format: (val) => `${cutFixed(val, 1)}%`,
       description: 'How Often You Bet The Flop After Raising Preflop',
     },
     {
@@ -134,7 +134,7 @@ function buildStats(d: AdvancedStatsInput): AdvancedStat[] {
       measured: n(d.cash_hands) > 0,
       label: 'BB/100 Hands',
       value: n(d.bb_per_100),
-      format: (val) => `${val >= 0 ? '+' : ''}${val.toFixed(1)}`,
+      format: (val) => `${val >= 0 ? '+' : ''}${cutFixed(val, 1)}`,
       description: 'Big Blinds Won Per 100 Cash Hands',
     },
   ];

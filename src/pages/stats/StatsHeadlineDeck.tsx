@@ -1,7 +1,7 @@
 import { RANGES, type FullStats, type LifetimeStats, type OverallStats } from './types';
 import { ratioOrUnmeasured } from './format';
 import { HandsWonGauge, type StatCategory } from './playerStatsPageModel';
-import { compactChips } from '../../utils/format';
+import { compactChips, cutFixed } from '../../utils/format';
 
 interface Props {
   refreshing: boolean;
@@ -143,7 +143,9 @@ export default function StatsHeadlineDeck(props: Props) {
                           : ' negative')
                     }
                   >
-                    {ratioOrUnmeasured(overall.bb_per_100, overall.cash_hands, (v) => v.toFixed(1))}
+                    {ratioOrUnmeasured(overall.bb_per_100, overall.cash_hands, (v) =>
+                      cutFixed(v, 1)
+                    )}
                   </span>
                 </div>
                 <div className="hero-stat">
@@ -151,7 +153,7 @@ export default function StatsHeadlineDeck(props: Props) {
                   <span className="hero-stat-value">
                     {statsContract.quality.metric_availability.hours_played === false
                       ? 'Not Yet Measured'
-                      : overall.hours_played.toFixed(1) + 'h'}
+                      : cutFixed(overall.hours_played, 1) + 'h'}
                   </span>
                 </div>
               </div>

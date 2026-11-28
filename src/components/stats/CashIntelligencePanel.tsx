@@ -3,6 +3,7 @@ import type { CashOpportunityCount, CashOpportunityStats } from '../../services/
 import { binomialConfidence } from '../../pages/stats/binomialConfidence';
 import { titleCase } from '../../utils/titleCase';
 import './CashIntelligencePanel.css';
+import { cutFixed } from '../../utils/format';
 
 export type CashEvidenceMetric = keyof CashOpportunityStats['opportunities'];
 
@@ -71,11 +72,11 @@ function OpportunityRow({
             rate === null ? 'cash-intel__rate cash-intel__rate--empty' : 'cash-intel__rate'
           }
         >
-          {rate === null ? 'Not Yet Measured' : `${(rate * 100).toFixed(1)}%`}
+          {rate === null ? 'Not Yet Measured' : `${cutFixed(rate * 100, 1)}%`}
         </span>
         <span className="cash-intel__confidence">
           {confidence
-            ? `95% Range ${confidence.lowerPercent.toFixed(1)} To ${confidence.upperPercent.toFixed(1)}%`
+            ? `95% Range ${cutFixed(confidence.lowerPercent, 1)} To ${cutFixed(confidence.upperPercent, 1)}%`
             : 'No Decision Sample Yet'}
         </span>
       </div>
@@ -142,14 +143,14 @@ export default function CashIntelligencePanel({
                 <strong>
                   {data.context.average_effective_stack_bb == null
                     ? 'Unavailable'
-                    : `${data.context.average_effective_stack_bb.toFixed(1)} BB`}
+                    : `${cutFixed(data.context.average_effective_stack_bb, 1)} BB`}
                 </strong>
               </div>
               <div>
                 <span>In Position</span>
                 <strong>
                   {data.context.position_measured_hands > 0
-                    ? `${((data.context.in_position_hands / data.context.position_measured_hands) * 100).toFixed(1)}%`
+                    ? `${cutFixed((data.context.in_position_hands / data.context.position_measured_hands) * 100, 1)}%`
                     : 'Unavailable'}
                 </strong>
               </div>

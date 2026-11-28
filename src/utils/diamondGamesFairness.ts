@@ -56,6 +56,7 @@
 import { hmacSha256Hex, rollFromHmacHex, sha256Hex } from './wheelFairness';
 import { diamondBonusFloor, diamondBonusMinimum } from './diamondBonusPayout';
 import { MAX_DIAMOND_SPIN, MIN_DIAMOND_SPIN } from './bonusGameBudget';
+import { cutFixed } from './format';
 
 const TWO_48 = 281474976710656n;
 
@@ -463,7 +464,7 @@ export function crashAverageFromShare(
 export function crashAverageLabel(averageMultiplier: number): string {
   if (!Number.isFinite(averageMultiplier) || averageMultiplier < 1)
     throw new Error('Invalid Crash Outcome');
-  return `Average Crash ${averageMultiplier.toFixed(1)}x`;
+  return `Average Crash ${cutFixed(averageMultiplier, 1)}x`;
 }
 
 /** "Up To 20x": the most this round can fly to, from its own cap. */
@@ -478,7 +479,7 @@ export function crashWouldHaveLabel(crashCents: number, capCents: number): strin
     throw new Error('Invalid Crash Outcome');
   return crashCents >= capCents
     ? `It Would Have Reached ${multiplierLabel(capCents)}`
-    : `It Would Have Crashed At ${(crashCents / 100).toFixed(2)}x`;
+    : `It Would Have Crashed At ${cutFixed(crashCents / 100, 2)}x`;
 }
 
 /** A chance as the player reads it: "1 In 4.3", to one decimal, "1 In 2" when it is whole. */
@@ -594,8 +595,8 @@ export function awardAverageCrash(
 
 /** "2.7x", or "2.2x To 2.6x" when the ends of a range read differently at one decimal. */
 export function averageRangeLabel(range: { low: number; high: number }): string {
-  const lo = range.low.toFixed(1);
-  const hi = range.high.toFixed(1);
+  const lo = cutFixed(range.low, 1);
+  const hi = cutFixed(range.high, 1);
   return lo === hi ? `${lo}x` : `${lo}x To ${hi}x`;
 }
 

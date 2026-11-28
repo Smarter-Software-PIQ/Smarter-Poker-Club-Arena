@@ -2,6 +2,7 @@ import './StatsReadouts.css';
 import { StatRow } from './StatRow';
 import { ratioOrUnmeasured, aggressionFactorLabel } from './format';
 import type { FullStats, OverallStats } from './types';
+import { cutFixed } from '../../utils/format';
 
 export default function TournamentPlayingStats({
   overall,
@@ -44,7 +45,7 @@ export default function TournamentPlayingStats({
             value={ratioOrUnmeasured(
               overall.vpip * 100,
               overall.tourney_hands,
-              (v) => `${v.toFixed(1)}%`
+              (v) => `${cutFixed(v, 1)}%`
             )}
           />
           <StatRow
@@ -52,7 +53,7 @@ export default function TournamentPlayingStats({
             value={ratioOrUnmeasured(
               overall.pfr * 100,
               overall.tourney_hands,
-              (v) => `${v.toFixed(1)}%`
+              (v) => `${cutFixed(v, 1)}%`
             )}
           />
           <StatRow label="Hands Won" value={overall.hands_won.toLocaleString()} />
@@ -62,7 +63,7 @@ export default function TournamentPlayingStats({
             value={ratioOrUnmeasured(
               overall.three_bet_percent * 100,
               full?.contract.quality.metric_availability.three_bet_opportunities ?? 0,
-              (v) => `${v.toFixed(1)}%`
+              (v) => `${cutFixed(v, 1)}%`
             )}
           />
           <StatRow
@@ -70,7 +71,7 @@ export default function TournamentPlayingStats({
             value={ratioOrUnmeasured(
               overall.cbet_flop * 100,
               full?.contract.quality.metric_availability.cbet_flop_opportunities ?? 0,
-              (v) => `${v.toFixed(1)}%`
+              (v) => `${cutFixed(v, 1)}%`
             )}
           />
           <StatRow
@@ -78,7 +79,7 @@ export default function TournamentPlayingStats({
             value={ratioOrUnmeasured(
               overall.wtsd * 100,
               full?.contract.quality.metric_availability.wtsd_opportunities ?? 0,
-              (v) => `${v.toFixed(1)}%`
+              (v) => `${cutFixed(v, 1)}%`
             )}
           />
           <StatRow
@@ -86,7 +87,7 @@ export default function TournamentPlayingStats({
             value={ratioOrUnmeasured(
               (overall.showdowns_won / overall.showdowns_total) * 100,
               overall.showdowns_total,
-              (v) => `${v.toFixed(1)}%`
+              (v) => `${cutFixed(v, 1)}%`
             )}
           />
           <StatRow
@@ -94,7 +95,7 @@ export default function TournamentPlayingStats({
             value={ratioOrUnmeasured(
               overall.aggression_factor,
               full?.contract.quality.metric_availability.aggression_factor_denominator ?? 0,
-              (v) => v.toFixed(2)
+              (v) => cutFixed(v, 2)
             )}
           />
         </div>
@@ -129,14 +130,14 @@ export default function TournamentPlayingStats({
                       {ratioOrUnmeasured(
                         (row.vpip_count / row.hands_played) * 100,
                         row.hands_played,
-                        (v) => `${v.toFixed(1)}%`
+                        (v) => `${cutFixed(v, 1)}%`
                       )}
                     </td>
                     <td>
                       {ratioOrUnmeasured(
                         (row.pfr_count / row.hands_played) * 100,
                         row.hands_played,
-                        (v) => `${v.toFixed(1)}%`
+                        (v) => `${cutFixed(v, 1)}%`
                       )}
                     </td>
                   </tr>

@@ -1,4 +1,4 @@
-import { compactChips } from '../../utils/format';
+import { compactChips, cutFixed } from '../../utils/format';
 
 export interface BinomialConfidence {
   lowerPercent: number;
@@ -45,7 +45,7 @@ export function formatRateEvidence(
 
   const noun = confidence.opportunities === 1 ? 'Opportunity' : 'Opportunities';
   // The words "95% Confidence" live behind the page's "?" (Dan, 2026-11-27).
-  return `${compactChips(confidence.opportunities)} ${noun} · ${confidence.lowerPercent.toFixed(1)}% To ${confidence.upperPercent.toFixed(1)}%`;
+  return `${compactChips(confidence.opportunities)} ${noun} · ${cutFixed(confidence.lowerPercent, 1)}% To ${cutFixed(confidence.upperPercent, 1)}%`;
 }
 
 export function formatSampleEvidence(

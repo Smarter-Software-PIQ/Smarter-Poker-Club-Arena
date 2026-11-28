@@ -74,7 +74,7 @@ import { CLUB_DATA_ZONE_LABEL, chicagoClock, clubDataDayOn } from '../../lib/clu
 import { SpadeConsole } from '../console/SpadeConsole';
 import { ClubPageSection } from './ClubPageSection';
 import { titleCase } from '../../utils/titleCase';
-import { compactChips } from '../../utils/format';
+import { compactChips, cutFixed, cutTo } from '../../utils/format';
 import styles from './RakeSnapshotPanel.module.css';
 
 const NO_VALUE = '-';
@@ -845,7 +845,7 @@ export default function RakeSnapshotPanel({
     const basis = hasPct ? Number(pct) : Number(abs);
     const cls = basis > 0 ? 'sc-ink--green' : basis < 0 ? 'sc-ink--red' : 'sc-ink--muted';
     const text = hasPct
-      ? `${Number(pct) > 0 ? '+' : ''}${Math.round(Number(pct) * 10) / 10}%`
+      ? `${Number(pct) > 0 ? '+' : ''}${cutTo(Number(pct), 1)}%`
       : `${Number(abs) > 0 ? '+' : ''}${money(abs)}`;
     return (
       <span
@@ -1267,7 +1267,7 @@ export default function RakeSnapshotPanel({
               </dd>
               <dd className={`sc-ink--muted ${styles.meta}`}>
                 {summary?.commission_rate !== null && summary?.commission_rate !== undefined
-                  ? `${(Number(summary.commission_rate) * 100).toFixed(1)}% Rate`
+                  ? `${cutFixed(Number(summary.commission_rate) * 100, 1)}% Rate`
                   : null}
               </dd>
             </div>
@@ -1501,7 +1501,7 @@ export default function RakeSnapshotPanel({
                     <span style={{ width: `${Math.max(1, pct)}%` }} />
                   </span>
                   <span className={styles.rowFee}>{money(r.fee)}</span>
-                  <span className={styles.rowShare}>{pct.toFixed(1)}%</span>
+                  <span className={styles.rowShare}>{cutFixed(pct, 1)}%</span>
                 </li>
               );
             })}

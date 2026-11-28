@@ -16,6 +16,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import React from 'react';
 import { render, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import InsuranceModal, { type InsuranceOffer } from '../../src/components/table/InsuranceModal';
+import { cutFixed } from '../../src/utils/format';
 
 afterEach(cleanup);
 
@@ -113,8 +114,9 @@ describe('exact-rate money math', () => {
     );
     expect(values).toContain(fee.toLocaleString());
     expect(values).toContain(insured.toLocaleString());
-    // Rate readout shows 2 decimals so Fee x Rate visibly equals Insured Pot.
-    expect(values).toContain(exactMultiple.toFixed(2));
+    // Rate readout shows 2 decimals so Fee x Rate visibly equals Insured Pot,
+    // cut and never rounded (2026-11-27); this pinned the rounded toFixed(2).
+    expect(values).toContain(cutFixed(exactMultiple, 2));
   });
 });
 

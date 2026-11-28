@@ -5,6 +5,7 @@ import { getRakeConfig } from '../../config/RakeConfig';
 import { resolveRakeOverride } from '../../lib/rakeOverride';
 import { readCashRakePolicyVersion } from '../../services/cashRakePolicyVersion';
 import { applyClubScope } from '../../utils/clubScope';
+import { cutNumberFormat, cutFixed } from '../../utils/format';
 
 interface Props {
   clubId?: string;
@@ -136,8 +137,9 @@ interface Stake {
   prices: Map<string, Prices>;
 }
 
-const chips = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
-const blind = (value: number) => (value > 0 && value < 1 ? value.toFixed(2) : chips.format(value));
+const chips = cutNumberFormat('en-US', { maximumFractionDigits: 2 });
+const blind = (value: number) =>
+  value > 0 && value < 1 ? cutFixed(value, 2) : chips.format(value);
 
 export function groupByStakes(rows: Row[]) {
   const stakes = new Map<string, Stake>();

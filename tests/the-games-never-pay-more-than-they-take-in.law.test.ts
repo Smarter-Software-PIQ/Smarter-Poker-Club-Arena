@@ -1638,8 +1638,10 @@ describe('crash under contract 5: never before 1.25x, up to 20x, averaging 2.9x,
     const superAddOn = crashAverageMultiplier(75, 50, 5, TOP_CENTS);
     expect(standard.toFixed(4)).toBe('2.8968');
     expect(superAddOn.toFixed(4)).toBe('2.8961');
-    expect(crashAverageLabel(standard)).toBe('Average Crash 2.9x');
-    expect(crashAverageLabel(superAddOn)).toBe('Average Crash 2.9x');
+    // The label CUTS the second digit (Dan 2026-11-27, "ZERO ROUNDING"): 2.8968
+    // reads 2.8x, still inside the 2.4x..3.0x band. This pinned the rounded 2.9x.
+    expect(crashAverageLabel(standard)).toBe('Average Crash 2.8x');
+    expect(crashAverageLabel(superAddOn)).toBe('Average Crash 2.8x');
     // A floor clamped at 1.20 reads its own, lower figure, still inside Dan's band.
     const clamped = crashAverageMultiplier(1, 0.79, 5, TOP_CENTS);
     expect(clamped.toFixed(2)).toBe('2.78');

@@ -22,7 +22,7 @@
  */
 
 import type { DistributionRow } from '../../services/StatsFactsService';
-import { ordinal } from '../../utils/format';
+import { ordinal, cutFixed } from '../../utils/format';
 
 export type Direction = 'higher_better' | 'lower_better' | 'band_optimal';
 
@@ -229,15 +229,15 @@ export function benchmark(
     if (value < bandLo) {
       bandPosition = 'below';
       tone = 'bad';
-      readout = `${value.toFixed(1)}${def.unit} is below the ${bandLo}-${bandHi}${def.unit} general reference range. Format And Table Size Can Change The Appropriate Range.`;
+      readout = `${cutFixed(value, 1)}${def.unit} is below the ${bandLo}-${bandHi}${def.unit} general reference range. Format And Table Size Can Change The Appropriate Range.`;
     } else if (value > bandHi) {
       bandPosition = 'above';
       tone = 'bad';
-      readout = `${value.toFixed(1)}${def.unit} is above the ${bandLo}-${bandHi}${def.unit} general reference range. Format And Table Size Can Change The Appropriate Range.`;
+      readout = `${cutFixed(value, 1)}${def.unit} is above the ${bandLo}-${bandHi}${def.unit} general reference range. Format And Table Size Can Change The Appropriate Range.`;
     } else {
       bandPosition = 'inside';
       tone = 'good';
-      readout = `${value.toFixed(1)}${def.unit} sits inside the ${bandLo}-${bandHi}${def.unit} general reference range. Format And Table Size Can Change The Appropriate Range.`;
+      readout = `${cutFixed(value, 1)}${def.unit} sits inside the ${bandLo}-${bandHi}${def.unit} general reference range. Format And Table Size Can Change The Appropriate Range.`;
     }
 
     return {
@@ -278,7 +278,7 @@ export function benchmark(
     value,
     percentile,
     bandPosition: null,
-    readout: `${value.toFixed(1)}${def.unit === 'bb/100' ? ' BB/100 Hands' : def.unit} - ${percentileDescription(
+    readout: `${cutFixed(value, 1)}${def.unit === 'bb/100' ? ' BB/100 Hands' : def.unit} - ${percentileDescription(
       percentile
     )} of the field.`,
     barPosition,

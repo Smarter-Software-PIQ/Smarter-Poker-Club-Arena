@@ -62,7 +62,7 @@ import {
   multiplierLabel,
   oneInRangeLabel,
 } from '../utils/diamondGamesFairness';
-import { compactChips, formatWalletChips, formatWalletDiamonds } from '../utils/format';
+import { compactChips, formatWalletChips, formatWalletDiamonds, cutFixed } from '../utils/format';
 import FloorFeed, { BiggestWins } from '../components/games/FloorFeed';
 import { useGameFloor } from '../hooks/useGameFloor';
 import { resolveClubUUID } from '../utils/clubIdResolver';
@@ -77,7 +77,7 @@ import styles from './diamondGames.module.css';
 type GameKey = 'wheel' | 'plinko' | 'crash' | 'crossing' | 'mines';
 
 /** "1.10x" and "20.00x": every multiplier in the rules copy reads with two decimals. */
-const multiplierCopy = (cents: number) => `${(cents / 100).toFixed(2)}x`;
+const multiplierCopy = (cents: number) => `${cutFixed(cents / 100, 2)}x`;
 /** The one ladder the road deals, under the contract every new round is sealed
  * with: twelve streets, its first rung to its last. Contract 4 made the first
  * street certain at 0.80x, where it used to be 1.10x. */

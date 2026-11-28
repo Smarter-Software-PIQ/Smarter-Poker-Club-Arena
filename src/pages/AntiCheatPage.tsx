@@ -21,7 +21,7 @@ import { useIsMounted } from '../hooks/useIsMounted';
 import { retryFetch } from '../utils/retryFetch';
 import { exportToCSV } from '../lib/export';
 import { resolveClubUUID } from '../utils/clubIdResolver';
-import { fmt, fmtChips, timeAgo } from '../utils/format';
+import { fmt, fmtChips, timeAgo, cutFixed } from '../utils/format';
 import { isAuthzError } from '../utils/clubDashboard';
 import { adminRemovePlayerFromClubTables } from '../services/IntegrityActionService';
 import { reportError } from '../utils/errorReporter';
@@ -157,7 +157,7 @@ export function evidenceSummary(pair: { evidence?: Record<string, unknown> | nul
   const pot = num('pot_volume');
   if (pot !== null) parts.push(`Pot Volume ${fmt(pot)}`);
   const bb = num('bb_per_100');
-  if (bb !== null) parts.push(`${bb.toFixed(1)} BB Per 100`);
+  if (bb !== null) parts.push(`${cutFixed(bb, 1)} BB Per 100`);
   const close = num('close_ratio');
   if (close !== null) parts.push(`Close Actions ${(close * 100).toFixed(0)}%`);
   if (typeof e.direction === 'string' && e.direction) parts.push(`Direction ${e.direction}`);

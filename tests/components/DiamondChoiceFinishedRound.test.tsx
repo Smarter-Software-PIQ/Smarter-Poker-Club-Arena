@@ -373,7 +373,8 @@ describe('a booked Donkey Cross round under the fair coin', () => {
     render(<DiamondChoicePage game="crossing" />);
     await settle();
     await revealEnds();
-    const headline = 'You Would Have Got To Street 5 At 5.57x, Then Been Hit On Street 6';
+    // The street-5 multiplier reads 5.56x: cut, never rounded (2026-11-27); this pinned 5.56x.
+    const headline = 'You Would Have Got To Street 5 At 5.56x, Then Been Hit On Street 6';
     expect(text()).toContain(headline);
     expect(text()).not.toContain('Sealed Coins:');
     const receipt = screen.getByRole('dialog', { name: '41.25 Chips' });

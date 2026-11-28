@@ -17,6 +17,7 @@ import { masterBus } from '../../core/MasterBus';
 import { resolveClubUUID } from '../../utils/clubIdResolver';
 import './AgentAnalyticsDashboard.css';
 import { reportError } from '../../utils/errorReporter';
+import { cutFixed } from '../../utils/format';
 
 interface AgentAnalyticsDashboardProps {
   userId: string;
@@ -191,7 +192,7 @@ export default function AgentAnalyticsDashboard({ userId, clubId }: AgentAnalyti
         </div>
         <div className="aad-kpi">
           <span className={`aad-kpi-value ${metrics.clawbackRate > 15 ? 'aad-red' : 'aad-amber'}`}>
-            {metrics.clawbackRate.toFixed(1)}%
+            {cutFixed(metrics.clawbackRate, 1)}%
           </span>
           <span className="aad-kpi-label">Clawback Rate</span>
         </div>
@@ -207,7 +208,7 @@ export default function AgentAnalyticsDashboard({ userId, clubId }: AgentAnalyti
       <div className="aad-secondary">
         <div className="aad-sec-item">
           <span className="aad-sec-label">Distributions/Day (30D)</span>
-          <span className="aad-sec-value">{metrics.perDay.toFixed(1)}</span>
+          <span className="aad-sec-value">{cutFixed(metrics.perDay, 1)}</span>
         </div>
         <div className="aad-sec-item">
           <span className="aad-sec-label">Promo Distributions</span>

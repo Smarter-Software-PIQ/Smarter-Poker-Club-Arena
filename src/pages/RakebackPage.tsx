@@ -14,7 +14,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGri
 import './RakebackPage.css';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import PageSkeleton from '../components/common/PageSkeleton';
-import { formatDateShort as formatDate } from '../utils/format';
+import { formatDateShort as formatDate, cutFixed } from '../utils/format';
 import { reportError } from '../utils/errorReporter';
 import { ErrorState } from '../components/common/EmptyState';
 import RewardsSurfaceHeader from '../components/rewards/RewardsSurfaceHeader';
@@ -41,7 +41,7 @@ const PERIOD_COLUMNS =
 
 function rateLabel(rate: number | null | undefined) {
   return typeof rate === 'number' && Number.isFinite(rate)
-    ? `${(rate * 100).toFixed(1)}%`
+    ? `${cutFixed(rate * 100, 1)}%`
     : 'Unavailable';
 }
 

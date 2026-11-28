@@ -6,6 +6,7 @@
  */
 
 import './StreakMultiplier.css';
+import { cutFixed } from '../../utils/format';
 
 interface StreakMultiplierProps {
   /** Current streak count (days) */
@@ -40,7 +41,9 @@ export default function StreakMultiplier({
 
       <div className="sm-info">
         <span className="sm-streak-count">×{streak}</span>
-        {multiplier > 1 && <span className="sm-multiplier">{multiplier.toFixed(1)}× Earnings</span>}
+        {multiplier > 1 && (
+          <span className="sm-multiplier">{cutFixed(multiplier, 1)}× Earnings</span>
+        )}
       </div>
     </div>
   );

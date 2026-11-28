@@ -20,7 +20,7 @@ import { SpadeConsole } from '../components/console/SpadeConsole';
 import PageBar from '../components/help/PageBar';
 import { titleCase } from '../utils/titleCase';
 import { isUUID } from '../utils/clubIdResolver';
-import { compactChips } from '../utils/format';
+import { compactChips, cutFixed } from '../utils/format';
 import styles from './RateAuditPage.module.css';
 
 interface RateChange {
@@ -255,8 +255,8 @@ export default function RateAuditPage() {
 
   const formatRate = (rate: number, source: string, rateType: string): string => {
     if (source === 'rake' && rateType === 'rake_cap') return `${compactChips(rate)} Chips`;
-    if (source === 'rake') return `${(rate * 10000).toFixed(1)}‱`; // basis points for rake
-    return `${(rate * 100).toFixed(1)}%`;
+    if (source === 'rake') return `${cutFixed(rate * 10000, 1)}‱`; // basis points for rake
+    return `${cutFixed(rate * 100, 1)}%`;
   };
 
   const formatDate = (dateStr: string): string => {

@@ -13,7 +13,7 @@ import { lazy } from 'react';
 import PanelBoundary from '../../components/stats/PanelBoundary';
 import { CHIP_STATS, type StatsClubId, type StatsScope } from '../../services/statsScope';
 import { playerDisplayName } from '../../utils/playerDisplayName';
-import { compactChips } from '../../utils/format';
+import { compactChips, cutFixed } from '../../utils/format';
 import { enumToTitleCase } from '../../utils/titleCase';
 import { StatRow } from './StatRow';
 import { NOT_YET_MEASURED, ratioOrUnmeasured, aggressionFactorLabel } from './format';
@@ -89,7 +89,7 @@ export default function OverviewTab({
         <div className="stats-rate-grid stats-overview-grid">
           <StatRow
             label="BB/100 Hands"
-            value={ratioOrUnmeasured(overall.bb_per_100, overall.cash_hands, (v) => v.toFixed(1))}
+            value={ratioOrUnmeasured(overall.bb_per_100, overall.cash_hands, (v) => cutFixed(v, 1))}
             color="#c0e7ff"
             highlight
           />
@@ -98,7 +98,7 @@ export default function OverviewTab({
             value={ratioOrUnmeasured(
               overall.vpip,
               overall.total_hands,
-              (v) => `${(v * 100).toFixed(1)}%`
+              (v) => `${cutFixed(v * 100, 1)}%`
             )}
             color="#c0e7ff"
           />
@@ -107,7 +107,7 @@ export default function OverviewTab({
             value={ratioOrUnmeasured(
               overall.pfr,
               overall.total_hands,
-              (v) => `${(v * 100).toFixed(1)}%`
+              (v) => `${cutFixed(v * 100, 1)}%`
             )}
             color="#c0e7ff"
           />
@@ -122,7 +122,7 @@ export default function OverviewTab({
               clubId && !metricAvailability.aggression_factor
                 ? NOT_YET_MEASURED
                 : ratioOrUnmeasured(overall.aggression_factor, overall.total_hands, (v) =>
-                    v.toFixed(1)
+                    cutFixed(v, 1)
                   )
             }
             color="#c0e7ff"
@@ -132,7 +132,7 @@ export default function OverviewTab({
             value={
               metricAvailability?.hours_played === false
                 ? NOT_YET_MEASURED
-                : `${overall.hours_played.toFixed(1)}h`
+                : `${cutFixed(overall.hours_played, 1)}h`
             }
             color="#c0e7ff"
           />
@@ -171,7 +171,9 @@ export default function OverviewTab({
                   {v.profit >= 0 ? '+' : ''}
                   {compactChips(v.profit)}
                 </span>
-                <span className={v.bb100 >= 0 ? 'positive' : 'negative'}>{v.bb100.toFixed(1)}</span>
+                <span className={v.bb100 >= 0 ? 'positive' : 'negative'}>
+                  {cutFixed(v.bb100, 1)}
+                </span>
               </button>
             ))}
           </div>
@@ -209,7 +211,7 @@ export default function OverviewTab({
                   {compactChips(st.profit)}
                 </span>
                 <span className={st.bb100 >= 0 ? 'positive' : 'negative'}>
-                  {st.bb100.toFixed(1)}
+                  {cutFixed(st.bb100, 1)}
                 </span>
               </button>
             ))}

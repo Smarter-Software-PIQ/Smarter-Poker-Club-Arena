@@ -39,6 +39,7 @@ import CampaignQueue from '../../components/ads/CampaignQueue';
 import PageBar from '../../components/help/PageBar';
 import '../AdminDashboardPage.css';
 import { isPlatformStaffRole } from '../../utils/platformRoles';
+import { cutFixed } from '../../utils/format';
 
 interface AdRow {
   id: string;
@@ -684,7 +685,7 @@ export default function HouseAdsPage() {
 
   const rate = (s: StatRow | undefined) => {
     if (!s || s.impressions === 0) return '-';
-    return `${((s.clicks / s.impressions) * 100).toFixed(1)}%`;
+    return `${cutFixed((s.clicks / s.impressions) * 100, 1)}%`;
   };
 
   return (

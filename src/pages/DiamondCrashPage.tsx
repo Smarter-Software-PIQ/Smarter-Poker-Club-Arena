@@ -95,7 +95,7 @@ import {
   verifyCrashRound,
   type CrashFairnessVerdict,
 } from '../utils/diamondGamesFairness';
-import { compactChips, formatWalletChips, formatWalletDiamonds } from '../utils/format';
+import { compactChips, formatWalletChips, formatWalletDiamonds, cutFixed } from '../utils/format';
 import { crossedMilestone } from '../utils/crashMilestones';
 import SealedPrize from '../components/games/SealedPrize';
 import { sealedChipPrize } from '../utils/sealedChipPrize';
@@ -167,7 +167,7 @@ function bookingResult(round: CrashRound): string | null {
   const booked = round.status === 'cashed';
   const cents = booked ? round.outcome.cashout_cents : round.outcome.crash_cents;
   if (cents == null) return null;
-  const figure = `${(cents / 100).toFixed(2)}×`;
+  const figure = `${cutFixed(cents / 100, 2)}×`;
   return booked
     ? `Booked At ${figure}`
     : `Flight Ended At ${figure} · ${chipsLabel(round.outcome.payout_chips)} Chips Paid`;
@@ -1884,7 +1884,7 @@ function DiamondCrashGame() {
           chips={settledRound.outcome.payout_chips}
           headline={
             settledRound.status === 'cashed' && settledRound.outcome.cashout_cents != null
-              ? `Booked At ${(settledRound.outcome.cashout_cents / 100).toFixed(2)}× · ${crashWouldHaveLabel(settledRound.outcome.crash_cents, settledRound.cap_cents)}`
+              ? `Booked At ${cutFixed(settledRound.outcome.cashout_cents / 100, 2)}× · ${crashWouldHaveLabel(settledRound.outcome.crash_cents, settledRound.cap_cents)}`
               : undefined
           }
           // A booked win reveals the sealed point it was flying to (Dan,

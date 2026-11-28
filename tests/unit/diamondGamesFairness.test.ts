@@ -270,12 +270,14 @@ describe('multiplier labels', () => {
   });
 
   it("prints the round's true average and its cap, and after a booked win where it would have gone (Dan, 2026-10-12)", () => {
-    // "Average Crash 2.9x" from the round's own terms: the exact sealed-hundredth mean.
-    expect(crashAverageLabel(crashAverageMultiplier(1, 0.5, 5, 2000))).toBe('Average Crash 2.9x');
-    expect(crashAverageLabel(crashAverageMultiplier(3, 2, 5, 2000))).toBe('Average Crash 2.9x');
-    // Every award the lobby can price averages 2.9x under contract 5.
-    expect(averageRangeLabel(awardAverageCrash(1, 100, 5, 2000))).toBe('2.9x');
-    expect(averageRangeLabel(awardAverageCrash(2, 100, 5, 2000))).toBe('2.9x');
+    // "Average Crash 2.8x" from the round's own terms: the exact sealed-hundredth
+    // mean is 2.896..., and its second digit is CUT, never rounded up (Dan
+    // 2026-11-27 / 2026-09-04; this pin read 2.9x while the label rounded).
+    expect(crashAverageLabel(crashAverageMultiplier(1, 0.5, 5, 2000))).toBe('Average Crash 2.8x');
+    expect(crashAverageLabel(crashAverageMultiplier(3, 2, 5, 2000))).toBe('Average Crash 2.8x');
+    // Every award the lobby can price averages 2.89...x under contract 5.
+    expect(averageRangeLabel(awardAverageCrash(1, 100, 5, 2000))).toBe('2.8x');
+    expect(averageRangeLabel(awardAverageCrash(2, 100, 5, 2000))).toBe('2.8x');
     // The lobby's floating-point walk agrees with the exact count to far below a decimal.
     for (const [bet, floor] of [
       [1, 0.5],

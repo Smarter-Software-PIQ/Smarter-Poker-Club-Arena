@@ -90,6 +90,7 @@ import { DAY_COMPLETE_LABEL, isBaggedStatus } from '../../../utils/multiDaySched
 import { tournamentStartsWhenFull } from '../../../utils/tournamentPresentation';
 import '../../../styles/tournament-lobby-3d.css';
 import './BlindsTab.css';
+import { cutFixed, cutTo } from '../../../utils/format';
 
 /* ─────────────────────────────────────────────────────────────────────────────
    The tournament columns this tab reads. Declared explicitly rather than leaning
@@ -143,8 +144,8 @@ function epoch(iso: string | null | undefined): number | null {
 function minutesText(duration: number | null | undefined): string {
   const m = Number(duration);
   if (!Number.isFinite(m) || m <= 0) return '--';
-  const rounded = Math.round(m * 10) / 10;
-  return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)} Min`;
+  const shown = cutTo(m, 1);
+  return `${Number.isInteger(shown) ? shown : cutFixed(shown, 1)} Min`;
 }
 
 function blindsText(level: NormalisedBlindLevel | null | undefined): string {

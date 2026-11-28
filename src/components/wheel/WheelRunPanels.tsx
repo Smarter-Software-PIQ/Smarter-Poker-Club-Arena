@@ -7,6 +7,7 @@ import { WheelPrizeArt } from './WheelPrizeArt';
 import revealStyles from './WheelWinReveal.module.css';
 import { TapHaptic } from '../haptics/TapHaptic';
 import styles from './WheelRunPanels.module.css';
+import { cutFixed } from '../../utils/format';
 
 /**
  * THE THREE PANELS A RUN CAN LEAVE BEHIND (owner ruling 2026-09-21, R1, R18).
@@ -125,7 +126,7 @@ export interface WheelRunSummaryData {
 
 function prizeWorth(prize: WheelRunPrize): string {
   const v = prize.valueChips;
-  return `${Number.isInteger(v) ? v.toLocaleString() : v.toFixed(2)} Chips`;
+  return `${Number.isInteger(v) ? v.toLocaleString() : cutFixed(v, 2)} Chips`;
 }
 
 /** One screen at the end of a run: every prize, every game, one Play Game plate. */

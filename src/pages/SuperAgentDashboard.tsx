@@ -14,7 +14,7 @@ import type { CommissionSpread } from '../services/CommissionService';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useProfilePresence } from '../hooks/useProfilePresence';
 import { useToast } from '../components/common/Toast';
-import { fmt, formatWalletChips } from '../utils/format';
+import { fmt, formatWalletChips, cutFixed } from '../utils/format';
 import {
   clubBankRecipientWallets,
   clubBankDestinationFor,
@@ -552,13 +552,13 @@ function SuperAgentDashboardForScope({ userId, clubId }: { userId: string; clubI
               <div className="rate-row">
                 <span>Your Rakeback (Set By The Club)</span>
                 <span className="rate-value">
-                  {((agent.commissionRate || 0) * 100).toFixed(1)}%
+                  {cutFixed((agent.commissionRate || 0) * 100, 1)}%
                 </span>
               </div>
               <div className="rate-row">
                 <span>Rakeback You Give Your Players</span>
                 <span className="rate-value">
-                  {((agent.playerRakebackRate || 0) * 100).toFixed(1)}%
+                  {cutFixed((agent.playerRakebackRate || 0) * 100, 1)}%
                 </span>
               </div>
               <div className="form-row rate-edit">
@@ -672,7 +672,7 @@ function SuperAgentDashboardForScope({ userId, clubId }: { userId: string; clubI
                   <div className="player-info">
                     <span className="player-name">{player.displayName}</span>
                     <span className="player-rakeback">
-                      {((player.rakebackPercent || 0) * 100).toFixed(1)}% Rakeback
+                      {cutFixed((player.rakebackPercent || 0) * 100, 1)}% Rakeback
                     </span>
                   </div>
                   <div className="player-balance">{formatWalletChips(player.chipBalance ?? 0)}</div>
@@ -689,7 +689,7 @@ function SuperAgentDashboardForScope({ userId, clubId }: { userId: string; clubI
               <div className="commission-row">
                 <span>Gross Commission Rate</span>
                 <span className="value">
-                  {((spread.grossCommissionRate || 0) * 100).toFixed(1)}%
+                  {cutFixed((spread.grossCommissionRate || 0) * 100, 1)}%
                 </span>
               </div>
               <div className="commission-row">
