@@ -27,10 +27,13 @@ import { readBalanceAfter } from '../utils/readBalanceAfter';
 import { useToast } from '../components/common/Toast';
 import DiamondWalletModal, { diamondTxLabel } from '../components/wallet/DiamondWalletModal';
 import './VIPPage.css';
+import '../components/ops/ArenaOps.css';
+import './VIPPageArena.css';
 import PageSkeleton from '../components/common/PageSkeleton';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import RewardsOverlayPortal from '../components/rewards/RewardsOverlayPortal';
-import RewardsSurfaceHeader from '../components/rewards/RewardsSurfaceHeader';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import PageBar from '../components/help/PageBar';
 import { formatPopupText } from '../utils/popupStyle';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { appNavigate } from '../lib/routerBridge';
@@ -473,11 +476,18 @@ export default function VIPPage() {
 
   if (!pageReady) {
     return (
-      <div className="vip-page">
-        <RewardsSurfaceHeader
+      <div className="vip-page arena-workspace">
+        <ArenaWorkspaceHeader
+          area="finance"
           title="VIP Membership"
-          description="Manage Your Membership And Included Benefits."
-          status="VIP TELEMETRY // SYNCING"
+          summary="Manage Your Membership And Included Benefits."
+        />
+        <PageBar
+          titleAs={false}
+          showHelp={false}
+          title="VIP Membership"
+          status="SYNCING"
+          statusTone="attention"
         />
         <div className="loading-state">
           <PageSkeleton variant="stats" />
@@ -486,19 +496,32 @@ export default function VIPPage() {
     );
   }
 
+  /* #SmarterDesign (player pages batch P6, 2026-11-28): Dan's order "THE SAME
+     #SMARTERDESIGN UPGRADE TO EVERY SINGLE PAGE" moves /vip off the Rewards
+     Circuit page bar and the painted shark panels onto the arena workspace:
+     the chrome mast, the membership, the card, the activity, the balance and
+     the features each an arena case, figures on chrome tiles, keys on chrome
+     with the one primary lit, every record a chrome row. The dress is
+     VIPPageArena.css, scoped under this page's arena root; every figure, word
+     and Buy key is unchanged (tests/components/vipPageIsPinned.test.tsx). */
   return (
-    <div className="vip-page">
-      <RewardsSurfaceHeader
+    <div className="vip-page arena-workspace">
+      <ArenaWorkspaceHeader
+        area="finance"
         title="VIP Membership"
-        description="Manage Your Membership And Included Benefits."
-        status="VIP TELEMETRY // LIVE"
+        summary="Manage Your Membership And Included Benefits."
       />
       {/* MEMBERSHIP AND ALLOWANCES.
           Replaces VIPStatsHeader + TierProgressionCard + VIPBenefitsGrid, all
           three deleted with src/constants/vipTiers.ts on 2026-09-05. See the
           header of VIPMembershipPlate for what those three were promising. */}
       {vipEntranceComplete && (
-        <VIPMembershipPlate status={vipGrade} expiresAt={vipExpiresAt} limits={monthlyLimits} />
+        <VIPMembershipPlate
+          arena
+          status={vipGrade}
+          expiresAt={vipExpiresAt}
+          limits={monthlyLimits}
+        />
       )}
 
       {/* THE CARD, AND ONLY WHAT IT ACTUALLY BUYS.
@@ -529,14 +552,14 @@ export default function VIPPage() {
           gameplay and cataloged digital-cosmetic contract. */}
       {isVIP && (
         <section
-          className="vip-section vip-card-section"
+          className="vip-section vip-card-section arena-case arena-ops-case"
           style={{
             opacity: vipEntranceComplete ? 1 : 0,
             transform: vipEntranceComplete ? 'translateY(0)' : 'translateY(12px)',
             transition: 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
           }}
         >
-          <h3>Your Card</h3>
+          <h3 className="arena-section-title">Your Card</h3>
           <div className="vip-card-active">
             <div className="vip-card-art">
               <img
@@ -577,6 +600,7 @@ export default function VIPPage() {
       {/* Activity History */}
       {vipEntranceComplete && (
         <VIPActivityHistory
+          arena
           activities={recentDiamondActivities}
           state={diamondActivityState}
           onRetry={() => void loadVIPStatus()}
@@ -584,7 +608,7 @@ export default function VIPPage() {
       )}
 
       {/* Diamond Balance */}
-      <section className="vip-section">
+      <section className="vip-section vip-balance-section arena-case arena-ops-case">
         <div className="diamond-balance">
           <div className="diamond-balance__identity">
             <img
@@ -593,7 +617,7 @@ export default function VIPPage() {
               alt=""
               aria-hidden="true"
             />
-            <div className="diamond-balance__copy">
+            <div className="diamond-balance__copy arena-meter">
               {/* An unreadable balance reads "Unavailable", never "0". A player
                   who is told they hold zero diamonds stops trying to spend
                   them, and this figure was a discarded read away from saying
@@ -608,7 +632,7 @@ export default function VIPPage() {
               <span className="diamond-label">Diamonds</span>
             </div>
           </div>
-          <div className="diamond-balance__actions">
+          <div className="diamond-balance__actions arena-switch arena-ops-primary">
             <button
               className="diamond-buy-btn diamond-buy-btn--primary"
               onClick={() => setShowTopUpModal(true)}
@@ -627,8 +651,8 @@ export default function VIPPage() {
 
       {/* A-la-Carte Purchases */}
       {!isVIP && (
-        <section className="vip-section">
-          <h3>Buy Features</h3>
+        <section className="vip-section vip-buy-section arena-case arena-ops-case">
+          <h3 className="arena-section-title">Buy Features</h3>
           <p className="section-desc">
             Not A Member? Purchase Features Individually With Diamonds, Or{' '}
             <a
@@ -659,7 +683,7 @@ export default function VIPPage() {
                   feature !== 'theme_unlock' && feature !== 'club_creation' && pricing.cost > 0
               )
               .map(([feature, pricing]) => (
-                <div key={feature} className="purchase-card">
+                <div key={feature} className="purchase-card arena-ledger-row">
                   <div className="purchase-info">
                     <span className="purchase-name">{formatFeatureName(feature)}</span>
                     <span className="purchase-desc">{formatPopupText(pricing.description)}</span>

@@ -1,0 +1,11 @@
+{
+  "money": {
+    "figures": [],
+    "hooks": []
+  },
+  "text": "The Daily Bonus Is Not Available On This Account.",
+  "regions": [
+    "div|status|"
+  ],
+  "controls": []
+}
