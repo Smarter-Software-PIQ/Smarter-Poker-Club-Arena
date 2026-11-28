@@ -610,12 +610,18 @@ describe('a job-token dispatch is bound to the exact intent its trusted sender r
     ).toThrow();
     expect(write('.github/workflows/backup-engine.yml', 'push', good)).toThrow();
     for (const bad of [
-      { after_cycle: 'tomorrow', refresh: 'true' },
-      { after_cycle: cycle, refresh: 'false' },
+      { after_cycle: 'tomorrow', refresh: 'false' },
+      { after_cycle: cycle, refresh: 'maybe' },
       { after_cycle: cycle },
       { ...good, sha: MAIN },
     ])
       expect(write('.github/workflows/stage-engine-release.yml', 'push', bad)).toThrow();
+    expect(
+      write('.github/workflows/stage-engine-release.yml', 'push', {
+        after_cycle: cycle,
+        refresh: 'false',
+      })
+    ).not.toThrow();
   });
 
   it('a sender outside its workflow or event cannot even write an intent', () => {
