@@ -1362,6 +1362,18 @@
       "prefixes": [],
       "unlessOn": []
     },
+    "omahaLimpReraiseVsIsoRaiser": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "omaha_limp_reraise_limped",
+        "omaha_limp_reraise_open_kept",
+        "omaha_limp_reraise_reraise_kept",
+        "omaha_limp_reraise_reraised"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
     "omahaStabDefenceIsPriced": {
       "releaseDefault": "off",
       "source": "ledger",

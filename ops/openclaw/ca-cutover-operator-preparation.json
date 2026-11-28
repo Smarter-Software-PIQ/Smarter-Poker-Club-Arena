@@ -1,5 +1,5 @@
 {
-  "comment": "OpenClaw cron on Dan's Mac Studio (CLAUDE.md 10.85: a real cron, never the Claude scheduler). Gives every engine cutover cycle an owner: three and eleven minutes after each cycle's preparation opens it runs the installed copy of scripts/ops/cutover-operator-preparation.mjs, which sends the runbook's operator dispatch (prepare-daily-engine) only when no Stage run can own the cycle. Install the script: mkdir -p ~/.smarter-poker/ops && gh api -H 'Accept: application/vnd.github.raw' repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/contents/scripts/ops/cutover-operator-preparation.mjs?ref=main > ~/.smarter-poker/ops/cutover-operator-preparation.mjs. Restore the cron with: openclaw cron add --name ca-cutover-operator-preparation --cron \"33,41 0,3,6,9,12,15,18,21 * * *\" --tz America/Chicago --exact --no-deliver --timeout-seconds 120 --command \"node ~/.smarter-poker/ops/cutover-operator-preparation.mjs\". Check: openclaw cron runs --id <id>.",
+  "comment": "OpenClaw cron on Dan's Mac Studio (CLAUDE.md 10.85: a real cron, never the Claude scheduler). Gives every engine cutover cycle an owner: three and eleven minutes after each cycle's preparation opens it runs the installed copy of scripts/ops/cutover-operator-preparation.mjs, which sends the runbook's operator dispatch (prepare-daily-engine) only when no Stage run can own the cycle. When the shared gh quota is spent it waits once for the reset, never past the window end less 60 s: from the :33 firing (cutoff plus 3 min) that is at most 16 min, so the timeout is 960 s of waiting plus the old 120 s of work, 1080 s. Install the script: mkdir -p ~/.smarter-poker/ops && gh api -H 'Accept: application/vnd.github.raw' repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/contents/scripts/ops/cutover-operator-preparation.mjs?ref=main > ~/.smarter-poker/ops/cutover-operator-preparation.mjs. Restore the cron with: openclaw cron add --name ca-cutover-operator-preparation --cron \"33,41 0,3,6,9,12,15,18,21 * * *\" --tz America/Chicago --exact --no-deliver --timeout-seconds 1080 --command \"node ~/.smarter-poker/ops/cutover-operator-preparation.mjs\". An installed job made before 2026-11-27 carries 120 s: raise it to 1080 s (or replace the job with the command above). Check: openclaw cron runs --id <id>.",
   "name": "ca-cutover-operator-preparation",
   "schedule": {
     "kind": "cron",
@@ -10,7 +10,7 @@
   "payload": {
     "kind": "command",
     "argv": ["sh", "-lc", "node ~/.smarter-poker/ops/cutover-operator-preparation.mjs"],
-    "timeoutSeconds": 120
+    "timeoutSeconds": 1080
   },
   "delivery": {
     "mode": "none"

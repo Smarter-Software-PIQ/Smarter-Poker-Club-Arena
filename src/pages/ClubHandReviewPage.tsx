@@ -69,20 +69,17 @@ function HandReviewState({
   action?: { label: string; onClick: () => void };
 }) {
   return (
-    <div className="chr-page" data-arena-surface="club">
+    <div className="chr-page arena-workspace" data-arena-surface="club">
       <section className="chr-state-wrap">
         <SpadeConsole
-          family={action ? 'shark' : 'spade'}
-          crest={action ? 'spade' : 'flat'}
+          arena
           title={title}
           pill={tone === 'red' ? 'Attention' : 'Protected'}
-          pillInk={tone}
-          foot={action ? 'plates' : 'foot'}
           plates={
             action ? { primary: { label: action.label, onClick: action.onClick } } : undefined
           }
         >
-          <p className="chr-state sc-copy sc-copy--center">{message}</p>
+          <p className={`chr-state is-${tone}`}>{message}</p>
         </SpadeConsole>
       </section>
     </div>
@@ -368,9 +365,8 @@ export default function ClubHandReviewPage() {
   }
 
   return (
-    <div className="chr-page" data-arena-surface="club">
+    <div className="chr-page arena-workspace" data-arena-surface="club">
       <ClubIntegrityHeader
-        compact
         clubId={clubParam}
         active="hand-review"
         title="Hand Review"
@@ -384,12 +380,10 @@ export default function ClubHandReviewPage() {
       <section className="chr-workspace">
         {access.canControlClub ? (
           <SpadeConsole
+            arena
             className="chr-lookup"
-            family="riveted"
             title="Open A Hand"
             pill="Logged"
-            pillInk="gold"
-            foot="plates"
             plates={{
               secondary: {
                 label: 'Clear Lookup',
@@ -412,15 +406,15 @@ export default function ClubHandReviewPage() {
             }}
             aria-label="Open A Hand"
           >
-            <p className="chr-lookup__warn sc-copy">
+            <p className="chr-lookup__warn">
               Shows All Hole Cards, Including Folded And Mucked Hands. The Reader, The Hand And The
               Reason Are Written To The Club Audit Trail.
             </p>
             <div className="chr-lookup__form">
               <label>
-                <span className="sc-label sc-ink--blue">Hand Number</span>
+                <span className="chr-field-label">Hand Number</span>
                 <input
-                  className="chr-lookup__number"
+                  className="chr-lookup__number arena-ops-well"
                   type="text"
                   inputMode="numeric"
                   value={handNumber}
@@ -430,9 +424,9 @@ export default function ClubHandReviewPage() {
                 />
               </label>
               <label>
-                <span className="sc-label sc-ink--blue">Audit Reason</span>
+                <span className="chr-field-label">Audit Reason</span>
                 <input
-                  className="chr-lookup__reason"
+                  className="chr-lookup__reason arena-ops-well"
                   type="text"
                   value={reason}
                   placeholder="Why Is This Hand Being Opened?"
@@ -442,22 +436,14 @@ export default function ClubHandReviewPage() {
               </label>
             </div>
             {readError && (
-              <p className="chr-lookup__error sc-copy sc-copy--center sc-ink--red" role="status">
+              <p className="chr-lookup__error" role="status">
                 {titleCase(readError)}
               </p>
             )}
           </SpadeConsole>
         ) : (
-          <SpadeConsole
-            className="chr-lookup"
-            family="spade"
-            crest="flat"
-            title="Hand Lookup Locked"
-            pill="Protected"
-            pillInk="gold"
-            foot="foot"
-          >
-            <p className="chr-lookup__warn sc-copy sc-copy--center">
+          <SpadeConsole arena className="chr-lookup" title="Hand Lookup Locked" pill="Protected">
+            <p className="chr-lookup__warn">
               Opening A Hand Shows All Hole Cards, And Is For A Club Owner Or Admin.
             </p>
           </SpadeConsole>
@@ -465,24 +451,22 @@ export default function ClubHandReviewPage() {
 
         {activeRead && model && (
           <SpadeConsole
+            arena
             className="chr-hand"
-            family="shark"
             title={`Hand ${String(activeRead.row.hand_number ?? '')}`}
             pill={activeRead.cardsComplete ? 'Complete' : 'Partial'}
-            pillInk={activeRead.cardsComplete ? 'blue' : 'gold'}
-            foot="plates"
             plates={{ primary: { label: 'Close Hand', onClick: () => setRead(null) } }}
             aria-label="The Opened Hand"
           >
             <div className="chr-hand__bar">
-              <span className="chr-hand__cards sc-label sc-ink--blue">
+              <span className="chr-hand__cards">
                 {activeRead.cardsComplete
                   ? `All ${activeRead.seatsDealt} Holdings On Record`
                   : `${activeRead.seatsWithCards} Of ${activeRead.seatsDealt} Holdings On Record`}
               </span>
             </div>
             {!activeRead.cardsComplete && (
-              <p className="chr-hand__short sc-copy sc-copy--center sc-ink--gold">
+              <p className="chr-hand__short">
                 The Seats Without Cards Below Are Not Empty Hands. Their Holdings Are No Longer On
                 Record.
               </p>
@@ -492,37 +476,29 @@ export default function ClubHandReviewPage() {
         )}
 
         {activeRead && !model && (
-          <SpadeConsole
-            className="chr-hand"
-            family="spade"
-            crest="flat"
-            title="Replay Unavailable"
-            pill="Protected"
-            pillInk="red"
-            foot="foot"
-          >
-            <p className="sc-copy sc-copy--center">
+          <SpadeConsole arena className="chr-hand" title="Replay Unavailable" pill="Protected">
+            <p className="chr-state is-red">
               The Hand Was Read And Logged, But Its Replay Could Not Be Built.
             </p>
           </SpadeConsole>
         )}
 
         <SpadeConsole
+          arena
           className="chr-queue"
-          family="spade"
-          crest="flat"
           eyebrow="Player Signals"
           title="Flagged Hands"
           pill={`${flags.length} Listed`}
-          pillInk={openCount > 0 ? 'gold' : 'blue'}
-          foot="foot"
         >
-          <div className="chr-filters" role="group" aria-label="Filter Flagged Hands">
+          <div
+            className="chr-filters arena-switch arena-ops-keys"
+            role="group"
+            aria-label="Filter Flagged Hands"
+          >
             {FILTERS.map((item) => (
               <button
                 key={item.id}
                 type="button"
-                className="chr-chip"
                 aria-pressed={filter === item.id}
                 onClick={() => setFilter(item.id)}
               >
@@ -532,7 +508,7 @@ export default function ClubHandReviewPage() {
           </div>
 
           {flags.length === 0 ? (
-            <p className="chr-empty sc-copy sc-copy--center">
+            <p className="chr-empty">
               {filter === 'open'
                 ? 'No Hands Are Waiting On You.'
                 : 'No Flagged Hands Match That Filter.'}
@@ -540,9 +516,9 @@ export default function ClubHandReviewPage() {
           ) : (
             <ul className="chr-list">
               {flags.map((flag) => (
-                <li key={flag.id} className={`chr-flag is-${flag.status}`}>
+                <li key={flag.id} className={`chr-flag arena-ledger-row is-${flag.status}`}>
                   <div className="chr-flag__head">
-                    <span className="chr-flag__num sc-ink--silver">
+                    <span className="chr-flag__num">
                       Hand {flag.handNumber ?? '?'}
                       {flag.tableName ? ` / ${titleCase(flag.tableName)}` : ''}
                     </span>
@@ -563,11 +539,26 @@ export default function ClubHandReviewPage() {
                     </div>
                   )}
 
-                  <div className="chr-flag__actions">
+                  <label className="chr-flag__reply-field">
+                    <span className="chr-field-label">Player Reply</span>
+                    <input
+                      className="chr-flag__replybox arena-ops-well"
+                      type="text"
+                      value={replyDraft[flag.id] ?? ''}
+                      placeholder="What Should The Player Be Told?"
+                      aria-label={`Reply To The Flag On Hand ${flag.handNumber ?? ''}`}
+                      onChange={(event) =>
+                        setReplyDraft((previous) => ({
+                          ...previous,
+                          [flag.id]: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <div className="chr-flag__actions arena-switch arena-ops-keys">
                     {access.canControlClub && flag.handNumber != null && (
                       <button
                         type="button"
-                        className="chr-word-action"
                         disabled={Boolean(busyFlag)}
                         onClick={() => {
                           setHandNumber(String(flag.handNumber));
@@ -579,26 +570,9 @@ export default function ClubHandReviewPage() {
                         Open This Hand
                       </button>
                     )}
-                    <label className="chr-flag__reply-field">
-                      <span className="sc-label sc-ink--blue">Player Reply</span>
-                      <input
-                        className="chr-flag__replybox"
-                        type="text"
-                        value={replyDraft[flag.id] ?? ''}
-                        placeholder="What Should The Player Be Told?"
-                        aria-label={`Reply To The Flag On Hand ${flag.handNumber ?? ''}`}
-                        onChange={(event) =>
-                          setReplyDraft((previous) => ({
-                            ...previous,
-                            [flag.id]: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
                     {flag.status !== 'under_review' && flag.status !== 'resolved' && (
                       <button
                         type="button"
-                        className="chr-word-action"
                         disabled={Boolean(busyFlag)}
                         onClick={() => void resolveFlag(flag, 'under_review')}
                       >
@@ -607,7 +581,6 @@ export default function ClubHandReviewPage() {
                     )}
                     <button
                       type="button"
-                      className="chr-word-action"
                       disabled={Boolean(busyFlag)}
                       onClick={() => void resolveFlag(flag, 'resolved')}
                     >
@@ -615,7 +588,6 @@ export default function ClubHandReviewPage() {
                     </button>
                     <button
                       type="button"
-                      className="chr-word-action chr-word-action--quiet"
                       disabled={Boolean(busyFlag)}
                       onClick={() => void resolveFlag(flag, 'dismissed')}
                     >

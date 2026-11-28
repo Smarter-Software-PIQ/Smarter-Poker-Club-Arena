@@ -114,3 +114,108 @@
 .leave-confirm__btn--confirm:active {
   transform: scale(0.96);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   #SMARTERDESIGN (Dan 2026-11-27): one thin chrome case on ink navy, a chrome
+   medallion for the exit mark, live condensed title, silver copy, Stay as a
+   chrome key and Leave Table lit red (the one destructive action). The
+   fade/slide animations above still play.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.leave-confirm__backdrop .leave-confirm__dialog {
+  position: relative;
+  isolation: isolate;
+  box-sizing: border-box;
+  width: min(360px, 92vw);
+  max-width: 92vw;
+  padding: 22px 18px 18px;
+  border: 0;
+  border-radius: 0;
+  background:
+    radial-gradient(ellipse at 90% -40%, #1e3853, transparent 63%),
+    linear-gradient(145deg, #091727, #030b14 74%);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 60%);
+}
+.leave-confirm__backdrop .leave-confirm__dialog::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-case.webp') 41 / 19px
+    stretch;
+}
+.leave-confirm__backdrop .leave-confirm__icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 25deg,
+    #6d94b1,
+    #d8e7f3 12%,
+    #3c5369 23%,
+    #0d263b 35%,
+    #a6c8e0 50%,
+    #465d72 64%,
+    #f4f9ff 78%,
+    #234968 90%,
+    #6d94b1
+  );
+  box-shadow:
+    0 0 0 1px #09121c,
+    0 2px 9px #01060fbb;
+  color: #ff6b78;
+}
+.leave-confirm__backdrop .leave-confirm__icon svg {
+  width: 46px;
+  height: 46px;
+  padding: 9px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: #06101b;
+}
+.leave-confirm__backdrop .leave-confirm__title {
+  color: #f4f8ff;
+  font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.leave-confirm__backdrop .leave-confirm__desc {
+  color: #bdd0e2;
+  font-variant-numeric: tabular-nums;
+}
+.leave-confirm__backdrop .leave-confirm__desc strong {
+  color: #f4f8ff;
+}
+.leave-confirm__backdrop .leave-confirm__actions {
+  gap: 8px;
+}
+.leave-confirm__backdrop .leave-confirm__btn {
+  min-height: 50px;
+  border: 5px solid transparent;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') 11 / 6px
+    stretch;
+  border-radius: 0;
+  background: linear-gradient(155deg, #12273b, #07111c 70%);
+  box-shadow: none;
+  color: #f1f5fc;
+  font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+}
+.leave-confirm__backdrop .leave-confirm__btn--confirm {
+  background: linear-gradient(#e2394a, #a5161f 58%, #6e0c13);
+  background-clip: padding-box;
+  color: #fff;
+}
+.leave-confirm__backdrop .leave-confirm__btn:active {
+  filter: brightness(0.86);
+}
+.leave-confirm__backdrop .leave-confirm__btn:focus-visible {
+  outline: 2px solid #9ee3ff;
+  outline-offset: 2px;
+}
+/* The dialog takes focus only to hand it to Stay; its own ring is not a control. */
+.leave-confirm__backdrop .leave-confirm__dialog:focus {
+  outline: none;
+}

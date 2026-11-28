@@ -5,6 +5,7 @@ import { UnionOpsService } from '../../services/UnionOpsService';
 import { AgentAssignmentService } from '../../services/AgentAssignmentService';
 import { useToast } from '../common/Toast';
 import { reportError } from '../../utils/errorReporter';
+import { wasCancelledByLeavingPage } from '../../lib/leavingDocument';
 import {
   playerDisplayName,
   PLAYER_NAME_COLUMNS,
@@ -123,7 +124,9 @@ export default function MemberAssignAgent({
       );
       setAllowed(true);
     } catch (cause) {
-      if (mine !== version.current) return;
+      // Unmount bumps the version; a reload or navigation away cancels the
+      // read without unmounting, so the browser's own cancellation is quiet too.
+      if (mine !== version.current || wasCancelledByLeavingPage(cause)) return;
       reportError(cause, 'MemberAssignAgent.load');
     }
   }, [clubId, userId]);

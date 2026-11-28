@@ -211,6 +211,65 @@ export function resolveTurnChangeActionContext(
   return input.previousActionContext;
 }
 
+export interface TurnChangeTimerCarryInput {
+  newSeat: number;
+  previousCurrentSeat: number;
+  eventDeadlineMs?: number;
+  eventTimestampMs?: number;
+  previousDeadlineMs?: number;
+  previousTurnStartTimeMs?: number;
+  previousIsTimeBankActive: boolean;
+}
+
+export interface TurnChangeTimerResolution {
+  actionTimerDeadline: number | undefined;
+  actionTimerStartTime: number | undefined;
+  isTimeBankActive: boolean;
+}
+
+/**
+ * Resolve timer fields on a discrete `TURN_CHANGE` event.
+ *
+ * Only preserve the previous turn's clock/time-bank state when `TURN_CHANGE`
+ * describes the exact same active seat and turn start timestamp. On a new seat
+ * or new turn start, never inherit the previous seat's deadline, start stamp,
+ * or active time-bank flag.
+ */
+export function resolveTurnChangeTimerState(
+  input: TurnChangeTimerCarryInput
+): TurnChangeTimerResolution {
+  const hasDeadline =
+    typeof input.eventDeadlineMs === 'number' &&
+    Number.isFinite(input.eventDeadlineMs) &&
+    input.eventDeadlineMs > 0;
+  const hasStart =
+    typeof input.eventTimestampMs === 'number' &&
+    Number.isFinite(input.eventTimestampMs) &&
+    input.eventTimestampMs > 0;
+  const sameSeat = input.newSeat > 0 && input.previousCurrentSeat === input.newSeat;
+  const sameStart =
+    !hasStart ||
+    (typeof input.previousTurnStartTimeMs === 'number' &&
+      Number.isFinite(input.previousTurnStartTimeMs) &&
+      input.previousTurnStartTimeMs > 0 &&
+      Math.abs(input.eventTimestampMs! - input.previousTurnStartTimeMs) <= 50);
+  const sameTurn = sameSeat && sameStart;
+
+  return {
+    actionTimerDeadline: hasDeadline
+      ? input.eventDeadlineMs
+      : sameTurn
+        ? input.previousDeadlineMs
+        : undefined,
+    actionTimerStartTime: hasStart
+      ? input.eventTimestampMs
+      : sameTurn
+        ? input.previousTurnStartTimeMs
+        : undefined,
+    isTimeBankActive: sameTurn ? input.previousIsTimeBankActive : false,
+  };
+}
+
 export interface MissingDecisionPollerDeps {
   requestSnapshot: () => void;
   fetchTableState?: () => Promise<Record<string, unknown> | null>;

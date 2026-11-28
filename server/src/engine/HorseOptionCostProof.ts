@@ -72,6 +72,7 @@ export const OPTION_COST_LAWS: Readonly<Record<string, string>> = Object.freeze(
   omahaReraisedPotCallIsPriced: 'engine/anOmahaReraisedPotPriceIsFast.law.test.ts',
   omahaReraisedPotReraiseIsPriced: 'engine/anOmahaReraisedPotPriceIsFast.law.test.ts',
   omahaReraisedPotFoldReraiseIsPriced: 'engine/anOmahaReraisedPotFoldReraiseIsPriced.law.test.ts',
+  omahaLimpReraiseVsIsoRaiser: 'engine/anOmahaLimpReraiseVsIsoRaiser.law.test.ts',
   omahaReraisedPositionVsEveryoneToAct: 'engine/HorseOmahaReraisedPositionVsEveryone.law.test.ts',
   omahaFlopRaiseIsPriced: 'engine/anOmahaFlopRaiseIsPricedIsFast.law.test.ts',
   // the PLO river opening bet (value in position, bluff on blockers) and the trips-board full house

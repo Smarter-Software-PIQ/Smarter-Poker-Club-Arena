@@ -16,6 +16,7 @@ import ReferralModal from '../components/social/ReferralModal';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useToast } from '../components/common/Toast';
 import { promotionService } from '../services/PromotionService';
+import '../components/lobby/ArenaWorkspace.css';
 import './PromotionsPage.css';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import { resolveClubUUID } from '../utils/clubIdResolver';
@@ -411,12 +412,13 @@ function PromotionsAccount({
   };
 
   return (
-    <StandardContentLayout className="promotions-page">
+    <StandardContentLayout className="promotions-page arena-workspace">
       {/* ONE PICTURE (#ClubArenaConsole): the Rewards Circuit console carries the
           title and the status word in its painted head, the view words, every
           offer and its claim on the glass, and the two doors on its painted
           plates. Nothing on this page is drawn. */}
       <RewardsSurfaceHeader
+        arena
         title="Promotions"
         description="Active Club Offers, Scheduled Events, Referral Rewards And Leaderboard Races, With The Live Eligibility And Claim Workflows Beneath Them."
         status="OFFER INDEX // LIVE"
@@ -437,12 +439,12 @@ function PromotionsAccount({
           },
         }}
       >
-        <div className="promo-views" role="group" aria-label="Offer View">
+        <div className="promo-views arena-switch" role="group" aria-label="Offer View">
           {(['active', 'upcoming', 'all'] as const).map((f) => (
             <button
               key={f}
               type="button"
-              className={`promo-views__word ${filter === f ? 'sc-ink--white' : 'sc-ink--muted'}`}
+              className="promo-views__word"
               aria-pressed={filter === f}
               onClick={() => setFilter(f)}
             >
@@ -458,13 +460,11 @@ function PromotionsAccount({
         ) : loadError ? (
           <div className="promo-state" role="alert">
             <p className="sc-copy sc-copy--center">{loadError}</p>
-            <button
-              type="button"
-              className="promo-word sc-ink--white"
-              onClick={() => void loadPromotions()}
-            >
-              Try Again
-            </button>
+            <span className="arena-switch arena-ops-keys arena-ops-primary promo-keys">
+              <button type="button" className="promo-word" onClick={() => void loadPromotions()}>
+                Try Again
+              </button>
+            </span>
           </div>
         ) : filteredPromos.length === 0 ? (
           <div className="promo-state" role="status">
@@ -499,7 +499,7 @@ function PromotionsAccount({
                    the figures on one line, CLAIM a lit word at the end. */
                 <li
                   key={promo.id}
-                  className="promo-row"
+                  className="promo-row arena-ledger-row"
                   data-type={promo.type}
                   style={{
                     opacity: visiblePromoCards.has(index) ? 1 : 0,
@@ -568,15 +568,17 @@ function PromotionsAccount({
                     (claimed ? (
                       <span className="promo-word sc-ink--green promo-row__action">Claimed</span>
                     ) : (
-                      <button
-                        type="button"
-                        className={`promo-word sc-ink--white promo-row__action${claiming ? ' promo-word--busy' : ''}`}
-                        disabled={claiming}
-                        aria-busy={claiming || undefined}
-                        onClick={() => handleClaimPromo(promo.id)}
-                      >
-                        {claiming ? 'Claiming' : 'Claim'}
-                      </button>
+                      <span className="arena-switch arena-ops-primary promo-row__action">
+                        <button
+                          type="button"
+                          className={`promo-word${claiming ? ' promo-word--busy' : ''}`}
+                          disabled={claiming}
+                          aria-busy={claiming || undefined}
+                          onClick={() => handleClaimPromo(promo.id)}
+                        >
+                          {claiming ? 'Claiming' : 'Claim'}
+                        </button>
+                      </span>
                     ))}
                 </li>
               );

@@ -1,18 +1,19 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- *  CLUB STATS CARDS — Quick Overview Stats
+ *  CLUB STATS CARDS - Quick Overview Stats
  * Shows key metrics for club performance.
  * Data source: ca_club_dashboard_stats RPC (single round-trip), either
  * preloaded by the parent (stats prop) or self-loaded.
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useIsMounted } from '../../hooks/useIsMounted';
 import { supabase } from '../../lib/supabase';
 import { isUUID, resolveClubUUID } from '../../utils/clubIdResolver';
 import { isAuthzError } from '../../utils/clubDashboard';
 import { masterBus } from '../../core/MasterBus';
+import { ArenaReadings, type ArenaReading } from '../ops/ArenaOps';
 import styles from './ClubStatsCards.module.css';
 import { reportError } from '../../utils/errorReporter';
 import { compactChips } from '../../utils/format';
@@ -89,12 +90,12 @@ function Sparkline({ points, color }: { points: number[]; color: string }) {
     .join(' ');
   return (
     <svg
+      className={styles.spark}
       width="100%"
       height={h}
       viewBox={`0 0 ${w} ${h}`}
       preserveAspectRatio="none"
       aria-hidden="true"
-      style={{ display: 'block', marginTop: 6, opacity: 0.85 }}
     >
       <path d={d} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
     </svg>
@@ -110,8 +111,6 @@ export default function ClubStatsCards({
   const [stats, setStats] = useState<DashboardStats>(statsProp || EMPTY_STATS);
   const [loading, setLoading] = useState(!statsProp);
   const isMounted = useIsMounted();
-  const [visibleItems, setVisibleItems] = useState<Set<number>>(new Set());
-  const staggerTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   // Parent-driven mode: mirror the prop whenever it changes. A null prop
   // means the parent is still reading, so the skeleton stays up.
@@ -190,7 +189,7 @@ export default function ClubStatsCards({
       }
     } catch (error: any) {
       // The membership gate raising 42501 is an expected outcome for a
-      // non-member, not a fault worth reporting — the parent shows its own
+      // non-member, not a fault worth reporting - the parent shows its own
       // Members Only state.
       if (!isAuthzError(error)) {
         reportError(error, 'ClubStatsCards.Failed_to_load_club_stats');
@@ -208,175 +207,65 @@ export default function ClubStatsCards({
     return compactChips(num);
   };
 
-  const statCards: Array<{
-    label: string;
-    value: string;
-    icon: React.ReactNode;
-    color: string;
-    sub?: string;
-    spark?: number[];
-  }> = [
+  /* #SmarterDesign (Dan 2026-11-27): the six readings print into the arena
+     chrome tiles. Each tile still rises in 60ms after the one before it
+     (ClubStatsCards.module.css), so the stagger plays every time they load. */
+  const statCards: ArenaReading[] = [
     {
+      id: 'members',
       label: 'Total Members',
       value: formatInt(stats.totalMembers),
-      icon: (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-          <circle cx="9" cy="8" r="3.5" stroke="#3b82f6" strokeWidth="1.5" />
-          <path
-            d="M2 20c0-3.5 3-6.5 7-6.5s7 3 7 6.5"
-            stroke="#3b82f6"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-          />
-          <circle cx="17" cy="7" r="2.5" stroke="#3b82f6" strokeWidth="1.2" opacity="0.5" />
-          <path
-            d="M17 12c3 0 5.5 2 5.5 5"
-            stroke="#3b82f6"
-            strokeWidth="1.2"
-            strokeLinecap="round"
-            opacity="0.5"
-          />
-        </svg>
-      ),
-      color: '#3b82f6',
     },
     {
+      id: 'online',
       label: 'Online Now',
       value: formatInt(stats.onlineNow),
-      sub: stats.seatedNow > 0 ? `${formatInt(stats.seatedNow)} seated at tables` : undefined,
-      icon: (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-          <circle cx="12" cy="12" r="4" fill="#10b981">
-            <animate attributeName="r" values="3;5;3" dur="2s" repeatCount="indefinite" />
-            <animate attributeName="opacity" values="1;0.4;1" dur="2s" repeatCount="indefinite" />
-          </circle>
-          <circle
-            cx="12"
-            cy="12"
-            r="9"
-            stroke="#10b981"
-            strokeWidth="1.5"
-            fill="none"
-            opacity="0.25"
-          >
-            <animate attributeName="r" values="7;10;7" dur="2s" repeatCount="indefinite" />
-          </circle>
-        </svg>
-      ),
-      color: '#10b981',
+      tone: 'live',
+      sub:
+        stats.seatedNow > 0
+          ? titleCase(`${formatInt(stats.seatedNow)} seated at tables`)
+          : undefined,
     },
     {
+      id: 'tables',
       label: 'Active Tables',
       value: formatInt(stats.activeTables),
       sub:
         stats.totalTables > stats.activeTables
-          ? `${formatInt(stats.totalTables)} total`
+          ? titleCase(`${formatInt(stats.totalTables)} total`)
           : undefined,
-      icon: (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-          <rect x="3" y="3" width="8" height="8" rx="2" stroke="#fbbf24" strokeWidth="1.5" />
-          <rect x="13" y="3" width="8" height="8" rx="2" stroke="#fbbf24" strokeWidth="1.5" />
-          <rect x="3" y="13" width="8" height="8" rx="2" stroke="#fbbf24" strokeWidth="1.5" />
-          <rect
-            x="13"
-            y="13"
-            width="8"
-            height="8"
-            rx="2"
-            stroke="#fbbf24"
-            strokeWidth="1.5"
-            opacity="0.4"
-          />
-        </svg>
-      ),
-      color: '#fbbf24',
     },
     {
       // Every hand the engine finished today, tournament hands included
       // (club_hand_daily). The rake beside it is the ledger's cash rake
       // (ca_club_rake_daily), which is why the two are labelled apart.
+      id: 'hands',
       label: 'Hosted Hands Today',
       value: formatInt(stats.handsToday),
-      sub: stats.handsWeek > 0 ? `${formatInt(stats.handsWeek)} this week` : undefined,
-      spark: stats.dailySeries.map((p) => p.hands),
-      icon: (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-          <path
-            d="M4 17L10 11L14 15L20 7"
-            stroke="#a855f7"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M16 7H20V11"
-            stroke="#a855f7"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+      tone: 'live',
+      sub: withSpark(
+        stats.handsWeek > 0 ? titleCase(`${formatInt(stats.handsWeek)} this week`) : undefined,
+        stats.dailySeries.map((p) => p.hands),
+        '#45adff'
       ),
-      color: '#a855f7',
     },
     {
+      id: 'rake',
       label: 'Cash Rake Today',
       value: formatChips(stats.rakeToday),
-      sub: stats.rakeWeek > 0 ? `${formatChips(stats.rakeWeek)} this week` : undefined,
-      spark: stats.dailySeries.map((p) => p.rake),
-      icon: (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-          <circle cx="12" cy="12" r="9" stroke="#f59e0b" strokeWidth="1.5" />
-          <text
-            x="8"
-            y="16"
-            fontSize="12"
-            fontWeight="700"
-            fill="#f59e0b"
-            fontFamily="Rajdhani, monospace"
-          >
-            C
-          </text>
-        </svg>
+      tone: 'attention',
+      sub: withSpark(
+        stats.rakeWeek > 0 ? titleCase(`${formatChips(stats.rakeWeek)} this week`) : undefined,
+        stats.dailySeries.map((p) => p.rake),
+        '#ffd700'
       ),
-      color: '#f59e0b',
     },
     {
+      id: 'new',
       label: 'New This Week',
       value: `+${stats.weeklyGrowth}`,
-      icon: (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-          <path
-            d="M12 4V20M5 11L12 4L19 11"
-            stroke="#22c55e"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      ),
-      color: '#22c55e',
     },
   ];
-
-  useEffect(() => {
-    if (!loading) {
-      // Clear previous stagger timers before starting new ones
-      staggerTimersRef.current.forEach((t) => clearTimeout(t));
-      staggerTimersRef.current = statCards.map((_, i) =>
-        setTimeout(() => {
-          if (isMounted.current) {
-            setVisibleItems((prev) => new Set(prev).add(i));
-          }
-        }, i * 60)
-      );
-    }
-    return () => {
-      staggerTimersRef.current.forEach((t) => clearTimeout(t));
-      staggerTimersRef.current = [];
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading]);
 
   if (failed && !statsProp) {
     return <p className={styles.unavailable}>The Club Metrics Could Not Be Loaded</p>;
@@ -384,51 +273,26 @@ export default function ClubStatsCards({
 
   if (loading) {
     return (
-      <div className={styles.grid}>
-        {[1, 2, 3, 4, 5, 6].map((i) => (
-          <div key={i} className={`${styles.card} ${styles.loading}`} />
-        ))}
-      </div>
+      <ArenaReadings
+        busy
+        label="Club Metrics"
+        className={styles.loading}
+        readings={statCards.map((r) => ({ id: r.id, label: r.label, value: '' }))}
+      />
     );
   }
 
+  return <ArenaReadings label="Club Metrics" className={styles.readings} readings={statCards} />;
+}
+
+/** The week line with the 14-day trend drawn under it, when there is a trend. */
+function withSpark(text: string | undefined, points: number[], color: string) {
+  const hasTrend = points.length > 0 && !points.every((p) => p === 0);
+  if (!text && !hasTrend) return undefined;
   return (
-    <div className={styles.grid}>
-      {statCards.map((stat, i) => (
-        <div
-          key={i}
-          className={styles.card}
-          style={
-            {
-              '--accent-color': stat.color,
-              opacity: visibleItems.has(i) ? 1 : 0,
-              transform: visibleItems.has(i) ? 'translateY(0)' : 'translateY(8px)',
-              transition: 'all 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-            } as React.CSSProperties
-          }
-        >
-          <span
-            className={styles.iconWrap}
-            style={{ background: `color-mix(in srgb, ${stat.color} 12%, transparent)` }}
-          >
-            {stat.icon}
-          </span>
-          <span className={styles.value}>{stat.value}</span>
-          <span className={styles.label}>{stat.label}</span>
-          {stat.sub && (
-            <span
-              style={{
-                fontSize: '0.68rem',
-                color: 'var(--text-secondary, #8a8f98)',
-                marginTop: 2,
-              }}
-            >
-              {titleCase(stat.sub)}
-            </span>
-          )}
-          {stat.spark && <Sparkline points={stat.spark} color={stat.color} />}
-        </div>
-      ))}
-    </div>
+    <>
+      {text}
+      <Sparkline points={points} color={color} />
+    </>
   );
 }

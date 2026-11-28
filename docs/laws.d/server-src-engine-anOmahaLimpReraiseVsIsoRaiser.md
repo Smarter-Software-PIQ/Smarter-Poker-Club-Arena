@@ -1,0 +1,3 @@
+# server/src/engine/anOmahaLimpReraiseVsIsoRaiser.law.test.ts
+
+With omahaLimpReraiseVsIsoRaiser on (default OFF), a PLO4/PLO5 cash strong first-in raise becomes the limp of exactly the price only where the limp-then-pot-re-raise line is priced above the open against the likeliest raiser behind (his own raise-when-unraised record, then the people-only prior), in position against him or with a connected rundown; the Horse's own limp (never the VPIP floor's), raised once heads-up, becomes a re-raise only in position or with a rundown; multiway, 4-bet pots and tournaments are outside it, off is byte-identical, and the applicable decisions cost a bounded multiple of the sibling re-raised-pot price on the same hands.

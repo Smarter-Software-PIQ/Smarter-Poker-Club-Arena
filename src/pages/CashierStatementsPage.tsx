@@ -50,6 +50,7 @@ import { copyCashierText, readCashierOnlineState } from '../services/CashierResi
 import { compactChips } from '../utils/format';
 import { titleCase } from '../utils/titleCase';
 import { chipKindWord } from '../utils/chipKindWord';
+import '../components/lobby/ArenaWorkspace.css';
 import styles from './CashierStatementsPage.module.css';
 
 // ─── Copy ────────────────────────────────────────────────────────────────────
@@ -371,7 +372,10 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
   const filename = `cashier-statement-${(clubUuid ?? 'club').slice(0, 8)}-${range.fromDay}-to-${range.toDay}.csv`;
 
   return (
-    <div className={styles.page} data-cashier-surface="statements">
+    <div
+      className={`${styles.page} arena-workspace arena-cashier`}
+      data-cashier-surface="statements"
+    >
       <CashierWorkspace
         title="Cashier"
         summary="Every Chip Movement In This Club Wallet For The Dates You Choose, Ready To Copy Or Download."
@@ -381,14 +385,20 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
       >
         <div className={styles.glass}>
           <div className={styles.topBar}>
-            <button type="button" onClick={backToCashier}>
-              Back To Cashier
-            </button>
+            <span className={`arena-switch ${styles.back}`}>
+              <button type="button" onClick={backToCashier}>
+                Back To Cashier
+              </button>
+            </span>
             <span className={styles.sectionMeta}>Pacific Accounting Days</span>
           </div>
 
           {clubMissing ? (
-            <section className={styles.refusal} role="alert" aria-labelledby="statement-refusal">
+            <section
+              className={`arena-case ${styles.refusal}`}
+              role="alert"
+              aria-labelledby="statement-refusal"
+            >
               <span className={styles.sectionEyebrow}>Club Not Found</span>
               <h2 className={styles.sectionTitle} id="statement-refusal">
                 Statement Unavailable
@@ -396,7 +406,11 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
               <p className={styles.statusLine}>We Could Not Find That Club.</p>
             </section>
           ) : refused ? (
-            <section className={styles.refusal} role="alert" aria-labelledby="statement-refusal">
+            <section
+              className={`arena-case ${styles.refusal}`}
+              role="alert"
+              aria-labelledby="statement-refusal"
+            >
               <span className={styles.sectionEyebrow}>Access Refused</span>
               <h2 className={styles.sectionTitle} id="statement-refusal">
                 Statement Unavailable
@@ -404,7 +418,7 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
               <p className={styles.statusLine}>
                 {list.refusal ? REFUSAL_WORD[list.refusal] : REFUSAL_WORD.refused}
               </p>
-              <div className={styles.actions}>
+              <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.actions}`}>
                 {list.refusal !== 'signed_out' && list.refusal !== 'account_changed' && (
                   <button type="button" onClick={statement.reload} disabled={!isOnline}>
                     Check Again
@@ -414,7 +428,7 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
             </section>
           ) : (
             <>
-              <section className={styles.section} aria-label="What You Can See">
+              <section className={`arena-case ${styles.section}`} aria-label="What You Can See">
                 <span className={styles.sectionEyebrow}>What You Can See</span>
                 <strong className={styles.scopeValue} role="status">
                   {ready && list.scope
@@ -430,8 +444,11 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
                 )}
               </section>
 
-              <section className={styles.section} aria-labelledby="statement-range-title">
-                <div className={styles.sectionHeading}>
+              <section
+                className={`arena-case ${styles.section}`}
+                aria-labelledby="statement-range-title"
+              >
+                <div className={`arena-switch ${styles.sectionHeading}`}>
                   <h2 className={styles.sectionTitle} id="statement-range-title">
                     Date Range
                   </h2>
@@ -439,7 +456,10 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
                     {dayWord(range.fromDay)} To {dayWord(range.toDay)}
                   </span>
                 </div>
-                <div className={styles.choices} aria-label="Choose A Date Range">
+                <div
+                  className={`arena-switch arena-ops-keys ${styles.choices}`}
+                  aria-label="Choose A Date Range"
+                >
                   {PRESETS.map(([key, label]) => (
                     <button
                       key={key}
@@ -476,7 +496,9 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
                         />
                       </label>
                     </div>
-                    <div className={styles.actions}>
+                    <div
+                      className={`arena-switch arena-ops-keys arena-ops-primary ${styles.actions}`}
+                    >
                       <button type="button" onClick={applyCustom}>
                         Show Range
                       </button>
@@ -491,8 +513,11 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
                 )}
               </section>
 
-              <section className={styles.section} aria-labelledby="statement-filters-title">
-                <div className={styles.sectionHeading}>
+              <section
+                className={`arena-case ${styles.section}`}
+                aria-labelledby="statement-filters-title"
+              >
+                <div className={`arena-switch ${styles.sectionHeading}`}>
                   <h2 className={styles.sectionTitle} id="statement-filters-title">
                     Filters
                   </h2>
@@ -513,7 +538,10 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
                   <div id="statement-filters" className={styles.group}>
                     <div className={styles.group}>
                       <span className={styles.groupLabel}>Wallet</span>
-                      <div className={styles.choices} aria-label="Filter By Wallet">
+                      <div
+                        className={`arena-switch arena-ops-keys ${styles.choices}`}
+                        aria-label="Filter By Wallet"
+                      >
                         {(['any', ...WALLET_FAMILIES] as const).map((wallet) => (
                           <button
                             key={wallet}
@@ -529,7 +557,10 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
                     </div>
                     <div className={styles.group}>
                       <span className={styles.groupLabel}>Direction</span>
-                      <div className={styles.choices} aria-label="Filter By Direction">
+                      <div
+                        className={`arena-switch arena-ops-keys ${styles.choices}`}
+                        aria-label="Filter By Direction"
+                      >
                         {(['any', ...ENTRY_DIRECTIONS] as const).map((direction) => (
                           <button
                             key={direction}
@@ -545,7 +576,10 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
                     </div>
                     <div className={styles.group}>
                       <span className={styles.groupLabel}>State</span>
-                      <div className={styles.choices} aria-label="Filter By State">
+                      <div
+                        className={`arena-switch arena-ops-keys ${styles.choices}`}
+                        aria-label="Filter By State"
+                      >
                         {(['any', ...ENTRY_STATES] as const).map((state) => (
                           <button
                             key={state}
@@ -598,7 +632,9 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
                         aria-label="Filter By Exact Reference"
                       />
                     </label>
-                    <div className={styles.actions}>
+                    <div
+                      className={`arena-switch arena-ops-keys arena-ops-primary ${styles.actions}`}
+                    >
                       <button
                         type="button"
                         onClick={() => {
@@ -624,7 +660,7 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
               </section>
 
               {ready && list.totalsStatus !== 'ready' ? (
-                <div className={styles.totals} aria-label="Statement Totals">
+                <div className={`arena-case ${styles.totals}`} aria-label="Statement Totals">
                   <div className={styles.totalsWide}>
                     <span className={styles.totalLabel}>Totals</span>
                     <strong
@@ -638,8 +674,8 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
                   </div>
                 </div>
               ) : (
-                <div className={styles.totals} aria-label="Statement Totals">
-                  <div className={styles.totalCell}>
+                <div className={`arena-case ${styles.totals}`} aria-label="Statement Totals">
+                  <div className={`arena-meter ${styles.totalCell}`}>
                     <span className={styles.totalLabel}>In</span>
                     <strong className={`${styles.totalValue} ${list.totals ? styles.amtIn : ''}`}>
                       {list.totals
@@ -647,7 +683,7 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
                         : '-'}
                     </strong>
                   </div>
-                  <div className={styles.totalCell}>
+                  <div className={`arena-meter ${styles.totalCell}`}>
                     <span className={styles.totalLabel}>Out</span>
                     <strong className={`${styles.totalValue} ${list.totals ? styles.amtOut : ''}`}>
                       {list.totals
@@ -655,13 +691,13 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
                         : '-'}
                     </strong>
                   </div>
-                  <div className={styles.totalCell}>
+                  <div className={`arena-meter ${styles.totalCell}`}>
                     <span className={styles.totalLabel}>Managed</span>
                     <strong className={styles.totalValue}>
                       {list.totals ? chips(list.totals.managed) : '-'}
                     </strong>
                   </div>
-                  <div className={styles.totalCell}>
+                  <div className={`arena-meter ${styles.totalCell}`}>
                     <span className={styles.totalLabel}>Entries</span>
                     <strong className={styles.totalValue}>
                       {list.totals ? list.totals.count.toLocaleString('en-US') : '-'}
@@ -670,8 +706,11 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
                 </div>
               )}
 
-              <section className={styles.section} aria-labelledby="statement-export-title">
-                <div className={styles.sectionHeading}>
+              <section
+                className={`arena-case ${styles.section}`}
+                aria-labelledby="statement-export-title"
+              >
+                <div className={`arena-switch ${styles.sectionHeading}`}>
                   <h2 className={styles.sectionTitle} id="statement-export-title">
                     Export
                   </h2>
@@ -721,7 +760,9 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
                         : `Exports The Whole Range As A CSV File, Up To ${STATEMENT_EXPORT_MAX_ROWS.toLocaleString('en-US')} Entries.`}
                 </p>
                 {(exportView.status === 'ready' || exportView.status === 'downloading') && (
-                  <div className={styles.actions}>
+                  <div
+                    className={`arena-switch arena-ops-keys arena-ops-primary ${styles.actions}`}
+                  >
                     <button
                       type="button"
                       onClick={() => void statement.downloadExport(filename)}
@@ -740,8 +781,11 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
                 )}
               </section>
 
-              <section className={styles.section} aria-labelledby="statement-entries-title">
-                <div className={styles.sectionHeading}>
+              <section
+                className={`arena-case ${styles.section}`}
+                aria-labelledby="statement-entries-title"
+              >
+                <div className={`arena-switch ${styles.sectionHeading}`}>
                   <h2 className={styles.sectionTitle} id="statement-entries-title">
                     Entries
                   </h2>
@@ -772,7 +816,7 @@ function StatementsContent({ clubParam, userId }: { clubParam: string; userId?: 
                       const open = openId === rowKey;
                       const factsId = `statement-entry-${entry.source}-${entry.id}`;
                       return (
-                        <div key={rowKey} className={styles.entry}>
+                        <div key={rowKey} className={`arena-ledger-row ${styles.entry}`}>
                           <button
                             type="button"
                             className={styles.entryMain}

@@ -211,11 +211,45 @@ class QualificationBuildCachingAndParallelProbes(unittest.TestCase):
         self.assertGreaterEqual(qualification.MAX_NATIVE_PROBE_WORKERS, 2)
         self.assertLessEqual(qualification.MAX_NATIVE_PROBE_WORKERS, 4)
         self.assertIn('ThreadPoolExecutor(max_workers=MAX_NATIVE_PROBE_WORKERS)', src)
+        self.assertIn('for future in as_completed(futures):', src)
+        self.assertIn("subprocess.run(['docker', 'rm', '-f', container], capture_output=True)", src)
         self.assertIn('cancel_futures=True', src)
         self.assertIn('TMPDIR=/evidence/tmp-awards', src)
         self.assertIn('TMPDIR=/evidence/tmp-feeders', src)
         self.assertNotIn('TMPDIR=/evidence\'', src)
         self.assertIn('with COMMANDS_LOCK:', src)
+
+    def test_a_timed_out_logged_step_carries_the_tail_of_its_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / 'hung-probe.log'
+            script = 'import sys, time\nprint("last progress before hang", flush=True)\ntime.sleep(30)\n'
+            with patch.object(qualification, 'DEADLINE', qualification.time.monotonic() + 0.35), \
+                 patch.object(qualification, 'COMMANDS', []):
+                with self.assertRaises(RuntimeError) as caught:
+                    qualification.run(['python3', '-c', script], log=log)
+            message = str(caught.exception)
+            self.assertIn('last lines of hung-probe.log', message)
+            self.assertIn('last progress before hang', message)
+            self.assertIsInstance(caught.exception.__cause__, subprocess.TimeoutExpired)
+
+    def test_sigterm_converts_to_system_exit_and_dockerignore_is_root_anchored(self):
+        import signal
+        with self.assertRaises(SystemExit) as caught:
+            qualification._handle_sigterm(signal.SIGTERM, None)
+        self.assertEqual(caught.exception.code, 128 + signal.SIGTERM)
+        src = Path(__file__).with_name('qualify-tournament-freeze-fixes.py').read_text()
+        self.assertIn('signal.signal(signal.SIGTERM, _handle_sigterm)', src)
+        self.assertIn('except BaseException as error:', src)
+        self.assertIn('shutil.rmtree(scratch, ignore_errors=True)', src)
+        self.assertIn(".dockerignore').write_text(", src)
+        # Every .dockerignore entry MUST be root-anchored ('/...') so '/src' never
+        # excludes 'server/src' inside Docker BuildKit.
+        for excluded in ('/docs', '/src', '/.github', '/scripts/qualification'):
+            self.assertIn(excluded, qualification.DOCKERIGNORE_EXCLUDES)
+        for entry in qualification.DOCKERIGNORE_EXCLUDES:
+            self.assertTrue(entry.startswith('/'), f'must be root-anchored: {entry}')
+        for required in ('/server', '/server/src', '/scripts/ci', '/supabase', '/tests'):
+            self.assertNotIn(required, qualification.DOCKERIGNORE_EXCLUDES)
 
 if __name__ == '__main__':
     unittest.main()

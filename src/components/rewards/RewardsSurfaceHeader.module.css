@@ -105,3 +105,30 @@
     padding: 0;
   }
 }
+
+/* #SmarterDesign (Dan 2026-11-27): a page that opts in with `arena` prints in
+   the arena workspace's thin chrome case (ClubPageSection). The case is the
+   container the page's cqw type reads; the painted glow on the inks belonged
+   to the black glass and is dropped, the colours stay. */
+.arena {
+  width: min(100%, 880px);
+  padding: 0;
+}
+
+.arena .console {
+  container-type: inline-size;
+  /* Clear the page's "?" (PageBar), which sits above the case, top right. */
+  margin-top: 52px;
+  filter: none;
+}
+
+.arena .console [class*='sc-ink--'] {
+  text-shadow: none;
+}
+
+.arena .console :global(.arena-section-title) small {
+  color: #74dfff;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
