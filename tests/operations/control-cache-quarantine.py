@@ -48,7 +48,10 @@ for ref in (Q.OLD,'41551479ba47a4f077d6ed83f1b388c2b068fdd3'):
     for suffix in ('^{tree}',':server',':server/scripts'):
         ids.add(fixture_git('rev-parse',ref+suffix).decode().strip())
 METADATA=fixture_git('pack-objects','--stdout',input=('\n'.join(sorted(ids))+'\n').encode())
-assert len(METADATA)<4*1024*1024
+# The pack holds one commit per row of the bounded history (rows < 5000 above) plus six trees, so its size
+# grows with main. A fixed 4 MiB cap was crossed at 2,889 commits on 2026-11-28 (4.19 MB of commits alone)
+# and failed every pull request; bound it per packed object instead (commits here average ~1.5 KB).
+assert len(METADATA)<4096*len(ids)
 fixture_git('index-pack','--stdin',input=METADATA)
 (REPO/'shallow').write_text('\n'.join(BOUNDARY)+'\n')
 (REPO/'objects/info/alternates').unlink()
