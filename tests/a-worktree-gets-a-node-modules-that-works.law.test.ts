@@ -17,8 +17,10 @@ import { describe, it, expect } from 'vitest';
 import {
   readFileSync,
   existsSync,
+  lstatSync,
   mkdtempSync,
   mkdirSync,
+  symlinkSync,
   writeFileSync,
   rmSync,
   readdirSync,
@@ -422,4 +424,112 @@ describe('the provisioner does not trust the copy of itself that it is', () => {
     }).split(' ')[0];
     expect(mode, 'scripts/agent-workspace.sh is not executable in git').toBe('100755');
   });
+});
+
+describe('a worktree symlink can never mutate shared node_modules (2026-11-28)', () => {
+  it('never creates a symlink in executable code and guards every provisioning/install/repair entry', () => {
+    expect(code).not.toMatch(/\bln\s+-s\b/);
+    expect(code).toMatch(/^refuse_symlinked_node_modules\(\) \{/m);
+    expect(code).toContain('refuse_symlinked_node_modules "$1" "$2" || return 1');
+    expect(code).toContain('refuse_symlinked_node_modules "$dst" "$label" || return 1');
+    expect(code).toContain('refuse_symlinked_node_modules "$dst" "$dst/node_modules" || return 1');
+  });
+
+  for (const platform of ['Darwin', 'Linux'] as const) {
+    for (const pkgRel of ['', 'server'] as const) {
+      it(`refuses a ${pkgRel || 'root'} node_modules symlink on ${platform} without running npm/cp or mutating shared bytes`, () => {
+        const temporary = mkdtempSync(join(tmpdir(), 'ca-symlink-guard-'));
+        try {
+          const clone = join(temporary, 'clone');
+          const trees = join(temporary, 'trees');
+          const tree = join(trees, 'probe');
+          const bin = join(temporary, 'bin');
+          const trace = join(temporary, 'unexpected-mutation');
+          for (const dir of [clone, tree, bin, join(clone, 'scripts')])
+            mkdirSync(dir, { recursive: true });
+          for (const dir of [clone, tree, join(clone, 'server'), join(tree, 'server')]) {
+            mkdirSync(dir, { recursive: true });
+            writeFileSync(join(dir, 'package.json'), '{}');
+            writeFileSync(join(dir, 'package-lock.json'), '{"lockfileVersion":3,"packages":{}}');
+          }
+          const sharedNm = join(clone, pkgRel, 'node_modules');
+          mkdirSync(join(sharedNm, 'typescript'), { recursive: true });
+          writeFileSync(join(sharedNm, 'typescript/KEEP'), 'shared clone bytes');
+          // Simulate a legacy worktree carrying a symlinked node_modules pointing at the shared clone.
+          symlinkSync(sharedNm, join(tree, pkgRel, 'node_modules'));
+
+          const policyDir = join(tree, 'docs/agent-policy');
+          mkdirSync(policyDir, { recursive: true });
+          for (const name of readdirSync(join(ROOT, 'docs/agent-policy'))) {
+            writeFileSync(
+              join(policyDir, name),
+              readFileSync(join(ROOT, 'docs/agent-policy', name))
+            );
+          }
+          const executable = (name: string, text: string) =>
+            writeFileSync(join(bin, name), '#!/bin/bash\n' + text, { mode: 0o755 });
+          executable('uname', `printf '${platform}\\n'\n`);
+          for (const name of ['npm', 'cp'])
+            executable(
+              name,
+              `printf "%s\\n" "unexpected ${name} $*" >> "$SYMLINK_TEST_TRACE"\nexit 79\n`
+            );
+          executable(
+            'git',
+            `case "$*" in
+            'rev-parse --path-format=absolute --git-common-dir') printf '%s/.git\\n' "$SYMLINK_TEST_CLONE";;
+            *'config --file '*'/config --get core.bare') printf 'false\\n';;
+            *'fetch origin main --quiet') exit 0;;
+            *'show origin/main:scripts/agent-workspace.sh') cat "$SYMLINK_TEST_SOURCE";;
+            *'rev-parse --git-dir') printf '.git\\n';;
+            *'status --porcelain') printf ' M retained-source.ts\\n';;
+            *'branch --show-current') printf 'agent/probe/fix-disk\\n';;
+            *'rev-list --count HEAD..origin/main') printf '0\\n';;
+            *) printf 'unexpected git mutation\\n' >> "$SYMLINK_TEST_TRACE"; exit 79;;
+          esac\n`
+          );
+
+          let exitCode = 0;
+          let stderr = '';
+          try {
+            execFileSync(
+              'bash',
+              [join(ROOT, 'scripts/agent-workspace.sh'), 'probe', 'fix-disk', '--print-path'],
+              {
+                cwd: tree,
+                env: {
+                  ...process.env,
+                  PATH: `${bin}:${process.env.PATH}`,
+                  AGENT_WORKTREE_ROOT: trees,
+                  AGENT_WORKSPACE_REEXEC: '',
+                  SYMLINK_TEST_CLONE: clone,
+                  SYMLINK_TEST_TRACE: trace,
+                  SYMLINK_TEST_SOURCE: join(ROOT, 'scripts/agent-workspace.sh'),
+                },
+                encoding: 'utf8',
+                stdio: 'pipe',
+              }
+            );
+          } catch (error) {
+            const err = error as { status: number; stderr?: string };
+            exitCode = Number(err.status);
+            stderr = String(err.stderr ?? '');
+          }
+
+          expect(exitCode).toBe(1);
+          expect(stderr).toContain('REFUSED:');
+          expect(stderr).toContain('is a symlink');
+          expect(stderr).toContain('rm "');
+          expect(stderr).toContain('npm ci --ignore-scripts --no-audit --no-fund');
+          expect(existsSync(trace)).toBe(false);
+          expect(lstatSync(join(tree, pkgRel, 'node_modules')).isSymbolicLink()).toBe(true);
+          expect(readFileSync(join(sharedNm, 'typescript/KEEP'), 'utf8')).toBe(
+            'shared clone bytes'
+          );
+        } finally {
+          rmSync(temporary, { recursive: true, force: true });
+        }
+      });
+    }
+  }
 });

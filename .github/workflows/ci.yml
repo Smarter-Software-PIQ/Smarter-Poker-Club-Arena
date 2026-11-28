@@ -4016,7 +4016,13 @@ jobs:
       # job never compiles it, so a type error here used to ship to production.
       # Same program as the opponent-memory typecheck, which ran out of Node's
       # default heap on 2026-11-27; this one gets the same 6 GB before it does too.
+      # Shard rebalancing (2026-11-28): deterministic single-run server gates
+      # (tsc, build, Postgres cash/lightning proofs, targeted freeze suite, V31
+      # controller tests, and RetainedHistoricalCheckpointQualification) run once
+      # on shard 2 (lightest Vitest shard ~9.7m vs shard 1 ~22.7m, matching
+      # engine-release-prequalification.yml O37), shaving ~7.5-12m off PR critical path.
       - name: TypeScript Check (server)
+        if: matrix.shard == 2
         env:
           NODE_OPTIONS: --max-old-space-size=6144
         run: npx tsc --noEmit
@@ -4026,6 +4032,7 @@ jobs:
       # was checked by hand). tsconfig.scripts.json covers them all except the
       # qualification vitest files, which carried a pre-existing baseline.
       - name: TypeScript Check (server scripts)
+        if: matrix.shard == 2
         run: npx tsc -p tsconfig.scripts.json --noEmit
 
       # THE PULL REQUEST BUILDS WHAT SHIPS (2026-11-27, release custody). The
@@ -4038,7 +4045,7 @@ jobs:
       # tests/the-pull-request-builds-what-ships.law.test.ts keeps every
       # prequalification command here.
       - name: Build the exact server tree (as engine prequalification does)
-        if: matrix.shard == 1
+        if: matrix.shard == 2
         env:
           NODE_OPTIONS: --max-old-space-size=6144
         run: npm run build
@@ -4047,7 +4054,7 @@ jobs:
       # as native PG17; the driver discovers the bundled major without a new
       # runner, service, install step or skip when ubuntu-latest advances.
       - name: Hourly cash caps preserve humans and pace starts and closures
-        if: matrix.shard == 1
+        if: matrix.shard == 2
         working-directory: .
         run: python3 -B scripts/ci/test-hourly-cash-caps-postgres.py
 
@@ -4055,7 +4062,7 @@ jobs:
       # is never paced and keeps its place (20261123013241). Red on the
       # installed bodies, green after the migration, on the same runner.
       - name: A called name keeps its place under the hourly cap
-        if: matrix.shard == 1
+        if: matrix.shard == 2
         working-directory: .
         run: python3 -B scripts/ci/test-a-called-name-keeps-its-place-postgres.py
 
@@ -4063,7 +4070,7 @@ jobs:
       # no table takes the freed slot before another game's waiting-list
       # feeder (20261124072701). Red on the installed body, green after.
       - name: An owed Main starts before an extra table
-        if: matrix.shard == 1
+        if: matrix.shard == 2
         working-directory: .
         run: python3 -B scripts/ci/test-an-owed-main-starts-before-an-extra-table-postgres.py
 
@@ -4071,7 +4078,7 @@ jobs:
       # hand is still running (20261124162105): red on production's preimages,
       # green after the migration, physical-table refusal unchanged.
       - name: A promo player's Lightning hand settles
-        if: matrix.shard == 1
+        if: matrix.shard == 2
         working-directory: .
         run: python3 -B scripts/ci/test-a-promo-player-lightning-hand-settles-postgres.py
 
@@ -4081,17 +4088,18 @@ jobs:
       # step, not only the full suite, so a #2537-class regression that outdates
       # them is a named red line on a required check.
       - name: Freeze + watchdog + restart-gate regression suite
+        if: matrix.shard == 2
         run: npx vitest run src/engine/FreezeRegression.test.ts src/engine/TableWatchdog.test.ts src/maintenance/MaintenanceBreak.test.ts src/maintenance/thawInstallments.test.ts --reporter=verbose
 
       - name: V31 public feature and final model-index controller contracts
-        if: matrix.shard == 1
+        if: matrix.shard == 2
         env:
           PYTHONDONTWRITEBYTECODE: '1'
           TMPDIR: ${{ runner.temp }}
         run: python3 -B -m unittest discover -s scripts -p 'test_*public215*.py'
 
       - name: Exact retained historical owners qualify before competing workloads
-        if: matrix.shard == 1
+        if: matrix.shard == 2
         run: npm test -- src/engine/RetainedHistoricalCheckpointQualification.test.ts
 
       - name: Full server test suite
