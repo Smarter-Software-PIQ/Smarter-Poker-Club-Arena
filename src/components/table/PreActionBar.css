@@ -56,7 +56,7 @@
   border-radius: 999px;
   font-size: 0.6875rem;
   font-weight: 700;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.6px;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -111,10 +111,10 @@
 }
 .pre-action-bar[data-armed='call'] .pre-action-bar__armed-strip,
 .pre-action-bar[data-armed='callAny'] .pre-action-bar__armed-strip {
-  color: #fcd34d;
-  background: linear-gradient(180deg, rgba(245, 158, 11, 0.18), rgba(217, 119, 6, 0.14));
-  border-color: rgba(245, 158, 11, 0.55);
-  box-shadow: 0 0 12px rgba(245, 158, 11, 0.22);
+  color: var(--sd-ice-strong);
+  background: linear-gradient(180deg, rgba(116, 223, 255, 0.18), rgba(8, 124, 250, 0.14));
+  border-color: rgba(116, 223, 255, 0.55);
+  box-shadow: 0 0 12px rgba(116, 223, 255, 0.22);
 }
 
 @keyframes preActionArmedPulse {
@@ -141,8 +141,8 @@
 }
 .pre-action-bar--armed[data-armed='call'],
 .pre-action-bar--armed[data-armed='callAny'] {
-  border-top-color: rgba(245, 158, 11, 0.45);
-  box-shadow: 0 -1px 10px rgba(245, 158, 11, 0.18);
+  border-top-color: rgba(116, 223, 255, 0.45);
+  box-shadow: 0 -1px 10px rgba(116, 223, 255, 0.18);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -226,7 +226,7 @@
   padding: 6px 14px;
   font-size: 0.8125rem;
   font-weight: 700;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.5px;
   border: 2px solid rgba(255, 255, 255, 0.12);
   border-radius: 18px;

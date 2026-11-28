@@ -28,14 +28,14 @@
  *
  * ARTWORK is exempt from the hue rule only (cards, chips, throwables, felt
  * themes and their animations carry their own colours): ARTWORK_FILES below,
- * one reason each. Nothing is exempt from the uppercase or :hover rules.
+ * one reason each. The authentic Arena table (ARENA_TABLE_FILES) is exempt
+ * from hue and uppercase by the owner's order; nothing is exempt from :hover.
  *
  * BASELINE. Turning this on found older literals in surfaces the #SmarterDesign
  * passes had not reached (mostly painted-skin rules a `.sc--sd` override now
- * outranks, and on-felt labels). They are frozen here by COUNT per file and
- * rule, so the check lands green and anything NEW fails. The baseline may only
- * shrink: an entry whose count drops must be lowered in the same commit (the
- * check says so), and an entry may never be raised. Adding to it is not a fix.
+ * outranks, and on-felt labels). They were frozen by COUNT per file and rule,
+ * then cleared to zero the same day (2026-11-28). The baseline may only
+ * shrink, and it is empty: anything new fails. Adding to it is not a fix.
  *
  * Run: node scripts/ci/check-table-skin-ink.mjs
  */
@@ -49,7 +49,6 @@ const DIRS = ['src/components/table', 'src/components/console', 'src/components/
 /** Artwork stylesheets: hue rule only. Keep short; every line is a hiding place. */
 export const ARTWORK_FILES = {
   'src/components/table/CardImage.css': 'playing card faces and backs',
-  'src/components/table/CommunityCards.css': 'board cards and their deal/flip art',
   'src/components/table/DealAnimation.css': 'deal animation keyframes',
   'src/components/table/ChipAnimation.module.css': 'chip artwork in flight',
   'src/components/table/ChipPhysics.css': 'chip artwork in flight',
@@ -57,7 +56,6 @@ export const ARTWORK_FILES = {
   'src/components/table/ThrowableSignatures.css': 'purchased throwable signature effects',
   'src/components/table/ThrowAnimation.css': 'throwable flight and impact keyframes',
   'src/components/table/BombPotOverlay.css': 'Bomb Pot artwork',
-  'src/components/table/BombPotWheel.css': 'Bomb Pot wheel artwork',
   'src/components/table/ControlThemeTokens.css': 'player-purchased controller themes',
   'src/components/table/TableStudioGameplayPreview.css':
     "Table Studio's miniature of the felt and the player's purchased theme",
@@ -66,32 +64,38 @@ export const ARTWORK_FILES = {
 };
 
 /**
- * Frozen counts, 2026-11-28. Shrink only. `hue` is banned-hue literals,
- * `upper` is uppercase transforms. A file absent here allows zero of each.
+ * THE AUTHENTIC ARENA TABLE. Dan's order for the #SmarterDesign programme
+ * (2026-11-27): "The felt, cards, chips, avatars and the blurred room
+ * background are the authentic Arena table and are NOT restyled." These
+ * stylesheets draw that table itself (the seats on the felt, the pot, the
+ * board, a chat bubble at a seat, the Bomb Pot wheel), so they are exempt
+ * from the hue AND the uppercase rule, never from :hover. Everything a player
+ * opens over the table (consoles, popups, the drawer, chat, Hand Detail, the
+ * action controls) stays under every rule. Keep this short; a UI stylesheet
+ * does not belong here.
  */
-export const BASELINE = {
-  'src/components/handdetail/HandDetailView.css': { hue: 19 },
-  'src/components/handdetail/HandFlagControl.css': { hue: 8 },
-  'src/components/handdetail/HandNoteEditor.css': { hue: 6 },
-  'src/components/table/ActionController.css': { upper: 1 },
-  'src/components/table/ActionPanel.css': { hue: 2, upper: 3 },
-  'src/components/table/AddOnModal.css': { hue: 1 },
-  'src/components/table/BadBeatJackpot.css': { hue: 5, upper: 2 },
-  'src/components/table/BBJCelebration.css': { upper: 4 },
-  'src/components/table/BombPotWheel.css': { upper: 1 },
-  'src/components/table/ChatBubble.css': { upper: 1 },
-  'src/components/table/CommunityCards.css': { upper: 2 },
-  'src/components/table/HandReveal.css': { hue: 3, upper: 1 },
-  'src/components/table/PotDisplay.css': { hue: 23, upper: 4 },
-  'src/components/table/PreActionBar.css': { hue: 7, upper: 2 },
-  'src/components/table/RabbitHunt.css': { hue: 4 },
-  'src/components/table/RunItTwice.css': { hue: 4 },
-  'src/components/table/SeatSlot.css': { hue: 79, upper: 6 },
-  'src/components/table/TableChat.css': { hue: 3 },
-  'src/components/table/TablePerfMonitor.css': { upper: 1 },
-  'src/components/table/TableReactions.css': { hue: 4, upper: 1 },
-  'src/components/table/TournamentAnnouncementOverlay.css': { hue: 4 },
+export const ARENA_TABLE_FILES = {
+  'src/components/table/SeatSlot.css':
+    'authentic Arena table, not restyled (owner order 2026-11-27)',
+  'src/components/table/PotDisplay.css':
+    'authentic Arena table, not restyled (owner order 2026-11-27)',
+  'src/components/table/CommunityCards.css':
+    'authentic Arena table, not restyled (owner order 2026-11-27)',
+  'src/components/table/ChatBubble.css':
+    'authentic Arena table, not restyled (owner order 2026-11-27)',
+  'src/components/table/BombPotWheel.css':
+    'authentic Arena table, not restyled (owner order 2026-11-27)',
 };
+
+/**
+ * Frozen counts. EMPTY since 2026-11-28: every older literal the first run
+ * froze was converted to the table palette, its uppercase transform dropped,
+ * or, for a stylesheet that draws the authentic Arena table, exempted above
+ * by the owner's order. Shrink only: an entry may never be added back, and a new
+ * finding is fixed, not frozen. `hue` is banned-hue literals, `upper` is
+ * uppercase transforms. A file absent here allows zero of each.
+ */
+export const BASELINE = {};
 
 export const BANNED_BANDS = [
   [20, 70, 'orange/gold/yellow'],
@@ -248,7 +252,10 @@ function main() {
   const shrink = [];
   for (const file of files) {
     const rel = relative(ROOT, file).split('\\').join('/');
-    const findings = scanStylesheet(readFileSync(file, 'utf8'), { artwork: rel in ARTWORK_FILES });
+    const table = rel in ARENA_TABLE_FILES;
+    const findings = scanStylesheet(readFileSync(file, 'utf8'), {
+      artwork: table || rel in ARTWORK_FILES,
+    }).filter((f) => !(table && f.rule === 'upper'));
     const allowed = BASELINE[rel] ?? {};
     for (const rule of ['hue', 'upper', 'hover']) {
       const mine = findings.filter((f) => f.rule === rule);

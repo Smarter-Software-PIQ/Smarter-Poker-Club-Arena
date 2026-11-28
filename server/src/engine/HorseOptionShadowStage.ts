@@ -182,6 +182,10 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['flop']),
   }),
+  omahaFlopFacingBetEquityIsPeoplePriced: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop']),
+  }),
   omahaFacingBetFieldIsJoint: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['turn', 'river']),
@@ -199,6 +203,10 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     streets: Object.freeze(['turn']),
   }),
   omahaRiverBetPriorIsPotTypeSplit: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['river']),
+  }),
+  omahaRiverBetPriorReadsHisFrequency: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['river']),
   }),
@@ -342,6 +350,12 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
   holdemRiverFacingBetPriorIsPeopleMeasured: holdemStage(['nlh_cash', 'nlh_lightning'], ['river']),
   // lead-9 2026-11-27: the NLH cash heads-up turn bluff after a checked flop priced on people's turn fold (turn only)
   holdemTurnBluffIsPricedOnPeople: holdemStage(['nlh_cash', 'nlh_lightning'], ['turn']),
+  // lead-10 2026-11-28: a fold facing a heads-up NLH cash turn stab after a checked flop priced with a river plan, and
+  // the plan's river call facing that bettor's river bet
+  holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced: holdemStage(
+    ['nlh_cash', 'nlh_lightning'],
+    ['turn', 'river']
+  ),
 });
 
 /**

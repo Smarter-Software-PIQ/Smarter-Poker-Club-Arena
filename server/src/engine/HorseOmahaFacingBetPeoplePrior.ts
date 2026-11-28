@@ -37,6 +37,7 @@ import { omahaRiverPotCell, type OmahaRiverPotKey } from './HorseOmahaRiverPotPr
 import { OMAHA_FACING_BET_PEOPLE_PRIOR_DATA } from './HorseOmahaFacingBetPeoplePrior.data.js';
 import { omahaBetSizeBucket } from './HorseOmahaFacingBetEv.js';
 import { omahaEquilibriumAnchor } from './HorseOmahaEquilibriumAnchor.js';
+import { omahaRiverFrequencyPrior } from './HorseOmahaRiverFrequencyPrior.js';
 import {
   omahaPeoplePriorHiddenCell,
   omahaPeoplePriorHiddenFraction,
@@ -72,6 +73,9 @@ export interface OmahaPeoplePriorInput {
   riverPot?: OmahaRiverPotKey | null;
   /** omahaHiddenBetsArePricedAsGiveUps (with `hidden`, a turn bet): also return the give-up share (giveUp) */
   giveUps?: boolean;
+  /** omahaRiverBetPriorReadsHisFrequency (river bet only): his public heads-up unopened river first-bet record; the
+   *  non-value share it implies replaces people's as the prior mean of his shown record (absent / null: unchanged) */
+  frequency?: { bets: number; opps: number } | null;
 }
 export interface OmahaPeoplePriorShare {
   /** the non-value share priced */
@@ -183,14 +187,17 @@ function omahaPeoplePriorBlend(cell: Cell, balanced: number): number {
 /** Step 1: his not-value rate in the record's own unit over people's rate in that unit (1 with no record). */
 function omahaPeoplePriorRecordRatio(
   rec: { shown: number; value: number } | null,
-  pNT: number | null
+  pNT: number | null,
+  priorMean?: number
 ): { ratio: number; shown: number } {
   const shown = rec && pNT !== null && Number.isFinite(rec.shown) && rec.shown > 0 ? rec.shown : 0;
-  if (!(shown > 0)) return { ratio: 1, shown: 0 };
+  // omahaRiverBetPriorReadsHisFrequency: the prior mean of his record is his frequency's share, not people's
+  const m = priorMean !== undefined && pNT !== null ? priorMean : pNT;
+  if (!(shown > 0)) return { ratio: m !== null && pNT !== null ? m / pNT : 1, shown: 0 };
   const value = Math.max(0, Math.min(shown, Number.isFinite(rec!.value) ? rec!.value : 0));
   return {
     ratio:
-      (OMAHA_PEOPLE_PRIOR_RECORD_BETS * pNT! + (shown - value)) /
+      (OMAHA_PEOPLE_PRIOR_RECORD_BETS * m! + (shown - value)) /
       (OMAHA_PEOPLE_PRIOR_RECORD_BETS + shown) /
       pNT!,
     shown,
@@ -238,10 +245,22 @@ export function omahaPeoplePriorShare(input: OmahaPeoplePriorInput): OmahaPeople
     }
   }
   const rec = input.isRaise ? null : input.record;
-  const pNT = pot
-    ? pot.nonTop20
-    : omahaPeopleNonTop20(input.street, input.potFrac, input.isRaise, input.multiway, input.hidden);
-  const { ratio, shown } = omahaPeoplePriorRecordRatio(rec, pNT);
+  // His record (HorseOmahaBetRead's cell: street x size x line) does not split by pot type, so it is read against
+  // people's share in that SAME pot-blind cell; the ratio then moves the pot-type cell (omahaRiverBetPriorIsPotTypeSplit).
+  // Reading it against the re-raised cell's own share (larger) made an average person's record cancel the pot split
+  // (ratio -> pooled / re-raised = .417 / .551 on a big bet as his record grows; l10-rmem/BUILD.md).
+  const pNT = omahaPeopleNonTop20(
+    input.street,
+    input.potFrac,
+    input.isRaise,
+    input.multiway,
+    input.hidden
+  );
+  const freq =
+    input.frequency && input.street === 'river' && !input.isRaise
+      ? omahaRiverFrequencyPrior(input.frequency, pNT)
+      : null;
+  const { ratio, shown } = omahaPeoplePriorRecordRatio(rec, pNT, freq ? freq.nonValue : undefined);
   const share = clamp(prior * ratio);
   let regions: { core: number; middle: number; bottom: number } | null = null;
   if (base) {

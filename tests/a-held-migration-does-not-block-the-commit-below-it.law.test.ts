@@ -479,20 +479,22 @@ describe('a held migration does not block the commit below it (O29)', () => {
     expect(r.out).toContain('deferred=1');
     expect(r.out).not.toMatch(/^sha=/m);
     expect(r.calls).toContain('LEASE_RELEASED');
-    // The keep-serving run in the same position certifies main exactly as before.
+    // FM2 (2026-11-28): the keep-serving run (after_cycle, no INPUT_SHA) in the
+    // same position now honors held=1 deferral instead of wasting 48m certifying
+    // an unselectable commit on a copy lacking its migrations.
     const after = runDue(f, {
       EVENT: 'workflow_dispatch',
-      MODE: 'force',
+      MODE: 'auto',
       AFTER_CYCLE: '2026-11-26T01',
       SHA: docs,
       CONTROL: docs,
       GITHUB_SHA: docs,
     });
     expect(after.status, after.stderr).toBe(0);
-    expect(after.stdout).toContain(`KEEP-SERVING BACKUP NOT STEPPED DOWN: ${docs}`);
-    expect(after.out).not.toContain('deferred=1');
+    expect(after.stdout).toContain(`DEFERRED: ${docs} carries uninstalled ordinary migration(s)`);
+    expect(after.out).toContain('deferred=1');
     expect(after.out).not.toMatch(/^sha=/m);
-    expect(after.calls).not.toContain('LEASE_RELEASED');
+    expect(after.calls).toContain('LEASE_RELEASED');
   }, 120_000);
 
   it('could not tell is never a step down: an unreadable serving build or a retargeted run hands back', () => {

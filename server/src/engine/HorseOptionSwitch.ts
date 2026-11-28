@@ -369,6 +369,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   // 2026-11-27 PLO-OWNER lead-9 (lane nlof): a fold facing the first bet of a heads-up NLH cash river re-priced on
   // what the bettor's own called river bets were shown to be, then people's measured river first bets (ship dark)
   'holdemRiverFacingBetPriorIsPeopleMeasured',
+  // 2026-11-28 PLO-OWNER lead-10 (lane nlt): a fold facing the first bet of a heads-up NLH cash turn after a checked
+  // flop priced with the river played to a plan, and the plan's river calls made (ship dark)
+  'holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced',
   // 2026-11-27 PLO-OWNER lead-9: the NLH cash heads-up turn bluff after a checked-through flop priced on people's
   // turn fold by size and his own turn record by size; blockers or the range advantage required (ship dark)
   'holdemTurnBluffIsPricedOnPeople',
@@ -459,6 +462,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaHiddenBetsArePricedAsGiveUps',
   // 2026-11-27 lead-9 lane RV2: the heads-up river bet of a re-raised pot is priced on people's re-raised-pot river bets (ships dark)
   'omahaRiverBetPriorIsPotTypeSplit',
+  // 2026-11-27 lead-9 lane RFQ: the heads-up river bettor's own public river first-bet frequency sets the prior of his shown record (ships dark)
+  'omahaRiverBetPriorReadsHisFrequency',
   // 2026-11-26 PLO-OWNER lead-7: heads-up flop facing one bet, the V40 class cap priced against the bettor's range
   // on people-only flop shares for the call-or-fold check (ships dark)
   'omahaFlopPressureCapIsPriced',
@@ -466,6 +471,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaBareOverpairContinuationIsPeoplePriced',
   // 2026-11-27 lead-9 lane HU2: the call on a give-up-priced turn bet at EV >= 0, not EV > the margin (ships dark)
   'omahaGiveUpPricedTurnCallIsAtIndifference',
+  // 2026-11-28 PLO-OWNER lead-10: heads-up single-raised flop facing one bet, the call-or-fold check reads the
+  // people-priced equity instead of min(sampler, priced) (ships dark)
+  'omahaFlopFacingBetEquityIsPeoplePriced',
   // 2026-11-27 lead-8 lane OFB: the turn bettor priced on the people cell of the flop line, heads-up and multiway (ships dark)
   'omahaTurnFacingBetPriorIsLineSplit',
   // 2026-11-27 lead-9 lanes MWR + RV + RV2: a multiway river first bet is priced on the bettor's own shown river bets over the people-only multiway river cell (ships dark)
@@ -1216,6 +1224,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     HOLDEM,
     "NLH cash (table and Lightning), heads-up, river, facing the river's first bet",
     "a fold becomes a call when it clears its error on his own shown river bets, then people's measured river bets",
+  ],
+  holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced: [
+    HOLDEM,
+    "NLH cash (table and Lightning), heads-up, flop checked through, facing the turn's first bet and that bettor's river bet after the call",
+    "a fold becomes a call when it beats the fold with the river played to a plan on his own stabs and river bets, then people's; the plan's river calls are made",
   ],
   holdemTurnBluffIsPricedOnPeople: [
     HOLDEM,

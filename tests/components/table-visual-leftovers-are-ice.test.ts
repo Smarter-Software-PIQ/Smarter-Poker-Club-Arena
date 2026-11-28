@@ -104,6 +104,31 @@ describe('titleCaseName', () => {
     expect(titleCaseName(input)).toBe(expected);
   });
 
+  // Initialisms the acronym list does not know survive an all-caps name
+  // (2026-11-28): no vowel and 2-5 letters, or 2-3 letters that are not a
+  // short English word or common first name. "MSP POKER" was "Msp Poker".
+  it.each([
+    ['MSP POKER', 'MSP Poker'],
+    ['BCLC HOLDEM NIGHTS', 'BCLC Holdem Nights'],
+    ['NYC ACES', 'NYC Aces'],
+    ['GTO LAB', 'GTO Lab'],
+    ['THE ACE CLUB', 'The Ace Club'],
+    ['BIG SLICK AND FRIENDS', 'Big Slick And Friends'],
+    ['TOP DOG POKER', 'Top Dog Poker'],
+    ["DAN'S HOME GAME", "Dan's Home Game"],
+    ['JOE AND SAM', 'Joe And Sam'],
+    ['MY SKY BAR', 'My Sky Bar'],
+    ['ALL IN OR FOLD', 'All In Or Fold'],
+    ['WPT-STYLE NIGHTS', 'WPT-Style Nights'],
+    ['ROYAL FLUSH 2024', 'Royal Flush 2024'],
+    // Lower case carries no signal, and a mixed-case name is never touched.
+    ['msp poker', 'Msp Poker'],
+    ['Msp Poker', 'Msp Poker'],
+    ['MSP Poker Nights', 'MSP Poker Nights'],
+  ])('keeps typed initialisms: %s -> %s', (input, expected) => {
+    expect(titleCaseName(input)).toBe(expected);
+  });
+
   it('is null safe', () => {
     expect(titleCaseName(null)).toBe('');
     expect(titleCaseName(undefined)).toBe('');

@@ -159,6 +159,31 @@ describe("LAW: the river bet of a re-raised pot is priced on people's re-raised-
     expect(at({ shown: 20, value: 2 })).toBeLessThan(at(null));
   });
 
+  it("an average person's record leaves the re-raised cell where it is: his record is pot-blind, so it is read against people's pot-blind share", () => {
+    // HorseOmahaBetRead's cell (street x size x line) does not split by pot type. A record whose not-value share is
+    // people's pooled share in that unit must move the re-raised cell by nothing; read against the re-raised cell's
+    // own (larger) share it would pull the cell back toward the pooled one (lead-10 RMEM, 2026-11-28).
+    for (const potFrac of [0.3, 0.6, 1]) {
+      const pooledNT = omahaPeopleNonTop20('river', potFrac, false, false)!;
+      expect(pooledNT).toBeGreaterThan(0);
+      const at = (record: { shown: number; value: number } | null) =>
+        omahaPeoplePriorShare({
+          ...RIVER_BET,
+          potFrac,
+          isRaise: false,
+          record,
+          riverPot: { pot: 'reraised' },
+        })!;
+      const none = at(null);
+      for (const shown of [10, 80, 400]) {
+        const avg = at({ shown, value: shown * (1 - pooledNT) });
+        expect(avg.share).toBeCloseTo(none.share, 9);
+        expect(avg.regions!.core).toBeCloseTo(none.regions!.core, 9);
+        expect(avg.regions!.bottom).toBeCloseTo(none.regions!.bottom, 9);
+      }
+    }
+  });
+
   const states = riverPotStates();
   const runs = states.map((s) => ({
     s,

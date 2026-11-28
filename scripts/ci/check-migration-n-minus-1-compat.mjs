@@ -35,7 +35,7 @@ import { pathToFileURL } from 'node:url';
 export const N_MINUS_1_SAFE_ANNOTATION = '-- @n-minus-1-safe:';
 export const MIN_SAFE_REASON_LENGTH = 10;
 
-const SAFE_LINE_RE = /^--[ \t]*@n-minus-1-safe:[ \t]*(.*)$/gim;
+const SAFE_COMMENT_RE = /^--[ \t]*@n-minus-1-safe:[ \t]*(.*)$/i;
 const SUPERSEDED_RE = /^--[ \t]*SUPERSEDED\s+BY\s+\d{14}\b/im;
 const NAME_RE = String.raw`((?:"?[A-Za-z_][A-Za-z0-9_$]*"?\.)?"?[A-Za-z_][A-Za-z0-9_$]*"?)`;
 const IDENT_RE = String.raw`("?[A-Za-z_][A-Za-z0-9_$]*"?)`;
@@ -52,23 +52,126 @@ function splitSchemaName(raw) {
   return { schema: clean.slice(0, dot), name: clean.slice(dot + 1) };
 }
 
+function matchDollarQuoteTag(s, i) {
+  if (s[i] !== '$' || /[A-Za-z0-9_$]/.test(s[i - 1] ?? ' ')) return null;
+  const m = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(s.slice(i, i + 80));
+  return m ? m[0] : null;
+}
+
+function skipQuotedSpan(s, i, quote) {
+  let j = i + 1;
+  while (j < s.length) {
+    const k = s.indexOf(quote, j);
+    if (k < 0) return s.length;
+    if (s[k + 1] === quote) {
+      j = k + 2;
+      continue;
+    }
+    return k + 1;
+  }
+  return s.length;
+}
+
+function skipBlockComment(s, i) {
+  let depth = 1;
+  let j = i + 2;
+  while (j < s.length && depth > 0) {
+    if (s[j] === '/' && s[j + 1] === '*') {
+      depth++;
+      j += 2;
+    } else if (s[j] === '*' && s[j + 1] === '/') {
+      depth--;
+      j += 2;
+    } else {
+      j++;
+    }
+  }
+  return j;
+}
+
 /**
- * True when the migration carries an explicit `-- @n-minus-1-safe: <reason>`
- * comment with at least MIN_SAFE_REASON_LENGTH non-whitespace characters.
+ * True when the migration carries an explicit top-level `-- @n-minus-1-safe: <reason>`
+ * line comment (outside single/double-quoted strings, dollar-quoted bodies, and
+ * block comments) with at least MIN_SAFE_REASON_LENGTH non-whitespace characters.
  */
 export function isNMinus1SafeAnnotated(sql) {
-  const text = String(sql);
-  for (const m of text.matchAll(SAFE_LINE_RE)) {
-    const reason = (m[1] ?? '').trim();
-    if (reason.length >= MIN_SAFE_REASON_LENGTH) return true;
+  const s = String(sql);
+  let i = 0;
+  let atLineStart = true;
+  while (i < s.length) {
+    const c = s[i];
+    const n = s[i + 1];
+    if (c === '\n') {
+      atLineStart = true;
+      i++;
+      continue;
+    }
+    if (c === ' ' || c === '\t' || c === '\r') {
+      i++;
+      continue;
+    }
+    if (c === '-' && n === '-') {
+      const e = s.indexOf('\n', i);
+      const end = e < 0 ? s.length : e;
+      if (atLineStart) {
+        const line = s.slice(i, end).replace(/\r$/, '');
+        const m = SAFE_COMMENT_RE.exec(line);
+        if (m && (m[1] ?? '').trim().length >= MIN_SAFE_REASON_LENGTH) return true;
+      }
+      i = end;
+      atLineStart = false;
+      continue;
+    }
+    if (c === '/' && n === '*') {
+      i = skipBlockComment(s, i);
+      atLineStart = false;
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      i = skipQuotedSpan(s, i, c);
+      atLineStart = false;
+      continue;
+    }
+    const tag = matchDollarQuoteTag(s, i);
+    if (tag) {
+      const close = s.indexOf(tag, i + tag.length);
+      i = close < 0 ? s.length : close + tag.length;
+      atLineStart = false;
+      continue;
+    }
+    atLineStart = false;
+    i++;
   }
   return false;
 }
 
 /**
+ * Iteratively strip leading PL/pgSQL block/control headers so DDL nested inside
+ * DO blocks (DECLARE/BEGIN/IF/ELSIF/ELSE/FOR/LOOP/EXCEPTION/WHEN) is exposed.
+ */
+function stripPlpgsqlHeaders(rawStmt) {
+  let stmt = String(rawStmt || '').trim();
+  for (;;) {
+    const next = stmt
+      .replace(/^<<[A-Za-z_][A-Za-z0-9_]*>>\s*/i, '')
+      .replace(/^DECLARE\b[^;]*;\s*/i, '')
+      .replace(/^DECLARE\b\s+(?=BEGIN\b)/i, '')
+      .replace(/^(?:BEGIN|ELSE|LOOP|EXCEPTION)\b\s*/i, '')
+      .replace(/^(?:IF|ELSIF|WHEN)\b[\s\S]*?\bTHEN\b\s*/i, '')
+      .replace(/^FOR\b[\s\S]*?\bLOOP\b\s*/i, '')
+      .trim();
+    if (next === stmt) break;
+    stmt = next;
+  }
+  return stmt;
+}
+
+/**
  * Statement-level SQL text: removes -- and block comments, strips CREATE
- * FUNCTION/PROCEDURE bodies, and expands DO blocks so DDL inside DO blocks is
- * inspected while function bodies are not mistaken for top-level DDL.
+ * FUNCTION/PROCEDURE bodies, expands DO blocks so DDL inside DO blocks is
+ * inspected while function bodies are not mistaken for top-level DDL, and
+ * preserves string/dollar-quoted literals inside EXECUTE statements so dynamic
+ * DDL is also inspected.
  */
 function ddlStatementText(sql) {
   const s = String(sql);
@@ -84,48 +187,35 @@ function ddlStatementText(sql) {
       continue;
     }
     if (c === '/' && n === '*') {
-      const e = s.indexOf('*/', i + 2);
-      i = e < 0 ? s.length : e + 2;
+      i = skipBlockComment(s, i);
       out += ' ';
       continue;
     }
     if (c === "'") {
-      let j = i + 1;
-      for (;;) {
-        const k = s.indexOf("'", j);
-        if (k < 0) {
-          j = s.length;
-          break;
-        }
-        if (s[k + 1] === "'") {
-          j = k + 2;
-          continue;
-        }
-        j = k + 1;
-        break;
-      }
-      out += "''";
+      const j = skipQuotedSpan(s, i, "'");
+      const curHeader = stripPlpgsqlHeaders(out.slice(stmtStart));
+      out += /^EXECUTE\b/i.test(curHeader) ? s.slice(i, j) : "''";
       i = j;
       continue;
     }
-    if (c === '$' && !/[A-Za-z0-9_$]/.test(s[i - 1] ?? ' ')) {
-      const m = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(s.slice(i, i + 80));
-      if (m) {
-        const tag = m[0];
-        const close = s.indexOf(tag, i + tag.length);
-        const body = s.slice(i + tag.length, close < 0 ? s.length : close);
-        const stmtHeader = out.slice(stmtStart).trim();
-        if (/^DO\b/i.test(stmtHeader)) {
-          out = out.slice(0, stmtStart) + ' ' + ddlStatementText(body) + ';';
-          stmtStart = out.length;
-        } else if (/^CREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\b/i.test(stmtHeader)) {
-          out = out.slice(0, stmtStart);
-        } else {
-          out += '$$';
-        }
-        i = close < 0 ? s.length : close + tag.length;
-        continue;
+    const tag = matchDollarQuoteTag(s, i);
+    if (tag) {
+      const close = s.indexOf(tag, i + tag.length);
+      const end = close < 0 ? s.length : close + tag.length;
+      const body = s.slice(i + tag.length, close < 0 ? s.length : close);
+      const stmtHeader = stripPlpgsqlHeaders(out.slice(stmtStart));
+      if (/^DO\b/i.test(stmtHeader)) {
+        out = out.slice(0, stmtStart) + ' ' + ddlStatementText(body) + ';';
+        stmtStart = out.length;
+      } else if (/^CREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\b/i.test(stmtHeader)) {
+        out = out.slice(0, stmtStart);
+      } else if (/^EXECUTE\b/i.test(stmtHeader)) {
+        out += s.slice(i, end);
+      } else {
+        out += "''";
       }
+      i = end;
+      continue;
     }
     if (c === ';') stmtStart = out.length + 1;
     out += c;
@@ -138,8 +228,23 @@ function splitTopLevel(text, delimiter) {
   const parts = [];
   let depth = 0;
   let cur = '';
-  for (let i = 0; i < text.length; i++) {
+  let i = 0;
+  while (i < text.length) {
     const ch = text[i];
+    if (ch === "'" || ch === '"') {
+      const end = skipQuotedSpan(text, i, ch);
+      cur += text.slice(i, end);
+      i = end;
+      continue;
+    }
+    const tag = matchDollarQuoteTag(text, i);
+    if (tag) {
+      const close = text.indexOf(tag, i + tag.length);
+      const end = close < 0 ? text.length : close + tag.length;
+      cur += text.slice(i, end);
+      i = end;
+      continue;
+    }
     if (ch === '(' || ch === '[') depth++;
     else if (ch === ')' || ch === ']') depth = Math.max(0, depth - 1);
     if (ch === delimiter && depth === 0) {
@@ -148,6 +253,7 @@ function splitTopLevel(text, delimiter) {
     } else {
       cur += ch;
     }
+    i++;
   }
   if (cur.trim()) parts.push(cur.trim());
   return parts;
@@ -155,24 +261,124 @@ function splitTopLevel(text, delimiter) {
 
 function balancedAfterOpenParen(text, openIdx) {
   let depth = 0;
-  for (let i = openIdx; i < text.length; i++) {
-    if (text[i] === '(') depth++;
-    else if (text[i] === ')' && --depth === 0) return i + 1;
+  let i = openIdx;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === "'" || ch === '"') {
+      i = skipQuotedSpan(text, i, ch);
+      continue;
+    }
+    const tag = matchDollarQuoteTag(text, i);
+    if (tag) {
+      const close = text.indexOf(tag, i + tag.length);
+      i = close < 0 ? text.length : close + tag.length;
+      continue;
+    }
+    if (ch === '(') depth++;
+    else if (ch === ')' && --depth === 0) return i + 1;
+    i++;
   }
   return text.length;
+}
+
+function parseSqlStringLiteral(expr) {
+  const s = String(expr || '').trim();
+  if (!s) return null;
+  if (s.startsWith("'") && s.endsWith("'") && s.length >= 2) {
+    // Ensure single literal (no unescaped closing quote before the end).
+    if (skipQuotedSpan(s, 0, "'") === s.length) {
+      return s.slice(1, -1).replace(/''/g, "'");
+    }
+  }
+  const tag = matchDollarQuoteTag(s, 0);
+  if (tag) {
+    const close = s.indexOf(tag, tag.length);
+    if (close >= 0 && close + tag.length === s.length) {
+      return s.slice(tag.length, close);
+    }
+  }
+  return null;
+}
+
+function extractExecuteDynamicSql(stmt) {
+  const m = /^EXECUTE\b\s*([\s\S]+)$/i.exec(stmt);
+  if (!m) return [];
+  const expr = m[1].trim();
+  // Case 1: EXECUTE [pg_catalog.]format('...', arg1, arg2, ...)
+  const fmtMatch = /^(?:pg_catalog\s*\.\s*)?format\s*\(/i.exec(expr);
+  if (fmtMatch) {
+    const openIdx = fmtMatch[0].length - 1;
+    const closeIdx = balancedAfterOpenParen(expr, openIdx);
+    const argsText = expr.slice(openIdx + 1, closeIdx - 1);
+    const args = splitTopLevel(argsText, ',');
+    if (args.length === 0) return [];
+    const template = parseSqlStringLiteral(args[0]);
+    if (template === null) return [];
+    const literalArgs = args.slice(1).map((a) => parseSqlStringLiteral(a));
+    let nextArg = 0;
+    const expanded = template.replace(/%(?:%|(\d+)\$([IsL])|([IsL]))/g, (full, posIdx, posType, seqType) => {
+      if (full === '%%') return '%';
+      const idx = posIdx ? Number.parseInt(posIdx, 10) - 1 : nextArg++;
+      const kind = posType || seqType;
+      const val = idx >= 0 && idx < literalArgs.length ? literalArgs[idx] : null;
+      if (val === null || val === undefined) return full;
+      if (kind === 'L') return `'${val.replace(/'/g, "''")}'`;
+      return val;
+    });
+    return [expanded];
+  }
+
+  // Case 2: EXECUTE '...' or EXECUTE $tag$...$tag$ or literal concatenation ('...' || '...')
+  const pieces = [];
+  let i = 0;
+  let depth = 0;
+  while (i < expr.length) {
+    const ch = expr[i];
+    if (ch === "'" ) {
+      const end = skipQuotedSpan(expr, i, "'");
+      if (depth === 0) pieces.push(expr.slice(i + 1, end - 1).replace(/''/g, "'"));
+      i = end;
+      continue;
+    }
+    const tag = matchDollarQuoteTag(expr, i);
+    if (tag) {
+      const close = expr.indexOf(tag, i + tag.length);
+      const end = close < 0 ? expr.length : close + tag.length;
+      if (depth === 0) pieces.push(expr.slice(i + tag.length, close < 0 ? expr.length : close));
+      i = end;
+      continue;
+    }
+    if (ch === '(') depth++;
+    else if (ch === ')') depth = Math.max(0, depth - 1);
+    // Stop before INTO / USING clause at top level.
+    if (depth === 0 && /^(?:INTO|USING)\b/i.test(expr.slice(i)) && !/[A-Za-z0-9_$]/.test(expr[i - 1] ?? ' ')) {
+      break;
+    }
+    i++;
+  }
+  if (pieces.length === 0) return [];
+  return [pieces.join('')];
 }
 
 /**
  * Extract potentially N-1 breaking DDL operations from a migration file.
  */
-export function extractBreakingDdlOps(sql) {
+export function extractBreakingDdlOps(sql, depth = 0) {
   const text = ddlStatementText(sql);
   const statements = splitTopLevel(text, ';');
   const ops = [];
 
   for (const rawStmt of statements) {
-    const stmt = rawStmt.replace(/^(?:BEGIN|ELSE)\b\s*/i, '').trim();
+    const stmt = stripPlpgsqlHeaders(rawStmt);
     if (!stmt) continue;
+
+    // 0. Dynamic SQL via EXECUTE '...' / EXECUTE format('...', ...)
+    if (/^EXECUTE\b/i.test(stmt) && depth < 4) {
+      for (const dynSql of extractExecuteDynamicSql(stmt)) {
+        ops.push(...extractBreakingDdlOps(dynSql, depth + 1));
+      }
+      continue;
+    }
 
     // 1. DROP TABLE [IF EXISTS] t1 [, t2 ...]
     const dropTbl = /^DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?([\s\S]+)$/i.exec(stmt);

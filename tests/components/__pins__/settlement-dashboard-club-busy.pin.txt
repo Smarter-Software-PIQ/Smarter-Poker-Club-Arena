@@ -1,0 +1,23 @@
+body 0: div
+money: {
+  "figures": [],
+  "hooks": []
+}
+text: Weekly Workspace club Kings Club
+regions: [
+  "div||||"
+]
+body 1: div
+money: {
+  "figures": [],
+  "hooks": []
+}
+text: Loading Transactions...
+regions: [
+  "div|status||polite|"
+]
+controls: [
+  "button|Back"
+]
+Club Transaction Records: 1
+Your Account Transactions: 0

@@ -198,6 +198,79 @@ class PostCutoverBaselineDiffTest(unittest.TestCase):
             self.assertIn("Post-Cutover Baseline Diff: HEALTHY", md_text)
             self.assertNotIn("\u2014", md_text)
 
+    def test_exit_three_writes_markdown_out_even_under_default_json_format(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            good = root / "good.json"
+            bad = root / "bad.json"
+            json_out = root / "err.json"
+            md_out = root / "err.md"
+            good.write_text(json.dumps(healthy_snapshot()), encoding="utf-8")
+            bad.write_text("{not-json", encoding="utf-8")
+
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    "-B",
+                    str(SCRIPT),
+                    "--pre",
+                    str(good),
+                    "--post",
+                    str(bad),
+                    "--json-out",
+                    str(json_out),
+                    "--markdown-out",
+                    str(md_out),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(proc.returncode, 3, proc.stdout + proc.stderr)
+            self.assertEqual(json.loads(proc.stdout)["verdict"], "unreadable")
+            self.assertTrue(json_out.exists())
+            self.assertTrue(md_out.exists(), "--markdown-out must be written on exit 3 even with default --format json")
+            self.assertIn("UNREADABLE", md_out.read_text(encoding="utf-8"))
+
+    def test_zero_floor_and_zero_baseline_and_invalid_cli_floors_never_crash(self):
+        pre = healthy_snapshot(memory={"rssMb": 0}, dealRate={"tablesExpectedDealing": 0, "handsInWindow": 0})
+        post = healthy_snapshot(memory={"rssMb": 50}, dealRate={"tablesExpectedDealing": 0, "handsInWindow": 0})
+        receipt = MOD.compare_snapshots(pre, post, rss_floor_mb=0.0)
+        self.assertEqual(receipt["exitCode"], 2)
+        self.assertEqual(receipt["verdict"], "warning")
+        rss_reg = next(r for r in receipt["regressions"] if r["name"] == "memory.rssMb")
+        self.assertTrue(rss_reg["regressed"])
+        self.assertEqual(rss_reg["status"], "regressed")
+
+        # Invalid CLI parameters (min-tables-for-deal-rate <= 0, negative or NaN floor) fail closed with InputError / exit 3
+        with self.assertRaises(MOD.InputError):
+            MOD.compare_snapshots(pre, post, min_tables_for_deal_rate=0)
+        with self.assertRaises(MOD.InputError):
+            MOD.compare_snapshots(pre, post, rss_floor_mb=-1.0)
+        with self.assertRaises(MOD.InputError):
+            MOD.compare_snapshots(pre, post, event_loop_p99_pct=float("nan"))
+
+    def test_null_primary_metric_falls_back_to_secondary_fields(self):
+        pre = healthy_snapshot(
+            memory={"rssMb": None, "rssBytes": 1_000_000_000},
+            eventLoopDelay={"p99Ms": None},
+            mainEventLoopGovernor={"p99Ms": 20.0},
+        )
+        post = healthy_snapshot(
+            memory={"rssMb": None, "rssBytes": 1_500_000_000},  # +50% (> 25%)
+            eventLoopDelay={"p99Ms": None},
+            mainEventLoopGovernor={"p99Ms": 40.0},  # +100% (> 30%)
+        )
+        receipt = MOD.compare_snapshots(pre, post)
+        self.assertEqual(receipt["exitCode"], 2)
+        rss_reg = next(r for r in receipt["regressions"] if r["name"] == "memory.rssMb")
+        el_reg = next(r for r in receipt["regressions"] if r["name"] == "eventLoopDelay.p99Ms")
+        self.assertEqual(rss_reg["pre"], 1000.0)
+        self.assertEqual(rss_reg["post"], 1500.0)
+        self.assertTrue(rss_reg["regressed"])
+        self.assertEqual(el_reg["pre"], 20.0)
+        self.assertEqual(el_reg["post"], 40.0)
+        self.assertTrue(el_reg["regressed"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,32 @@
+body 0: section
+money: {
+  "figures": [],
+  "hooks": []
+}
+text: Choose A Club Or Union From Its Accounting Page To View A Specific Weekly Record. Open Clubs Open Unions
+regions: [
+  "section||Choose Accounting Scope||"
+]
+body 1: section
+money: {
+  "figures": [
+    "1",
+    "88.50"
+  ],
+  "hooks": [
+    "data-category=Transfer"
+  ]
+}
+text: 1 Transaction Shown Transfer Club Treasury To Lucky Seven Weekly Top Up 88.50 <date>, <time>
+regions: [
+  "section||Transaction History||",
+  "ol||Ledger Rows||0",
+  "time||||"
+]
+controls: [
+  "button|Back",
+  "button|Open Clubs",
+  "button|Open Unions"
+]
+Club Transaction Records: 0
+Your Account Transactions: 1

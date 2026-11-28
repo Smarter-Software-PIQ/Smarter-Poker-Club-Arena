@@ -6,10 +6,25 @@ import { useFinancialAdminScope } from '../hooks/useFinancialAdminScope';
 import FinancialAdminScopeState from '../components/common/FinancialAdminScopeState';
 import TransactionLedgerView from '../components/common/TransactionLedgerView';
 import WeeklyAccountingWorkspace from '../components/accounting/WeeklyAccountingWorkspace';
-import { SpadeConsole } from '../components/console/SpadeConsole';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
 import PageBar from '../components/help/PageBar';
-import styles from './SettlementPage.module.css';
+import { useClubStore } from '../stores/useClubStore';
+import './SettlementDashboardPage.css';
 
+const SUMMARY =
+  'Verified Settlement Records. Weekly Accounting Is Posted Automatically, And Every Transaction Behind It Is Listed Below.';
+
+/**
+ * The Settlement Center: the weekly accounting of the club the finance scope
+ * chose, and the chip ledger behind it.
+ *
+ * #SmarterDesign (batch S1, 2026-11-28): the two painted spade consoles are
+ * gone. The page wears the arena workspace: Back as a chrome key above the
+ * finance mast, the scope as a chrome status line, the weekly workspace in one
+ * thin chrome case and the ledger in a second case under its section title.
+ * Every handler, guard, region name and figure is unchanged
+ * (tests/components/settlementDashboardIsPinned.test.tsx).
+ */
 export default function SettlementDashboardPage() {
   const scope = useFinancialAdminScope();
   const { user, isHydrating } = useAuthUser();
@@ -19,49 +34,55 @@ export default function SettlementDashboardPage() {
     user?.id,
     JSON.stringify(['settlement-dashboard', scope.clubId, scope.userId, scope.status])
   );
-  if (scope.status !== 'ready') return <FinancialAdminScopeState scope={scope} />;
+  // The mast names the club the scope chose, from the membership already held;
+  // with none held the line stays blank rather than naming another club.
+  const clubName = useClubStore(
+    (state) => state.memberships.find((m) => m.club?.id === scope.clubId)?.club?.name
+  );
+  if (scope.status !== 'ready') return <FinancialAdminScopeState scope={scope} arena />;
   if (!user?.id || isHydrating || scope.userId !== user.id || !current())
     return (
-      <main className={styles.page}>
-        <SpadeConsole
-          className={styles.console}
-          family="spade"
+      <main className="settlement-dashboard-page arena-workspace">
+        <ArenaWorkspaceHeader area="finance" title="Weekly Accounting" summary={SUMMARY} />
+        <PageBar
           title="Weekly Accounting"
-          titleAs="h1"
-          pill="Unavailable"
-          pillInk="red"
-          foot="foot"
-        >
-          <p className={`${styles.state} sc-ink--red`} role="alert">
+          titleAs={false}
+          showHelp={false}
+          status="Unavailable"
+          statusTone="danger"
+        />
+        <section className="arena-case arena-ops-case settlement-dashboard-page__case">
+          <p className="settlement-dashboard-page__state" role="alert">
             Accounting Is Unavailable Until This Account Is Ready.
           </p>
-        </SpadeConsole>
+        </section>
       </main>
     );
   const scopeClubId = scope.clubId;
   const ledgerTitle = scopeClubId ? 'Club Transaction Records' : 'Your Account Transactions';
   return (
-    <main className={styles.page}>
-      {/* Dan, 2026-10-17: "PAGES DON'T NEED TITLES LIKE THIS". The eyebrow and
-          the descriptive subtitle moved behind the painted "?"; the head keeps
-          its title and its live pill. */}
+    <main className="settlement-dashboard-page arena-workspace">
+      <div className="arena-switch arena-ops-keys settlement-dashboard-page__back">
+        <button type="button" onClick={() => navigate(-1)}>
+          Back
+        </button>
+      </div>
+      {/* Dan, 2026-10-17: "PAGES DON'T NEED TITLES LIKE THIS". What this page
+          is lives behind the chrome "?". */}
+      <ArenaWorkspaceHeader
+        area="finance"
+        title="Weekly Accounting"
+        context={clubName || undefined}
+        summary={SUMMARY}
+      />
       <PageBar
         title="Weekly Accounting"
         titleAs={false}
-        summary="Verified Settlement Records. Weekly Accounting Is Posted Automatically, And Every Transaction Behind It Is Listed Below."
+        showHelp={false}
+        status={scopeClubId ? 'Club' : 'Account'}
+        statusTone="live"
       />
-      <SpadeConsole
-        className={styles.console}
-        family="spade"
-        title="Weekly Accounting"
-        titleAs="h1"
-        pill={scopeClubId ? 'Club' : 'Account'}
-        pillInk="blue"
-        foot="foot"
-      >
-        <button type="button" className={styles.backButton} onClick={() => navigate(-1)}>
-          Back
-        </button>
+      <section className="arena-case arena-ops-case settlement-dashboard-page__case">
         {scopeClubId ? (
           <WeeklyAccountingWorkspace
             key={`${scopeClubId}:${user.id}`}
@@ -69,47 +90,53 @@ export default function SettlementDashboardPage() {
             scopeRef={scopeClubId}
           />
         ) : (
-          <section className={styles.scopeChooser} aria-label="Choose Accounting Scope">
-            <p>Choose A Club Or Union From Its Accounting Page To View A Specific Weekly Record.</p>
-            <div className={styles.scopeActions}>
-              <button type="button" onClick={() => navigate('/clubs')}>
-                Open Clubs
-              </button>
-              {canOperateUnionNetwork && (
-                <button type="button" onClick={() => navigate('/unions')}>
-                  Open Unions
+          <>
+            <h2 className="arena-section-title">Choose A Scope</h2>
+            <section
+              className="settlement-dashboard-page__chooser"
+              aria-label="Choose Accounting Scope"
+            >
+              <p>
+                Choose A Club Or Union From Its Accounting Page To View A Specific Weekly Record.
+              </p>
+              <div className="arena-switch arena-ops-keys arena-ops-primary">
+                <button type="button" onClick={() => navigate('/clubs')}>
+                  Open Clubs
                 </button>
-              )}
-            </div>
-          </section>
+                {canOperateUnionNetwork && (
+                  <button type="button" onClick={() => navigate('/unions')}>
+                    Open Unions
+                  </button>
+                )}
+              </div>
+            </section>
+          </>
         )}
-      </SpadeConsole>
+      </section>
 
-      <SpadeConsole
-        className={styles.ledgerConsole}
-        family="spade"
-        crest="flat"
-        eyebrow="Settlement Center"
-        title={ledgerTitle}
-        pill="Verified"
-        pillInk="blue"
-        foot="foot"
+      <section
+        className="arena-case arena-ops-case settlement-dashboard-page__ledger"
         aria-label={ledgerTitle}
       >
-        {/* The console above is the one region named ledgerTitle. The list keeps
-            its own default name; passing ledgerTitle here as well gave the page
-            two regions called "Club Transaction Records" (financial-admin-deep). */}
+        <h2 className="arena-section-title">
+          {ledgerTitle}
+          <small>Verified</small>
+        </h2>
+        {/* The case is the one region named ledgerTitle. The list keeps its own
+            default name; passing ledgerTitle here as well gave the page two
+            regions called "Club Transaction Records" (financial-admin-deep). */}
         {scopeClubId ? (
           <TransactionLedgerView
             clubId={scopeClubId}
             clubScoped
             key={`${scopeClubId}:${user.id}`}
             limit={25}
+            arena
           />
         ) : (
-          <TransactionLedgerView key={user.id} userId={user.id} limit={25} />
+          <TransactionLedgerView key={user.id} userId={user.id} limit={25} arena />
         )}
-      </SpadeConsole>
+      </section>
     </main>
   );
 }

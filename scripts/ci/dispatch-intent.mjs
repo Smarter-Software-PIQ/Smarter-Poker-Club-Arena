@@ -98,7 +98,7 @@ export const OPERATIONS = Object.freeze({
     dispatch: { kind: 'workflow_dispatch', workflow: 'backup-engine.yml', ref: 'main' },
     inputs: {
       after_cycle: { required: true, test: (v) => typeof v === 'string' && CYCLE.test(v) },
-      refresh: { required: true, test: (v) => v === 'true' },
+      refresh: { required: true, test: (v) => v === 'true' || v === 'false' },
     },
   },
 });

@@ -14,23 +14,31 @@ describe('financial admin subpages keep the Club Arena console contract', () => 
     expect(page).not.toContain("label: 'Settlements'");
   });
 
-  it('renders Credit Admin on the approved money console without generic card chrome', () => {
+  it('renders Credit Admin in the arena workspace without generic card chrome (#SmarterDesign O2)', () => {
     const page = read('src/pages/CreditAdminPanel.tsx');
-    const pageCss = read('src/pages/CreditAdminPanel.module.css');
+    const pageCss = read('src/pages/CreditAdminPanel.css');
     const requestCss = read('src/components/agent/CreditRequestWidget.css');
 
-    expect(page).toContain('family="spade"');
-    expect(page).not.toContain('family="riveted"');
-    expect(page).toContain('crest="spade"');
+    // Dan, 2026-11-27: the painted spade console is the old style on a page.
+    expect(page).not.toContain('SpadeConsole');
+    expect(page).toContain('className="credit-admin-page arena-workspace"');
+    expect(page).toContain('<ArenaWorkspaceHeader');
+    expect(page).toContain('area="finance"');
     expect(page).toContain('const hasExport = dataReady && agents.length > 0');
-    expect(page).toContain("foot={hasExport ? 'plates' : 'foot'}");
-    expect(page).toContain('className={styles.backWord}');
+    // Export Shown Rows is the one lit key, and only when rows are shown.
+    expect(page).toMatch(
+      /\{hasExport && \(\s*<div className="arena-switch arena-ops-keys arena-ops-primary[^"]*">\s*<button type="button" onClick=\{exportShownRows\}>\s*Export Shown Rows/
+    );
+    // Back is a chrome key above the mast, never inside it.
+    for (const at of [...page.matchAll(/<ArenaWorkspaceHeader/g)].map((m) => m.index ?? 0))
+      expect(page.lastIndexOf('Back', at)).toBeGreaterThan(page.lastIndexOf('<main', at));
     expect(page).toContain('{titleCase(agent.clubName)}');
     expect(page).toContain('{titleCase(log.clubName)}');
     expect(page).not.toContain('PageSkeleton');
-    expect(page).not.toMatch(/plates=\{\{\s*secondary:[^}]+\}\}/);
     expect(page).not.toMatch(/style=\{\{/);
     expect(page).not.toMatch(/[✓✕←→]/);
+    // The chrome comes from the workspace's variables, never a new gradient,
+    // radius or blur written here.
     for (const css of [pageCss, requestCss]) {
       expect(css).not.toMatch(/border-radius\s*:/);
       expect(css).not.toMatch(/(?:linear|radial|conic)-gradient\s*\(/);
@@ -50,28 +58,36 @@ describe('financial admin subpages keep the Club Arena console contract', () => 
     expect(credit).toContain("if (scope.status !== 'ready') {");
     expect(credit).toContain('return <FinancialAdminScopeState scope={scope} />;');
     expect(credit).not.toMatch(/<SpadeConsole[\s\S]{0,900}<FinancialAdminScopeState/);
+    // The Settlement Center is an arena workspace page (#SmarterDesign batch
+    // S1, 2026-11-28): its scope states take the opt-in arena dress.
     expect(settlement).toContain(
-      "if (scope.status !== 'ready') return <FinancialAdminScopeState scope={scope} />;"
+      "if (scope.status !== 'ready') return <FinancialAdminScopeState scope={scope} arena />;"
     );
     expect(settlement).not.toMatch(/<SpadeConsole[\s\S]{0,500}<FinancialAdminScopeState/);
   });
 
-  it('renders weekly accounting and its retained ledger in approved painted consoles', () => {
+  it('renders weekly accounting and its retained ledger in the arena workspace (#SmarterDesign S1)', () => {
     const page = read('src/pages/SettlementDashboardPage.tsx');
 
-    expect(page).toContain('family="spade"');
-    expect(page).not.toContain('family="riveted"');
-    expect(page).toContain('crest="flat"');
+    // Dan, 2026-11-27: the painted spade console is the old style on a page.
+    expect(page).not.toContain('SpadeConsole');
+    expect(page).toContain('className="settlement-dashboard-page arena-workspace"');
+    expect(page).toContain('<ArenaWorkspaceHeader');
+    expect(page).toContain('area="finance"');
+    expect(page.match(/className="arena-case arena-ops-case/g)?.length).toBe(3);
     expect(page).toContain(
       "const ledgerTitle = scopeClubId ? 'Club Transaction Records' : 'Your Account Transactions';"
     );
-    expect(page).toContain('title={ledgerTitle}');
     expect(page).toContain('aria-label={ledgerTitle}');
-    // One region carries the ledger's name: the console, never the list inside it.
-    expect(page.match(/ledgerTitle\}/g)?.length).toBe(2);
+    // One region carries the ledger's name: the case, never the list inside it.
+    expect(page.match(/aria-label=\{ledgerTitle\}/g)?.length).toBe(1);
     expect(page).not.toMatch(/<TransactionLedgerView[^>]*title=\{ledgerTitle\}/);
-    expect(page).toContain('className={styles.backButton}');
-    expect(page).not.toContain('plates={{ secondary');
+    // The ledger takes the opt-in arena dress on both scopes.
+    expect(page.match(/<TransactionLedgerView[^>]*\barena\b/g)?.length).toBe(2);
+    // Back is a chrome key above the mast, never inside it.
+    expect(page.indexOf('Back')).toBeLessThan(
+      page.indexOf('<ArenaWorkspaceHeader', page.indexOf('const ledgerTitle'))
+    );
     expect(page).not.toMatch(/style=\{\{/);
   });
 

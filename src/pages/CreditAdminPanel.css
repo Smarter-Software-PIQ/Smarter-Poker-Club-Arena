@@ -1,0 +1,421 @@
+/* CREDIT ADMIN in #SmarterDesign (batch O2, 2026-11-28).
+
+   The mast, cases, keys, readout tiles, wells and ledger rows come from
+   ArenaWorkspace.css and ArenaOps.css. This sheet gives the page its height,
+   lays out each agent and credit change row, dresses the Credit Requests inbox
+   (CreditRequestWidget, only mounted here as a manager inbox) as a chrome case
+   from the workspace's own variables, and sets the inks of the page's own
+   lines from the workspace ink table. Every rule is scoped under the page's
+   .arena-workspace root, so the Super Agent Dashboard's request widget keeps
+   its look. Nothing reacts to a pointer resting on it. */
+
+.arena-workspace.credit-admin-page {
+  min-height: 100dvh;
+  padding-bottom: max(var(--bottom-nav-clearance, 74px), env(safe-area-inset-bottom));
+  overflow-x: clip;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__back {
+  margin-bottom: 7px;
+}
+
+/* One Back key, not a full-width bar across the phone. */
+.arena-workspace.credit-admin-page .arena-switch.credit-admin-page__back > button {
+  flex: 0 1 140px;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__note {
+  margin: 6px 3px;
+  color: #9fbacc;
+  font:
+    12px/1.45 Arial,
+    sans-serif;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 7px 0;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__summary dd {
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__summary .credit-admin-page__shortfall,
+.arena-workspace.credit-admin-page .credit-admin-page__summary--failed dd {
+  color: #ff5b6e;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__export {
+  justify-content: flex-end;
+}
+
+.arena-workspace.credit-admin-page .arena-switch.credit-admin-page__export > button {
+  flex: 0 1 200px;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__state {
+  margin: 0;
+  padding: 18px 12px;
+  color: #9fbacc;
+  text-align: center;
+  font:
+    13px/1.45 Arial,
+    sans-serif;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__state[role='alert'] {
+  color: #ff5b6e;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__state > p {
+  margin: 0;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__retry {
+  justify-content: center;
+  margin-top: 10px;
+}
+
+.arena-workspace.credit-admin-page .arena-switch.credit-admin-page__retry > button {
+  flex: 0 1 160px;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__agents,
+.arena-workspace.credit-admin-page .credit-admin-page__audit {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__agent {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__identity {
+  min-width: 0;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__identity > strong {
+  display: block;
+  overflow-wrap: anywhere;
+  color: #f1f5fc;
+  font:
+    800 15px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__club,
+.arena-workspace.credit-admin-page .credit-admin-page__status {
+  display: block;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+  color: #74dfff;
+  font:
+    11px/1.35 Arial,
+    sans-serif;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__status {
+  color: #9fbacc;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__money {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 6px 0 0;
+  font:
+    12px/1.35 Arial,
+    sans-serif;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__money > div {
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__money dt {
+  color: #9fbacc;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__money dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__balance {
+  color: #c8ffd2;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__money .credit-admin-page__shortfall {
+  color: #ff5b6e;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__limit {
+  color: #74dfff;
+  font:
+    800 18px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__keys {
+  margin: 0;
+}
+
+.arena-workspace.credit-admin-page .arena-switch.credit-admin-page__keys > button {
+  min-width: 72px;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__field {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__field input {
+  width: min(9rem, 40vw);
+  color-scheme: dark;
+  font-size: 16px;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__change {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__change strong,
+.arena-workspace.credit-admin-page .credit-admin-page__change small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__change strong {
+  color: #f1f5fc;
+  font:
+    800 14px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__change small {
+  margin-top: 2px;
+  color: #74dfff;
+  font:
+    11px/1.35 Arial,
+    sans-serif;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__shift {
+  display: grid;
+  gap: 2px;
+  text-align: right;
+  font:
+    700 12px/1.3 Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__from {
+  color: #9fbacc;
+}
+
+.arena-workspace.credit-admin-page .credit-admin-page__to {
+  color: #c8ffd2;
+}
+
+/* The Credit Requests inbox: a chrome case, dressed from the workspace's own
+   case variables because the shared widget's markup does not change. */
+.arena-workspace.credit-admin-page .credit-request-inbox {
+  box-sizing: border-box;
+  position: relative;
+  margin: 7px 0;
+  padding: 12px;
+  border: 0;
+  background: var(--arena-panel);
+}
+
+.arena-workspace.credit-admin-page .credit-request-inbox::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  border-image: var(--arena-frame) 41 / 19px stretch;
+}
+
+.arena-workspace.credit-admin-page .credit-request-inbox > * {
+  position: relative;
+  z-index: 2;
+}
+
+.arena-workspace.credit-admin-page .credit-request-inbox .credit-request-heading {
+  display: flex;
+  min-height: 30px;
+  margin: 0;
+  padding: 0 3px 5px;
+  border-bottom: 1px solid #253e57;
+  color: #f1f5fc;
+  font:
+    800 20px/1.05 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: -0.35px;
+  text-transform: none;
+}
+
+.arena-workspace.credit-admin-page .credit-request-inbox .credit-request-widget {
+  margin: 8px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #dce5ef;
+}
+
+.arena-workspace.credit-admin-page .credit-request-inbox .credit-request-widget p {
+  color: #9fbacc;
+  font:
+    12px/1.45 Arial,
+    sans-serif;
+}
+
+.arena-workspace.credit-admin-page .credit-request-inbox h4 {
+  margin: 8px 3px 2px;
+  color: #dce5ef;
+  font:
+    700 14px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.arena-workspace.credit-admin-page .credit-request-inbox .approval-card,
+.arena-workspace.credit-admin-page .credit-request-inbox .request-row {
+  margin-top: 5px;
+  padding: 8px 10px;
+  border: 4px solid transparent;
+  border-image: var(--arena-row) 13 / 6px stretch;
+  background: var(--arena-tile);
+}
+
+.arena-workspace.credit-admin-page .credit-request-inbox .approval-info .requester {
+  color: #f1f5fc;
+}
+
+.arena-workspace.credit-admin-page .credit-request-inbox .approval-info .amount {
+  color: #74dfff;
+}
+
+.arena-workspace.credit-admin-page .credit-request-inbox .approval-info .reason {
+  color: #9fbacc;
+}
+
+.arena-workspace.credit-admin-page .credit-request-inbox .approval-actions {
+  display: flex;
+  gap: 4px;
+}
+
+/* Approve is the lit key, Deny a steel key, both on the workspace's chrome. */
+.arena-workspace.credit-admin-page
+  .credit-request-inbox
+  :is(.approve-btn, .deny-btn, [role='alert'] button) {
+  position: relative;
+  flex: 1;
+  min-height: 44px;
+  padding: 6px 12px;
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  background: var(--arena-tile);
+  color: #dce5ef;
+  font:
+    700 12px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.arena-workspace.credit-admin-page .credit-request-inbox button.approve-btn {
+  border-image-source: var(--arena-active);
+  background: #084397;
+  color: white;
+}
+
+.arena-workspace.credit-admin-page .credit-request-inbox button.deny-btn {
+  color: #ff5b6e;
+}
+
+.arena-workspace.credit-admin-page
+  .credit-request-inbox
+  :is(.approve-btn, .deny-btn, [role='alert'] button):active {
+  filter: brightness(0.86);
+}
+
+.arena-workspace.credit-admin-page
+  .credit-request-inbox
+  :is(.approve-btn, .deny-btn, [role='alert'] button):focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+
+@media (max-width: 480px) {
+  /* A credit total never breaks across lines: the first tile takes the row. */
+  .arena-workspace.credit-admin-page .credit-admin-page__summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .arena-workspace.credit-admin-page .credit-admin-page__summary > :first-child {
+    grid-column: 1 / -1;
+  }
+
+  .arena-workspace.credit-admin-page .credit-admin-page__agent,
+  .arena-workspace.credit-admin-page .credit-admin-page__change {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .arena-workspace.credit-admin-page .credit-admin-page__actions {
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+
+  .arena-workspace.credit-admin-page .credit-admin-page__field {
+    flex: 1 1 8rem;
+  }
+
+  .arena-workspace.credit-admin-page .credit-admin-page__field input {
+    width: 100%;
+  }
+
+  .arena-workspace.credit-admin-page .credit-admin-page__shift {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    text-align: left;
+  }
+}

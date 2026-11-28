@@ -54,18 +54,21 @@ const LINKED_CONSOLES: readonly LinkedConsole[] = [
     relativeUrl: `credit-admin?club=${encodeURIComponent(CLUB_ID)}`,
     heading: 'Credit Admin',
     root: 'main',
+    chassis: 'arena',
   },
   {
     label: 'Settlement History',
     relativeUrl: `settlement-history?club=${encodeURIComponent(CLUB_ID)}`,
     heading: 'Settlement History',
     root: 'main',
+    chassis: 'arena',
   },
   {
     label: 'Settlement Center',
     relativeUrl: `settlement-dashboard?club=${encodeURIComponent(CLUB_ID)}`,
     heading: 'Weekly Accounting',
     root: 'main',
+    chassis: 'arena',
   },
   {
     label: 'CSV Exports',

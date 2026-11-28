@@ -71,17 +71,13 @@ def _extract_rss_mb(snapshot: dict[str, Any], label: str) -> float | None:
         return None
     if not isinstance(memory, dict):
         raise InputError(f"{label}.memory must be an object when present")
-    if "rssMb" in memory:
+    if "rssMb" in memory and memory["rssMb"] is not None:
         val = memory["rssMb"]
-        if val is None:
-            return None
         if not _is_finite_number(val) or val < 0:
             raise InputError(f"{label}.memory.rssMb must be a non-negative finite number")
         return float(val)
-    if "rssBytes" in memory:
+    if "rssBytes" in memory and memory["rssBytes"] is not None:
         val = memory["rssBytes"]
-        if val is None:
-            return None
         if not _is_finite_number(val) or val < 0:
             raise InputError(f"{label}.memory.rssBytes must be a non-negative finite number")
         return float(val) / 1e6
@@ -99,7 +95,7 @@ def _extract_event_loop_p99_ms(snapshot: dict[str, Any], label: str) -> float | 
             if field in container:
                 val = container[field]
                 if val is None:
-                    return None
+                    continue
                 if not _is_finite_number(val) or val < 0:
                     raise InputError(
                         f"{label}.{container_key}.{field} must be a non-negative finite number"
@@ -225,6 +221,22 @@ def _check_upper_regression(
             "note": f"post value {round(post_val, 3)}{unit} is at or below floor {floor}{unit}",
         }
     denom = max(pre_val, floor)
+    if denom == 0:
+        return {
+            "name": name,
+            "unit": unit,
+            "pre": round(pre_val, 3),
+            "post": round(post_val, 3),
+            "deltaPct": None,
+            "thresholdPct": max_growth_pct,
+            "floor": floor,
+            "status": "regressed",
+            "regressed": True,
+            "note": (
+                f"grew from 0{unit} to {round(post_val, 3)}{unit} above threshold "
+                f"{max_growth_pct}% (baseline floor {floor}{unit})"
+            ),
+        }
     delta_pct = round(((post_val - pre_val) / denom) * 100.0, 2)
     regressed = delta_pct > max_growth_pct
     return {
@@ -386,6 +398,23 @@ def compare_snapshots(
 ) -> dict[str, Any]:
     if not isinstance(pre, dict) or not isinstance(post, dict):
         raise InputError("both pre and post snapshots must be JSON objects")
+    if (
+        not isinstance(min_tables_for_deal_rate, int)
+        or isinstance(min_tables_for_deal_rate, bool)
+        or min_tables_for_deal_rate < 1
+    ):
+        raise InputError("--min-tables-for-deal-rate must be an integer >= 1")
+    for param_name, param_val in (
+        ("rss_growth_pct", rss_growth_pct),
+        ("rss_floor_mb", rss_floor_mb),
+        ("event_loop_p99_pct", event_loop_p99_pct),
+        ("event_loop_p99_floor_ms", event_loop_p99_floor_ms),
+        ("horse_compute_pct", horse_compute_pct),
+        ("horse_compute_floor_ms", horse_compute_floor_ms),
+        ("deal_rate_drop_pct", deal_rate_drop_pct),
+    ):
+        if not _is_finite_number(param_val) or param_val < 0:
+            raise InputError(f"{param_name} must be a non-negative finite number")
 
     hard_checks = _require_hard_slo_fields(post)
     breaches = [
@@ -531,12 +560,12 @@ def main(argv: list[str] | None = None) -> int:
             "exitCode": EXIT_UNREADABLE,
             "error": str(exc),
         }
+        md = f"## Post-Cutover Baseline Diff: UNREADABLE\n\n- Error: {exc}\n"
         if args.json_out:
             Path(args.json_out).write_text(json.dumps(err_receipt, indent=2) + "\n", encoding="utf-8")
+        if args.markdown_out:
+            Path(args.markdown_out).write_text(md, encoding="utf-8")
         if args.format == "markdown":
-            md = f"## Post-Cutover Baseline Diff: UNREADABLE\n\n- Error: {exc}\n"
-            if args.markdown_out:
-                Path(args.markdown_out).write_text(md, encoding="utf-8")
             print(md, end="")
         else:
             print(json.dumps(err_receipt, indent=2))
