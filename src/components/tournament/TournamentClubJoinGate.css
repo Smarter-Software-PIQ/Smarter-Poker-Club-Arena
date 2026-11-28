@@ -1,18 +1,52 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   TOURNAMENT CLUB JOIN GATE - on the spade console (2026-11-22, #ClubArenaConsole)
+   TOURNAMENT CLUB JOIN GATE - #SmarterDesign (2026-11-28, batch T1)
 
-   The same chassis and sizing as the table's load-failure console
-   (TableLoadFailureOverlay.css), printed inline on the tournament page's
-   error state rather than over a table shell. Not a popup, so it carries no
-   popup class for metallic-popups.css to repaint. Nothing drawn; no :hover.
+   Printed inline on the routed tournament page's empty state, inside its
+   `.arena-workspace` root, as one thin chrome case (`arena-case
+   arena-ops-case`): the eyebrow, the section title with the Invite note, the
+   copy, and two chrome keys with Join lit. It replaced the painted spade
+   console (2026-11-22, #ClubArenaConsole), which is the old style on a page.
+   Every rule is scoped under `.arena-workspace`. Nothing drawn; no :hover.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-.tournament-club-join-gate {
+.arena-workspace .tournament-club-join-gate {
   width: min(100%, 420px);
   margin: 0 auto;
 }
 
-.tournament-club-join-gate__body {
-  padding: 1cqw 1cqw 2cqw;
-  font-size: 3.8cqw;
+.arena-workspace .tournament-club-join-gate .tournament-club-join-gate__eyebrow {
+  margin: 0 3px -4px;
+  color: #74dfff;
+  font:
+    700 12px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.arena-workspace .tournament-club-join-gate .tournament-club-join-gate__body {
+  margin: 2px 3px;
+  color: #dce5ef;
+  font:
+    14px/1.45 Arial,
+    sans-serif;
+  text-align: center;
+}
+
+.arena-workspace .tournament-club-join-gate .tournament-club-join-gate__keys {
+  margin: 2px 0 0;
+}
+
+/* The one lit primary: the workspace's blue glass and active rim. */
+.arena-workspace
+  .tournament-club-join-gate
+  .tournament-club-join-gate__keys
+  > .tournament-club-join-gate__primary {
+  color: white;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
+}
+.arena-workspace
+  .tournament-club-join-gate
+  .tournament-club-join-gate__keys
+  > .tournament-club-join-gate__primary::after {
+  border-image-source: var(--arena-active);
 }
