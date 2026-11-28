@@ -53,31 +53,32 @@ describe('real figures are never abbreviated', () => {
     expect(tournamentTabBuyInLabel(1100)).toBe('1,100');
   });
 
-  it('keeps every stored decimal, never silently rounding to two places', () => {
-    // Columns such as chip_ledger.pre_from_balance and club_members.held_chips
-    // are unconstrained numeric, so a third or fourth place is real data.
-    expect(exactChips(1.234)).toBe('1.234');
-    expect(exactChips(0.005)).toBe('0.005');
-    expect(exactChips(-12345.6789)).toBe('-12,345.6789');
+  it('shows two decimals, cut and never rounded (Dan 2026-11-27)', () => {
+    // Superseded 2026-11-27: "NUMERS AFTER A DECIMAL NEED TO STOP AFTER 2 DIGITS
+    // ANY WHERE AND EVERYWHERE." Stored values stay exact; the screen stops at
+    // two places and cuts the rest (tests/figures-stop-at-two-decimals.law.test.ts).
+    expect(exactChips(1.234)).toBe('1.23');
+    expect(exactChips(0.005)).toBe('0');
+    expect(exactChips(-12345.6789)).toBe('-12,345.67');
     expect(exactChips(1234567.5)).toBe('1,234,567.50');
     expect(exactChips(9_999_999_999.99)).toBe('9,999,999,999.99');
     expect(exactChips(0)).toBe('0');
     expect(exactChips(-0)).toBe('0');
-    expect(winLossChips(0.125)).toBe('+0.125');
-    expect(winLossChips(-0.005)).toBe('-0.005');
+    expect(winLossChips(0.125)).toBe('+0.12');
+    expect(winLossChips(-0.005)).toBe('0.00');
     expect(winLossChips(0)).toBe('0.00');
-    expect(feeFigure(740.175)).toBe('740.175');
+    expect(feeFigure(740.175)).toBe('740.17');
     expect(feeFigure(740.17)).toBe('740.17');
     expect(feeFigure(-12.5)).toBe('-12.50');
     expect(formatWalletChips(2131)).toBe('2,131.00');
-    expect(formatWalletChips(2131.0005)).toBe('2,131.0005');
+    expect(formatWalletChips(2131.0005)).toBe('2,131.00');
     expect(formatChips(1711.5)).toBe('1,711.50');
-    expect(formatChips(1711.505)).toBe('1,711.505');
+    expect(formatChips(1711.505)).toBe('1,711.50');
     expect(formatSignedChips(-2183.7)).toBe('-2,183.70');
-    expect(formatSignedChips(0.001)).toBe('+0.001');
+    expect(formatSignedChips(0.001)).toBe('0.00');
   });
 
-  it('keeps every digit a supported data source can hold', () => {
+  it('keeps every whole digit a supported data source can hold', () => {
     // numeric(20,2) columns (wallet balances, jackpot payouts) and 792
     // unconstrained numeric columns reach these formatters. A string or bigint
     // is copied digit for digit; a number prints the exact decimal it denotes,
@@ -87,19 +88,19 @@ describe('real figures are never abbreviated', () => {
     expect(feeFigure(max20)).toBe('999,999,999,999,999,999.99');
     expect(formatWalletChips('-123456789012345678.91')).toBe('-123,456,789,012,345,678.91');
     expect(winLossChips('123456789012345678.9')).toBe('+123,456,789,012,345,678.90');
-    expect(formatChips('0.000000000001')).toBe('0.000000000001');
-    expect(formatSignedChips('-0.000000000001')).toBe('-0.000000000001');
+    expect(formatChips('0.000000000001')).toBe('0.00');
+    expect(formatSignedChips('-0.000000000001')).toBe('0.00');
     expect(exactChips(12345678901234567890n)).toBe('12,345,678,901,234,567,890');
     expect(exactChips('00012.3400')).toBe('12.34');
     expect(exactChips('-0.00')).toBe('0');
     expect(exactChips('1.2K')).toBe('0'); // not a figure: never parsed as one
-    expect(exactChips(0.000000001)).toBe('0.000000001'); // past the old 8-place cap
-    expect(exactChips(123456789012.345)).toBe('123,456,789,012.345');
-    // A number prints the exact decimal it denotes; nothing is judged noise.
-    expect(exactChips(1234567890.1234567)).toBe('1,234,567,890.1234567');
+    expect(exactChips(0.000000001)).toBe('0');
+    expect(exactChips(123456789012.345)).toBe('123,456,789,012.34');
+    // A number prints its exact digits, cut at two places.
+    expect(exactChips(1234567890.1234567)).toBe('1,234,567,890.12');
     expect(exactChips(1e21)).toBe('1,000,000,000,000,000,000,000');
-    expect(exactChips(1.5e-12)).toBe('0.0000000000015');
-    expect(formatWalletChips(0.1 + 0.2)).toBe('0.30000000000000004');
+    expect(exactChips(1.5e-12)).toBe('0');
+    expect(formatWalletChips(0.1 + 0.2)).toBe('0.30');
     // Client arithmetic applies the explicit chip rule (cents) first.
     expect(formatWalletChips(chipCents(0.1 + 0.2))).toBe('0.30');
     expect(formatWalletChips(sumChips([0.1, 0.2]))).toBe('0.30');

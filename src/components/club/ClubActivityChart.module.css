@@ -1,0 +1,14 @@
+/* Club Activity Chart in #SmarterDesign (Dan 2026-11-27): hands in chrome
+   blue #45adff, rake bars in gold #ffd700, grid and axes in chrome greys. The
+   height is the caller's, so it stays on the element. */
+.chart {
+  width: 100%;
+}
+.empty {
+  display: grid;
+  place-items: center;
+  color: #9fbacc;
+  font:
+    13px/1.4 Arial,
+    sans-serif;
+}

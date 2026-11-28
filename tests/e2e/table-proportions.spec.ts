@@ -3758,6 +3758,71 @@ test.describe('cold phone paint coverage, crowns and motion', () => {
       };
     });
     expect(stability).toEqual({ bgStable: true, sameOff: true, sameBack: true, fwKept: true });
+
+    // State-overlap and backgrounded-tab hardening on the enlarged Hero plate:
+    // 1. .seat--away or .seat--winner on an active seat never clobbers ::after or clips the ring.
+    // 2. .seat--winner on an inactive enlarged plate keeps overflow: visible + gold ::before glow.
+    // 3. .seat--tb-armed forwards blue rim glow onto ::before, and backdrop-filter is cleared.
+    // 4. .table-page--backgrounded keeps .seat__timer-ring, wipe, and ink running.
+    const stateHardening = await page.evaluate(() => {
+      const tablePage = document.querySelector<HTMLElement>('.table-page')!;
+      const heroSeat = document.querySelector<HTMLElement>('.seat--hero')!;
+      const heroInfo = heroSeat.querySelector<HTMLElement>('.seat__info')!;
+      const ring = heroSeat.querySelector<HTMLElement>('.seat__timer-ring')!;
+      const wipe = heroSeat.querySelector<HTMLElement>('.seat__timer-wipe')!;
+
+      heroSeat.classList.add('seat--away', 'seat--tb-armed');
+      tablePage.classList.add('table-page--backgrounded');
+      const awayActiveAfter = getComputedStyle(heroInfo, '::after');
+      const tbArmedBefore = getComputedStyle(heroInfo, '::before');
+      const activeResult = {
+        awayAfterContent: awayActiveAfter.content,
+        awayAfterTransform: awayActiveAfter.transform,
+        awayAfterZ: awayActiveAfter.zIndex,
+        backdropFilter: getComputedStyle(heroInfo).backdropFilter,
+        tbArmedBlueShadow: tbArmedBefore.boxShadow.includes('24, 119, 242'),
+        bgRingPlayState: getComputedStyle(ring).animationPlayState,
+        bgWipePlayState: getComputedStyle(wipe).animationPlayState,
+      };
+
+      heroSeat.classList.remove('seat--away', 'seat--tb-armed', 'seat--active');
+      heroSeat.classList.add('seat--winner', 'seat--winner-glow');
+      const winnerResult = {
+        overflow: getComputedStyle(heroInfo).overflow,
+        beforeGoldShadow: getComputedStyle(heroInfo, '::before').boxShadow.includes('255, 215, 0'),
+        winnerAfterDisplay: getComputedStyle(heroInfo, '::after').display,
+      };
+
+      heroSeat.classList.add('seat--active');
+      const winnerActiveResult = {
+        overflow: getComputedStyle(heroInfo).overflow,
+        afterZ: getComputedStyle(heroInfo, '::after').zIndex,
+        afterAnim: getComputedStyle(heroInfo, '::after').animationName,
+      };
+
+      return { activeResult, winnerResult, winnerActiveResult };
+    });
+    expect(stateHardening).toEqual({
+      activeResult: {
+        awayAfterContent: '""',
+        awayAfterTransform: 'none',
+        awayAfterZ: '-1',
+        backdropFilter: 'none',
+        tbArmedBlueShadow: true,
+        bgRingPlayState: 'running',
+        bgWipePlayState: 'running',
+      },
+      winnerResult: {
+        overflow: 'visible',
+        beforeGoldShadow: true,
+        winnerAfterDisplay: 'none',
+      },
+      winnerActiveResult: {
+        overflow: 'visible',
+        afterZ: '-1',
+        afterAnim: 'none',
+      },
+    });
   });
 
   test('the phone pot shine and on-turn avatar scan retain their paths without repainting backgrounds', async ({

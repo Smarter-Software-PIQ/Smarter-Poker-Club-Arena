@@ -812,6 +812,7 @@ import { reportClientWarning, reportError } from '../utils/errorReporter';
 import {
   resolveSnapshotActionContext,
   resolveTurnChangeActionContext,
+  resolveTurnChangeTimerState,
   startMissingDecisionPoller,
   submitTableDecision,
   tableDecisionIsReady,
@@ -19679,22 +19680,8 @@ function LiveTablePage({
 
   useMasterBusSubscription('ACTION_TIMER_STARTED', (payload: any) => {
     if (payload.tableId !== tableId) return;
-    setTableState((prev) => ({
-      ...prev,
-      actionTimerDeadline: payload.deadline,
-      /**
-       * Dan 2026-08-18: the countdown ring drained far faster than the real
-       * 15s clock. SeatSlot computes the ring duration as
-       * (deadline - startTime), but this handler only ever wrote the
-       * DEADLINE — actionTimerStartTime stayed undefined/stale, so the
-       * animation duration collapsed. Record the start alongside it: prefer
-       * the server's own value, else derive it from the deadline and the
-       * table's action clock so the ring always spans the true turn length.
-       */
-      /* The engine's own duration before the table's: a bomb pot turn is 25s
-         (Dan 2026-10-17), and deriving its start from the table's 15s clock
-         would draw a ring that empties ten seconds before the real deadline. */
-      actionTimerStartTime:
+    setTableState((prev) => {
+      const nextStartTime =
         payload.startTime ??
         payload.startedAt ??
         (typeof payload.deadline === 'number'
@@ -19702,9 +19689,31 @@ function LiveTablePage({
             (typeof payload.durationMs === 'number' && payload.durationMs > 0
               ? payload.durationMs
               : actionTimeSeconds * 1000)
-          : Date.now()),
-      actionTimerPlayerId: payload.playerId,
-    }));
+          : serverNow());
+      const sameTurn =
+        payload.playerId === prev.actionTimerPlayerId &&
+        typeof prev.actionTimerStartTime === 'number' &&
+        Math.abs(nextStartTime - prev.actionTimerStartTime) <= 50;
+      return {
+        ...prev,
+        actionTimerDeadline: payload.deadline,
+        /**
+         * Dan 2026-08-18: the countdown ring drained far faster than the real
+         * 15s clock. SeatSlot computes the ring duration as
+         * (deadline - startTime), but this handler only ever wrote the
+         * DEADLINE — actionTimerStartTime stayed undefined/stale, so the
+         * animation duration collapsed. Record the start alongside it: prefer
+         * the server's own value, else derive it from the deadline and the
+         * table's action clock so the ring always spans the true turn length.
+         */
+        /* The engine's own duration before the table's: a bomb pot turn is 25s
+           (Dan 2026-10-17), and deriving its start from the table's 15s clock
+           would draw a ring that empties ten seconds before the real deadline. */
+        actionTimerStartTime: nextStartTime,
+        actionTimerPlayerId: payload.playerId,
+        isTimeBankActive: sameTurn ? prev.isTimeBankActive : false,
+      };
+    });
   });
 
   useMasterBusSubscription('ACTION_TIMER_EXPIRED', (payload: any) => {
@@ -19714,6 +19723,7 @@ function LiveTablePage({
       actionTimerDeadline: undefined,
       actionTimerStartTime: undefined,
       actionTimerPlayerId: undefined,
+      isTimeBankActive: false,
     }));
   });
 
@@ -21712,18 +21722,22 @@ function LiveTablePage({
               eventTimestampMs: timestampMs,
               previousTurnStartTimeMs: prev.actionTimerStartTime,
             });
+            const resolvedTimer = resolveTurnChangeTimerState({
+              newSeat,
+              previousCurrentSeat: prev.currentPlayerSeat,
+              eventDeadlineMs: deadlineMs,
+              eventTimestampMs: timestampMs,
+              previousDeadlineMs: prev.actionTimerDeadline,
+              previousTurnStartTimeMs: prev.actionTimerStartTime,
+              previousIsTimeBankActive: Boolean(prev.isTimeBankActive),
+            });
             return {
               ...prev,
               currentPlayerSeat: newSeat,
               actionContext: resolvedActionContext,
-              actionTimerDeadline:
-                Number.isFinite(deadlineMs) && deadlineMs > 0
-                  ? deadlineMs
-                  : prev.actionTimerDeadline,
-              actionTimerStartTime:
-                Number.isFinite(timestampMs) && timestampMs > 0
-                  ? timestampMs
-                  : prev.actionTimerStartTime,
+              actionTimerDeadline: resolvedTimer.actionTimerDeadline,
+              actionTimerStartTime: resolvedTimer.actionTimerStartTime,
+              isTimeBankActive: resolvedTimer.isTimeBankActive,
             };
           });
           // Bible V8 §5.4: medium haptic when it's hero's turn

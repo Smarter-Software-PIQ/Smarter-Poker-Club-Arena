@@ -848,6 +848,21 @@ test.describe('Production Kings Club Players', () => {
     expect(
       axe.violations.filter((violation) => ['serious', 'critical'].includes(violation.impact || ''))
     ).toEqual([]);
+
+    // The roster footer (Roster Export, its readouts, actions, scope note and
+    // Metric Definitions, then Change History) on its own, with the
+    // disclosure open so its contents are scanned too.
+    const rosterRecords = page.locator('.roster-records');
+    await expect(rosterRecords.first()).toBeVisible();
+    const definitions = page.locator('.roster-records__disclosure');
+    if (!(await definitions.evaluate((node) => (node as HTMLDetailsElement).open)))
+      await definitions.locator('summary').click();
+    const rosterRecordsAxe = await new AxeBuilder({ page }).include('.roster-records').analyze();
+    expect(
+      rosterRecordsAxe.violations.filter((violation) =>
+        ['serious', 'critical'].includes(violation.impact || '')
+      )
+    ).toEqual([]);
     expect(probe.responseFailures).toEqual([]);
     expect(probe.requestFailureCount).toBe(0);
     expect(

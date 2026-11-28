@@ -1,0 +1,4 @@
+{
+  "_owner": "Dan 2026-11-27: numbers stop after two decimals everywhere. This dependency-free module caps the browser's default Number#toLocaleString before any figure is printed, so it must run first, in the entry chunk. It is about 1 kB and imports nothing.",
+  "modules": ["src/utils/twoDecimalDisplay.ts"]
+}

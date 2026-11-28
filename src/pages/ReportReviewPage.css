@@ -1,25 +1,20 @@
-/* Player Report Review prints its live casework into approved console masters.
-   The page owns no CSS frame, plate, pill, gradient or floating icon. */
+/* Player Report Review in #SmarterDesign (Dan 2026-11-27). The page root is an
+   arena workspace; the cases, switches, wells and ledger rows come from
+   ArenaWorkspace.css and ArenaOps.css. This sheet only lays the casework out. */
 
 .report-review-page {
   min-height: 100vh;
   min-height: 100dvh;
   padding-bottom: var(--bottom-nav-clearance, 74px);
   overflow-x: clip;
-  background: var(--realism-obsidian);
-  color: #e4e7ec;
-  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
+  font-family: 'Arial Narrow', Arial, sans-serif;
 }
 
 .report-workspace {
   width: min(100%, 1000px);
   margin: 0 auto;
-  padding: clamp(20px, 4vw, 44px) clamp(8px, 3vw, 28px) 60px;
+  padding: 8px 0 60px;
   box-sizing: border-box;
-}
-
-.report-console {
-  --sc-max: 900px;
 }
 
 .case-toolbar {
@@ -27,88 +22,40 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding-bottom: 8px;
 }
 
-.case-kicker {
-  margin: 0;
-  color: #45adff;
-  font-size: 10.8px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.filter-tabs {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
+.arena-workspace .filter-tabs {
+  flex: 0 1 360px;
   min-width: 0;
-  overflow-x: auto;
-}
-
-.filter-tab,
-.report-error button {
-  min-width: 44px;
-  min-height: 44px;
-  padding: 4px 6px;
-  border: 0;
-  background: transparent;
-  color: #9aa5b3;
-  font:
-    700 10.8px/1.2 'Roboto Condensed',
-    Inter,
-    system-ui,
-    sans-serif;
-  letter-spacing: 0.1em;
-  cursor: pointer;
-  touch-action: manipulation;
-}
-
-.filter-tab[aria-selected='true'] {
-  color: #45adff;
-  text-shadow: 0 0 5.6px rgb(69 173 255 / 72%);
-}
-
-.filter-tab:active:not(:disabled),
-.report-error button:active:not(:disabled),
-.report-card:active:not(:disabled) {
-  transform: translateY(1px);
-}
-
-.filter-tab:focus-visible,
-.report-card:focus-visible,
-.report-error button:focus-visible,
-.notes-field textarea:focus-visible {
-  outline: 2px solid #45adff;
-  outline-offset: 3px;
+  margin: 0;
 }
 
 .reports-list {
   display: flex;
   flex-direction: column;
+  gap: 4px;
 }
 
-.report-card {
+.arena-workspace .report-card {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
   min-width: 0;
-  min-height: 44px;
-  padding: 12px 4px;
-  border: 0;
-  border-top: 1px solid #000;
-  background: transparent;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
-  color: inherit;
+  min-height: 52px;
+  padding: 8px 10px;
+  color: #f1f5fc;
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
-.report-card:first-of-type {
-  border-top-color: transparent;
-  box-shadow: none;
+.report-card:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.report-card:focus-visible {
+  outline: 2px solid #45adff;
+  outline-offset: 2px;
 }
 
 .report-header {
@@ -120,18 +67,22 @@
 
 .reason-label {
   min-width: 0;
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  color: #f1f5fc;
+  font:
+    700 14px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
   overflow-wrap: anywhere;
 }
 
 .status-badge {
   flex: 0 0 auto;
-  color: #45adff;
-  font-size: 9.6px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  color: #74dfff;
+  font:
+    800 11px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
@@ -140,22 +91,21 @@
 }
 
 .status-actioned {
-  color: #ff5b6e;
+  color: #ff5a6a;
 }
 
 .status-dismissed,
 .status-reviewed {
-  color: #9aa5b3;
+  color: #9fbacc;
 }
 
 .report-players {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  color: #d7dee7;
+  color: #dce5ef;
   font:
-    500 12.8px/1.4 Inter,
-    system-ui,
+    12px/1.4 Arial,
     sans-serif;
 }
 
@@ -166,57 +116,76 @@
 
 .report-players strong {
   display: block;
-  margin-bottom: 2.8px;
-  color: #45adff;
+  margin-bottom: 2px;
+  color: #74dfff;
   font:
-    700 9.2px/1.2 'Roboto Condensed',
-    Inter,
-    system-ui,
+    700 10px/1.2 'Arial Narrow',
+    Arial,
     sans-serif;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
-.report-date,
-.inspect-label {
-  color: #9aa5b3;
-  font-size: 10px;
+.report-date {
+  color: #9fbacc;
+  font:
+    11px Arial,
+    sans-serif;
 }
 
 .inspect-label {
   color: #45adff;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+  font:
+    700 11px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .report-state {
   display: grid;
   place-content: center;
-  gap: 8px;
+  gap: 6px;
   min-height: 120px;
-  padding: 24px 8px;
+  padding: 20px 8px;
+  color: #b6c8d6;
+  text-align: center;
+  font:
+    12px/1.4 Arial,
+    sans-serif;
 }
 
 .report-state p {
   margin: 0;
 }
 
-.report-error button {
-  justify-self: center;
-  color: #f4f7fb;
-  text-shadow: 0 0 4.8px rgb(69 173 255 / 70%);
+.report-state__title {
+  color: #74dfff;
+  font:
+    800 14px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+}
+
+.report-state__title.is-danger {
+  color: #ff5a6a;
+}
+
+.report-error .arena-switch {
+  justify-content: center;
 }
 
 .report-cap {
   margin: 0;
-  padding: 10px 4px;
-  border-top: 1px solid #000;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
+  padding: 6px 4px;
   color: #ffd700;
-  font-size: 10.4px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font:
+    700 11px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
@@ -236,13 +205,9 @@
   max-height: 96dvh;
 }
 
-.report-dialog-console {
-  --sc-max: 760px;
-}
-
 .modal-body {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .case-details {
@@ -255,31 +220,30 @@
   display: grid;
   grid-template-columns: minmax(0, 0.42fr) minmax(0, 0.58fr);
   gap: 12px;
-  padding: 9.6px 4px;
-  border-top: 1px solid #000;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
+  padding: 8px 3px;
+  border-top: 1px solid #253e57;
 }
 
 .case-details > div:first-child {
-  border-top-color: transparent;
-  box-shadow: none;
+  border-top: 0;
 }
 
 .case-details dt,
 .notes-field label {
-  color: #45adff;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  color: #74dfff;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .case-details dd {
   margin: 0;
-  color: #e4e7ec;
+  color: #f1f5fc;
   font:
-    500 12.8px/1.45 Inter,
-    system-ui,
+    13px/1.45 Arial,
     sans-serif;
   overflow-wrap: anywhere;
 }
@@ -288,41 +252,23 @@
   display: grid;
   gap: 6px;
   padding-top: 8px;
-  border-top: 1px solid #000;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
+  border-top: 1px solid #253e57;
 }
 
 .notes-field textarea {
-  width: 100%;
   min-height: 72px;
-  padding: 9.6px;
-  box-sizing: border-box;
-  border: 0;
-  border-top: 1px solid #000;
-  border-bottom: 1px solid rgb(255 255 255 / 8%);
-  background: #05070b;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
-  color: #f4f7fb;
-  font:
-    500 12.8px/1.45 Inter,
-    system-ui,
-    sans-serif;
   resize: vertical;
 }
 
 @media (max-width: 560px) {
   .case-toolbar {
-    align-items: flex-start;
+    align-items: stretch;
     flex-direction: column;
   }
 
-  .filter-tabs {
-    justify-content: space-between;
+  .arena-workspace .filter-tabs {
+    flex-basis: auto;
     width: 100%;
-  }
-
-  .filter-tab {
-    flex: 1 1 0;
   }
 
   .report-players,
