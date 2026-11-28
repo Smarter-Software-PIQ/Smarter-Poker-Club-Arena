@@ -115,7 +115,7 @@
     stretch;
 }
 .emoji-picker-overlay .emoji-picker__label {
-  color: #86daff;
+  color: var(--sd-ice);
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
   font-size: 13px;
   font-weight: 700;

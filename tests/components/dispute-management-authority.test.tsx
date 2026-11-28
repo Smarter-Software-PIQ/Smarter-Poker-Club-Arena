@@ -202,6 +202,19 @@ describe('Dispute Management route authority', () => {
     }
   );
 
+  it('names the docket heading by its title alone, whatever the open count', async () => {
+    m.getClubDisputes.mockResolvedValue([dispute('open')]);
+
+    mount('/clubs/club-a/disputes');
+    await screen.findByText('By Player One');
+
+    // Post-deploy financial-admin-deep finds the console by this exact name
+    // (run 46128787571); the status pill inside the h2 used to join it.
+    expect(screen.getByRole('heading', { name: 'Club Disputes', exact: true })).toBeVisible();
+    expect(screen.getByRole('region', { name: 'Club Disputes', exact: true })).toBeVisible();
+    expect(screen.getByText('1 Open')).toBeVisible();
+  });
+
   it('retains the staff review and debit-credit resolution controls only in club scope', async () => {
     const row = dispute('open');
     m.getClubDisputes.mockResolvedValue([row]);

@@ -45,8 +45,6 @@ DOCKERIGNORE_EXCLUDES = (
     '/dist-prerender',
     '/dist-native',
     '/graphify-out',
-    '/server/release-evidence',
-    '/server/src/benchmark',
     '/scripts/ops',
     '/tests/e2e',
     '/tests/components',

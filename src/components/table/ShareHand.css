@@ -685,7 +685,11 @@
   border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-active.webp') 11 / 6px
     stretch !important;
   border-radius: 0 !important;
-  background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
+  background: linear-gradient(
+    var(--sd-cobalt-top),
+    var(--sd-cobalt-mid) 55%,
+    var(--sd-cobalt-deep)
+  ) !important;
   background-clip: padding-box !important;
   box-shadow: none !important;
   color: #fff !important;
@@ -696,7 +700,7 @@
 .share-hand__video .share-hand__video-btn.share-hand__video-btn--plate {
   border-image-source: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') !important;
   background: linear-gradient(155deg, #12273b, #07111c 70%) !important;
-  color: #f1f5fc !important;
+  color: var(--sd-ink) !important;
 }
 .share-hand__video .share-hand__video-btn.share-hand__video-btn:disabled {
   border-image-source: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') !important;
@@ -708,18 +712,18 @@
   outline: 2px solid #9ee3ff;
 }
 .share-hand__video .share-hand__video-status {
-  color: #f4f8ff;
+  color: var(--sd-white);
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
   font-size: 17px;
 }
 .share-hand__video .share-hand__video-status--failed {
-  color: #ff8a93;
+  color: var(--sd-red);
 }
 .share-hand__video .share-hand__video-status--done {
-  color: #4dc660;
+  color: var(--sd-green);
 }
 .share-hand__video .share-hand__video-hint {
-  color: #bdd0e2;
+  color: var(--sd-silver);
 }
 .share-hand__video .share-hand__video-preview {
   border: 7px solid transparent;
@@ -734,8 +738,8 @@
     stretch;
   border-radius: 0;
   background: #030b14;
-  color: #f1f5fc;
+  color: var(--sd-ink);
 }
 .share-hand__video .share-hand__video-link {
-  color: #86daff;
+  color: var(--sd-ice);
 }

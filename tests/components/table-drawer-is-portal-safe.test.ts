@@ -56,7 +56,7 @@ describe('the table #SmarterDesign follow-ups', () => {
     const sd = css.slice(css.indexOf('.table-chat.table-chat {'));
     expect(sd).toMatch(/\.chat-message--dealer\s*\{[^}]*background:\s*#071421/);
     expect(sd).toMatch(
-      /\.chat-message--highlighted \.chat-message__bubble\s*\{[^}]*(?:#86daff|#74dfff)/
+      /\.chat-message--highlighted \.chat-message__bubble\s*\{[^}]*(?:#86daff|#74dfff|var\(--sd-ice(?:-strong)?\))/
     );
   });
 

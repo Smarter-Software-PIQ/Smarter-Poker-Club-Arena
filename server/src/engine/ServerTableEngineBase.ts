@@ -56,6 +56,7 @@ import { ServerActionValidator } from './ServerActionValidator.js';
 import { StateVerifier } from './StateVerifier.js';
 import { TimeBankEngine, type TimeBankEvent } from './TimeBankEngine.js';
 import { DisconnectEngine, type DisconnectFsmEntry } from './DisconnectEngine.js';
+import { RECONNECT_BASE_SECONDS, RECONNECT_VIP_MULTIPLIER } from './reconnectProtection.js';
 import { PreActionEngine } from './PreActionEngine.js';
 import { AtomicStackService } from './AtomicStackService.js';
 import { StraddleEngine } from './StraddleEngine.js';
@@ -2251,6 +2252,7 @@ export abstract class ServerTableEngineBase {
         : before;
     const extended = Date.now() + seconds * 1000;
     this.pineappleDiscardDeadlines.set(seat, extended);
+    this.noteActiveClockProgress();
     this.armPineappleDiscardSweep(this.handController);
     this.detachTableWork('broadcastCurrentState', this.broadcastCurrentState());
     return { success: true, deadlineMs: extended };
@@ -7762,6 +7764,25 @@ export abstract class ServerTableEngineBase {
   }
 
   /**
+   * True only after an externally-computed runout payout may have touched the
+   * HandController and before that controller has emitted HAND_COMPLETE.
+   *
+   * The no-seat watchdog normally calls continueRunout as a recovery. That is
+   * safe while a runout is only parked, but it would distribute the pot again
+   * after Run It Twice has already credited its winners. The runout layer owns
+   * this fence; base and turn layers read it so neither live-clock shielding
+   * nor the watchdog can bypass the runout error boundary.
+   */
+  protected runoutPayoutMutationUnsafe = false;
+
+  /**
+   * Hard absolute upper bound (ms) for any single server-owned mid-hand
+   * decision clock. A corrupted far-future deadline beyond this bound is
+   * rejected so it can never mask a genuine stall.
+   */
+  protected static readonly MAX_LIVE_DECISION_DEADLINE_MS = 150_000;
+
+  /**
    * Called from every path that PROVES the table is alive. Cheap by design —
    * it is on the hot path of every action.
    */
@@ -7771,9 +7792,136 @@ export abstract class ServerTableEngineBase {
     this.pendingRecoveryEventClass = null;
   }
 
+  /**
+   * Advance `lastProgressAtMs` when a live hand legitimately steps into a new,
+   * bounded, server-owned clock phase (primary -> time bank, time bank ->
+   * disconnect protection, RIT -> insurance offer, manual pineapple extension)
+   * WITHOUT zeroing `watchdogTrips`, so watchdog escalation can never be disarmed.
+   */
+  protected noteActiveClockProgress(): void {
+    this.lastProgressAtMs = Date.now();
+  }
+
   /** Ms since this table last did anything observable. */
   msSinceProgress(): number {
     return Date.now() - this.lastProgressAtMs;
+  }
+
+  /**
+   * Authoritative, fail-closed lookup of the active bounded server-owned
+   * decision deadline for the live hand (or null when no valid future deadline
+   * is armed).
+   *
+   * Single source of truth shared by `runTableWatchdog()` AND every liveness /
+   * Prometheus / `ca-stall-watch` reader (`GameServer.ts`). Covers all six
+   * server-owned mid-hand decision clocks:
+   *   1. Primary turn clock (`preciseTimer` key `userId`)
+   *   2. Active time bank (`preciseTimer` key `timebank:${userId}`)
+   *   3. Reconnect/disconnect protection (`disconnectEngine.armedAutoActionDeadlineMs`)
+   *   4. Crazy Pineapple simultaneous discard sweep (`pineappleDiscardTimer` + per-seat deadlines)
+   *   5. Run It Twice offer (`runItTwiceEngine.activeOfferDeadlineMs`)
+   *   6. All-In Insurance / EV Cashout offer (`insuranceEngine.activeOfferDeadlineMs`)
+   *
+   * Fail-closed: returns null the exact millisecond any deadline passes
+   * (`deadlineMs <= now`), when a deadline exceeds its tight per-clock ceiling,
+   * when `runoutPayoutMutationUnsafe` is set, or when the current seat is
+   * missing/folded/all-in.
+   */
+  public activeDecisionDeadlineMs(now: number = Date.now()): number | null {
+    if (!this.running || !this.handController) return null;
+    if (this.runoutPayoutMutationUnsafe) return null;
+
+    const state = this.handController.getState();
+    const isBoundedFuture = (deadlineMs: number, maxAheadMs: number): boolean =>
+      Number.isFinite(deadlineMs) &&
+      deadlineMs > now &&
+      deadlineMs <= now + Math.min(ServerTableEngineBase.MAX_LIVE_DECISION_DEADLINE_MS, maxAheadMs);
+
+    const configuredActionMs = Math.min(120, Math.max(15, this.actionClockSeconds())) * 1000;
+    const vipReconnectMaxMs = RECONNECT_BASE_SECONDS * RECONNECT_VIP_MULTIPLIER * 1000;
+
+    if (state.currentPlayerSeat >= 0) {
+      const actor = state.players.find((p) => p.seat === state.currentPlayerSeat);
+      if (!actor || actor.is_folded || actor.is_all_in) return null;
+
+      const bank =
+        typeof this.timeBankEngine?.getPlayerBank === 'function'
+          ? this.timeBankEngine.getPlayerBank(this.tableId, actor.user_id)
+          : undefined;
+      const bankUseMs = Math.min(60, Math.max(20, Number(bank?.currentUseSeconds) || 20)) * 1000;
+
+      const primaryDeadline =
+        typeof this.preciseTimer?.getDeadline === 'function'
+          ? this.preciseTimer.getDeadline(this.tableId, actor.user_id)
+          : 0;
+      const primaryCeilingMs = Math.max(configuredActionMs, vipReconnectMaxMs, bankUseMs) + 10_000;
+      if (isBoundedFuture(primaryDeadline, primaryCeilingMs)) return primaryDeadline;
+
+      const timeBankDeadline =
+        typeof this.preciseTimer?.getDeadline === 'function'
+          ? this.preciseTimer.getDeadline(this.tableId, `timebank:${actor.user_id}`)
+          : 0;
+      const timeBankCeilingMs = Math.max(60_000, bankUseMs + 10_000);
+      if (isBoundedFuture(timeBankDeadline, timeBankCeilingMs)) return timeBankDeadline;
+
+      const disconnectDeadline =
+        typeof this.disconnectEngine?.armedAutoActionDeadlineMs === 'function'
+          ? this.disconnectEngine.armedAutoActionDeadlineMs(this.tableId, actor.user_id)
+          : 0;
+      const disconnectCeilingMs = vipReconnectMaxMs + 10_000;
+      if (isBoundedFuture(disconnectDeadline, disconnectCeilingMs)) return disconnectDeadline;
+
+      return null;
+    }
+
+    if (
+      state.stage === 'pineapple_discard' &&
+      this.pineappleDiscardTimer !== null &&
+      this.pineappleDiscardDeadlines.size > 0
+    ) {
+      const discardCeilingMs = configuredActionMs + 30_000;
+      let latest = 0;
+      for (const [seat, deadline] of this.pineappleDiscardDeadlines) {
+        const owes =
+          typeof this.handController.owesPineappleDiscard === 'function'
+            ? this.handController.owesPineappleDiscard(seat)
+            : true;
+        if (!owes) continue;
+        if (isBoundedFuture(deadline, discardCeilingMs) && deadline > latest) {
+          latest = deadline;
+        }
+      }
+      if (latest > 0) return latest;
+    }
+
+    if (
+      typeof this.runItTwiceEngine?.activeOfferDeadlineMs === 'function' &&
+      typeof this.runItTwiceEngine?.offerTimeoutSeconds === 'function'
+    ) {
+      const ritDeadline = this.runItTwiceEngine.activeOfferDeadlineMs(this.tableId);
+      const ritCeilingMs =
+        Math.min(60, Math.max(10, this.runItTwiceEngine.offerTimeoutSeconds(this.tableId))) * 1000 +
+        10_000;
+      if (isBoundedFuture(ritDeadline, ritCeilingMs)) return ritDeadline;
+    }
+
+    if (
+      typeof this.insuranceEngine?.activeOfferDeadlineMs === 'function' &&
+      typeof this.insuranceEngine?.offerTimeoutSeconds === 'function'
+    ) {
+      const insuranceDeadline = this.insuranceEngine.activeOfferDeadlineMs(this.tableId);
+      const insuranceCeilingMs =
+        Math.min(60, Math.max(25, this.insuranceEngine.offerTimeoutSeconds(this.tableId))) * 1000 +
+        10_000;
+      if (isBoundedFuture(insuranceDeadline, insuranceCeilingMs)) return insuranceDeadline;
+    }
+
+    return null;
+  }
+
+  /** True when the live hand holds a bounded, future server-owned decision clock. */
+  public hasLiveDecisionClock(now: number = Date.now()): boolean {
+    return this.activeDecisionDeadlineMs(now) !== null;
   }
 
   /**

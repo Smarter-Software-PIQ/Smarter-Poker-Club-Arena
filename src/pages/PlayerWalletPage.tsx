@@ -81,6 +81,9 @@ import { DiamondLedgerMore } from '../components/wallet/DiamondLedgerMore';
 import { uuid } from '../utils/uuid';
 import { PromoPlayThroughProgress } from '../components/wallet/PromoPlayThroughProgress';
 import './PlayerWalletPage.css';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import '../components/ops/ArenaOps.css';
+import './PlayerWalletArena.css';
 import { publicOrigin } from '../lib/appBase';
 import { copyText as copyTextShared } from '../lib/share';
 
@@ -301,7 +304,7 @@ export function WalletPlate({
 
   return (
     <article
-      className={`wallet-row ${config.cssClass}`}
+      className={`wallet-row arena-ledger-row ${config.cssClass}`}
       aria-label={`${config.label} Wallet: ${fmtNum(available)} Available, ${fmtNum(locked)} Locked, ${fmtNum(total)} Total`}
     >
       <div className="wallet-row__main">
@@ -419,7 +422,7 @@ export function DiamondPlate({
   const freerollIn = freeroll.startsAt == null ? null : freeroll.text;
   return (
     <article
-      className="wallet-row diamonds"
+      className="wallet-row arena-ledger-row diamonds"
       aria-label={`Diamonds: ${fmtNum(diamonds)} On Hand, ${figure(summary?.sendable ?? diamonds)} Sendable, ${figure(summary?.inArena ?? 0)} In The Arena`}
     >
       <div className="wallet-row__main">
@@ -451,7 +454,7 @@ export function DiamondPlate({
       </dl>
       {/* The two doors are the painted Cashier plate, the same art as the
           Cashier's Request Cash Out, never a drawn button. */}
-      <div className="wallet-row__doors">
+      <div className="wallet-row__doors arena-switch arena-ops-keys">
         <button type="button" className="wallet-plate__cta" onClick={onBuy}>
           Buy Diamonds
         </button>
@@ -1198,14 +1201,25 @@ function PlayerWalletAccount({
   const ledgerState: LedgerReadState | 'offline' = isOnline ? ledgerRead : 'offline';
 
   return (
-    <div className="wallet-page" data-arena-surface="wallet">
+    <div className="wallet-page arena-workspace" data-arena-surface="wallet">
+      {/* #SmarterDesign (Dan 2026-11-27): the arena mast carries the title and
+          the chrome "?", whose panel holds what the wallet is for. */}
+      <ArenaWorkspaceHeader
+        area="cashier"
+        title="Wallet"
+        summary="Your Chip Balance, Where It Sits, And Every Transfer In Or Out."
+      />
       <CashierWorkspace
         compact
         title="Wallet"
         summary="Your Chip Balance, Where It Sits, And Every Transfer In Or Out."
+        hasVisibleTitle
       >
         {/* ═══════════ THE BALANCE - one centred figure, the Cashier's ink ═══════════ */}
-        <section className="wallet-balance" aria-labelledby="vault-hero-title">
+        <section
+          className="wallet-balance arena-case arena-ops-case"
+          aria-labelledby="vault-hero-title"
+        >
           <img
             className="wallet-balance__art"
             src={HERO_ART}
@@ -1227,11 +1241,11 @@ function PlayerWalletAccount({
             {formatWalletChips(animatedTotal)}
           </div>
           <dl className="wallet-balance__meta">
-            <div className="wallet-balance__item is-live">
+            <div className="wallet-balance__item is-live arena-meter">
               <dt>Playable Now</dt>
               <dd>{formatWalletChips(balances.PLAYER.available)}</dd>
             </div>
-            <div className="wallet-balance__item is-diamond">
+            <div className="wallet-balance__item is-diamond arena-meter">
               <dt>Diamonds</dt>
               {/* A READOUT, not a control. The Buy Diamonds plate below is the
                   control. */}
@@ -1242,13 +1256,13 @@ function PlayerWalletAccount({
               </dd>
             </div>
             {escrow > 0 && (
-              <div className="wallet-balance__item is-held">
+              <div className="wallet-balance__item is-held arena-meter">
                 <dt>In Escrow</dt>
                 <dd>{formatWalletChips(escrow)} Chips Secured At The Table</dd>
               </div>
             )}
             {walletSummary && walletSummary.inArena > 0 && (
-              <div className="wallet-balance__item is-held">
+              <div className="wallet-balance__item is-held arena-meter">
                 <dt>In The Arena</dt>
                 <dd>{fmtNum(walletSummary.inArena)} Diamonds At Your Diamond Arena Seat</dd>
               </div>
@@ -1262,11 +1276,15 @@ function PlayerWalletAccount({
             2026-10-09, P-15): Synced, Reading, Unavailable or Offline. Send,
             Receive and Earn are the tabs directly below, so they are not
             printed twice. */}
-        <div className="wallet-dock">
+        <div className="wallet-dock arena-case arena-ops-case">
           <div className={`wallet-dock__line is-${LEDGER_STATUS[ledgerState].ink}`} role="status">
             {LEDGER_STATUS[ledgerState].status.replace(' // ', ' ')}
           </div>
-          <div className="wallet-dock__actions" role="group" aria-label="Wallet Actions">
+          <div
+            className="wallet-dock__actions arena-switch arena-ops-keys"
+            role="group"
+            aria-label="Wallet Actions"
+          >
             <button type="button" className="wallet-dock__action is-lit" onClick={goAddChips}>
               Add Chips
             </button>
@@ -1310,7 +1328,7 @@ function PlayerWalletAccount({
 
         {/* ═══════════ TABS ═══════════ */}
         <div
-          className="wallet-tabs"
+          className="wallet-tabs arena-switch"
           role="tablist"
           aria-label="Wallet Sections"
           onKeyDown={handleTabKeyDown}
@@ -1345,7 +1363,7 @@ function PlayerWalletAccount({
         >
           {/* WALLETS */}
           {activeTab === 'overview' && (
-            <div className="wallet-rows">
+            <div className="wallet-rows arena-case arena-ops-case">
               <PromoPlayThroughProgress clubId={currentClubId} />
               <DiamondPlate
                 diamonds={diamonds}
@@ -1370,8 +1388,11 @@ function PlayerWalletAccount({
           {/* SEND */}
           {activeTab === 'send' && (
             <div className="wallet-grid">
-              <section className="vault-panel" aria-labelledby="send-diamonds-title">
-                <h3 id="send-diamonds-title" className="vault-panel__title">
+              <section
+                className="vault-panel arena-case arena-ops-case"
+                aria-labelledby="send-diamonds-title"
+              >
+                <h3 id="send-diamonds-title" className="vault-panel__title arena-section-title">
                   Send Diamonds To A Friend
                 </h3>
                 <p className="vault-panel__sub">
@@ -1381,7 +1402,7 @@ function PlayerWalletAccount({
                   <label className="vault-field">
                     <span className="vault-field__label">Recipient</span>
                     <select
-                      className="vault-select"
+                      className="vault-select arena-ops-well"
                       value={recipientId}
                       onChange={(e) => setRecipientId(e.target.value)}
                       disabled={friends === null || friends.length === 0}
@@ -1405,7 +1426,7 @@ function PlayerWalletAccount({
                   <label className="vault-field">
                     <span className="vault-field__label">Amount (Diamonds)</span>
                     <input
-                      className="vault-input"
+                      className="vault-input arena-ops-well"
                       type="number"
                       inputMode="numeric"
                       min={MIN_DIAMOND_SEND}
@@ -1462,8 +1483,14 @@ function PlayerWalletAccount({
                 </div>
               </section>
 
-              <section className="vault-panel" aria-labelledby="club-chip-transfer-title">
-                <h3 id="club-chip-transfer-title" className="vault-panel__title">
+              <section
+                className="vault-panel arena-case arena-ops-case"
+                aria-labelledby="club-chip-transfer-title"
+              >
+                <h3
+                  id="club-chip-transfer-title"
+                  className="vault-panel__title arena-section-title"
+                >
                   Manage Club Chips
                 </h3>
                 <p className="vault-panel__sub">
@@ -1486,8 +1513,11 @@ function PlayerWalletAccount({
                 go back to: the toast expires, the Receive pane filters to
                 credits, and the Ledger tab reads the CHIP tables, so a sent
                 diamond appeared on no surface in this wallet. */}
-              <section className="vault-panel" aria-labelledby="sent-title">
-                <h3 id="sent-title" className="vault-panel__title">
+              <section
+                className="vault-panel arena-case arena-ops-case"
+                aria-labelledby="sent-title"
+              >
+                <h3 id="sent-title" className="vault-panel__title arena-section-title">
                   Diamonds You Have Sent
                 </h3>
                 <p className="vault-panel__sub">
@@ -1515,7 +1545,7 @@ function PlayerWalletAccount({
                 {sent !== null && sent.length > 0 && (
                   <ul className="incoming-list">
                     {sent.map((row) => (
-                      <li key={row.id} className="incoming-row">
+                      <li key={row.id} className="incoming-row arena-ledger-row">
                         <div className="incoming-row__body">
                           <span className="incoming-row__label">{formatPopupText(row.label)}</span>
                           <span className="incoming-row__desc">{describeRow(row, 'Sent To')}</span>
@@ -1562,8 +1592,11 @@ function PlayerWalletAccount({
           {/* RECEIVE */}
           {activeTab === 'receive' && user?.id && (
             <div className="wallet-grid">
-              <section className="vault-panel" aria-labelledby="receive-title">
-                <h3 id="receive-title" className="vault-panel__title">
+              <section
+                className="vault-panel arena-case arena-ops-case"
+                aria-labelledby="receive-title"
+              >
+                <h3 id="receive-title" className="vault-panel__title arena-section-title">
                   Receive Diamonds And Chips
                 </h3>
                 <p className="vault-panel__sub">
@@ -1571,7 +1604,7 @@ function PlayerWalletAccount({
                   Agent.
                 </p>
                 <dl className="receive-ids">
-                  <div className="receive-ids__row">
+                  <div className="receive-ids__row arena-ledger-row">
                     <dt>Player Number</dt>
                     <dd>
                       <span className="receive-ids__value">
@@ -1579,7 +1612,7 @@ function PlayerWalletAccount({
                       </span>
                     </dd>
                   </div>
-                  <div className="receive-ids__row">
+                  <div className="receive-ids__row arena-ledger-row">
                     <dt>Player ID</dt>
                     <dd>
                       <code className="receive-ids__value mono">{user.id}</code>
@@ -1593,7 +1626,7 @@ function PlayerWalletAccount({
                       </button>
                     </dd>
                   </div>
-                  <div className="receive-ids__row">
+                  <div className="receive-ids__row arena-ledger-row">
                     <dt>Profile Link</dt>
                     <dd>
                       <code className="receive-ids__value mono">{profileLink}</code>
@@ -1618,8 +1651,11 @@ function PlayerWalletAccount({
                 </div>
               </section>
 
-              <section className="vault-panel" aria-labelledby="incoming-title">
-                <h3 id="incoming-title" className="vault-panel__title">
+              <section
+                className="vault-panel arena-case arena-ops-case"
+                aria-labelledby="incoming-title"
+              >
+                <h3 id="incoming-title" className="vault-panel__title arena-section-title">
                   Diamonds Received
                 </h3>
                 <p className="vault-panel__sub">
@@ -1647,7 +1683,7 @@ function PlayerWalletAccount({
                 {incoming !== null && incoming.length > 0 && (
                   <ul className="incoming-list">
                     {incoming.map((row) => (
-                      <li key={row.id} className="incoming-row">
+                      <li key={row.id} className="incoming-row arena-ledger-row">
                         <div className="incoming-row__body">
                           <span className="incoming-row__label">{formatPopupText(row.label)}</span>
                           <span className="incoming-row__desc">
@@ -1691,8 +1727,11 @@ function PlayerWalletAccount({
           {/* EARN */}
           {activeTab === 'earn' && (
             <div className="wallet-grid">
-              <section className="vault-panel accent" aria-labelledby="daily-title">
-                <h3 id="daily-title" className="vault-panel__title">
+              <section
+                className="vault-panel accent arena-case arena-ops-case"
+                aria-labelledby="daily-title"
+              >
+                <h3 id="daily-title" className="vault-panel__title arena-section-title">
                   Daily Login Reward
                 </h3>
                 <p className="vault-panel__sub">
@@ -1711,7 +1750,7 @@ function PlayerWalletAccount({
                   </p>
                 )}
                 <dl className="earn-stats">
-                  <div className="earn-stat">
+                  <div className="earn-stat arena-meter">
                     <dt>Streak</dt>
                     <dd>
                       {progress
@@ -1721,7 +1760,7 @@ function PlayerWalletAccount({
                           : 'Checking'}
                     </dd>
                   </div>
-                  <div className="earn-stat">
+                  <div className="earn-stat arena-meter">
                     <dt>Earned Today</dt>
                     <dd>
                       {progress
@@ -1731,7 +1770,7 @@ function PlayerWalletAccount({
                           : 'Checking'}
                     </dd>
                   </div>
-                  <div className="earn-stat">
+                  <div className="earn-stat arena-meter">
                     <dt>Multiplier</dt>
                     <dd>
                       {progress
@@ -1794,15 +1833,18 @@ function PlayerWalletAccount({
                 </div>
               </section>
 
-              <section className="vault-panel" aria-labelledby="lifetime-title">
-                <h3 id="lifetime-title" className="vault-panel__title">
+              <section
+                className="vault-panel arena-case arena-ops-case"
+                aria-labelledby="lifetime-title"
+              >
+                <h3 id="lifetime-title" className="vault-panel__title arena-section-title">
                   Lifetime Diamonds
                 </h3>
                 <p className="vault-panel__sub">
                   From Your Diamond Ledger. Earned Is Every Credit; Spent Is Every Debit.
                 </p>
                 <dl className="earn-stats">
-                  <div className="earn-stat">
+                  <div className="earn-stat arena-meter">
                     <dt>Earned</dt>
                     <dd className="positive">
                       {lifetime
@@ -1812,7 +1854,7 @@ function PlayerWalletAccount({
                           : 'Checking'}
                     </dd>
                   </div>
-                  <div className="earn-stat">
+                  <div className="earn-stat arena-meter">
                     <dt>Spent</dt>
                     <dd>
                       {lifetime
@@ -1822,7 +1864,7 @@ function PlayerWalletAccount({
                           : 'Checking'}
                     </dd>
                   </div>
-                  <div className="earn-stat">
+                  <div className="earn-stat arena-meter">
                     <dt>On Hand</dt>
                     <dd className="diamond">{fmtNum(diamonds)}</dd>
                   </div>
@@ -1844,8 +1886,11 @@ function PlayerWalletAccount({
               {/* Phase 5: the split behind Earned and Spent - every diamond by
                 what it bought and by where it came from, summed in SQL over
                 the whole ledger. DIAMONDS ONLY. */}
-              <section className="vault-panel span2" aria-labelledby="flow-title">
-                <h3 id="flow-title" className="vault-panel__title">
+              <section
+                className="vault-panel span2 arena-case arena-ops-case"
+                aria-labelledby="flow-title"
+              >
+                <h3 id="flow-title" className="vault-panel__title arena-section-title">
                   Where Your Diamonds Go
                 </h3>
                 <p className="vault-panel__sub">
@@ -1855,24 +1900,35 @@ function PlayerWalletAccount({
                 <DiamondFlowPanel userId={user?.id} />
               </section>
 
-              <section className="vault-panel span2" aria-labelledby="earn-more-title">
-                <h3 id="earn-more-title" className="vault-panel__title">
+              <section
+                className="vault-panel span2 arena-case arena-ops-case"
+                aria-labelledby="earn-more-title"
+              >
+                <h3 id="earn-more-title" className="vault-panel__title arena-section-title">
                   More Ways To Earn
                 </h3>
                 <div className="earn-doors">
-                  <button type="button" className="earn-door" onClick={() => navigate('/rakeback')}>
+                  <button
+                    type="button"
+                    className="earn-door arena-ledger-row"
+                    onClick={() => navigate('/rakeback')}
+                  >
                     <span className="earn-door__title">Rakeback</span>
                     <span className="earn-door__sub">Chips Back On Every Raked Hand You Play.</span>
                   </button>
                   <button
                     type="button"
-                    className="earn-door"
+                    className="earn-door arena-ledger-row"
                     onClick={() => navigate(withClubContext('/challenges', linkClubId))}
                   >
                     <span className="earn-door__title">Daily Challenges</span>
                     <span className="earn-door__sub">Complete Missions For Diamond Payouts.</span>
                   </button>
-                  <button type="button" className="earn-door" onClick={() => navigate('/bonuses')}>
+                  <button
+                    type="button"
+                    className="earn-door arena-ledger-row"
+                    onClick={() => navigate('/bonuses')}
+                  >
                     <span className="earn-door__title">Bonuses</span>
                     <span className="earn-door__sub">
                       Your Daily Club Arena Bonus And Club Promotions.
@@ -1880,7 +1936,7 @@ function PlayerWalletAccount({
                   </button>
                   <button
                     type="button"
-                    className="earn-door"
+                    className="earn-door arena-ledger-row"
                     onClick={() => navigate('/promotions')}
                   >
                     <span className="earn-door__title">Promotions</span>
@@ -1890,13 +1946,17 @@ function PlayerWalletAccount({
                   </button>
                   <button
                     type="button"
-                    className="earn-door"
+                    className="earn-door arena-ledger-row"
                     onClick={() => navigate('/achievements')}
                   >
                     <span className="earn-door__title">Achievements</span>
                     <span className="earn-door__sub">Milestones, Badges, And Unlock Progress.</span>
                   </button>
-                  <button type="button" className="earn-door" onClick={() => navigate('/vip')}>
+                  <button
+                    type="button"
+                    className="earn-door arena-ledger-row"
+                    onClick={() => navigate('/vip')}
+                  >
                     <span className="earn-door__title">VIP Status</span>
                     <span className="earn-door__sub">Membership And Included Benefits.</span>
                   </button>
@@ -1908,8 +1968,11 @@ function PlayerWalletAccount({
           {/* LEDGER */}
           {activeTab === 'history' && user?.id && (
             <div className="wallet-grid single">
-              <section className="vault-panel" aria-labelledby="ledger-title">
-                <h3 id="ledger-title" className="vault-panel__title">
+              <section
+                className="vault-panel arena-case arena-ops-case"
+                aria-labelledby="ledger-title"
+              >
+                <h3 id="ledger-title" className="vault-panel__title arena-section-title">
                   Wallet Ledger
                 </h3>
                 <TransactionHistory walletId={user.id} limit={50} />
@@ -1920,7 +1983,7 @@ function PlayerWalletAccount({
                 the player was invisible. The statement shows both directions and
                 the nightly reading the balance is checked against. */}
               <section className="vault-panel vault-panel--statement" aria-labelledby="audit-title">
-                <h3 id="audit-title" className="vault-panel__title">
+                <h3 id="audit-title" className="vault-panel__title arena-section-title">
                   Chip Statement
                 </h3>
                 <ChipStatement scope="player" />
@@ -1928,8 +1991,11 @@ function PlayerWalletAccount({
               {/* Phase 4: the Diamond Arena's own statement - every session,
                 every buy-in and cash-out, and that each one reconciles. Read
                 only; the live paths are atomic. DIAMONDS ONLY. */}
-              <section className="vault-panel" aria-labelledby="arena-statement-title">
-                <h3 id="arena-statement-title" className="vault-panel__title">
+              <section
+                className="vault-panel arena-case arena-ops-case"
+                aria-labelledby="arena-statement-title"
+              >
+                <h3 id="arena-statement-title" className="vault-panel__title arena-section-title">
                   Diamond Arena Statement
                 </h3>
                 <p className="vault-panel__sub">
