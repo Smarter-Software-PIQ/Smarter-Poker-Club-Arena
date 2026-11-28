@@ -1,6 +1,6 @@
 # omahaRiverBetPriorIsPotTypeSplit: Authority For The Live Switch
 
-Built 2026-11-27 by lead-9 worker RV2 (session 01UxDLnJ) on Dan's order of 2026-11-27 4:48 PM ("#1 priority ... are the over folding bugs ... not just multiway, but also heads up"). Default OFF (read `=== true`), switchable `off / shadow / on_shadow / on`, scopable per game (`horse.omahaGameScope.omahaRiverBetPriorIsPotTypeSplit`; compiled scope 0 = PLO4 and PLO5). It acts only inside `omahaFacingBetPriorIsPeopleMeasured` (on since 2026-11-27 08:39Z). **Evidence NOT MET**: the measurements are below and in `plo-lead7-01TLQer8/l9-river2/BUILD.md`; this file does not authorize switching the option on.
+**State: OFF** (dark: source default OFF, no switch row; this file proposes none). PLO5 ONLY if trialled: publish `horse.omahaGameScope.omahaRiverBetPriorIsPotTypeSplit` = 5 before any switch write (PLO4 is not cleared, see "Game Scope"). Built 2026-11-27 by lead-9 worker RV2 (session 01UxDLnJ) on Dan's order of 2026-11-27 4:48 PM ("#1 priority ... are the over folding bugs ... not just multiway, but also heads up"). Default OFF (read `=== true`), switchable `off / shadow / on_shadow / on`, scopable per game (`horse.omahaGameScope.omahaRiverBetPriorIsPotTypeSplit`; compiled scope 0 = PLO4 and PLO5). It acts only inside `omahaFacingBetPriorIsPeopleMeasured` (on since 2026-11-27 08:39Z). **Evidence NOT MET**: the measurements are below and in `plo-lead7-01TLQer8/l9-river2/BUILD.md`; this file does not authorize switching the option on.
 
 ## The Defect It Answers
 
@@ -55,7 +55,18 @@ Real-node replay, same decisions, base = the stacked head, arm = base + this opt
 
 STILL OVER with the option on: PLO5 re-raised 0.4-0.7 pot (+38.9 +/- 13.2: people's re-raised cell of that size is 57% value, close to the pooled one), and every single-raised cell of the first table (untouched). No public evidence prices more calls against people there; the exposure is to a bettor who bluffs more than people do, and his own record answers him.
 
-Fixed harness (ON-minus-same-seed-no-op, base = the stacked head): the value-only, people-responder and bluffer cards are recorded in `plo-lead7-01TLQer8/l9-river2/BUILD.md` and the PR body.
+## Game Scope
+
+Fixed harness, ON-minus-same-seed-no-op (no-op 0.00, 0 divergent deals on every card), base = the stacked head, seeds 211 + 212 pooled:
+
+| card                                                   | PLO4                                    | PLO5                              | bar            | result               |
+| ------------------------------------------------------ | --------------------------------------- | --------------------------------- | -------------- | -------------------- |
+| value-only bettor (bb/100)                             | 0.00 (0 divergent deals in 16,000)      | -0.36 +/- 0.36 (1 divergent deal) | >= -3.0 / -4.0 | PASS                 |
+| people-calibrated responder (bb/100)                   | -0.54 +/- 0.46 = -1.17 SE (2 divergent) | +0.35 +/- 0.96 (2 divergent)      | >= -1 SE       | PLO4 FAIL, PLO5 PASS |
+| production-muck bluffer bp, air bb per line (seed 601) | -8.33 +/- 0.69 -> -8.33                 | -7.15 +/- 0.78 -> -7.27 +/- 0.79  | not > +2 SE    | PASS                 |
+| flag-off (base vs this branch)                         | 0 differences in 28,000                 |                                   | 0              | PASS                 |
+
+PLO4 misses the people-responder bar on two divergent hands (no tuning, no re-seed), so PLO4 is NOT cleared: scope 5 (PLO5 only). The heads-up harness reaches a re-raised-pot river bet about once in 4,000 deals, so these cards say little either way; the real-node replay above is the evidence.
 
 ## Watch And Rollback
 
