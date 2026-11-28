@@ -1,0 +1,77 @@
+{
+  "schema": "engine-cutover-timetable/v1",
+  "about": "The numbers behind docs/ops/engine-cutover-timetable.md. Every value with an enforcing source is pinned to that source by tests/the-cutover-timetable-matches-the-gates.law.test.ts; change the gate and this file together, then run node scripts/ops/engine-cutover-timetable.mjs --write.",
+  "timeZone": "America/Chicago",
+  "utcOffsetHours": { "CST": -6, "CDT": -5 },
+  "slots": [1, 4, 7, 10, 13, 16, 19, 22],
+  "anchorSlot": 4,
+  "cycle": {
+    "stageReservationLookbackMinutes": 100,
+    "selectionMinutesBeforeSlot": 30,
+    "preparationWindowMinutes": 20,
+    "backupYieldSecondsBeforeSelection": 4500,
+    "migrationDeferMinutesBeforeSlot": 90,
+    "migrationClearMinutesAfterSlot": 10,
+    "receiverAdmissionLeadSeconds": 180,
+    "lastHandLeadMinutes": 2,
+    "breakMinutes": 5
+  },
+  "daily": {
+    "stageReservationLookbackHours": 5,
+    "releaseSchemaFreezeChicago": ["23:45", "04:15"],
+    "dailyMigrationGuardChicago": ["03:50", "04:10"],
+    "switchBlackoutUtc": ["09:05", "10:45"],
+    "backupNightlyRefreshUtcHours": [5, 6],
+    "backupNightlyRefreshMinutes": [7, 23, 41]
+  },
+  "hourlyUtc": {
+    "ddlRefusedFromMinute": 50,
+    "ddlAdmittedFromMinute": 3,
+    "applierRefusedFromMinute": 50,
+    "applierRefusedThroughMinute": 3,
+    "switchWritesFromMinute": 6,
+    "switchWritesThroughMinute": 43
+  },
+  "switchSpacing": { "crossLaneMinutes": 10, "selfLaneMinutes": 60 },
+  "conventions": [
+    {
+      "id": "switch-hold-selection-to-seal",
+      "rule": "No Horse switch or settings write from selection (slot -30 min) until the Cutover lane posts SEALED.",
+      "source": "Cutover lane posts in COORDINATION-INBOX.md (holds and 'HOLDS LIFTED' per cycle)",
+      "enforcement": "Partial: scripts/ops/horse-option-switch-lib.mjs reads the inbox text for BOOKING / SEALED and the engine /health maintenance phase, but no clock rule refuses a write at slot -30.",
+      "gap": "Encode slot -30 min .. SEALED as a clock hold in checkMaintenanceAndCutoverHold, keyed to the slots above."
+    },
+    {
+      "id": "release-control-slot",
+      "rule": "Release-control merges (workflows, selector, standby, seal scripts) land only in the post-seal slot: after SEALED and before slot +50 min, one per slot, merged by the Cutover lane.",
+      "source": "Cutover lane posts (for example 2026-11-24T16:02:16Z: 'release-control slot open until 16:50Z')",
+      "enforcement": "None in code.",
+      "gap": "A merge gate that refuses a CONTROL_INPUTS change outside [SEALED, slot +50 min)."
+    },
+    {
+      "id": "merge-window",
+      "rule": "Merge migrations between :04 and :49 UTC.",
+      "source": "Derived from the applier's minute refusal (apply-recorded-migration.mjs) and the dispatcher's FIRST_ADMITTED_MINUTE / WINDOW_OPENS_MINUTE",
+      "enforcement": "Indirect: a merge at any minute is accepted; the dispatcher then waits (bounded) for the next admitted minute. Nothing refuses the merge itself.",
+      "gap": "None needed for correctness (the dispatcher waits); documented so lanes know when an install actually happens."
+    },
+    {
+      "id": "engine-merge-lead",
+      "rule": "An engine change that must ship in a slot merges early enough for a Backup certificate before selection (a certificate takes about 45-55 minutes).",
+      "source": "backup-engine.yml header ('a certificate takes about forty-five minutes') and Cutover lane posts",
+      "enforcement": "Selection binds protected main at slot -30 min and takes the newest certified commit; nothing refuses a late merge, it simply ships a slot later.",
+      "gap": "Publish the cycle's readiness at slot -75 and slot -45 (Cutover lane item C)."
+    },
+    {
+      "id": "cross-repo-cycle-deferral",
+      "rule": "World Hub and hand sessions keep migrations out of [slot -90 min, slot +10 min) as Club Arena's dispatcher does.",
+      "source": "Owner order 2026-11-24 and O23 (#11910)",
+      "enforcement": "Only the nightly release schema freeze (23:45-04:15) is refused in the database for every repo (#11906). The daytime cycle deferral is enforced only by Club Arena's dispatcher; O23 (#11910) makes the selector ignore migrations Club Arena never shipped.",
+      "gap": "Extend smarter_private.fn_ca_release_freeze_refuses_migrations to the daytime cycle deferral window."
+    }
+  ],
+  "pendingChanges": [
+    "Cutover lane item A: the post-seal Backup certifies main's newest unshipped candidate on a copy taken after the post-seal install window.",
+    "Cutover lane item B: ordinary migrations install only from slot +10 to slot +30 min (today they install from slot +10 min until slot +90 min, when the next slot's hold begins)."
+  ]
+}
