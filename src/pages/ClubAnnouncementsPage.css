@@ -176,3 +176,79 @@
     transform: none !important;
   }
 }
+
+/* ── #SmarterDesign (Dan 2026-11-27) ──────────────────────────────────────
+   The painted spade console was the old style for a page section. The posts
+   now print in the arena workspace's thin chrome case (ClubPageSection's
+   `arena`), each post a chrome ledger row, Pin and Delete chrome keys, and
+   Refresh / New Post one chrome switch with the primary lit. The case is the
+   container the cqw type above reads. */
+.announcements-page.arena-workspace.arena-workspace {
+  min-height: 100dvh;
+  overflow-x: clip;
+  padding-bottom: calc(var(--bottom-nav-clearance, 74px) + 24px);
+}
+.arena-workspace .arena-case.announcements-console {
+  container-type: inline-size;
+  width: 100%;
+  max-width: 640px;
+  margin: 8px auto 0;
+}
+.arena-workspace .announcements-console .arena-section-title small {
+  color: #74dfff;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.arena-workspace .announcements-console .ann-list {
+  gap: 4px;
+}
+.arena-workspace .announcements-console .ann-post,
+.arena-workspace .announcements-console .ann-post:first-child {
+  padding: 8px 10px;
+  border: 4px solid transparent;
+  border-image: var(--arena-row) 13 / 6px stretch;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+  box-shadow: none;
+}
+.arena-workspace .announcements-console .ann-post__title {
+  color: #f1f5fc;
+  text-shadow: none;
+}
+.arena-workspace .announcements-console .ann-post__content {
+  color: #dce5ef;
+  text-shadow: none;
+}
+.arena-workspace .announcements-console .ann-post__meta {
+  color: #9fbacc;
+  text-shadow: none;
+}
+.arena-workspace .ann-post__actions.arena-switch {
+  gap: 4px;
+  margin: 2px 0 0;
+}
+.arena-workspace .ann-post__actions.arena-switch > .ann-word {
+  flex: 0 1 120px;
+  letter-spacing: normal;
+  text-transform: none;
+  text-shadow: none;
+}
+.arena-workspace .ann-post__actions.arena-switch > .sc-ink--red {
+  color: #ff5b6e;
+}
+.arena-workspace .ann-keys {
+  justify-content: center;
+}
+.arena-workspace .ann-keys > .ann-word {
+  flex: 0 1 160px;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.arena-workspace .announcements-console :is(.ann-input, .ann-textarea) {
+  box-sizing: border-box;
+  padding: 10px;
+  background: #030b14;
+  border: 1px solid #253e57;
+  box-shadow: none;
+  color: #f1f5fc;
+}
