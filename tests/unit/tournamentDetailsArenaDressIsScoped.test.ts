@@ -36,7 +36,7 @@ function selectors(css: string): string[] {
 }
 
 describe('the routed tournament page wears the workspace mast', () => {
-  it('draws the ArenaWorkspaceHeader mast on the route only', () => {
+  it('draws the ArenaWorkspaceHeader mast on the route only, and never over the event band', () => {
     expect(DETAILS).toContain(
       "import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';"
     );
@@ -44,9 +44,10 @@ describe('the routed tournament page wears the workspace mast', () => {
       /const mast =\s*isEmbedded \|\| onClose \? null : \(\s*<ArenaWorkspaceHeader/
     );
     expect(DETAILS).toMatch(/title="Tournament Lobby"/);
-    // In every state the route can be in: loading, failed, not found, the join
-    // step and the lobby itself.
-    expect(DETAILS.match(/\{mast\}/g)?.length).toBe(5);
+    // Only where no event band heads the page: loading, failed, not found and
+    // the join step. The ready lobby is headed by its event band alone.
+    expect(DETAILS.match(/\{mast\}/g)?.length).toBe(4);
+    expect(DETAILS).toMatch(/data-lobby-tab=\{inLobbyTab\}\s*>\s*\{recoveryNotice\}/);
   });
 
   it('prints the empty states on a chrome case and the join step without the painted console', () => {

@@ -8,17 +8,17 @@ the painted spade console.
 
 ## What changed
 
-- `TournamentDetails.tsx`: on the route only (not the in-game popup or the
+- `TournamentDetails.tsx`: on the route only (never the in-game popup or the
   lobby tab, which keep the event band alone under Dan's 2026-10-04 ruling),
-  the page opens on `ArenaWorkspaceHeader` ("Tournament Lobby", the chrome
-  "?") in every state: loading, failed, not found, the join step and the
-  lobby.
-- The mast is one slim 56px row on this page. The shell is measured to the
-  viewport and its tab panel is the only band that grows, so the full
-  101-128px mast cost the panel too much (measured in the harness: Details
-  panel 373 -> 262px at 393x852, 69 -> 6px at 1280x720). Slim: 307px at
-  393x852, 183px at 1280x900; at 760px tall or less the mast steps aside and
-  the panel is unchanged (196px at 375x667, 69px at 1280x720).
+  the states with no event band open on `ArenaWorkspaceHeader` ("Tournament
+  Lobby", the chrome "?"): loading, a failed read, Tournament Not Found and
+  the club join step. It is one slim 56px row there, hidden at 760px tall or
+  less.
+- The ready lobby carries no mast (lead review of the renders): its event band
+  already heads the page, a mast there said it twice, added a second h1 and
+  took about 66px from the tab panel, the band #12341 had to win back. With
+  it gone the Details panel is back to its old height: 373px at 393x852 and
+  249px at 1280x900 (harness, measured before and after).
 - Tournament Not Found and loading are one chrome case (`arena-case
 arena-ops-case`) with an `arena-section-title`; Back To Clubs is a lit
   chrome key.

@@ -2000,13 +2000,14 @@ export default function TournamentDetails({
     </div>
   ) : null;
 
-  /* THE MAST (#SmarterDesign batch T1, 2026-11-28). The routed page is a
-     workspace page, so it opens on the arena mast with the chrome "?" like
-     every other page. Only on the route: in the in-game popup and the lobby tab
-     this page is a panel inside a screen that already has its own head, and
-     Dan's 2026-10-04 ruling ("remove all these large frames") keeps those to
-     the event band alone. The mast is drawn in every state the route can be
-     in, so the page does not jump when the event arrives. */
+  /* THE MAST (#SmarterDesign batch T1, 2026-11-28). Only where no event band
+     heads the route: loading, a failed read, Tournament Not Found and the club
+     join step. Once the event is read, the event band (MttEventHeader, the
+     event art and its h1) heads the page, so a mast there would say it twice,
+     add a second h1 and take its height from the tab panel, the band that
+     #12341 had to win back. Never in the in-game popup or the lobby tab, which
+     keep the event band alone (Dan 2026-10-04: "remove all these large
+     frames"). */
   const mast =
     isEmbedded || onClose ? null : (
       <ArenaWorkspaceHeader
@@ -2414,7 +2415,6 @@ export default function TournamentDetails({
         data-embedded={isEmbedded}
         data-lobby-tab={inLobbyTab}
       >
-        {mast}
         {recoveryNotice}
         {privateInvite.element}
         {sitAndGoHold.element}

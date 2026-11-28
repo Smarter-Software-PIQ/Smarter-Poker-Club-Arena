@@ -6,8 +6,9 @@
  * section rail, tab panels, footer) for every place the lobby is shown. This
  * sheet adds what the ROUTE has on top of that (.claude/skills/smarter-design):
  *
- *   - the ArenaWorkspaceHeader mast, a fixed band at the top of the shell
- *     (only the route draws it: TournamentDetails.tsx, `mast`);
+ *   - the ArenaWorkspaceHeader mast, a fixed band at the top of the shell in
+ *     the states with no event band (only the route draws it:
+ *     TournamentDetails.tsx, `mast`);
  *   - the loading and Tournament Not Found states as one thin chrome case
  *     (`arena-case arena-ops-case`) centred under the mast, with Back To Clubs
  *     a lit chrome key;
@@ -20,17 +21,12 @@
  * the only band that grows. No :hover, no new art, colour, radius or shadow.
  */
 
-/* ---- The mast: one slim fixed band, on the lobby's column.
-   This shell is measured to the viewport and its tab panel is the only band
-   that grows (tests/e2e/css/tournamentLobbyTabPanelHeightCases.ts), so every
-   pixel the mast takes comes out of the panel. Measured in the harness with
-   the full workspace mast (101px on a phone, 128px at 1280), the Details
-   panel fell from 373 to 262px at 393x852, from 249 to 111px at 1280x900 and
-   from 69 to 6px at 1280x720. So on this page the mast is the same art at its
-   slim height, one 56px row (medallion, title, the chrome "?"): 307px at
-   393x852 and 183px at 1280x900. On a screen 760px tall or less it gives its
-   row back to the panel entirely, so 375x667 and 1280x720 keep the old
-   panel (196 and 69px). */
+/* ---- The mast: one slim fixed band, drawn only in the states with no event
+   band (loading, a failed read, Tournament Not Found, the club join step).
+   The ready lobby never carries it: its event band heads the page, and the
+   tab panel keeps the height it had before this pass (373px at 393x852,
+   249px at 1280x900). The slim 56px row and the short-screen rule keep the
+   empty states inside one screen as well. */
 .tournament-details.arena-workspace > .arena-workspace-mast {
   flex: 0 0 auto;
   align-self: stretch;
