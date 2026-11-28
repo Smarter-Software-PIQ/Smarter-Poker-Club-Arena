@@ -1,0 +1,47 @@
+{
+  "figures": [
+    "0 Left",
+    "10 Diamonds Per Reward",
+    "150",
+    "150",
+    "3 Per Day",
+    "4 Per Day",
+    "5 Diamonds Per Reward",
+    "Social Rewards Require A Verified Email And An Account At Least 24 Hours Old.",
+    "Social Rewards Require A Verified Email And An Account At Least 24 Hours Old."
+  ],
+  "hooks": [],
+  "words": [
+    ". Resets At Midnight, Chicago Time.",
+    "0 Left",
+    "10 Diamonds Per Reward",
+    "150",
+    "150",
+    "3 Per Day",
+    "4 Per Day",
+    "5 Diamonds Per Reward",
+    "Create A Post",
+    "Diamond Rewards Are Paused Right Now.",
+    "Diamonds. Earned Today:",
+    "Earn Diamonds",
+    "Share A Hand, Result Or Thought In The Feed.",
+    "Share Content",
+    "Social Rewards Require A Verified Email And An Account At Least 24 Hours Old.",
+    "Social Rewards Require A Verified Email And An Account At Least 24 Hours Old.",
+    "Subject To Your Remaining Activity Allowance. Repeat Actions On The Same Content Do Not Earn Again.",
+    "Subject To Your Remaining Activity Allowance. Repeat Actions On The Same Content Do Not Earn Again.",
+    "Use The Share Button To Share A Post, Hand Or Score Card Outside The App.",
+    "Your Daily Activity Limit:",
+    "Your Monthly Activity Allowance Has Been Used."
+  ],
+  "live": [],
+  "controls": [
+    "a|Bonus Games|href=/clubs/kings-club/diamond-games",
+    "a|Earn Diamonds|aria-current=page,href=/clubs/kings-club/earn-diamonds",
+    "a|Spin Wheel|href=/clubs/kings-club/wheel",
+    "button|Open Activity|",
+    "button|Open Activity|",
+    "button|Refresh|",
+    "button|‹ Diamond Spins|"
+  ]
+}

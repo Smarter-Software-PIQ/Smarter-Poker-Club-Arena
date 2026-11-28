@@ -1,0 +1,18 @@
+{
+  "figures": [],
+  "hooks": [
+    "data-testid=lightning-entry"
+  ],
+  "words": [
+    "Game Unavailable",
+    "Lightning",
+    "We Could Not Open This Game Right Now."
+  ],
+  "live": [
+    "alert|Game Unavailable | Lightning | Return To Lobby | Try Again | We Could Not Open This Game Right Now."
+  ],
+  "controls": [
+    "button|Return To Lobby|",
+    "button|Try Again|"
+  ]
+}

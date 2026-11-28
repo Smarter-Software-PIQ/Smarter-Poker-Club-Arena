@@ -1,0 +1,17 @@
+{
+  "figures": [],
+  "hooks": [
+    "data-testid=lightning-entry"
+  ],
+  "words": [
+    "Game Unavailable",
+    "Lightning",
+    "This Game Link Is Invalid. Open A Game From The Lobby."
+  ],
+  "live": [
+    "alert|Game Unavailable | Lightning | Return To Lobby | This Game Link Is Invalid. Open A Game From The Lobby."
+  ],
+  "controls": [
+    "button|Return To Lobby|"
+  ]
+}

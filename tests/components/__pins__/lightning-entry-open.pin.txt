@@ -1,0 +1,28 @@
+{
+  "figures": [
+    "1/2",
+    "21",
+    "80 - 400",
+    "NLH 1/2 Action"
+  ],
+  "hooks": [
+    "data-testid=lightning-entry",
+    "data-zone=buyIn",
+    "data-zone=players",
+    "data-zone=primaryAction",
+    "data-zone=secondaryAction",
+    "data-zone=stakes",
+    "data-zone=title"
+  ],
+  "words": [
+    "1/2",
+    "21",
+    "80 - 400",
+    "NLH 1/2 Action"
+  ],
+  "live": [],
+  "controls": [
+    "button|Join Lightning|",
+    "button|Return To Lobby|"
+  ]
+}

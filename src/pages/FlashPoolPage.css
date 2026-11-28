@@ -1,0 +1,108 @@
+/* FLASH POOL IN #SMARTERDESIGN (batch D1, 2026-11-28).
+   The mast, cases, tiles, keys and well come from ArenaWorkspace.css and
+   ArenaOps.css; this sheet lays the pools out and inks their lines. Every
+   rule is scoped under the page's arena root. */
+
+.arena-workspace.flash-pool-page {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 640px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding-bottom: calc(var(--bottom-nav-clearance, 74px) + 24px);
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+.arena-workspace.flash-pool-page .flash-pool-page__back {
+  justify-content: flex-start;
+  margin: 0 0 6px;
+}
+.arena-workspace.flash-pool-page .flash-pool-page__back > button {
+  flex: 0 0 auto;
+  padding: 6px 14px;
+}
+
+.arena-workspace.flash-pool-page .flash-pool-case__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.arena-workspace.flash-pool-page .flash-pool-case__terms {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.arena-workspace.flash-pool-page .flash-pool-case__line {
+  margin: 0;
+  color: #9fbacc;
+  font:
+    12px/1.35 Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.arena-workspace.flash-pool-page .flash-pool-case__balance {
+  color: #74dfff;
+}
+
+.arena-workspace.flash-pool-page .flash-pool-case__meters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+}
+.arena-workspace.flash-pool-page .flash-pool-case__meters dt {
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.arena-workspace.flash-pool-page .flash-pool-case__meters dd {
+  margin: 0;
+  color: #f1f5fc;
+  font:
+    800 18px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.arena-workspace.flash-pool-page .flash-pool-case__meters [data-tone='live'] dd {
+  color: #74dfff;
+}
+
+.arena-workspace.flash-pool-page .flash-pool-case__join {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(96px, 30%);
+  align-items: stretch;
+  gap: 6px;
+}
+/* 16px so iOS does not zoom the page on focus. */
+.arena-workspace.flash-pool-page .flash-pool-case__join > .arena-ops-well {
+  min-width: 0;
+  color-scheme: dark;
+  font-size: 16px;
+}
+.arena-workspace.flash-pool-page .flash-pool-case__join > .arena-switch {
+  margin: 0;
+}
+.arena-workspace.flash-pool-page .flash-pool-case__join > .arena-switch > button {
+  touch-action: manipulation;
+  font-size: 14px;
+}
+
+.arena-workspace.flash-pool-page .flash-pool-empty {
+  align-items: center;
+  text-align: center;
+}
+.arena-workspace.flash-pool-page .flash-pool-empty__title {
+  margin: 0;
+  color: #f1f5fc;
+  font:
+    800 18px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}

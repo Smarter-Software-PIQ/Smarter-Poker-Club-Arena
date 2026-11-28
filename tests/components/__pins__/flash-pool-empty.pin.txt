@@ -1,0 +1,14 @@
+{
+  "figures": [],
+  "hooks": [
+    "data-flash-pools=true"
+  ],
+  "words": [
+    "Check Back Soon!",
+    "No Flash Pools Available Yet."
+  ],
+  "live": [],
+  "controls": [
+    "button|← Back|"
+  ]
+}

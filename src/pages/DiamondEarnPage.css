@@ -1,0 +1,61 @@
+/* EARN DIAMONDS IN #SMARTERDESIGN (batch D1, 2026-11-28).
+   The case, keys, well and title come from ArenaWorkspace.css and
+   ArenaOps.css; this sheet only lays the page out and inks its insides.
+   Every rule is scoped under the page's arena root. */
+
+.arena-workspace.diamond-earn-page {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  padding-bottom: calc(var(--bottom-nav-clearance, 74px) + 24px);
+}
+
+/* The way back: one chrome key above the mast, never a full-width bar. */
+.arena-workspace.diamond-earn-page .diamond-earn-page__back {
+  justify-content: flex-start;
+  margin: 0 0 6px;
+}
+.arena-workspace.diamond-earn-page .diamond-earn-page__back > button {
+  flex: 0 0 auto;
+  padding: 6px 14px;
+}
+
+.arena-workspace.diamond-earn-page .diamond-earn-case > .arena-section-title small {
+  color: #74dfff;
+  font-weight: 700;
+}
+
+.arena-workspace.diamond-earn-page .diamond-earn-case__eyebrow {
+  margin: 0;
+  color: #74dfff;
+  font:
+    700 13px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.arena-workspace.diamond-earn-page .diamond-earn-case .arena-ops-copy {
+  font-size: 13px;
+}
+
+.arena-workspace.diamond-earn-page .diamond-earn-case__error {
+  color: #ff5b6e;
+}
+
+.arena-workspace.diamond-earn-page .diamond-earn-case__field {
+  display: grid;
+  gap: 4px;
+  color: #9fbacc;
+  font:
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+/* 16px so iOS does not zoom the page when the link is selected. */
+.arena-workspace.diamond-earn-page .diamond-earn-case__field > .arena-ops-well {
+  color-scheme: dark;
+  font-size: 16px;
+  text-overflow: ellipsis;
+}

@@ -1,0 +1,20 @@
+{
+  "figures": [
+    "NLH 1/2 Action"
+  ],
+  "hooks": [
+    "data-testid=lightning-entry"
+  ],
+  "words": [
+    "Lightning",
+    "NLH 1/2 Action",
+    "Your Seat Is Waiting. Sit Back In To Play."
+  ],
+  "live": [
+    "status|Lightning | NLH 1/2 Action | Return To Lobby | View Game | Your Seat Is Waiting. Sit Back In To Play."
+  ],
+  "controls": [
+    "button|Return To Lobby|",
+    "button|View Game|"
+  ]
+}

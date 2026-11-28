@@ -1,0 +1,16 @@
+{
+  "figures": [],
+  "hooks": [],
+  "words": [
+    "Earn Diamonds",
+    "Loading"
+  ],
+  "live": [],
+  "controls": [
+    "a|Bonus Games|href=/clubs/kings-club/diamond-games",
+    "a|Earn Diamonds|aria-current=page,href=/clubs/kings-club/earn-diamonds",
+    "a|Spin Wheel|href=/clubs/kings-club/wheel",
+    "button|Refresh|",
+    "button|‹ Diamond Spins|"
+  ]
+}

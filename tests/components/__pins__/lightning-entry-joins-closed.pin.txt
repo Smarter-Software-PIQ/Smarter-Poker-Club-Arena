@@ -1,0 +1,35 @@
+{
+  "figures": [
+    "1/2",
+    "21",
+    "80 - 400",
+    "NLH 1/2 Action"
+  ],
+  "hooks": [
+    "data-testid=lightning-entry",
+    "data-testid=lightning-entry-join-closed",
+    "data-testid=lightning-entry-why",
+    "data-zone=buyIn",
+    "data-zone=players",
+    "data-zone=primaryAction",
+    "data-zone=secondaryAction",
+    "data-zone=stakes",
+    "data-zone=status",
+    "data-zone=title"
+  ],
+  "words": [
+    "1/2",
+    "21",
+    "80 - 400",
+    "Closed",
+    "Lightning Is Not Taking New Players Right Now.",
+    "NLH 1/2 Action"
+  ],
+  "live": [
+    "status|Lightning Is Not Taking New Players Right Now."
+  ],
+  "controls": [
+    "button|Join Lightning|disabled",
+    "button|Return To Lobby|"
+  ]
+}

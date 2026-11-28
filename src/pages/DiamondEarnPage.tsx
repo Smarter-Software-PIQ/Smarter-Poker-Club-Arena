@@ -1,13 +1,13 @@
 import DiamondSpinsTabs from '../components/games/DiamondSpinsTabs';
 import { writeClipboard } from '../lib/share';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { supabase } from '../lib/supabase';
-import { SpadeConsole } from '../components/console/SpadeConsole';
-import PageBar from '../components/help/PageBar';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import '../components/ops/ArenaOps.css';
 import { reportError } from '../utils/errorReporter';
-import styles from './diamondGames.module.css';
+import './DiamondEarnPage.css';
 
 interface Guide {
   ok: true;
@@ -145,106 +145,141 @@ function DiamondEarnGuide() {
     }
   };
   return (
-    <div className={styles.page}>
-      {/* Dan, 2026-10-17: the eyebrow and the intro line moved behind the
-          painted "?"; the live allowance stays on the glass. */}
-      <PageBar
-        title="Earn Diamonds"
-        titleAs={false}
-        summary="Earn Up To 150 Diamonds A Day From Eligible Social, Video And Training Activities. Qualified Friend Referrals Sit Outside That Daily Cap."
-      >
-        <button className={styles.back} onClick={() => navigate(`/clubs/${clubId}/wheel`)}>
+    <div className="arena-workspace diamond-earn-page">
+      {/* #SmarterDesign batch D1 (2026-11-28): the way back sits above the
+          mast; the eyebrow and intro line stay behind the chrome "?" (Dan,
+          2026-10-17), and the live allowance stays on the glass. */}
+      <div className="arena-switch diamond-earn-page__back">
+        <button type="button" onClick={() => navigate(`/clubs/${clubId}/wheel`)}>
           ‹ Diamond Spins
         </button>
-      </PageBar>
-      <DiamondSpinsTabs clubId={clubId ?? ''} />
-      <SpadeConsole
-        crest="diamond"
+      </div>
+      <ArenaWorkspaceHeader
+        area="finance"
         title="Earn Diamonds"
-        pill={guide ? `${guide.daily_remaining} Left` : 'Loading'}
-        plates={{ primary: { label: 'Refresh', onClick: () => setReload((n) => n + 1) } }}
+        summary="Earn Up To 150 Diamonds A Day From Eligible Social, Video And Training Activities. Qualified Friend Referrals Sit Outside That Daily Cap."
+      />
+      <DiamondSpinsTabs clubId={clubId ?? ''} arena />
+      <EarnCase
+        title="Earn Diamonds"
+        note={guide ? `${guide.daily_remaining} Left` : 'Loading'}
+        action={
+          <button type="button" onClick={() => setReload((n) => n + 1)}>
+            Refresh
+          </button>
+        }
       >
         {guide && (
-          <p className="sc-copy">
+          <p className="arena-ops-copy">
             Your Daily Activity Limit: {guide.daily_cap} Diamonds. Earned Today: {guide.daily_used}.
             Resets At Midnight, Chicago Time.
           </p>
         )}
-        {guide?.frozen && <p className="sc-copy">Diamond Rewards Are Paused Right Now.</p>}
+        {guide?.frozen && <p className="arena-ops-copy">Diamond Rewards Are Paused Right Now.</p>}
         {guide && guide.monthly_remaining === 0 && (
-          <p className="sc-copy">Your Monthly Activity Allowance Has Been Used.</p>
+          <p className="arena-ops-copy">Your Monthly Activity Allowance Has Been Used.</p>
         )}
         {error && (
-          <p className="sc-copy" role="alert">
+          <p className="arena-ops-copy diamond-earn-case__error" role="alert">
             {error}
           </p>
         )}
-      </SpadeConsole>
+      </EarnCase>
       {guide?.referral_diamonds && (
-        <SpadeConsole
-          crest="diamond"
+        <EarnCase
           title="Refer A Friend"
           eyebrow={`${guide.referral_diamonds} Base Diamonds`}
-          pill="No Daily Cap"
-          plates={{
-            primary: {
-              label: copied ? 'Link Copied' : 'Copy Invite Link',
-              onClick: () => void copy(),
-              disabled: !guide.referral_code,
-            },
-          }}
+          note="No Daily Cap"
+          action={
+            <button type="button" onClick={() => void copy()} disabled={!guide.referral_code}>
+              {copied ? 'Link Copied' : 'Copy Invite Link'}
+            </button>
+          }
         >
-          <p className="sc-copy">
+          <p className="arena-ops-copy">
             Earn {guide.referral_diamonds} Base Diamonds When A Friend Qualifies. Referral Rewards
             Do Not Use Your Daily Activity Allowance.
           </p>
-          <p className="sc-copy">
+          <p className="arena-ops-copy">
             Your Friend Must Verify Their Email And Phone, Have An Account At Least Seven Days Old,
             And Log In On Five Separate Days. Each Friend Qualifies Once. The Existing 20-Referral
             Monthly Limit Applies.
           </p>
           {guide.referral_code && (
-            <label className={styles.seedField}>
+            <label className="diamond-earn-case__field">
               Your Invite Link
               <input
-                className={styles.seedInput}
+                className="arena-ops-well"
                 readOnly
                 value={`https://smarter.poker/?ref=${encodeURIComponent(guide.referral_code)}`}
                 onFocus={(e) => e.target.select()}
               />
             </label>
           )}
-        </SpadeConsole>
+        </EarnCase>
       )}
       {guide?.actions.map((action) => {
         const info = ACTIVITIES[action.key];
         return (
-          <SpadeConsole
+          <EarnCase
             key={action.key}
-            crest="flat"
             title={info.label}
             eyebrow={`${action.diamonds} Diamonds Per Reward`}
-            pill={`${action.max_per_day} Per Day`}
-            plates={{
-              primary: {
-                label: 'Open Activity',
-                onClick: () => {
+            note={`${action.max_per_day} Per Day`}
+            action={
+              <button
+                type="button"
+                onClick={() => {
                   window.location.href = `https://smarter.poker${info.href}`;
-                },
-              },
-            }}
+                }}
+              >
+                Open Activity
+              </button>
+            }
           >
-            <p className="sc-copy">{info.description}</p>
-            <p className="sc-copy">
+            <p className="arena-ops-copy">{info.description}</p>
+            <p className="arena-ops-copy">
               Subject To Your Remaining Activity Allowance. Repeat Actions On The Same Content Do
               Not Earn Again.{' '}
               {action.category === 'social'
                 ? 'Social Rewards Require A Verified Email And An Account At Least 24 Hours Old.'
                 : ''}
             </p>
-          </SpadeConsole>
+          </EarnCase>
         );
       })}
     </div>
+  );
+}
+
+/**
+ * One chrome case: the title alone names the heading and the case, the note
+ * (the old console pill) rides the title's right edge, the eyebrow figure
+ * sits under it, and the case's one action is its lit key.
+ */
+function EarnCase({
+  title,
+  note,
+  eyebrow,
+  action,
+  children,
+}: {
+  title: string;
+  note: string;
+  eyebrow?: string;
+  action: ReactNode;
+  children?: ReactNode;
+}) {
+  const titleId = useId();
+  return (
+    <section className="arena-case arena-ops-case diamond-earn-case" aria-labelledby={titleId}>
+      <h2 className="arena-section-title" aria-labelledby={titleId}>
+        <span id={titleId}>{title}</span>
+        <small>{note}</small>
+      </h2>
+      {eyebrow && <p className="diamond-earn-case__eyebrow">{eyebrow}</p>}
+      {children}
+      <div className="arena-switch arena-ops-keys arena-ops-primary">{action}</div>
+    </section>
   );
 }
