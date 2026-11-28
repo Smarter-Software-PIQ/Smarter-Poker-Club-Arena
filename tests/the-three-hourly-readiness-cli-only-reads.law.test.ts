@@ -63,18 +63,21 @@ describe('the three-hourly readiness CLI only reads', () => {
     expect(scriptSource).not.toContain('\u2013');
   });
 
+  // 55 real-git Python tests took 31.6s on SSD2 under local pre-push load, exceeding
+  // the original 30s subprocess ceiling without any assertion failure. Keep every
+  // assertion identical and raise only the hang ceiling.
   it('passes its pure mocked unit test suite with zero skipped tests', () => {
     const result = spawnSync('python3', ['-B', SUITE], {
       cwd: ROOT,
       env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },
       encoding: 'utf8',
-      timeout: 30_000,
+      timeout: 90_000,
     });
     expect(result.error).toBeUndefined();
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stderr).toMatch(/Ran 55 tests/);
     expect(result.stderr).not.toMatch(/skipped=/);
-  });
+  }, 95_000);
 
   it('is documented in docs/ENGINE-CUTOVER-EVERY-THREE-HOURS.md with --repo-dir, NEXT OPEN CYCLE, MIGRATION GATE, and no Unicode dashes', () => {
     expect(docSource).toContain('python3 -B scripts/release/three-hourly-readiness.py');
