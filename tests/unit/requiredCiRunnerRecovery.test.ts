@@ -1386,7 +1386,8 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       // November 20: retain the 3 added migration-safety parallel invariant guards (PR #11547).
       // November 26: add the engine promise gate (no-floating-promises over server/src).
       // November 26: that gate gets a 6 GB heap (NODE_OPTIONS) so it stops running out of memory.
-      typecheck_compile: '182de10d8032c4642a432133a71dfd613a7e8e23238ced322fbc46266c8bcf19',
+      // November 28: add check-server-test-determinism and check-cutover-ci-budgets parallel guards (Wave A-1).
+      typecheck_compile: '74bbf1fca84008ee9e1272e1f962dc3c52712b319742fcfdbe57f9fda3e71ece',
       unit_shards: '2f4cffd8880df0e5826ecc79361500b4dae7da7d23698d7a211772f351863649',
       unit: '7b3caf98ff41bbe5f1e52ff0cb65323b1ec587ed45a768e81de2051bb1906de5',
       // Retain both original top-up receipt and funded satellite qualifications.
@@ -1398,8 +1399,11 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       // Added 2026-11-19: builds native qualification image when its inputs change.
       native_qualification_image:
         'bfa42b6b249314ab3191e5a4c8b5bc09ed3da27edbfdd25cf0669bc71a453c9a',
+      // Added 2026-11-28 (Wave A-1): builds server/Dockerfile and runs offline hist215 native smoke on server PRs.
+      server_dockerfile_smoke: '45f97eb4b24ce8c1cd4de0776b7ec1560033d6dce5211777473f9b3c2c48dea5',
       // Moved 2026-11-19: `server` also requires native_qualification_image.
-      server: '9bf2f5c85eea2ea8609a857f7ea7f33cedeb035f076b1768a36e64f9abd71c14',
+      // Moved 2026-11-28 (Wave A-1): `server` also requires server_dockerfile_smoke.
+      server: 'aaf8325677b06ad2e00dc95cadb5a872a1fb9214dcb37d21dd3095bc262bb251',
       verdict: '51ff5df41add022dc51ea5bcacb648971c4db7b63fd03990b47a99ece3a5c529',
       // Moved 2026-11-19: browser installs route through scripts/ci/ubuntu-apt.sh.
       build: 'c5d7a24f2cf5699273b3aa6cb0f6314202a47bd0bf7c45106293dbc54b7d8890',
