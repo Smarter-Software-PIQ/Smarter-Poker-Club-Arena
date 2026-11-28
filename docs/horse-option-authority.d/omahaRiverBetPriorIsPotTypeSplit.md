@@ -68,6 +68,39 @@ Fixed harness, ON-minus-same-seed-no-op (no-op 0.00, 0 divergent deals on every 
 
 PLO4 misses the people-responder bar on two divergent hands (no tuning, no re-seed), so PLO4 is NOT cleared: scope 5 (PLO5 only). The heads-up harness reaches a re-raised-pot river bet about once in 4,000 deals, so these cards say little either way; the real-node replay above is the evidence.
 
+## Correction 2026-11-28: The Bettor's Record Is Read In Its Own Unit
+
+**State stays OFF. Evidence NOT MET.** No migration, no switch row, no switch-state change.
+
+What changed (lead-10 worker RMEM, session 01Gw7aDr; `plo-lead7-01TLQer8/l10-rmem/BUILD.md`): inside this option's path, `omahaPeoplePriorShare` moved the re-raised cell by the bettor's own shown river record measured against the RE-RAISED cell's not-value share (big bets 0.551). His record (`HorseOmahaBetRead`: street x size x line) does not split by pot type; it is mostly single-raised bets. So an average person's record read as a ratio of about 0.417 / 0.551 = 0.76 as it grew and pulled the re-raised cell back toward the pooled one: with opponent memory on, the record undid most of the pot split. The record is now read against people's not-value share in the record's own pot-blind cell (the pooled river cell of that size); the ratio then moves the re-raised cell. With this option off (no pot key) the code computes exactly what it computed before. A law test pins it: an average person's record leaves the re-raised cell unchanged, and the record still moves the cell in both directions.
+
+Real-node replay WITH opponent memory (production-shaped learner, 868 re-raised heads-up river decisions, base = the stack with this option on, arm = + this correction; zero-equity bluff bb per bet; bar F1 not more than +2 SE):
+
+| cell (PLO5 heads-up, re-raised, a person's first river bet) | n   | break-even | fold / bluff before   | fold / bluff after                 | fold -> call / call -> fold |
+| ----------------------------------------------------------- | --- | ---------- | --------------------- | ---------------------------------- | --------------------------- |
+| bet 0.7-1.1 pot, turn checked                               | 162 | 46%        | 77% / +53.4 +/- 12.3  | 67% / +24.8 +/- 12.7 (1.95 SE)     | 17 / 0                      |
+| bet 0.7-1.1 pot, turn bet                                   | 68  | 47%        | 62% / +53.0 +/- 22.9  | 51% / +24.2 +/- 23.3 (1.04 SE)     | 7 / 0                       |
+| bet 0.4-0.7 pot, turn checked                               | 103 | 34%        | 67% / +75.7 +/- 14.9  | 65% / +70.0 +/- 14.9 (still over)  | 2 / 0                       |
+| bet 0.4-0.7 pot, turn bet                                   | 57  | 35%        | 70% / +139.1 +/- 29.1 | 68% / +127.4 +/- 29.5 (still over) | 1 / 0                       |
+| bet under 0.4 pot                                           | 71  |            | unchanged             | unchanged                          | 0 / 0                       |
+| PLO4 re-raised, every cell                                  | 65  |            | unchanged             | unchanged                          | 0 / 0                       |
+
+- F1 PASS (PLO5 re-raised big: turn-checked 1.95 SE, by a hair; turn-bet 1.04 SE).
+- F2 PASS: the 27 added calls (24 of them in the big cells; 23 against one bettor) would earn +82.1 +/- 29.1 bb per call against people's shown PLO5 re-raised river bets of that size (z 2.8); one of them was a recorded Horse call (-115 bb).
+- F3 PASS: no call becomes a fold anywhere; no cell is pushed under break-even; the mid cells stay over (residual); PLO4 is untouched.
+
+Fixed harness (opponent memory on), ON-minus-same-seed-no-op, base = the stack with this option on, arm = + this correction, PLO5 (no-op 0.00 and 0 divergent on every card):
+
+| card                                         | seed A                                              | seed B                    | pooled                    | bar         | result   |
+| -------------------------------------------- | --------------------------------------------------- | ------------------------- | ------------------------- | ----------- | -------- |
+| value-only bettor, heads-up, 8,000 deals     | 211: 0.00 (0 divergent)                             | 212: 0.00 (0 divergent)   | 0.00                      | >= -4.0     | PASS     |
+| people-calibrated responder, heads-up, 8,000 | 211: -0.55 +/- 0.55 (1)                             | 212: -0.24 +/- 0.24 (1)   | -0.40 +/- 0.30 = -1.3 SE  | >= -1 SE    | **FAIL** |
+| mirror heads-up, 8,000 pairs                 | 311: +6.05 +/- 3.34 (670)                           | 312: +5.79 +/- 3.40 (741) | +5.92 +/- 2.38            | >= -2 SE    | PASS     |
+| mirror 6-max, 4,000 pairs                    | 311: 0.00 (1)                                       | 312: -0.54 +/- 0.40 (30)  | -0.27 +/- 0.20 (-1.35 SE) | >= -2 SE    | PASS     |
+| production-muck bluffer bp, air bb per line  | 601: -7.90 +/- 0.80 -> -8.02 +/- 0.80 (1 divergent) |                           |                           | not > +2 SE | PASS     |
+
+The people-responder card FAILS its bar on 2 changed hands in 16,000 deals: that heads-up card almost never deals a re-raised-pot river bet, so it cannot judge this correction either way, and the fail is recorded, not waived (no re-seed, no larger sample). Lead-10 ruling: the correction is merged OFF because it fixes a unit error inside this option's gated path and changes nothing while the option is off; this option stays OFF until a targeted re-raised-pot people card, registered before it runs, passes.
+
 ## Watch And Rollback
 
 - Roll back (switch off) if the realised chips of the river calls this option adds against people (receipt `omaha_river_pot_prior_read`, re-raised pots, the call it turned from a fold) are below zero by 2 SE after 30 such calls.
