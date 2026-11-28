@@ -67,6 +67,23 @@ describe('the tournament lobby wears #SmarterDesign', () => {
     for (const m of SKIN.matchAll(/border-radius:\s*([^;]+);/g)) expect(m[1].trim()).toBe('0');
   });
 
+  it('the tab rail stays one row that scrolls sideways, never a grid of rows', () => {
+    // ArenaLobbyConsole.css makes the rail a four-column grid; nine tabs then
+    // took three 44px rows and left the tab panel under 200px at 1280x720
+    // (post-deploy run 46124486361). The skin must put them back on one row.
+    // Rendered: tests/e2e/css/tournamentLobbyTabPanelHeightCases.ts.
+    const rail = FLAT.match(/\.details-tabs \{([^}]*)\}/);
+    expect(rail).not.toBeNull();
+    expect(rail![1]).toMatch(/display: flex;/);
+    expect(rail![1]).toMatch(/flex-wrap: nowrap;/);
+    expect(rail![1]).toMatch(/overflow-x: auto;/);
+    expect(rail![1]).not.toMatch(/grid/);
+    const key = FLAT.match(/\.details-tabs \.tab \{([^}]*)\}/);
+    expect(key).not.toBeNull();
+    expect(key![1]).toMatch(/flex: 1 0 auto;/);
+    expect(key![1]).toMatch(/white-space: nowrap;/);
+  });
+
   it('every key a player taps stays at the 44px touch floor', () => {
     expect(FLAT).toMatch(/\.details-tabs \.tab \{[^}]*min-height: 44px/);
     expect(FLAT).toMatch(/\.details-footer\s+\.btn-share \{[^}]*min-height: 44px/);
