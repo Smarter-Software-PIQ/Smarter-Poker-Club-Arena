@@ -77,12 +77,14 @@
  * person dealt in, per variant, from a separate count statement.
  *
  * One hand can carry several decisions of one Horse, each graded on the same
- * hand result, so the standard error is clustered by hand. A class is flagged
- * only when its mean is beyond 1 SE and n >= 10 (and, when over 80% of the class
- * is against one person, only if it still flags without that person: otherwise
- * "one person", ONE_PERSON_SHARE); the same table is shown with
- * the most frequent person excluded (owner rule: results must hold without
- * the most frequent opponent).
+ * hand result, so the standard error is clustered by hand. A class is FLAGGED
+ * only under THE FLAG RULE below (2026-11-28: a false-discovery-controlled bar
+ * across every row tested that day, or the same row beyond about 2 SE two
+ * reports running; a row beyond the earlier 1 SE bar that does not flag shows
+ * as "watch"; when over 80% of the row is against one person it must clear the
+ * same bar without that person, otherwise "one person", ONE_PERSON_SHARE). The
+ * same table is shown with the most frequent person excluded (owner rule:
+ * results must hold without the most frequent opponent).
  *
  * Tournament decisions are graded in chips / big blind, not in prize equity.
  * The person / Horse split is DATA IDENTIFICATION ONLY (CLAUDE.md 10.5):
@@ -676,6 +678,12 @@ export interface Stat {
   mean: number;
   /** standard error of the mean, clustered; null below two clusters */
   se: number | null;
+  /**
+   * skewness of the per-hand contributions to the mean (2026-11-28; absent in reports
+   * written before). Negative = most hands lose a little and a few win a lot, the shape
+   * of a call: the flag rule's p-value corrects for it (oneSidedP).
+   */
+  skew?: number | null;
 }
 
 /** Mean with a cluster-robust standard error (one cluster per hand). */
@@ -695,24 +703,242 @@ export function clusteredStat(values: ReadonlyArray<{ cluster: string; x: number
   const k = sums.size;
   if (k < 2) return { n, clusters: k, total, mean, se: null };
   let ss = 0;
-  for (const [sum, count] of sums.values()) ss += (sum - mean * count) ** 2;
-  return { n, clusters: k, total, mean, se: Math.sqrt((k / (k - 1)) * ss) / n };
+  let s3 = 0;
+  for (const [sum, count] of sums.values()) {
+    const r = sum - mean * count;
+    ss += r * r;
+    s3 += r * r * r;
+  }
+  return {
+    n,
+    clusters: k,
+    total,
+    mean,
+    se: Math.sqrt((k / (k - 1)) * ss) / n,
+    skew: ss > 0 ? s3 / k / Math.pow(ss / k, 1.5) : null,
+  };
 }
 
-export const flagged = (s: Stat): boolean =>
-  s.n >= FLAG_MIN_N && s.se !== null && s.mean - s.se > 0;
+// ─────────────────────────────────────────────────────────────────────────────
+// THE FLAG RULE (2026-11-28): a flag must mean a real Horse mistake
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Until 2026-11-28 a row was flagged when its mean was beyond 1 SE at n >= 10. One row
+// with no leak at all clears that bar about 16% of the time, and a report tests about 100
+// rows with n >= 10 a day (about 257 spot classes, of which 10 to 30 reach n >= 10, plus
+// the roll-ups and the range grade's roll-ups). So a day carried about 5 to 15 flags from
+// chance alone and a reader could not tell a leak from luck.
+//
+// The rule now, declared here and nowhere else:
+//
+//   TESTED   a row with n >= FLAG_MIN_N and a standard error above 0. Its one-sided p-value is
+//            Student's t on mean / SE with (hands - 1) degrees of freedom (the SE is
+//            clustered by hand, so hands are the sample), after Hall's correction for
+//            skewness, applied only where it makes the row LESS significant and never
+//            taking more than SKEW_CORRECTION_MAX of the plain t. A call
+//            loses a little most hands and wins a pot now and then; on 10 to 60 hands
+//            an uncorrected t-test calls that shape a leak two to five times too often.
+//   FLAGGED  (a) the row clears Benjamini-Hochberg at FLAG_FDR_Q across every row TESTED
+//            in its family that day, and its mean is at least FLAG_MIN_EFFECT_BB; or
+//            (b) REPEAT DAY: its p-value is at most FLAG_REPEAT_P and its mean at least
+//            FLAG_MIN_EFFECT_BB in this report AND in one of the
+//            FLAG_REPEAT_LOOKBACK_REPORTS reports before it, where that earlier window
+//            ended at or before this one starts and no more than
+//            FLAG_REPEAT_MAX_GAP_HOURS earlier.
+//   ONE PERSON  a row that would flag, with more than ONE_PERSON_SHARE of it against one
+//            person, must clear THE SAME BAR with that person excluded (the family's
+//            Benjamini-Hochberg cutoff for (a); FLAG_REPEAT_P on both days for (b)).
+//            Otherwise it shows "one person", not a flag.
+//   WATCH    a row beyond the earlier bar (mean > WATCH_SE x SE at n >= FLAG_MIN_N) that
+//            is not flagged and not "one person". Shown, never dropped, never a flag.
+//
+// Families (each is tested as one set): the spot classes of cash and tournaments
+// together; their roll-up rows; the range grade's roll-up rows of the groups that passed
+// validation; and the person-excluded view of each of those three.
+//
+// EXPECTED FALSE FLAGS when no row has a leak (every true mean 0): Benjamini-Hochberg
+// rejects anything at all in a family on at most FLAG_FDR_Q = 5% of days, about 0.05
+// false flags per family per day; the repeat rule adds FLAG_REPEAT_P squared = 0.000625
+// per row and earlier report, about 0.04 per family per day at 30 such rows. That is
+// under 0.1 per family per day, so about 0.2 a day (one every five days) over the three
+// families a reader acts on, against about 5 per family per day under the earlier rule.
+// Simulated at 257 classes a day of which 30 are tested (1,000 days each, false flags
+// per family per day, earlier rule -> this rule): bell-shaped results 4.9 -> 0.07;
+// heavy-tailed 5.9 -> 0.01; call-shaped winning one hand in three 5.4 -> 0.04; winning
+// one hand in four 5.8 -> 0.14. HorseDailyDecisionGradeFlagRule.test.ts pins "under 0.1
+// per family per day" for the first three shapes.
+//
+// WHAT THE RULE CAN MISS, by design: a small real leak. One day of 10 to 60 decisions
+// cannot separate a 2 SE loss from luck across 30 rows, so such a row is "watch" on its
+// first day and becomes a flag only when one of the next two reports repeats it. A leak
+// that shows one day in three stays "watch". A real loss under FLAG_MIN_EFFECT_BB per decision
+// stays "watch" however certain it is. Nothing above the earlier bar is ever hidden.
+//
+// WHAT CAN STILL FOOL IT: a row whose results are far more lopsided than a call (for
+// example one hand in ten wins nine times what the others lose). A day with no such win
+// in it looks like a certain loss and no statistic on that day's rows can know better.
+// Simulated, a family of 30 such rows false-flags about 2 a day (7% of rows; the earlier
+// rule: 7 a day). Reading the row's hands is the defence; the report's Limits say so.
+
+/** Benjamini-Hochberg false-discovery rate across the rows tested in one family on one day. */
+export const FLAG_FDR_Q = 0.05;
+/**
+ * A flagged row loses at least this many big blinds per decision. Half a big blind sits
+ * above the range grade's own measured pricing error (validation gaps of -0.02 to +0.40 bb
+ * on Nov 23 to 27), so a certain but smaller number is not called a leak.
+ */
+export const FLAG_MIN_EFFECT_BB = 0.5;
+/** Repeat day: the one-sided p-value both reports must reach (2 SE on a large sample). */
+export const FLAG_REPEAT_P = 0.025;
+/** Repeat day: an earlier window must end at most this long before this one starts. */
+export const FLAG_REPEAT_MAX_GAP_HOURS = 48;
+/**
+ * Repeat day: how many earlier reports are read. Two, so a day on which the row was thin,
+ * or was one person's hands, does not break a loss that shows on the days either side.
+ */
+export const FLAG_REPEAT_LOOKBACK_REPORTS = 2;
+/**
+ * The skew correction of a row's p-value takes away at most this share of its plain t
+ * (see oneSidedP). Simulated with no leak, a floor at half costs almost nothing (false
+ * flags per family per day 0.02 -> 0.04 for call-shaped results) and a real call-shaped
+ * leak is found about half again as often.
+ */
+export const SKEW_CORRECTION_MAX = 0.5;
+/** The earlier flag bar, kept as the "watch" bar: mean beyond this many SE at n >= FLAG_MIN_N. */
+export const WATCH_SE = 1;
+
+/** The rule in one paragraph, printed in every report header. */
+export const flagRuleText = (): string =>
+  `A row is TESTED at n >= ${FLAG_MIN_N} (one-sided p-value: Student's t on mean / SE, hands - 1 degrees of freedom, corrected for skew only toward less significant). It is FLAGGED ("YES") only when (a) it clears a Benjamini-Hochberg false-discovery rate of ${Math.round(100 * FLAG_FDR_Q)}% across every row tested in its family that day and loses at least ${FLAG_MIN_EFFECT_BB} bb per decision, or (b) "repeat day": p <= ${FLAG_REPEAT_P} (about 2 SE) and at least ${FLAG_MIN_EFFECT_BB} bb per decision in this report and in one of the ${FLAG_REPEAT_LOOKBACK_REPORTS} reports before it (an earlier window that ended no more than ${FLAG_REPEAT_MAX_GAP_HOURS} h before this one starts). When over ${Math.round(100 * ONE_PERSON_SHARE)}% of a row is against one person it must clear the same bar without that person, otherwise it shows "one person". "watch" = beyond the earlier bar (mean > ${WATCH_SE} SE at n >= ${FLAG_MIN_N}) but not flagged: shown, not a finding. With no leak anywhere the rule expects under 0.1 false flags per family per day, about 0.2 a day across the three families a reader acts on (the earlier rule: about 5 per family per day). It can miss a small real leak for a day: that row is "watch" first and flags when one of the next two reports repeats it.`;
+
+export type Tested = Pick<Stat, 'n' | 'clusters' | 'mean' | 'se' | 'skew'>;
+
+function lnGamma(x: number): number {
+  const c = [
+    76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155,
+    0.1208650973866179e-2, -0.5395239384953e-5,
+  ];
+  let y = x;
+  let ser = 1.000000000190015;
+  for (const cj of c) ser += cj / ++y;
+  const t = x + 5.5;
+  return -(t - (x + 0.5) * Math.log(t)) + Math.log((2.5066282746310005 * ser) / x);
+}
+
+/** Regularised incomplete beta function I_x(a, b) (continued fraction, Lentz). */
+function betaI(a: number, b: number, x: number): number {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  const front = Math.exp(
+    lnGamma(a + b) - lnGamma(a) - lnGamma(b) + a * Math.log(x) + b * Math.log(1 - x)
+  );
+  const cf = (p: number, q: number, z: number): number => {
+    const tiny = 1e-300;
+    let c = 1;
+    let d = 1 - ((p + q) * z) / (p + 1);
+    d = 1 / (Math.abs(d) < tiny ? tiny : d);
+    let h = d;
+    for (let m = 1; m <= 300; m++) {
+      const m2 = 2 * m;
+      let aa = (m * (q - m) * z) / ((p + m2 - 1) * (p + m2));
+      d = 1 + aa * d;
+      d = 1 / (Math.abs(d) < tiny ? tiny : d);
+      c = 1 + aa / c;
+      if (Math.abs(c) < tiny) c = tiny;
+      h *= d * c;
+      aa = (-(p + m) * (p + q + m) * z) / ((p + m2) * (p + m2 + 1));
+      d = 1 + aa * d;
+      d = 1 / (Math.abs(d) < tiny ? tiny : d);
+      c = 1 + aa / c;
+      if (Math.abs(c) < tiny) c = tiny;
+      const delta = d * c;
+      h *= delta;
+      if (Math.abs(delta - 1) < 1e-12) break;
+    }
+    return h;
+  };
+  return x < (a + 1) / (a + b + 2) ? (front * cf(a, b, x)) / a : 1 - (front * cf(b, a, 1 - x)) / b;
+}
+
+/**
+ * A row is tested only with enough decisions and a spread to test against. A row whose
+ * hands all lost the same amount (SE exactly 0) has no spread: a t-test would call it
+ * certain on any sample, so it is not tested. It still shows as "watch".
+ */
+export const isTested = (s: Tested): boolean =>
+  s.n >= FLAG_MIN_N && s.se !== null && s.se > 0 && s.clusters >= 2;
+
+/**
+ * One-sided p-value that the true mean loss is zero or less: Student's t on mean / SE
+ * with (hands - 1) degrees of freedom. null when the row is not tested.
+ *
+ * Skewness correction (Hall 1992, the transformed t for a skewed sample): with
+ * W = mean / (SE x sqrt(hands)) and g the skewness of the per-hand contributions, the
+ * statistic is sqrt(hands) x (W + g W^2 / 3 + g^2 W^3 / 27 + g / (6 hands)). g is used
+ * only when negative (a few big wins hidden behind many small losses), so the correction
+ * can lower a row's significance and never raise it. It takes away at most
+ * SKEW_CORRECTION_MAX of the plain t: the cubic flattens where mean / spread is large, and
+ * a row that loses on nearly every hand must not be muted by it. A row stored without its
+ * skewness (a report written before 2026-11-28) gets the plain t.
+ */
+export function oneSidedP(s: Tested): number | null {
+  if (!isTested(s)) return null;
+  const sd = s.se as number;
+  const k = s.clusters;
+  const g = Math.min(0, s.skew ?? 0);
+  const w = s.mean / sd / Math.sqrt(k);
+  const plain = Math.sqrt(k) * w;
+  const hall = Math.sqrt(k) * (w + (g * w * w) / 3 + (g * g * w * w * w) / 27 + g / (6 * k));
+  // never above the plain t (the cubic turns up again for an extreme skew), never under its floor
+  const t = plain > 0 ? Math.min(plain, Math.max(hall, (1 - SKEW_CORRECTION_MAX) * plain)) : plain;
+  const df = k - 1;
+  const tail = 0.5 * betaI(df / 2, 0.5, df / (df + t * t));
+  return t > 0 ? tail : 1 - tail;
+}
+
+/** The earlier flag test (mean beyond 1 SE at n >= 10): now the "watch" bar. */
+export const aboveWatchBar = (s: Tested): boolean =>
+  s.n >= FLAG_MIN_N && s.se !== null && s.mean - WATCH_SE * s.se > 0;
+
+/**
+ * Benjamini-Hochberg at rate q across these tests: the bar k x q / m, where m is the
+ * number of tests and k the largest rank whose sorted p-value is at or below rank x q / m.
+ * Every p at or below the bar is rejected. -1 when nothing is rejected.
+ */
+export function fdrCutoff(ps: readonly number[], q: number = FLAG_FDR_Q): number {
+  const sorted = [...ps].sort((a, b) => a - b);
+  let k = 0;
+  sorted.forEach((p, i) => {
+    if (p <= ((i + 1) * q) / sorted.length) k = i + 1;
+  });
+  return k === 0 ? -1 : (k * q) / sorted.length;
+}
+
+const clears = (s: Tested, pBar: number): boolean => {
+  const p = oneSidedP(s);
+  return p !== null && p <= pBar && s.mean >= FLAG_MIN_EFFECT_BB;
+};
 
 export interface ClassRow extends Stat {
   key: string;
+  /** FLAGGED under the rule above (either way in); `flaggedBy` says which */
   flagged: boolean;
   /** share of this class's graded decisions that are against its own most frequent person */
   topPersonShare: number;
   /**
-   * The class meets the flag test (mean > 1 SE, n >= FLAG_MIN_N) but more than
-   * ONE_PERSON_SHARE of it is against one person, and without that person it does not:
-   * reported as "one person", not flagged (2026-11-27; absent in reports written before).
+   * The row would flag, but more than ONE_PERSON_SHARE of it is against one person and
+   * without that person it does not clear the same bar: reported as "one person", not
+   * flagged (2026-11-27; absent in reports written before).
    */
   onePerson?: boolean;
+  /** one-sided p-value of a tested row (2026-11-28; absent in reports written before) */
+  p?: number | null;
+  /** how a flagged row flagged: the family's false-discovery bar, the repeat day, or both */
+  flaggedBy?: 'fdr' | 'repeat' | 'fdr+repeat';
+  /** beyond the earlier bar (mean > 1 SE, n >= 10), not flagged and not "one person" */
+  watch?: boolean;
+  /** the same row with its own most frequent person excluded; kept only when that person is over ONE_PERSON_SHARE of it */
+  withoutTopPerson?: Tested | null;
 }
 
 /**
@@ -722,6 +948,98 @@ export interface ClassRow extends Stat {
  * 7-day measurement found no leak, +0.98 +/- 1.28 bb per call.)
  */
 export const ONE_PERSON_SHARE = 0.8;
+
+/**
+ * One table of a family, with the same table of each earlier report that may confirm a
+ * repeat day (one entry per report; null where that report cannot confirm this table).
+ */
+export interface FlagTable {
+  rows: ClassRow[];
+  previous?: ReadonlyArray<readonly ClassRow[] | null | undefined> | null;
+}
+
+export interface FlagFamily {
+  name: string;
+  /** rows with n >= FLAG_MIN_N and a standard error above 0: the tests Benjamini-Hochberg is run across */
+  tested: number;
+  /** the family's false-discovery bar (every tested p at or below it is rejected); null = it rejects nothing */
+  cutoffP: number | null;
+  flagged: number;
+  /** flagged rows that came in by the repeat day only */
+  repeat: number;
+  onePerson: number;
+  watch: number;
+}
+
+/**
+ * Decide every row of one family (the rule above). Sets p, flagged, flaggedBy, onePerson
+ * and watch on the rows IN PLACE and returns the family's counts.
+ */
+export function applyFlagRule(name: string, tables: readonly FlagTable[]): FlagFamily {
+  const ps: number[] = [];
+  for (const t of tables)
+    for (const r of t.rows) {
+      r.p = oneSidedP(r);
+      if (r.p !== null) ps.push(r.p);
+    }
+  const cut = fdrCutoff(ps);
+  const out: FlagFamily = {
+    name,
+    tested: ps.length,
+    cutoffP: cut < 0 ? null : cut,
+    flagged: 0,
+    repeat: 0,
+    onePerson: 0,
+    watch: 0,
+  };
+  // an earlier row confirms a repeat when it cleared the repeat bar itself, and (for the
+  // flag) held without its own dominant person too
+  const cleared = (prev: ClassRow | undefined): boolean => !!prev && clears(prev, FLAG_REPEAT_P);
+  const held = (prev: ClassRow | undefined): boolean =>
+    cleared(prev) &&
+    (prev!.topPersonShare > ONE_PERSON_SHARE
+      ? !!prev!.withoutTopPerson && clears(prev!.withoutTopPerson, FLAG_REPEAT_P)
+      : true);
+  for (const t of tables) {
+    const befores = (t.previous ?? [])
+      .filter((rows): rows is readonly ClassRow[] => !!rows)
+      .map((rows) => new Map(rows.map((r) => [r.key, r])));
+    for (const r of t.rows) {
+      const dominated = r.topPersonShare > ONE_PERSON_SHARE;
+      const without = r.withoutTopPerson ?? null;
+      const fdr = clears(r, cut);
+      const today = clears(r, FLAG_REPEAT_P);
+      const repeat = today && befores.some((m) => cleared(m.get(r.key)));
+      const prevHolds = today && befores.some((m) => held(m.get(r.key)));
+      const fdrOk = fdr && (!dominated || (!!without && clears(without, cut)));
+      const repeatOk =
+        repeat && prevHolds && (!dominated || (!!without && clears(without, FLAG_REPEAT_P)));
+      r.flagged = fdrOk || repeatOk;
+      if (fdrOk && repeatOk) r.flaggedBy = 'fdr+repeat';
+      else if (fdrOk) r.flaggedBy = 'fdr';
+      else if (repeatOk) r.flaggedBy = 'repeat';
+      else delete r.flaggedBy;
+      r.onePerson = !r.flagged && (fdr || repeat) && dominated;
+      r.watch = !r.flagged && !r.onePerson && aboveWatchBar(r);
+      if (r.flagged) out.flagged += 1;
+      if (r.flaggedBy === 'repeat') out.repeat += 1;
+      if (r.onePerson) out.onePerson += 1;
+      if (r.watch) out.watch += 1;
+    }
+  }
+  return out;
+}
+
+/** Rows of a range group that did not pass validation carry no flag, no watch and no p-value. */
+function clearFlags(rows: readonly ClassRow[]): void {
+  for (const r of rows) {
+    r.flagged = false;
+    r.onePerson = false;
+    r.watch = false;
+    r.p = null;
+    delete r.flaggedBy;
+  }
+}
 
 /** A bet graded against checking and one graded against giving up are never one class. */
 export const actionLabel = (d: GradedDecision): string =>
@@ -738,7 +1056,10 @@ export const classKey = (d: GradedDecision): string =>
 export const rollupKey = (d: GradedDecision): string =>
   `${d.game} ${d.pool} | ${d.street} | ${actionLabel(d)}`;
 
-/** Graded decisions by spot class, largest total loss first. */
+/**
+ * Graded decisions by spot class, largest total loss first. The flag marks are the rule
+ * applied to this table alone (see applyFlagRule).
+ */
 export function classTable(
   decisions: readonly GradedDecision[],
   keyOf: (d: GradedDecision) => string = classKey
@@ -757,21 +1078,29 @@ export function classTable(
     let top: string | null = null;
     for (const [p, c] of counts) if (top === null || c > counts.get(top)!) top = p;
     const topPersonShare = top === null ? 0 : counts.get(top)! / ds.length;
-    const raw = flagged(stat);
-    // the same class with its own most frequent person excluded must flag too
-    const onePerson =
-      raw &&
-      topPersonShare > ONE_PERSON_SHARE &&
-      !flagged(
-        clusteredStat(
-          ds
-            .filter((d) => !d.persons.includes(top!))
-            .map((d) => ({ cluster: d.hand, x: d.lossBb as number }))
-        )
+    const row: ClassRow = { key, ...stat, flagged: false, topPersonShare };
+    // the same class with its own most frequent person excluded must clear the same bar
+    if (topPersonShare > ONE_PERSON_SHARE) {
+      const w = clusteredStat(
+        ds
+          .filter((d) => !d.persons.includes(top!))
+          .map((d) => ({ cluster: d.hand, x: d.lossBb as number }))
       );
-    rows.push({ key, ...stat, flagged: raw && !onePerson, topPersonShare, onePerson });
+      row.withoutTopPerson = {
+        n: w.n,
+        clusters: w.clusters,
+        mean: w.mean,
+        se: w.se,
+        skew: w.skew,
+      };
+    }
+    rows.push(row);
   }
-  return rows.sort((a, b) => b.total - a.total || a.key.localeCompare(b.key));
+  rows.sort((a, b) => b.total - a.total || a.key.localeCompare(b.key));
+  // On its own a table is its own family with no previous report; buildReport decides
+  // again across the day's real families and against the previous report.
+  applyFlagRule('table', [{ rows }]);
+  return rows;
 }
 
 /** The alias met most often across graded decisions, and its share of them. */
@@ -931,6 +1260,186 @@ export interface Report {
   options: OptionSet | null;
   /** the public-information range grade (only when asked for; absent = not run) */
   range?: RangeSection | null;
+  /** the flag rule this report was decided under and what it tested (2026-11-28; absent before) */
+  flagRule?: FlagRuleNote;
+}
+
+export interface FlagRuleNote {
+  fdrQ: number;
+  minN: number;
+  minEffectBb: number;
+  repeatP: number;
+  repeatMaxGapHours: number;
+  repeatLookbackReports: number;
+  onePersonShare: number;
+  watchSe: number;
+  /** which report's rows could confirm a repeat day, or why none could */
+  repeatAgainst: string;
+  /** true when a previous report was read and it was decided under this rule too */
+  previousUnderThisRule: boolean | null;
+  families: FlagFamily[];
+}
+
+/**
+ * The previous report may confirm a repeat day only when its window is a different,
+ * recent stretch of play: it ended at or before this window starts (no shared hand) and
+ * no more than FLAG_REPEAT_MAX_GAP_HOURS earlier.
+ */
+export function repeatBasis(
+  previous: Report | null | undefined,
+  startMs: number
+): { report: Report | null; note: string } {
+  if (!previous)
+    return {
+      report: null,
+      note: 'no earlier report was read, so no row can flag as a repeat day',
+    };
+  const prevEnd = Date.parse(previous.end);
+  const window = `${chicagoStamp(Date.parse(previous.start))} to ${chicagoStamp(prevEnd)}`;
+  if (!(prevEnd <= startMs + 1000))
+    return {
+      report: null,
+      note: `the earlier report for ${window} overlaps this window, so it confirms no repeat day`,
+    };
+  if (startMs - prevEnd > FLAG_REPEAT_MAX_GAP_HOURS * 3_600_000)
+    return {
+      report: null,
+      note: `the earlier report for ${window} ended more than ${FLAG_REPEAT_MAX_GAP_HOURS} h before this window, so it confirms no repeat day`,
+    };
+  return { report: previous, note: `the report for ${window}` };
+}
+
+/**
+ * Decide every table of the report across the day's families and against the earlier
+ * reports (the rule at the top of the statistics section). Sets the marks in place.
+ * `previous` is the report before this one, or the reports before it newest first; the
+ * newest FLAG_REPEAT_LOOKBACK_REPORTS are read.
+ */
+export function decideFlags(
+  sections: Section[],
+  range: RangeSection | null,
+  previous: Report | readonly Report[] | null | undefined,
+  startMs: number
+): FlagRuleNote {
+  const given = (!previous ? [] : Array.isArray(previous) ? previous : [previous as Report]).slice(
+    0,
+    FLAG_REPEAT_LOOKBACK_REPORTS
+  );
+  const bases = given.map((p) => repeatBasis(p, startMs));
+  const prevs = bases.map((b) => b.report).filter((r): r is Report => !!r);
+  const before = (p: Report, name: string) => p.sections.find((s) => s.name === name) ?? null;
+  // a person-excluded table confirms a repeat only when the same person was excluded
+  const sameTop = (p: Report, s: Section) => {
+    const b = before(p, s.name);
+    return b && b.topPerson && s.topPerson && b.topPerson.alias === s.topPerson.alias ? b : null;
+  };
+  const families: FlagFamily[] = [
+    applyFlagRule(
+      'spot classes',
+      sections.map((s) => ({
+        rows: s.classes,
+        previous: prevs.map((p) => before(p, s.name)?.classes),
+      }))
+    ),
+    applyFlagRule(
+      'roll-up rows',
+      sections.map((s) => ({
+        rows: s.rollup,
+        previous: prevs.map((p) => before(p, s.name)?.rollup),
+      }))
+    ),
+    applyFlagRule(
+      'spot classes, most frequent person excluded',
+      sections.map((s) => ({
+        rows: s.classesExcludingTopPerson,
+        previous: prevs.map((p) => sameTop(p, s)?.classesExcludingTopPerson),
+      }))
+    ),
+    applyFlagRule(
+      'roll-up rows, most frequent person excluded',
+      sections.map((s) => ({
+        rows: s.rollupExcludingTopPerson,
+        previous: prevs.map((p) => sameTop(p, s)?.rollupExcludingTopPerson),
+      }))
+    ),
+  ];
+  if (range) {
+    const passed = (r: RangeSection | null | undefined, g: string) =>
+      r?.validation.find((v) => v.group.startsWith(g))?.verdict === 'PASS';
+    const excluded = (r: ClassRow) => r.key.includes('excluded');
+    const group = (r: ClassRow) => (r.key.startsWith('ALL G2') ? 'G2' : 'G1');
+    // an earlier report's range rows confirm a repeat only for a group that passed there
+    const earlier = prevs.map((p) => {
+      const all = p.range ?? null;
+      const same =
+        all && all.topPerson && range.topPerson && all.topPerson.alias === range.topPerson.alias
+          ? all
+          : null;
+      return { all, same };
+    });
+    const tables: FlagTable[] = [];
+    const tablesExcluded: FlagTable[] = [];
+    for (const g of ['G1', 'G2'] as const) {
+      const rollup = g === 'G1' ? range.rollupG1 : range.rollupG2;
+      const rollupEx =
+        g === 'G1' ? range.rollupG1ExcludingTopPerson : range.rollupG2ExcludingTopPerson;
+      const overall = range.overall.filter((r) => group(r) === g);
+      // a group that did not pass validation is NOT GRADED: none of its rows is tested
+      if (!passed(range, g)) {
+        clearFlags([...rollup, ...rollupEx, ...overall]);
+        continue;
+      }
+      const from = (
+        r: RangeSection | null,
+        pick: (x: RangeSection) => readonly ClassRow[]
+      ): readonly ClassRow[] | null => (r && passed(r, g) ? pick(r) : null);
+      tables.push(
+        {
+          rows: rollup,
+          previous: earlier.map((e) => from(e.all, (x) => (g === 'G1' ? x.rollupG1 : x.rollupG2))),
+        },
+        {
+          rows: overall.filter((r) => !excluded(r)),
+          previous: earlier.map((e) => from(e.all, (x) => x.overall.filter((y) => group(y) === g))),
+        }
+      );
+      tablesExcluded.push(
+        {
+          rows: rollupEx,
+          previous: earlier.map((e) =>
+            from(e.same, (x) =>
+              g === 'G1' ? x.rollupG1ExcludingTopPerson : x.rollupG2ExcludingTopPerson
+            )
+          ),
+        },
+        {
+          rows: overall.filter(excluded),
+          previous: earlier.map((e) =>
+            from(e.same, (x) => x.overall.filter((y) => group(y) === g))
+          ),
+        }
+      );
+    }
+    families.push(
+      applyFlagRule('range grade roll-up rows (groups that passed validation)', tables),
+      applyFlagRule('range grade roll-up rows, most frequent person excluded', tablesExcluded)
+    );
+  }
+  return {
+    fdrQ: FLAG_FDR_Q,
+    minN: FLAG_MIN_N,
+    minEffectBb: FLAG_MIN_EFFECT_BB,
+    repeatP: FLAG_REPEAT_P,
+    repeatMaxGapHours: FLAG_REPEAT_MAX_GAP_HOURS,
+    repeatLookbackReports: FLAG_REPEAT_LOOKBACK_REPORTS,
+    onePersonShare: ONE_PERSON_SHARE,
+    watchSe: WATCH_SE,
+    repeatAgainst: bases.length
+      ? bases.map((b) => b.note).join('; ')
+      : repeatBasis(null, startMs).note,
+    previousUnderThisRule: given.length ? given[0].flagRule !== undefined : null,
+    families,
+  };
 }
 
 function section(name: Section['name'], decisions: GradedDecision[]): Section {
@@ -982,6 +1491,11 @@ export function buildReport(input: {
   /** also run the range grade (a separate section; the real-card sections are unchanged) */
   rangeGrade?: boolean;
   rangeDraws?: number;
+  /**
+   * the earlier reports (their stored rows), newest first, or the one before this: the
+   * only thing a repeat-day flag is confirmed against
+   */
+  previous?: Report | readonly Report[] | null;
 }): Report {
   const seen = new Set<string>();
   const hands = input.hands.filter((h) => {
@@ -1006,6 +1520,9 @@ export function buildReport(input: {
     (h.tournament ? tournament : cash).push(...graded);
     if (input.rangeGrade) ranged.push(...rangeGradeHand(h, graded, input.rangeDraws));
   }
+  const sections = [section('cash', cash), section('tournament', tournament)];
+  const range = input.rangeGrade ? rangeSection(ranged) : null;
+  const flagRule = decideFlags(sections, range, input.previous, input.startMs);
   return {
     schema: REPORT_SCHEMA,
     command: input.command,
@@ -1023,12 +1540,13 @@ export function buildReport(input: {
             .sort((x, y) => x[0].localeCompare(y[0]))
         )
       : null,
-    sections: [section('cash', cash), section('tournament', tournament)],
+    sections,
     games: gameTable(hands),
     options: input.switchRows
       ? optionSetAt(input.switchRows, input.switchAudit ?? [], input.startMs, input.endMs)
       : null,
-    ...(input.rangeGrade ? { range: rangeSection(ranged) } : {}),
+    ...(range ? { range } : {}),
+    flagRule,
   };
 }
 
@@ -1079,6 +1597,46 @@ const f2 = (x: number) => (x >= 0 ? '+' : '') + x.toFixed(2);
 const se = (x: number | null) => (x === null ? 'n/a' : x.toFixed(2));
 const pct = (x: number) => `${Math.round(100 * x)}%`;
 
+/** The mark of a row in the real-card tables. */
+const mark = (r: ClassRow): string =>
+  r.flagged
+    ? r.flaggedBy === 'repeat'
+      ? 'YES (repeat day)'
+      : r.flaggedBy === 'fdr+repeat'
+        ? 'YES (and repeat day)'
+        : 'YES'
+    : r.onePerson
+      ? 'one person'
+      : r.watch
+        ? 'watch'
+        : 'no';
+const pv = (p: number | null | undefined): string =>
+  p === null || p === undefined ? 'n/a' : p < 0.0001 ? '<0.0001' : p.toFixed(4);
+
+/** Every flagged, one-person and watch row of a section: none is left to a top-15 cut. */
+function markedRows(tables: ReadonlyArray<[string, readonly ClassRow[]]>): string[] {
+  const out = [
+    '| table | row | n | hands | mean bb | SE | p (one-sided) | top person share | mark |',
+    '|---|---|---|---|---|---|---|---|---|',
+  ];
+  let any = false;
+  for (const [name, rows] of tables)
+    for (const r of [...rows]
+      .filter((x) => x.flagged || x.onePerson || x.watch)
+      .sort((x, y) => (x.p ?? 1) - (y.p ?? 1) || x.key.localeCompare(y.key))) {
+      any = true;
+      out.push(
+        `| ${name} | ${r.key} | ${r.n} | ${r.clusters} | ${f2(r.mean)} | ${se(r.se)} | ${pv(r.p)} | ${pct(r.topPersonShare)} | ${mark(r)} |`
+      );
+    }
+  if (!any) out.push('| - | no row is flagged, one person or watch | - | - | - | - | - | - | - |');
+  return out;
+}
+
+const familyLine = (f: FlagFamily): string =>
+  `${f.name}: ${f.tested} tested, ${f.cutoffP === null ? 'the false-discovery bar rejects none' : `false-discovery bar p <= ${pv(f.cutoffP)}`}, flagged ${f.flagged} (repeat day only: ${f.repeat}), one person ${f.onePerson}, watch ${f.watch}`;
+const isRangeFamily = (f: FlagFamily): boolean => f.name.startsWith('range grade');
+
 function classRows(rows: readonly ClassRow[], rollup = false): string[] {
   const head = rollup
     ? 'Game pool, street, action (every graded decision)'
@@ -1094,7 +1652,7 @@ function classRows(rows: readonly ClassRow[], rollup = false): string[] {
     );
   shown.forEach((r, i) =>
     out.push(
-      `| ${i + 1} | ${r.key} | ${r.n} | ${r.clusters} | ${f1(r.total)} | ${f2(r.mean)} | ${se(r.se)} | ${pct(r.topPersonShare)} | ${r.flagged ? 'YES' : r.onePerson ? 'one person' : 'no'} |`
+      `| ${i + 1} | ${r.key} | ${r.n} | ${r.clusters} | ${f1(r.total)} | ${f2(r.mean)} | ${se(r.se)} | ${pct(r.topPersonShare)} | ${mark(r)} |`
     )
   );
   return out;
@@ -1146,9 +1704,20 @@ export function renderMarkdown(
     );
   L.push(
     '',
-    "Sign: **+ = the Horse lost bb**. fold = forgone call EV on real cards (every live person showed at showdown, or heads-up facing a person's all-in, where that person's stored chips-in cards are used); call heads-up facing a person's all-in = the call's EV on real cards (`call_all_in_exact`); other calls and raises = realised result from the decision point; bet vs check = against checking where the check closes the street and the run-out and every live opponent's cards are known; bet vs give up = realised, against giving the pot up. SE is clustered by hand. A class is flagged only when mean > 1 SE and n >= 10, and, when over 80% of it is against one person, only if it still flags without that person (otherwise it shows \"one person\"). People appear by table alias; no card is printed.",
+    "Sign: **+ = the Horse lost bb**. fold = forgone call EV on real cards (every live person showed at showdown, or heads-up facing a person's all-in, where that person's stored chips-in cards are used); call heads-up facing a person's all-in = the call's EV on real cards (`call_all_in_exact`); other calls and raises = realised result from the decision point; bet vs check = against checking where the check closes the street and the run-out and every live opponent's cards are known; bet vs give up = realised, against giving the pot up. SE is clustered by hand. People appear by table alias; no card is printed.",
     ''
   );
+  L.push(`**What a flag means.** ${flagRuleText()}`, '');
+  if (r.flagRule) {
+    L.push(
+      `Repeat days in this report are confirmed against: ${r.flagRule.repeatAgainst}.`,
+      '',
+      'Tested today, by family:',
+      '',
+      ...r.flagRule.families.filter((f) => !isRangeFamily(f)).map((f) => `- ${familyLine(f)}`),
+      ''
+    );
+  }
   for (const s of r.sections) {
     L.push(
       `## ${s.name === 'cash' ? 'Cash games (Lightning pools and tables kept apart in every class)' : 'Tournaments (chips per big blind, not prize equity)'}`,
@@ -1171,7 +1740,16 @@ export function renderMarkdown(
     const flaggedN = s.classes.filter((c) => c.flagged).length;
     const onePersonN = s.classes.filter((c) => c.onePerson).length;
     L.push(
-      `Classes: ${s.classes.length}; flagged: ${flaggedN}; one person (over ${pct(ONE_PERSON_SHARE)} against one person and not flagged without that person): ${onePersonN}. Roll-up rows flagged: ${s.rollup.filter((c) => c.flagged).length} (most frequent person excluded: ${s.rollupExcludingTopPerson.filter((c) => c.flagged).length}).`,
+      `Classes: ${s.classes.length}; tested (n >= ${FLAG_MIN_N}): ${s.classes.filter(isTested).length}; flagged: ${flaggedN} (by the repeat day only: ${s.classes.filter((c) => c.flaggedBy === 'repeat').length}); one person (over ${pct(ONE_PERSON_SHARE)} against one person and not flagged without that person): ${onePersonN}; watch (beyond the earlier 1 SE bar, not flagged): ${s.classes.filter((c) => c.watch).length}. Roll-up rows flagged: ${s.rollup.filter((c) => c.flagged).length} (most frequent person excluded: ${s.rollupExcludingTopPerson.filter((c) => c.flagged).length}); roll-up rows on watch: ${s.rollup.filter((c) => c.watch).length}.`,
+      ''
+    );
+    L.push(
+      '### Every flagged, one-person and watch row (spot classes and roll-up)',
+      '',
+      ...markedRows([
+        ['spot class', s.classes],
+        ['roll-up', s.rollup],
+      ]),
       ''
     );
     L.push(
@@ -1249,6 +1827,11 @@ export function renderMarkdown(
   else if (changes.length === 0)
     L.push(`Against ${previousLabel}: no class is flagged in either report.`, '');
   else {
+    if (r.flagRule?.previousUnderThisRule === false)
+      L.push(
+        `The previous report was decided under the earlier rule (mean > 1 SE at n >= ${FLAG_MIN_N}), so "no longer flagged" below can be the rule changing, not the Horses.`,
+        ''
+      );
     L.push(
       `Against ${previousLabel}:`,
       '',
@@ -1273,8 +1856,21 @@ export function renderMarkdown(
   L.push(
     '- Decisions of one hand share its result; the SE is clustered by hand but classes are not independent of each other.'
   );
+  L.push(
+    `- What the flag rule can miss: a small real leak. One day of 10 to 60 decisions cannot separate a 2 SE loss from luck across the rows tested, so such a row is "watch" on its first day and flags only when one of the next two reports repeats it; a leak that shows one day in three, or one under ${FLAG_MIN_EFFECT_BB} bb per decision, stays "watch". The p-value assumes hands are independent; it is corrected for the lopsided shape of a call (many small losses, a few won pots), but a row far more lopsided than that (one hand in ten winning nine times the usual loss) can still look certain on a day without the big pot, so read a flagged row's hands before acting on a single day.`
+  );
   L.push('- Horse-against-Horse hands are not in this report, and it proves nothing about them.');
-  if (r.range) L.push('', ...renderRangeSection(r.range));
+  if (r.range) {
+    L.push('', ...renderRangeSection(r.range));
+    const fams = (r.flagRule?.families ?? []).filter(isRangeFamily);
+    if (fams.length)
+      L.push(
+        'Range grade marks follow the flag rule in the header (FLAGGED, one person, watch). Tested today, by family:',
+        '',
+        ...fams.map((f) => `- ${familyLine(f)}`),
+        ''
+      );
+  }
   return L.join('\n') + '\n';
 }
 
@@ -1885,13 +2481,15 @@ const mark2 = (r: ClassRow, groupTrusted = true): string =>
     ? 'not graded'
     : r.onePerson
       ? 'one person'
-      : r.se === null || r.n < FLAG_MIN_N
-        ? ''
-        : r.mean - 2 * r.se > 0
-          ? 'FLAGGED >2 SE'
-          : r.mean - r.se > 0
-            ? 'FLAGGED >1 SE'
-            : '';
+      : r.flagged
+        ? r.flaggedBy === 'repeat'
+          ? 'FLAGGED (repeat day)'
+          : 'FLAGGED'
+        : r.watch
+          ? r.mean - 2 * (r.se as number) > 0
+            ? 'watch >2 SE'
+            : 'watch >1 SE'
+          : '';
 
 /** The range-grade section, rendered after the real-card report (which it does not change). */
 export function renderRangeSection(s: RangeSection): string[] {
