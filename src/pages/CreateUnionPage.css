@@ -81,6 +81,11 @@
   transition: width 0.4s ease-out;
 }
 
+/* The step on show; its entrance motion is the page's inline transition. */
+.create-union.arena-workspace .create-union__stage {
+  min-width: 0;
+}
+
 /* ── A step ────────────────────────────────────────────────────────── */
 .create-union.arena-workspace .create-union__field {
   display: flex;

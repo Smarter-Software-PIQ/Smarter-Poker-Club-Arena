@@ -83,9 +83,16 @@ describe('the Union pages wear the arena workspace, scoped', () => {
       expect(s.startsWith('.union-data.arena-workspace'), s).toBe(true);
   });
 
-  it('the shared state screens take the arena dress only by opt-in', () => {
+  it('the arena state screens ride the arena pages, never the entry chunk', () => {
+    // EmptyState.tsx is in the entry chunk, so it stays untouched; the arena
+    // variants live in their own module, imported only by the arena pages.
     const source = read('src/components/common/EmptyState.tsx');
-    expect(source).toContain('arena = false');
+    expect(source).not.toMatch(/EmptyStateArena|ArenaOps|arena-ops/);
+    const arena = read('src/components/common/EmptyStateArena.tsx');
+    expect(arena).toContain("import './EmptyStateArena.css';");
+    for (const page of ['src/pages/UnionsPage.tsx', 'src/pages/UnionDetailPage.tsx']) {
+      expect(read(page), page).toContain("from '../components/common/EmptyStateArena'");
+    }
     expectScoped(read('src/components/common/EmptyStateArena.css'), '.arena-workspace ');
     expect(read('src/components/common/EmptyState.module.css')).not.toContain('arena');
   });

@@ -140,7 +140,8 @@
   letter-spacing: 0.04em;
 }
 
-/* Open Union: the case's one lit chrome key. */
+/* Open Union: the case's one chrome key, on the lit rim. The card is a link,
+   so the key is a span and takes the kit's glass and active rim directly. */
 .unions-page.arena-workspace .union-card-key {
   display: flex;
 }
@@ -154,8 +155,7 @@
   min-height: 44px;
   padding: 6px 5px;
   color: white;
-  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
-  border-radius: 6px;
+  background: var(--arena-tile);
   font:
     700 12px 'Roboto Condensed',
     'Arial Narrow',

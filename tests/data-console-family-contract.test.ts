@@ -31,7 +31,7 @@ describe('Club Data painted-console contract', () => {
 
     expect(header).toContain('family?: ConsoleFamily;');
     expect(header).toContain('family={family}');
-    expect(union).toContain('className="arena-switch arena-ops-keys union-data__keys"');
+    expect(union).toContain('className="arena-switch arena-ops-keys arena-ops-primary"');
     expect(union).not.toContain('plates={{');
     expect(union).toContain('titleCase(unionName)');
     expect(union).not.toContain('className={styles.headerBtn}');

@@ -11,7 +11,11 @@
  */
 
 import './UnionsPage.css';
-import { EmptyState, ErrorState, LoadingState } from '../components/common/EmptyState';
+import {
+  ArenaEmptyState,
+  ArenaErrorState,
+  ArenaLoadingState,
+} from '../components/common/EmptyStateArena';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 
 import { useCallback, useEffect, useState } from 'react';
@@ -257,16 +261,15 @@ export default function UnionsPage() {
       <div className="unions-grid">
         {loading ? (
           <div className="unions-state arena-case arena-ops-case">
-            <LoadingState arena message="Opening Union Networks" />
+            <ArenaLoadingState message="Opening Union Networks" />
           </div>
         ) : loadError ? (
           <div className="unions-state arena-case arena-ops-case">
-            <ErrorState arena message={loadError} onRetry={loadUnions} />
+            <ArenaErrorState message={loadError} onRetry={loadUnions} />
           </div>
         ) : unions.length === 0 ? (
           <div className="unions-state arena-case arena-ops-case">
-            <EmptyState
-              arena
+            <ArenaEmptyState
               icon="UNION"
               eyebrow="No Networks Yet"
               title="Build The First Union"

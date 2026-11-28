@@ -35,7 +35,11 @@ import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import type { PokerTable, Tournament } from '../types/database.types';
 import type { Club } from '../types/club.types';
 import { useUnionStore } from '../stores/useUnionStore';
-import { EmptyState, ErrorState, LoadingState } from '../components/common/EmptyState';
+import {
+  ArenaEmptyState,
+  ArenaErrorState,
+  ArenaLoadingState,
+} from '../components/common/EmptyStateArena';
 import styles from './UnionDetailPage.module.css';
 import { useToast } from '../components/common/Toast';
 import ConfirmModal from '../components/common/ConfirmModal';
@@ -741,7 +745,7 @@ export default function UnionDetailPage() {
       <div className="union-detail arena-workspace">
         <ArenaWorkspaceHeader area="operations" title="Union Command" context="Union Network" />
         <div className="arena-case arena-ops-case">
-          <LoadingState arena message="Opening Union Command" />
+          <ArenaLoadingState message="Opening Union Command" />
         </div>
       </div>
     );
@@ -752,8 +756,7 @@ export default function UnionDetailPage() {
       <div className="union-detail arena-workspace">
         <ArenaWorkspaceHeader area="operations" title="Union Command" context="Union Network" />
         <div className="arena-case arena-ops-case">
-          <ErrorState
-            arena
+          <ArenaErrorState
             message={
               resolutionStatus === 'error'
                 ? 'Could Not Load This Union. Please Try Again.'
@@ -775,8 +778,7 @@ export default function UnionDetailPage() {
       <div className="union-detail arena-workspace">
         <ArenaWorkspaceHeader area="operations" title="Union Command" context="Union Network" />
         <div className="arena-case arena-ops-case">
-          <EmptyState
-            arena
+          <ArenaEmptyState
             icon="UNION"
             eyebrow="Network Unavailable"
             title="Union Not Found"
@@ -799,7 +801,7 @@ export default function UnionDetailPage() {
       <div className="union-detail arena-workspace">
         <ArenaWorkspaceHeader area="operations" title="Union Command" context="Union Network" />
         <div className="arena-case arena-ops-case">
-          <LoadingState arena message="Checking Union Management Access" />
+          <ArenaLoadingState message="Checking Union Management Access" />
         </div>
       </div>
     );
@@ -810,7 +812,7 @@ export default function UnionDetailPage() {
       <div className="union-detail arena-workspace">
         <ArenaWorkspaceHeader area="operations" title="Union Command" context="Union Network" />
         <div className="arena-case arena-ops-case">
-          <LoadingState arena message="Returning To Your Clubs" />
+          <ArenaLoadingState message="Returning To Your Clubs" />
         </div>
       </div>
     );

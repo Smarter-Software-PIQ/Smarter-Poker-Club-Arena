@@ -2,8 +2,8 @@
  * UNION DATA (/unions/:unionId/data), #SmarterDesign (batch U1, 2026-11-28)
  *
  * The Club Data layout: the chrome mast, the union and its club count on the
- * chrome meters under it, Union and Statements as chrome keys with
- * Statements lit, then the shared rake snapshot panel on the root skin's
+ * chrome meters under it, Statements (lit by the kit's arena-ops-primary)
+ * and Union as chrome keys, then the shared rake snapshot panel on the root skin's
  * chrome case. Every rule is scoped under the page's arena root.
  */
 
@@ -13,13 +13,6 @@
   min-height: 100dvh;
   padding-bottom: max(92px, env(safe-area-inset-bottom));
   overflow-x: clip;
-}
-.union-data.arena-workspace .union-data__keys > .union-data__primary {
-  color: white;
-  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
-}
-.union-data.arena-workspace .union-data__keys > .union-data__primary::after {
-  border-image-source: var(--arena-active);
 }
 /* Keyboard focus stays visible on the snapshot panel's plates. */
 .union-data.arena-workspace .sc-plate:focus-visible {
