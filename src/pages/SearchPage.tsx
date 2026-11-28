@@ -39,7 +39,9 @@ import {
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import CommunitySurfaceHeader from '../components/community/CommunitySurfaceHeader';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import PageBar from '../components/help/PageBar';
+import '../components/ops/ArenaOps.css';
 import { useToast } from '../components/common/Toast';
 import { masterBus } from '../core/MasterBus';
 import { useAuthUser } from '../hooks/useAuthUser';
@@ -745,11 +747,27 @@ export default function SearchPage() {
 
   // ── Render ─────────────────────────────────────────────────────────────
 
+  /* #SmarterDesign (player pages batch P6, 2026-11-28): Dan's order "THE SAME
+     #SMARTERDESIGN UPGRADE TO EVERY SINGLE PAGE" moves Community Search off the
+     Community page bar onto the arena workspace: the chrome mast with the live
+     Results figure on a chrome meter under it, the scanner one arena case with
+     the query in a dark well, the index health and the categories on chrome
+     switches (lit by aria-pressed / aria-selected), and every hit a chrome
+     ledger row with its keys (the primary lit). The dress stays in this page's
+     own CSS module (tests/community-search-owns-its-classes.law.test.ts);
+     every word, figure and key is unchanged
+     (tests/components/searchPageIsPinned.test.tsx). */
   return (
-    <main className={styles.page}>
-      <CommunitySurfaceHeader
+    <main className={`${styles.page} arena-workspace`}>
+      <ArenaWorkspaceHeader
+        area="members"
         title="Find Your Next Game"
-        description="Scan Live Players, Clubs, Open Tables, And Active Tournaments From One Precise Community Index."
+        summary="Scan Live Players, Clubs, Open Tables, And Active Tournaments From One Precise Community Index."
+      />
+      <PageBar
+        titleAs={false}
+        showHelp={false}
+        title="Find Your Next Game"
         metrics={[
           {
             label: 'Results',
@@ -758,8 +776,11 @@ export default function SearchPage() {
         ]}
       />
 
-      <section className={styles.console} aria-labelledby="search-console-title">
-        <div className={styles.consoleHeading}>
+      <section
+        className={`${styles.console} arena-case arena-ops-case`}
+        aria-labelledby="search-console-title"
+      >
+        <div className={`${styles.consoleHeading} arena-section-title`}>
           <div>
             <p className={styles.kicker}>Network Scanner</p>
             <h2 id="search-console-title">Community Search</h2>
@@ -807,7 +828,10 @@ export default function SearchPage() {
           </div>
         </form>
 
-        <div className={styles.indexStrip} aria-label="Live Index Health">
+        <div
+          className={`${styles.indexStrip} arena-switch arena-ops-keys`}
+          aria-label="Live Index Health"
+        >
           {INDEXES.map((index) => {
             const health = indexHealth ? indexHealth[index.id] : null;
             const state = hasSearched ? indexStatus[index.id] : indexHealth ? 'live' : 'idle';
@@ -834,7 +858,11 @@ export default function SearchPage() {
           })}
         </div>
 
-        <div className={styles.categoryRail} role="tablist" aria-label="Search Categories">
+        <div
+          className={`${styles.categoryRail} arena-switch`}
+          role="tablist"
+          aria-label="Search Categories"
+        >
           {CATEGORIES.map((item) => (
             <button
               key={item.id}
@@ -907,7 +935,7 @@ export default function SearchPage() {
                   <p>Your Submitted Searches Will Appear Here.</p>
                 </div>
               ) : (
-                <div className={styles.historyList}>
+                <div className={`${styles.historyList} arena-switch arena-ops-keys`}>
                   {recentSearches.map((recent) => (
                     <button key={recent} type="button" onClick={() => setQuery(recent)}>
                       <span aria-hidden="true">↗</span>
@@ -973,7 +1001,11 @@ export default function SearchPage() {
                       const membership = clubMembershipLabel(club);
                       const kind = club.is_union ? 'union' : 'club';
                       return (
-                        <article className={styles.card} key={`club-${club.id}`} data-kind={kind}>
+                        <article
+                          className={`${styles.card} arena-ledger-row`}
+                          key={`club-${club.id}`}
+                          data-kind={kind}
+                        >
                           <button
                             className={styles.cardPrimary}
                             type="button"
@@ -1038,7 +1070,7 @@ export default function SearchPage() {
                               {membership.label}
                             </span>
                           </button>
-                          <div className={styles.actions}>
+                          <div className={`${styles.actions} arena-switch`}>
                             {club.is_union && (
                               <button type="button" onClick={() => navigate(`/unions/${club.id}`)}>
                                 Union Hub
@@ -1065,7 +1097,7 @@ export default function SearchPage() {
                       const name = player.display_name || player.username;
                       return (
                         <article
-                          className={styles.card}
+                          className={`${styles.card} arena-ledger-row`}
                           key={`player-${player.id}`}
                           data-kind="player"
                         >
@@ -1117,7 +1149,7 @@ export default function SearchPage() {
                             </span>
                           </button>
                           {!isSelf && (
-                            <div className={styles.actions}>
+                            <div className={`${styles.actions} arena-switch`}>
                               {player.relationship === 'friend' || friendAdded.has(player.id) ? (
                                 <span className={styles.sentPill}>
                                   {player.relationship === 'friend' ? 'Friends' : 'Request Sent'}
@@ -1146,7 +1178,11 @@ export default function SearchPage() {
 
                   {section.key === 'tables' &&
                     snapshot.tables.map((table) => (
-                      <article className={styles.card} key={`table-${table.id}`} data-kind="table">
+                      <article
+                        className={`${styles.card} arena-ledger-row`}
+                        key={`table-${table.id}`}
+                        data-kind="table"
+                      >
                         <button
                           className={styles.cardPrimary}
                           type="button"
@@ -1208,7 +1244,7 @@ export default function SearchPage() {
                             />
                           </span>
                         </button>
-                        <div className={styles.actions}>
+                        <div className={`${styles.actions} arena-switch`}>
                           {table.club_id && (
                             <button
                               type="button"
@@ -1242,7 +1278,7 @@ export default function SearchPage() {
                   {section.key === 'tournaments' &&
                     snapshot.tournaments.map((tournament) => (
                       <article
-                        className={styles.card}
+                        className={`${styles.card} arena-ledger-row`}
                         key={`tournament-${tournament.id}`}
                         data-kind="tournament"
                       >
@@ -1332,7 +1368,7 @@ export default function SearchPage() {
                             </span>
                           </span>
                         </button>
-                        <div className={styles.actions}>
+                        <div className={`${styles.actions} arena-switch`}>
                           {tournament.club_id && (
                             <button
                               type="button"

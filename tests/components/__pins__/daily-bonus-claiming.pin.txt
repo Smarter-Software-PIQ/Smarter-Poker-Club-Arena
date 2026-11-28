@@ -1,0 +1,69 @@
+{
+  "money": {
+    "figures": [
+      "12",
+      "×1.5",
+      "×1.8 On Day 14",
+      "Day 8",
+      "+7",
+      "Day 9",
+      "+14",
+      "+21",
+      "Day 11",
+      "+28",
+      "Day 12",
+      "+35",
+      "Day 13",
+      "+42",
+      "+49",
+      "+5",
+      "×1",
+      "Rabbit Hunts · 7 Days",
+      "Claim To Reveal, With A Lucky Roll Up To 5×",
+      "+25",
+      "+10",
+      "Every Tenth Streak Day Adds One 100 Diamond Bonus Spin. Claim It Here, Then Use It In Your Club. Your Welcome Spin Stays Separate.",
+      "2 Shields Held. Each Covers One Missed Day",
+      "+10 Diamonds · +40s Time Bank",
+      "35",
+      "110"
+    ],
+    "hooks": [
+      "data-state=done",
+      "data-state=done",
+      "data-state=done",
+      "data-spin=true",
+      "data-state=done",
+      "data-state=today",
+      "data-protected=true",
+      "data-state=upcoming",
+      "data-state=upcoming",
+      "data-chest=true",
+      "data-kind=diamonds",
+      "data-state=busy",
+      "data-kind=rabbit_hunts",
+      "data-state=busy",
+      "data-kind=mystery",
+      "data-state=busy",
+      "data-kind=diamonds",
+      "data-state=busy",
+      "data-kind=diamonds",
+      "data-state=locked",
+      "data-vip=true"
+    ]
+  },
+  "text": "Streak | Day | 12 | Shield Covered Yesterday | Multiplier | ×1.5 | ×1.8 On Day 14 | Resets In | <time> | Day 8 | +7 | Day 9 | +14 | Spin | +21 | Day 11 | +28 | Day 12 | +35 | Day 13 | +42 | Chest | +49 | Diamonds | +5 | Diamonds | Claiming | Rabbit Hunt | ×1 | Rabbit Hunts · 7 Days | Claiming | Mystery Tile | ? | Claim To Reveal, With A Lucky Roll Up To 5× | Claiming | Diamonds | +25 | Diamonds | Daily Cap Trims This One | Claiming | VIP Bonus | +10 | Diamonds | VIP Members Only | Bonus Spin | Every Tenth Streak Day Adds One 100 Diamond Bonus Spin. Claim It Here, Then Use It In Your Club. Your Welcome Spin Stays Separate. | Spins | Streak | Claim All Rewards Today To Keep Your Streak. | Shield | 2 Shields Held. Each Covers One Missed Day | , Good Until <date>. | Tomorrow | +10 Diamonds · +40s Time Bank | Daily Cap | 35 | / | 110 | Diamonds Today",
+  "regions": [
+    "div||Day 12 Streak",
+    "ol||This Week",
+    "article||Diamonds, +5 Diamonds",
+    "article||Rabbit Hunt, ×1 Rabbit Hunts · 7 Days",
+    "article||Mystery Tile, ? Claim To Reveal, With A Lucky Roll Up To 5×",
+    "article||Diamonds, +25 Diamonds",
+    "article||VIP Bonus, +10 Diamonds"
+  ],
+  "controls": [
+    "button|button|Claiming|disabled",
+    "button|button|Use Bonus Spin|"
+  ]
+}
