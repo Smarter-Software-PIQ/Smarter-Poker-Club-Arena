@@ -66,5 +66,6 @@ the production CA certificate; the password stays in ~/.zshenv.
 | HostHeartbeatMissing    | critical      | No heartbeat for 15 minutes (raised by the database check, so it fires even if this Mac is off) |
 | HostHeartbeatResumed    | informational | Heartbeats resume after a silence                                                               |
 | HostDiskNearlyFull      | warning       | A volume under 5% free, once a day                                                              |
+| HostVolumeNotMounted    | warning       | The work or archive drive has no mounted path (only a boot-disk folder), once a day per volume; its free space is then not reported at all rather than read off the boot disk |
 | InstallQueueJobFailed   | warning       | An install job ends failed (closed PR, failed install or failed verification)                   |
 | InstallQueueServiceDown | critical      | The heartbeat finds the queue not running; it re-registers and restarts it first                |
