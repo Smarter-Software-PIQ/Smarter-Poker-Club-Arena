@@ -1432,4 +1432,14 @@ class AgentServiceClass {
 }
 
 export const AgentService = new AgentServiceClass();
+
+/**
+ * An agent's commission and rakeback rates arrive as fractions (0 to 0.7 and 0
+ * to 0.5, validated above), so 0.4 is a 40% agent. Every place that prints one
+ * goes through here; printing the fraction with a "%" after it showed a 40%
+ * agent as "0.4%" on the Agent Team tree and the club page's agent list.
+ */
+export function formatAgentRate(rate: number): string {
+  return `${(rate * 100).toFixed(1)}%`;
+}
 export default AgentService;

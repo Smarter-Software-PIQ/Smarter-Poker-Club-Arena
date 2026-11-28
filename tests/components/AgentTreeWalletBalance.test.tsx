@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-vi.mock('../../src/services/AgentService', () => ({
+vi.mock('../../src/services/AgentService', async (importActual) => ({
+  ...(await importActual<typeof import('../../src/services/AgentService')>()),
   AgentService: {
     getAgents: async () => [
       {
@@ -10,7 +11,7 @@ vi.mock('../../src/services/AgentService', () => ({
         businessBalance: 1000,
         activePlayerCount: 2,
         subAgentCount: 0,
-        commissionRate: 10,
+        commissionRate: 0.1,
       },
     ],
   },
@@ -23,5 +24,12 @@ describe('agent hierarchy wallet balances', () => {
     expect(await screen.findByText('1,000.00')).toBeTruthy();
     expect(screen.getByText('2')).toBeTruthy();
     expect(screen.queryByText('1K')).toBeNull();
+  });
+
+  it('prints the stored commission fraction as a percent', async () => {
+    // AgentService validates commission_rate as 0 to 0.7; 0.1 is a 10% agent.
+    render(<AgentTree clubId="club-a" />);
+    expect(await screen.findByText('10.0%')).toBeTruthy();
+    expect(screen.queryByText('0.1%')).toBeNull();
   });
 });
