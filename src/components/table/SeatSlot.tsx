@@ -24,7 +24,6 @@ import type { SeatArrival } from './seatArrival';
 import { serverNow } from '../../utils/serverClock';
 import '../../styles/table-design-tokens.css';
 import './SeatSlot.css';
-import './SeatArtwork.css';
 import { CardImage, CardBack, SUIT_COLOR } from './CardImage';
 import { SitOutBadge } from './SitOutBadge';
 import { ChipPhysics } from './ChipPhysics';

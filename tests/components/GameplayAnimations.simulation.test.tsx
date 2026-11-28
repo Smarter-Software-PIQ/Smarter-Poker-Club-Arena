@@ -388,7 +388,7 @@ describe('ANIMATION 10/16 — flop lands + fans open, WITH sound', () => {
     act(() => {
       rerender(<CommunityCards cards={BOARD.slice(0, 3)} stage="flop" />);
     });
-    expect(screen.getByText('Flop')).toBeTruthy();
+    expect(screen.getByText('FLOP')).toBeTruthy();
   });
 });
 

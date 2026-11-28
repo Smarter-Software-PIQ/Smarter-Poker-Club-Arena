@@ -1110,7 +1110,7 @@ function CommunityCardsComponent({
       // Show stage label briefly when new community cards are dealt
       let labelTimer: ReturnType<typeof setTimeout> | undefined;
       if (stage === 'flop' || stage === 'turn' || stage === 'river') {
-        setStageLabel(stage.charAt(0).toUpperCase() + stage.slice(1)); // Title Case: Flop, Turn, River
+        setStageLabel(stage.toUpperCase());
         labelTimer = setTimeout(() => setStageLabel(null), 1500);
       } else {
         setStageLabel(null);

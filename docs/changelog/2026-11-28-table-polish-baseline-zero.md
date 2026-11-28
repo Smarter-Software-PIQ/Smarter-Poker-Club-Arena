@@ -26,35 +26,26 @@ and the announcement behaviour are unchanged.
 
 ## 3. check-table-skin-ink baseline cleared to zero
 
-All 21 frozen files were fixed; `BASELINE` is `{}` and a unit test pins it.
+`BASELINE` is `{}` and a unit test pins it.
 
-- Every `text-transform: uppercase` in the table, console and Hand Detail
-  stylesheets became `none` (the copy is already Title Case, or ALL-CAPS
-  literals that read the same). The board's stage label is now "Flop", "Turn",
-  "River" from the component instead of `toUpperCase()`.
-- Gold, amber, orange and purple UI ink became ice, silver, white or cobalt:
-  Hand Detail action tags, flags and notes (now the same inks as the skin
-  overrides, also off a console), the pot label and its glows, seat hero,
-  in-hand and winner rims, the win sparkle, the raise and discard tags, the
-  winning hand name on the seat, the SB badge, kill and BBJ credit badges, the
-  marked card pick, the stale-action note, the Add-On balance, the call-any
-  pre-action strip, the rabbit-hunt cost, Run It Twice timers, chat dealer and
-  highlight, reaction picker, the jackpot backdrop pulse, particle and sheen,
-  and Hand Reveal's face-down placeholder and pay key. Stack-depth tokens:
-  warning is ice, danger soft red (critical red unchanged).
-- New artwork stylesheet `src/components/table/SeatArtwork.css`, exempt in the
-  script with a reason: the note colour a player chose for an opponent (data,
-  like a purchased theme's swatches) and the winning hole card's rim and halo,
-  which match the winning board cards in `CommunityCards.css` (already
-  artwork). `.seat__card--winner` in SeatSlot.css paints them through custom
-  properties.
-
-Left as they are on purpose: felt, cards, chips, avatars, Bomb Pot art, the
-player-purchased controller theme swatches, and the board's winning-hand
-banner in `CommunityCards.css` (artwork-exempt and pinned as the reference
-banner by `tests/unit/pokerbrosWinnerPresentation.test.ts`). The uncoloured
-note post-it stays brass: `tests/the-post-it-marks-a-noted-opponent.law.test.ts`
-pins it as the sanctioned default.
+- UI stylesheets (consoles, popups, drawer, chat, Hand Detail, action
+  controls, HUD buttons) were fixed: every `text-transform: uppercase` became
+  `none`, and gold, amber, orange and purple ink became ice, silver, white or
+  cobalt. That covers the Hand Detail action tags, flags and notes, the
+  stale-action note, the Add-On balance, the call-any pre-action strip, the
+  rabbit-hunt HUD button, the Run It Twice prompt and panel timers, chat dealer
+  and highlight lines, the reaction picker and the floating reaction trail,
+  the jackpot widget and its hit overlay, the BBJ celebration labels, and Hand
+  Reveal's popup (its face-down placeholder and pay key).
+- The authentic Arena table is NOT restyled (Dan, 2026-11-27: "The felt,
+  cards, chips, avatars and the blurred room background are the authentic
+  Arena table and are NOT restyled"). `SeatSlot.css`, `PotDisplay.css`,
+  `CommunityCards.css` (including the board's stage label in
+  `CommunityCards.tsx`), `ChatBubble.css` and `BombPotWheel.css` keep their
+  exact previous values, and so do the stack-depth tokens in
+  `design-tokens.css`. They sit in the script's `ARENA_TABLE_FILES` list,
+  exempt from the hue and uppercase rules (never from `:hover`), with the
+  reason "authentic Arena table, not restyled (owner order 2026-11-27)".
 
 ## 4. titleCaseName keeps initialisms it does not know
 

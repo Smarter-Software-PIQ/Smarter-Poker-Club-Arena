@@ -3761,7 +3761,7 @@ test.describe('cold phone paint coverage, crowns and motion', () => {
 
     // State-overlap and backgrounded-tab hardening on the enlarged Hero plate:
     // 1. .seat--away or .seat--winner on an active seat never clobbers ::after or clips the ring.
-    // 2. .seat--winner on an inactive enlarged plate keeps overflow: visible + ice ::before glow (was gold before 2026-11-28).
+    // 2. .seat--winner on an inactive enlarged plate keeps overflow: visible + gold ::before glow.
     // 3. .seat--tb-armed forwards blue rim glow onto ::before, and backdrop-filter is cleared.
     // 4. .table-page--backgrounded keeps .seat__timer-ring, wipe, and ink running.
     const stateHardening = await page.evaluate(() => {
@@ -3789,9 +3789,7 @@ test.describe('cold phone paint coverage, crowns and motion', () => {
       heroSeat.classList.add('seat--winner', 'seat--winner-glow');
       const winnerResult = {
         overflow: getComputedStyle(heroInfo).overflow,
-        beforeGoldShadow: getComputedStyle(heroInfo, '::before').boxShadow.includes(
-          '134, 218, 255'
-        ),
+        beforeGoldShadow: getComputedStyle(heroInfo, '::before').boxShadow.includes('255, 215, 0'),
         winnerAfterDisplay: getComputedStyle(heroInfo, '::after').display,
       };
 

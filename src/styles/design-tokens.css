@@ -209,8 +209,8 @@
   /* ─── Stack Color Thresholds ─── */
   --stack-healthy: #f3f4f6; /* ≥100 BB — white */
   --stack-normal: #3fb950; /* 50-99 BB — house green */
-  --stack-warning: #86daff; /* 20-49 BB - ice (#SmarterDesign 2026-11-28; was amber) */
-  --stack-danger: #ff8a93; /* 10-19 BB - soft red (#SmarterDesign 2026-11-28; was orange) */
+  --stack-warning: #f59e0b; /* 20-49 BB — amber */
+  --stack-danger: #f97316; /* 10-19 BB — orange */
   --stack-critical: #ef4444; /* <10 BB — red */
 
   /* ─── Timer Colors — DEAD, AND DELIBERATELY DEFUSED (2026-08-26) ───

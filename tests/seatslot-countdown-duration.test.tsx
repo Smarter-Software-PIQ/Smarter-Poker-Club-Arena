@@ -637,10 +637,10 @@ describe('enlarged mobile frame never buries or detaches the neon countdown box 
       block(".table-page .seat--tb-armed .seat__info[style*='--sp-frame-w']::before {")
     ).toMatch(/24,\s*119,\s*242/);
     expect(block(".table-page .seat--winner .seat__info[style*='--sp-frame-w']::before {")).toMatch(
-      /134,\s*218,\s*255/
+      /255,\s*215,\s*0/
     );
     expect(
       block(".table-page .seat--winner-glow .seat__info[style*='--sp-frame-w']::before {")
-    ).toMatch(/134,\s*218,\s*255/);
+    ).toMatch(/255,\s*215,\s*0/);
   });
 });

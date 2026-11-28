@@ -99,8 +99,7 @@ test.describe('showdown beats match the measured reference with the CSS producti
         nameClip:
           (textStyle as CSSStyleDeclaration & { webkitBackgroundClip?: string })
             .webkitBackgroundClip ?? textStyle.backgroundClip,
-        // Title Case from the copy, never a CSS uppercase (#SmarterDesign 2026-11-28).
-        lowRendered: lowStyle.display !== 'none' && lowStyle.textTransform !== 'uppercase',
+        lowRendered: lowStyle.display !== 'none' && lowStyle.textTransform === 'uppercase',
         descRendered: descStyle.display !== 'none' && descStyle.fontWeight !== '',
       };
     });

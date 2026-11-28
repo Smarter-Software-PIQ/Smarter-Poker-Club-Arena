@@ -28,7 +28,8 @@
  *
  * ARTWORK is exempt from the hue rule only (cards, chips, throwables, felt
  * themes and their animations carry their own colours): ARTWORK_FILES below,
- * one reason each. Nothing is exempt from the uppercase or :hover rules.
+ * one reason each. The authentic Arena table (ARENA_TABLE_FILES) is exempt
+ * from hue and uppercase by the owner's order; nothing is exempt from :hover.
  *
  * BASELINE. Turning this on found older literals in surfaces the #SmarterDesign
  * passes had not reached (mostly painted-skin rules a `.sc--sd` override now
@@ -48,7 +49,6 @@ const DIRS = ['src/components/table', 'src/components/console', 'src/components/
 /** Artwork stylesheets: hue rule only. Keep short; every line is a hiding place. */
 export const ARTWORK_FILES = {
   'src/components/table/CardImage.css': 'playing card faces and backs',
-  'src/components/table/CommunityCards.css': 'board cards and their deal/flip art',
   'src/components/table/DealAnimation.css': 'deal animation keyframes',
   'src/components/table/ChipAnimation.module.css': 'chip artwork in flight',
   'src/components/table/ChipPhysics.css': 'chip artwork in flight',
@@ -56,21 +56,42 @@ export const ARTWORK_FILES = {
   'src/components/table/ThrowableSignatures.css': 'purchased throwable signature effects',
   'src/components/table/ThrowAnimation.css': 'throwable flight and impact keyframes',
   'src/components/table/BombPotOverlay.css': 'Bomb Pot artwork',
-  'src/components/table/BombPotWheel.css': 'Bomb Pot wheel artwork',
   'src/components/table/ControlThemeTokens.css': 'player-purchased controller themes',
   'src/components/table/TableStudioGameplayPreview.css':
     "Table Studio's miniature of the felt and the player's purchased theme",
   'src/components/table/PremiumCard.css': 'premium card-back artwork',
   'src/components/table/SeatKnockout.css': 'knockout celebration keyframes',
-  'src/components/table/SeatArtwork.css':
-    "the note colour a player chose for an opponent, and the winning hole card's rim (matched to the board's)",
+};
+
+/**
+ * THE AUTHENTIC ARENA TABLE. Dan's order for the #SmarterDesign programme
+ * (2026-11-27): "The felt, cards, chips, avatars and the blurred room
+ * background are the authentic Arena table and are NOT restyled." These
+ * stylesheets draw that table itself (the seats on the felt, the pot, the
+ * board, a chat bubble at a seat, the Bomb Pot wheel), so they are exempt
+ * from the hue AND the uppercase rule, never from :hover. Everything a player
+ * opens over the table (consoles, popups, the drawer, chat, Hand Detail, the
+ * action controls) stays under every rule. Keep this short; a UI stylesheet
+ * does not belong here.
+ */
+export const ARENA_TABLE_FILES = {
+  'src/components/table/SeatSlot.css':
+    'authentic Arena table, not restyled (owner order 2026-11-27)',
+  'src/components/table/PotDisplay.css':
+    'authentic Arena table, not restyled (owner order 2026-11-27)',
+  'src/components/table/CommunityCards.css':
+    'authentic Arena table, not restyled (owner order 2026-11-27)',
+  'src/components/table/ChatBubble.css':
+    'authentic Arena table, not restyled (owner order 2026-11-27)',
+  'src/components/table/BombPotWheel.css':
+    'authentic Arena table, not restyled (owner order 2026-11-27)',
 };
 
 /**
  * Frozen counts. EMPTY since 2026-11-28: every older literal the first run
  * froze was converted to the table palette, its uppercase transform dropped,
- * or (the seat's note colours and winning-card rim) moved into an artwork
- * stylesheet above. Shrink only: an entry may never be added back, and a new
+ * or, for a stylesheet that draws the authentic Arena table, exempted above
+ * by the owner's order. Shrink only: an entry may never be added back, and a new
  * finding is fixed, not frozen. `hue` is banned-hue literals, `upper` is
  * uppercase transforms. A file absent here allows zero of each.
  */
@@ -231,7 +252,10 @@ function main() {
   const shrink = [];
   for (const file of files) {
     const rel = relative(ROOT, file).split('\\').join('/');
-    const findings = scanStylesheet(readFileSync(file, 'utf8'), { artwork: rel in ARTWORK_FILES });
+    const table = rel in ARENA_TABLE_FILES;
+    const findings = scanStylesheet(readFileSync(file, 'utf8'), {
+      artwork: table || rel in ARTWORK_FILES,
+    }).filter((f) => !(table && f.rule === 'upper'));
     const allowed = BASELINE[rel] ?? {};
     for (const rule of ['hue', 'upper', 'hover']) {
       const mine = findings.filter((f) => f.rule === rule);
