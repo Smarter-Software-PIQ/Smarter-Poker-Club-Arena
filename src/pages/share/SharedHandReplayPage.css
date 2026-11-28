@@ -34,7 +34,7 @@
 }
 
 .arena-workspace.shared-replay-workspace {
-  min-height: 100%;
+  min-height: 100dvh;
   padding-bottom: max(72px, env(safe-area-inset-bottom));
   /* `clip` after `hidden`: `hidden` makes this a scroll container, which
      traps a position:fixed footer inside it. See

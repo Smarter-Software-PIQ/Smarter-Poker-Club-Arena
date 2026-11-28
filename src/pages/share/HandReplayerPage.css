@@ -7,7 +7,7 @@
  */
 
 .arena-workspace.hand-replayer-workspace {
-  min-height: 100%;
+  min-height: 100dvh;
   padding-bottom: max(72px, env(safe-area-inset-bottom));
   /* `clip` after `hidden`, so this does not become a scroll container that
      traps the fixed footer. tests/footer-stays-on-the-footer.law.test.ts. */
