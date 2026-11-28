@@ -1,0 +1,66 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE TABLE IN #SMARTERDESIGN (Dan 2026-11-27)
+
+   "POKER NEAR ME, [the Club Arena table] NEEDS THE SAME #SMARTERDESIGN
+   UPGRADE TO EVERY SINGLE PAGE, SUBPAGE, BUTTON AND EVERYTHING ELSE."
+
+   The material is the arena workspace one (src/components/lobby/
+   ArenaWorkspace.css; the Cashier and the top of Player Management): solid
+   ink-navy glass, ONE thin nine-slice chrome rim per surface, white titles,
+   silver supporting text, ice-blue emphasis, chrome keys with the selected
+   one lit cobalt, 44px targets and a visible focus ring. No gold, amber,
+   yellow, purple or pink.
+
+   This sheet carries the console details that are not part of the console
+   kit itself (the Game Rules tab row). The chat sheet's material lives in
+   TableChat.css (tests/table-chat-has-one-stylesheet.law.test.ts). The consoles (settings, buy-in, rules, hand
+   history, leave, time banks and the rest) switch material through
+   ConsoleMaterialProvider in TablePage; the menu drawer, the leave confirm,
+   the buy-in, hand detail and purchase consoles carry it in their own
+   stylesheets. The felt,
+   cards, chips, dealer button, avatars and the player's own Action
+   Controller skin are the table itself and are not touched here.
+
+   Selectors are doubled where the global popup chassis (metallic-popups.css)
+   paints the same element with !important. No :hover.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Game Rules tab row: the workspace switch ─────────────────────────── */
+
+.sc.sc--smarter .rules-modal__tabs {
+  gap: 4px;
+}
+
+.sc.sc--smarter .rules-modal__tab.rules-modal__tab {
+  box-sizing: border-box;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 44px;
+  padding: 4px 4px;
+  border: 4px solid transparent !important;
+  border-image: url('../lobby/console-art/chrome-stat.webp') 11 / 6px stretch !important;
+  border-radius: 0 !important;
+  background: linear-gradient(#152639, #06111e 65%) !important;
+  box-shadow: none !important;
+  color: #dce5ef !important;
+  -webkit-text-fill-color: #dce5ef;
+  font:
+    700 12px/1.1 Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+  text-shadow: none;
+  white-space: normal;
+}
+
+.sc.sc--smarter .rules-modal__tab.rules-modal__tab--active {
+  border-image-source: url('../lobby/console-art/chrome-active.webp') !important;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
+  color: #fff !important;
+  -webkit-text-fill-color: #fff;
+}
+
+.sc.sc--smarter .rules-modal__tab:focus-visible {
+  outline: 2px solid #8fd4ff;
+  outline-offset: 2px;
+}

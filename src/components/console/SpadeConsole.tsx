@@ -6,7 +6,7 @@ import type {
   ReactNode,
   Ref,
 } from 'react';
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useLayoutEffect, useRef, useState } from 'react';
 import { useFitText } from '../lobby/game-cards/useFitText';
 import './SpadeConsole.css';
 import { TapHaptic } from '../haptics/TapHaptic';
@@ -323,6 +323,31 @@ export function zonePct(zone: Zone, canvasW: number, canvasH: number): CSSProper
   };
 }
 
+/**
+ * #SMARTERDESIGN MATERIAL (Dan 2026-11-27).
+ *
+ * "NO DO NOT USE THOSE BULKY FRAMES, THATS THE OLD STYLE... USE THE
+ * #SMARTERDESIGN STYLE." The painted chassis below stays the default for every
+ * surface that has not been moved yet. A subtree that has been moved - the
+ * poker table and every popup it opens - provides `smarter`, and each console
+ * in it prints the same head, body and actions on the arena workspace
+ * material instead (src/components/lobby/ArenaWorkspace.css): ink-navy glass,
+ * one thin nine-slice chrome rim, white Title Case title, silver copy, chrome
+ * buttons with the primary lit cobalt, and a labelled 44px close.
+ *
+ * A context rather than a CSS ancestor because the table's popups portal to
+ * document.body; React context follows a portal, a descendant selector does
+ * not. Only the presentation changes: zones, plates, handlers, focus, haptics
+ * and every literal are the same component.
+ */
+export type ConsoleMaterial = 'painted' | 'smarter';
+const ConsoleMaterialContext = createContext<ConsoleMaterial>('painted');
+export const ConsoleMaterialProvider = ConsoleMaterialContext.Provider;
+/** The material consoles in this subtree print on. */
+export function useConsoleMaterial(): ConsoleMaterial {
+  return useContext(ConsoleMaterialContext);
+}
+
 export type ConsoleInk = 'silver' | 'white' | 'blue' | 'green' | 'red' | 'gold' | 'muted';
 
 /**
@@ -440,6 +465,7 @@ export function SpadeConsole({
   onClose,
   closeDisabled,
   closeLabel = 'Close',
+  material,
   ...rest
 }: {
   eyebrow?: string;
@@ -481,6 +507,8 @@ export function SpadeConsole({
   onClose?: () => void;
   closeDisabled?: boolean;
   closeLabel?: string;
+  /** Overrides the subtree's ConsoleMaterialProvider for this one console. */
+  material?: ConsoleMaterial;
   /**
    * DOM passthrough, NOT an escape hatch (2026-09-11). This was
    * `& Record<string, unknown>`, which accepted any prop at all: on
@@ -503,9 +531,13 @@ export function SpadeConsole({
     close: Boolean(onClose),
   });
   const onePlate = F.plates === 1;
+  const inherited = useConsoleMaterial();
+  const smarter = (material ?? inherited) === 'smarter';
   return (
     <Tag
-      className={`sc sc--${footKind} sc--crest-${crest} sc--family-${family} ${className}`.trim()}
+      className={`sc sc--${footKind} sc--crest-${crest} sc--family-${family}${
+        smarter ? ' sc--smarter' : ''
+      } ${className}`.trim()}
       {...rest}
     >
       <div className="sc__head">
@@ -566,6 +598,7 @@ export function SpadeConsole({
             canvasW={W}
             canvasH={F.FOOT_H}
             wrapBelow={F.plateWrapBelow}
+            data-plate="primary"
             {...plates.primary}
           />
         )}
@@ -575,6 +608,7 @@ export function SpadeConsole({
             canvasW={W}
             canvasH={F.FOOT_H}
             wrapBelow={F.plateWrapBelow}
+            data-plate="secondary"
             {...plates.secondary}
           />
         )}
@@ -584,6 +618,7 @@ export function SpadeConsole({
             canvasW={W}
             canvasH={F.FOOT_H}
             wrapBelow={F.plateWrapBelow}
+            data-plate="middle"
             {...plates.middle}
           />
         )}
@@ -593,6 +628,7 @@ export function SpadeConsole({
             canvasW={W}
             canvasH={F.FOOT_H}
             wrapBelow={F.plateWrapBelow}
+            data-plate="primary"
             {...plates.primary}
           />
         )}

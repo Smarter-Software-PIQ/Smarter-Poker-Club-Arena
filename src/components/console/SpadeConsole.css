@@ -648,3 +648,292 @@ input.sc-check__box:disabled {
     transition: none;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   #SMARTERDESIGN MATERIAL (Dan 2026-11-27)
+
+   "NO DO NOT USE THOSE BULKY FRAMES, THATS THE OLD STYLE... USE THE
+   #SMARTERDESIGN STYLE." A console inside a ConsoleMaterialProvider of
+   `smarter` (the poker table and every popup it opens; SpadeConsole.tsx)
+   drops the painted master and prints on the arena workspace material that
+   the Cashier and the top of Player Management wear (ArenaWorkspace.css):
+
+   - ink-navy glass, 100% solid (nothing behind the card shows through);
+   - ONE thin continuous nine-slice chrome rim around the whole surface,
+     never a frame inside it;
+   - a white Title Case title, an ice-blue eyebrow, silver copy;
+   - the pill as a chrome readout, the X as a labelled 44px chrome key;
+   - the plates as chrome keys, the primary lit cobalt.
+
+   The zones keep their inline geometry for the painted chassis; here every
+   zone is put back into normal flow with !important, which is the only thing
+   that outranks an inline style. Same DOM, same handlers, same literals.
+   No :hover (phones do not hover).
+   ═══════════════════════════════════════════════════════════════════════════ */
+.sc.sc--smarter {
+  --sd-case: url('../lobby/console-art/chrome-case.webp');
+  --sd-stat: url('../lobby/console-art/chrome-stat.webp');
+  --sd-active: url('../lobby/console-art/chrome-active.webp');
+  --sd-tile: linear-gradient(155deg, #12273b, #07111c 70%);
+  --sd-silver: #b6c8d6;
+  box-sizing: border-box;
+  max-width: min(var(--sc-max), 560px);
+  isolation: isolate;
+  padding: 14px 15px 15px;
+  color: #f1f5fc;
+  font-family: Arial, 'Roboto Condensed', system-ui, sans-serif;
+  background:
+    radial-gradient(ellipse at 90% -40%, #1e3853, transparent 63%),
+    linear-gradient(145deg, #091727, #030b14 74%);
+  background-color: #050d17;
+}
+
+.sc.sc--smarter::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  border-image: var(--sd-case) 41 / 15px stretch;
+}
+
+.sc.sc--smarter .sc__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    'eyebrow pill close'
+    'title pill close'
+    'subtitle subtitle subtitle';
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 2px;
+  min-height: 44px;
+  aspect-ratio: auto;
+  margin: 0 0 10px;
+  padding: 0 1px 9px;
+  border-bottom: 1px solid #253e57;
+  background: none;
+}
+
+.sc.sc--smarter .sc-zone {
+  position: static !important;
+  left: auto !important;
+  top: auto !important;
+  width: auto !important;
+  height: auto !important;
+  max-width: 100%;
+}
+
+.sc.sc--smarter .sc-zone,
+.sc.sc--smarter .sc-plate__text {
+  text-shadow: none;
+}
+
+.sc.sc--smarter .sc__eyebrow {
+  grid-area: eyebrow;
+  color: #74dfff;
+  -webkit-text-fill-color: #74dfff;
+  font:
+    700 11px/1.25 Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.sc.sc--smarter .sc__title {
+  grid-area: title;
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+  font:
+    800 20px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: -0.2px;
+  text-transform: none;
+}
+
+.sc.sc--smarter .sc__subtitle {
+  grid-area: subtitle;
+  color: var(--sd-silver);
+  -webkit-text-fill-color: var(--sd-silver);
+  font:
+    600 12px/1.35 Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.sc.sc--smarter .sc__pill {
+  grid-area: pill;
+  box-sizing: border-box;
+  min-height: 32px;
+  max-width: 44cqw;
+  padding: 3px 9px;
+  border: 4px solid transparent;
+  border-image: var(--sd-stat) 11 / 6px stretch;
+  background: var(--sd-tile);
+  font:
+    700 12px/1.1 Arial,
+    sans-serif;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.sc.sc--smarter .sc__close {
+  grid-area: close;
+  position: relative !important;
+  left: auto !important;
+  top: auto !important;
+  width: 44px !important;
+  height: 44px !important;
+  color: #dce5ef;
+  -webkit-text-fill-color: #dce5ef;
+  font:
+    400 24px/1 Arial,
+    sans-serif;
+}
+
+/* The X wears the chrome key. Its own ::after is the 44px hit pad, so the
+   rim is the border itself. Three classes deep to outrank the dialog reset
+   above ([role='dialog'] .sc__close.sc__close) and metallic-popups.css. */
+.sc.sc--smarter .sc__close.sc__close,
+.sc.sc--smarter .sc-plate.sc-plate {
+  box-sizing: border-box;
+  border: 5px solid transparent !important;
+  border-image: var(--sd-stat) 11 / 6px stretch !important;
+  border-radius: 0 !important;
+  background: linear-gradient(#152639, #06111e 65%) !important;
+  box-shadow: none !important;
+}
+
+.sc.sc--smarter .sc__close:focus-visible,
+.sc.sc--smarter .sc-plate:focus-visible {
+  outline: 2px solid #8fd4ff;
+  outline-offset: 2px;
+}
+
+.sc.sc--smarter .sc__body {
+  gap: 10px;
+  margin: 0;
+  padding: 0 1px 2px;
+  background: none;
+}
+
+.sc.sc--smarter .sc__foot {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+  aspect-ratio: auto;
+  background: none;
+}
+
+.sc.sc--smarter .sc__foot:not(:empty) {
+  margin-top: 12px;
+}
+
+.sc.sc--smarter .sc-plate {
+  position: relative !important;
+  left: auto !important;
+  top: auto !important;
+  width: auto !important;
+  height: auto !important;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 44px;
+  padding: 4px 8px;
+}
+
+.sc.sc--smarter .sc-plate[data-plate='primary'] {
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
+  border-image-source: var(--sd-active) !important;
+}
+
+.sc.sc--smarter .sc-plate__well {
+  width: 100%;
+}
+
+.sc.sc--smarter .sc-plate__text {
+  font:
+    700 calc(14px * var(--fit, 1)) / 1.15 Arial,
+    sans-serif;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.sc.sc--smarter .sc-plate__text[data-fit-wrap] {
+  font-size: calc(13px * var(--fit, 1));
+}
+
+/* Inks, without the painted glow. Silver copy, white on the lit key; red
+   stays the refusal and destructive colour. */
+.sc.sc--smarter .sc-ink--silver,
+.sc.sc--smarter .sc-ink--muted {
+  color: #dce5ef;
+  -webkit-text-fill-color: #dce5ef;
+}
+
+.sc.sc--smarter .sc-ink--white,
+.sc.sc--smarter .sc-plate[data-plate='primary'] .sc-plate__text:not(.sc-ink--red) {
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+}
+
+.sc.sc--smarter .sc-ink--blue,
+.sc.sc--smarter .sc-ink--gold {
+  color: #74dfff;
+  -webkit-text-fill-color: #74dfff;
+}
+
+.sc.sc--smarter .sc-ink--green {
+  color: #8ff0b0;
+  -webkit-text-fill-color: #8ff0b0;
+}
+
+.sc.sc--smarter .sc-ink--red {
+  color: #ff7d8c;
+  -webkit-text-fill-color: #ff7d8c;
+}
+
+.sc.sc--smarter .sc-copy {
+  color: #c9d6e3;
+  font:
+    500 14px/1.45 Inter,
+    system-ui,
+    sans-serif;
+  text-shadow: none;
+}
+
+.sc.sc--smarter .sc-label {
+  color: var(--sd-silver);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+/* Toggles and tabs printed on the glass (quantity presets, a console's tab
+   row) become the workspace switch: chrome keys, the chosen one lit cobalt,
+   like .arena-switch in ArenaWorkspace.css. A key that carries a picture (a
+   controller theme swatch) keeps its own frame. */
+.sc.sc--smarter .sc__body button:is([aria-pressed], [role='tab']):not(:has(img)) {
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 4px 8px;
+  border: 4px solid transparent !important;
+  border-image: var(--sd-stat) 11 / 6px stretch !important;
+  border-radius: 0 !important;
+  background: linear-gradient(#152639, #06111e 65%) !important;
+  box-shadow: none !important;
+  color: #dce5ef !important;
+  -webkit-text-fill-color: #dce5ef;
+  text-shadow: none;
+  text-transform: none;
+}
+
+.sc.sc--smarter .sc__body button:is([aria-pressed='true'], [aria-selected='true']):not(:has(img)) {
+  border-image-source: var(--sd-active) !important;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
+  color: #fff !important;
+  -webkit-text-fill-color: #fff;
+}

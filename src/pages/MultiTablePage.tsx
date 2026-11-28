@@ -4621,6 +4621,7 @@ export default function MultiTablePage() {
        `formatGameTitle` still names the table, in the eyebrow zone. */
     <div className="multi-table-page__crashed" role="alert">
       <SpadeConsole
+        material="smarter"
         as="div"
         eyebrow={formatGameTitle(name)}
         title="Table Not Displayed"
@@ -5403,6 +5404,7 @@ export default function MultiTablePage() {
          action would leave the other painted and empty. */
       <div className="multi-table-page multi-table-page--empty">
         <SpadeConsole
+          material="smarter"
           as="div"
           eyebrow="Your Tables"
           title="No Tables Open"
@@ -5745,6 +5747,7 @@ export default function MultiTablePage() {
                 moved onto the schema's own green and red. */}
             <div className="multi-table-page__session-agg" role="dialog" aria-label="Session">
               <SpadeConsole
+                material="smarter"
                 onClose={() => setShowSessionAgg(false)}
                 as="div"
                 eyebrow="All Tables"
@@ -5829,6 +5832,7 @@ export default function MultiTablePage() {
                   actually found, which is the one figure a player wants before
                   they read a single row. */}
               <SpadeConsole
+                material="smarter"
                 onClose={closeQuickJoin}
                 as="div"
                 eyebrow={quickJoin.tournamentLobby ? 'Open Tournaments' : 'Open Seats'}

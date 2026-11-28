@@ -446,15 +446,15 @@
   background: transparent !important;
   background-image: none !important;
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%) !important;
-  color: #ffd700;
-  -webkit-text-fill-color: #ffd700;
+  color: #74dfff;
+  -webkit-text-fill-color: #74dfff;
   font-family: inherit;
   font-size: 3.1cqw;
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   text-shadow:
-    0 0 1cqw rgb(255 215 0 / 70%),
+    0 0 1cqw rgb(116 223 255 / 70%),
     0 0.25cqw 0 rgb(0 0 0 / 70%);
   cursor: pointer;
   touch-action: manipulation;
@@ -550,10 +550,10 @@
 }
 
 .hdm-tag--private {
-  color: #ffd700;
-  -webkit-text-fill-color: #ffd700;
+  color: #74dfff;
+  -webkit-text-fill-color: #74dfff;
   text-shadow:
-    0 0 1cqw rgb(255 215 0 / 70%),
+    0 0 1cqw rgb(116 223 255 / 70%),
     0 0.25cqw 0 rgb(0 0 0 / 70%);
 }
 
@@ -572,11 +572,11 @@
 }
 
 .hdm-plays {
-  filter: drop-shadow(0 0 0.7cqw rgb(255 215 0 / 45%));
+  filter: drop-shadow(0 0 0.7cqw rgb(116 223 255 / 45%));
 }
 
 .hdm-sd__cards .card-image.hdm-private {
-  outline: 1px solid rgb(255 215 0 / 45%);
+  outline: 1px solid rgb(116 223 255 / 45%);
   outline-offset: 1px;
 }
 
@@ -591,10 +591,10 @@
 }
 
 .hdm-sd.is-winner .hdm-sd__handname {
-  color: #ffd700;
-  -webkit-text-fill-color: #ffd700;
+  color: #74dfff;
+  -webkit-text-fill-color: #74dfff;
   text-shadow:
-    0 0 1cqw rgb(255 215 0 / 70%),
+    0 0 1cqw rgb(116 223 255 / 70%),
     0 0.25cqw 0 rgb(0 0 0 / 70%);
 }
 
@@ -729,10 +729,10 @@
 }
 
 .hdm-rake-share__row.is-primary strong {
-  color: #ffd700;
-  -webkit-text-fill-color: #ffd700;
+  color: #74dfff;
+  -webkit-text-fill-color: #74dfff;
   text-shadow:
-    0 0 1cqw rgb(255 215 0 / 70%),
+    0 0 1cqw rgb(116 223 255 / 70%),
     0 0.25cqw 0 rgb(0 0 0 / 70%);
 }
 
@@ -1250,5 +1250,88 @@
 
 [role='dialog'] .hdm-panel .hdm-actions > button.hdm-actions__analyze:focus-visible {
   outline: 2px solid #56d8ff;
+  outline-offset: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   #SMARTERDESIGN (Dan 2026-11-27). The table provides the smarter console
+   material (TablePage, ConsoleMaterialProvider), so this sheet's painted-head
+   crop above stands down: the head is the material's own grid row, the foot
+   carries nothing, the lone Close is a chrome key, the share actions are
+   chrome keys, and winning hands and the primary rake share print ice-blue
+   (they were gold). The sheet still fills the viewport and the page is still
+   its one scroller.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.hdm-console.sc--smarter {
+  max-width: 560px;
+  /* The table's tab strip stands above this full-screen sheet; the head
+     starts below it instead of under it. */
+  margin-top: var(--sp-tabbar-h, 0px);
+}
+
+.hdm-console.sc--smarter .sc__head {
+  height: auto;
+  padding-top: 0;
+  background: none;
+}
+
+.hdm-console.sc--smarter .sc__head::before {
+  content: none;
+}
+
+.hdm-console.sc--smarter .sc__head .sc-zone.sc-zone {
+  position: static !important;
+  left: auto !important;
+  top: auto !important;
+  width: auto !important;
+  height: auto !important;
+}
+
+.hdm-console.sc--smarter .sc__head .sc__subtitle {
+  color: #b6c8d6;
+}
+
+.hdm-console.sc--smarter .sc__foot {
+  height: 0;
+}
+
+.hdm-console.sc--smarter .hdm-empty {
+  padding: 18px 4px;
+  border-top: 0;
+  box-shadow: none;
+  color: #c9d6e3;
+  -webkit-text-fill-color: #c9d6e3;
+  font:
+    500 14px/1.45 Inter,
+    system-ui,
+    sans-serif;
+  text-shadow: none;
+}
+
+.hdm-console.sc--smarter .hdm-word-btn.hdm-word-btn,
+[role='dialog'] .hdm-console.sc--smarter .hdm-actions > button {
+  box-sizing: border-box;
+  min-height: 44px;
+  height: auto;
+  aspect-ratio: auto;
+  padding: 4px 10px;
+  border: 5px solid transparent !important;
+  border-image: url('../lobby/console-art/chrome-stat.webp') 11 / 6px stretch !important;
+  border-radius: 0 !important;
+  background: linear-gradient(#152639, #06111e 65%) !important;
+  background-image: linear-gradient(#152639, #06111e 65%) !important;
+  box-shadow: none !important;
+  color: #dce5ef !important;
+  -webkit-text-fill-color: #dce5ef;
+  font:
+    700 14px/1.1 Arial,
+    sans-serif;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  text-shadow: none;
+}
+
+.hdm-console.sc--smarter .hdm-word-btn:focus-visible {
+  outline: 2px solid #8fd4ff;
   outline-offset: 2px;
 }

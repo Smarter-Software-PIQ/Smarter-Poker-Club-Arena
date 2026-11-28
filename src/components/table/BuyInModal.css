@@ -422,3 +422,282 @@
     inset 0 1px #d0e9ff,
     inset 0 -2px #2566a8;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   #SMARTERDESIGN (Dan 2026-11-27)
+
+   "NO DO NOT USE THOSE BULKY FRAMES, THATS THE OLD STYLE... USE THE
+   #SMARTERDESIGN STYLE." The buy-in sheet is only ever opened from a table,
+   so the painted spade head, rails and four-bay deck retire here and the
+   same DOM prints on the arena workspace material (ArenaWorkspace.css):
+   solid ink-navy glass with ONE thin chrome rim, a white Title Case title,
+   the amount in a chrome readout, Min / BB / Max / Balance as chrome tiles
+   (Min and Max are keys that light cobalt when chosen), and Close / Buy
+   Chips as chrome keys with the primary lit. The slider still runs up and
+   down (Dan 2026-09-05). Every zone's inline geometry is put back into flow
+   with !important; handlers, guards and literals are unchanged.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.buy-in-modal.ac-popup {
+  box-sizing: border-box;
+  padding: 15px !important;
+  border: 9px solid transparent !important;
+  border-image: url('../lobby/console-art/chrome-case.webp') 41 / 15px stretch !important;
+  background:
+    radial-gradient(ellipse at 90% -40%, #1e3853, transparent 63%),
+    linear-gradient(145deg, #091727, #030b14 74%) !important;
+  background-color: #050d17 !important;
+  box-shadow: 0 18px 40px rgb(0 0 0 / 62%) !important;
+}
+
+.buy-in-modal .buy-in-modal__master {
+  gap: 10px;
+  font-family: Arial, 'Roboto Condensed', system-ui, sans-serif;
+}
+
+.buy-in-modal .buy-in-modal__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'eyebrow pill'
+    'title pill';
+  align-items: center;
+  column-gap: 8px;
+  aspect-ratio: auto;
+  padding: 0 1px 9px;
+  border-bottom: 1px solid #253e57;
+  background: none;
+}
+
+.buy-in-modal :is(.sc-zone, .buy-in-modal__bay-button) {
+  position: static !important;
+  left: auto !important;
+  top: auto !important;
+  width: auto !important;
+  height: auto !important;
+  text-shadow: none;
+}
+
+.buy-in-modal .sc__eyebrow {
+  grid-area: eyebrow;
+  color: #74dfff;
+  -webkit-text-fill-color: #74dfff;
+  font:
+    700 11px/1.25 Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.buy-in-modal .sc__title {
+  grid-area: title;
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+  font:
+    800 20px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: -0.2px;
+  text-transform: none;
+}
+
+.buy-in-modal .buy-in-modal__countdown {
+  grid-area: pill;
+  box-sizing: border-box;
+  min-height: 32px;
+  padding: 3px 10px;
+  border: 4px solid transparent;
+  border-image: url('../lobby/console-art/chrome-stat.webp') 11 / 6px stretch;
+  background: linear-gradient(155deg, #12273b, #07111c 70%);
+  font:
+    700 13px/1.1 Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.buy-in-modal .buy-in-modal__stage {
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 10px;
+  padding: 0;
+  background: none;
+}
+
+.buy-in-modal .buy-in-modal__slider {
+  width: 10px;
+}
+
+.buy-in-modal .buy-in-modal__current-amount {
+  box-sizing: border-box;
+  gap: 4px;
+  min-height: 120px;
+  padding: 10px 8px;
+  border: 7px solid transparent;
+  border-image: url('../lobby/console-art/chrome-readout.webp') 21 / 11px stretch;
+  border-radius: 0;
+  background: #071421;
+  box-shadow: none;
+}
+
+.buy-in-modal .buy-in-modal__game-type {
+  color: #9ad8fb;
+  -webkit-text-fill-color: #9ad8fb;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  text-shadow: none;
+}
+
+.buy-in-modal .buy-in-modal__current-amount .sc-label {
+  color: #b6c8d6;
+  -webkit-text-fill-color: #b6c8d6;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  text-shadow: none;
+}
+
+.buy-in-modal .buy-in-modal__amount-value {
+  color: #effaff;
+  -webkit-text-fill-color: #effaff;
+  font:
+    800 40px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  text-shadow: 0 0 13px #2878bc8c;
+}
+
+.buy-in-modal .buy-in-modal__current-amount .sc-copy {
+  font:
+    500 13px/1.4 Inter,
+    system-ui,
+    sans-serif;
+  text-shadow: none;
+}
+
+.buy-in-modal .buy-in-modal__balance-retry {
+  min-height: 44px;
+  color: #74dfff;
+  -webkit-text-fill-color: #74dfff;
+  font:
+    700 14px/1 Arial,
+    sans-serif;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+/* The deck: a row of labels over a row of chrome tiles, then the keys. */
+.buy-in-modal .buy-in-modal__deck {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-flow: row;
+  gap: 4px;
+  aspect-ratio: auto;
+  background: none;
+}
+
+.buy-in-modal .buy-in-modal__bay-label {
+  justify-items: center;
+  color: #b6c8d6;
+  -webkit-text-fill-color: #b6c8d6;
+  font:
+    700 11px/1.2 Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.buy-in-modal .buy-in-modal__deck > .buy-in-modal__bay-value,
+.buy-in-modal .buy-in-modal__deck > .buy-in-modal__bay-button {
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  min-height: 48px;
+  padding: 4px 3px;
+  border: 5px solid transparent !important;
+  border-image: url('../lobby/console-art/chrome-stat.webp') 11 / 6px stretch !important;
+  background: linear-gradient(155deg, #12273b, #07111c 70%) !important;
+}
+
+.buy-in-modal .buy-in-modal__bay-button[aria-pressed='true'] {
+  border-image-source: url('../lobby/console-art/chrome-active.webp') !important;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
+}
+
+.buy-in-modal .buy-in-modal__bay-value {
+  font:
+    700 calc(16px * var(--fit, 1)) / 1.1 Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-shadow: none;
+}
+
+.buy-in-modal .buy-in-modal__bay-button .buy-in-modal__bay-value {
+  font-size: calc(16px * var(--fit, 1));
+}
+
+.buy-in-modal .buy-in-modal__bay-button:focus-visible,
+.buy-in-modal .sc-plate:focus-visible {
+  outline: 2px solid #8fd4ff;
+  outline-offset: 2px;
+}
+
+.buy-in-modal .buy-in-modal__deck > .sc-plate.sc-plate {
+  position: relative !important;
+  left: auto !important;
+  top: auto !important;
+  width: auto !important;
+  height: auto !important;
+  grid-column: span 2;
+  box-sizing: border-box;
+  min-height: 44px;
+  margin-top: 8px;
+  padding: 4px 8px;
+  border: 5px solid transparent !important;
+  border-image: url('../lobby/console-art/chrome-stat.webp') 11 / 6px stretch !important;
+  background: linear-gradient(#152639, #06111e 65%) !important;
+}
+
+.buy-in-modal .buy-in-modal__deck > .buy-in-modal__confirm.sc-plate {
+  border-image-source: url('../lobby/console-art/chrome-active.webp') !important;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
+}
+
+.buy-in-modal .buy-in-modal__deck > .buy-in-modal__confirm--disabled.sc-plate {
+  border-image-source: url('../lobby/console-art/chrome-stat.webp') !important;
+  background: linear-gradient(#152639, #06111e 65%) !important;
+}
+
+.buy-in-modal .sc-plate__well {
+  width: 100%;
+}
+
+.buy-in-modal .sc-plate__text,
+.buy-in-modal .buy-in-modal__confirm--long .sc-plate__text {
+  font:
+    700 calc(14px * var(--fit, 1)) / 1.15 Arial,
+    sans-serif;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  text-shadow: none;
+}
+
+.buy-in-modal .sc-ink--silver,
+.buy-in-modal .sc-ink--muted {
+  color: #dce5ef;
+  -webkit-text-fill-color: #dce5ef;
+}
+
+.buy-in-modal .sc-ink--white {
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+}
+
+.buy-in-modal .sc-ink--red {
+  color: #ff7d8c;
+  -webkit-text-fill-color: #ff7d8c;
+}
+
+.buy-in-modal .sc-ink--gold,
+.buy-in-modal .sc-ink--blue {
+  color: #74dfff;
+  -webkit-text-fill-color: #74dfff;
+}

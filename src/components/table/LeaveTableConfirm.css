@@ -29,15 +29,19 @@
 .leave-confirm__dialog {
   width: 320px;
   max-width: 90vw;
-  padding: 28px 24px 20px;
-  background: linear-gradient(180deg, rgba(28, 33, 40, 0.98) 0%, rgba(22, 27, 34, 0.99) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 20px;
-  box-shadow:
-    0 20px 60px rgba(0, 0, 0, 0.5),
-    0 0 0 1px rgba(255, 255, 255, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  text-align: center;
+  box-sizing: border-box;
+  padding: 18px 18px 16px;
+  /* #SmarterDesign (Dan 2026-11-27): solid ink-navy glass, one thin chrome
+     rim (ArenaWorkspace.css), white title, silver copy, chrome keys. */
+  background:
+    radial-gradient(ellipse at 90% -40%, #1e3853, transparent 63%),
+    linear-gradient(145deg, #091727, #030b14 74%);
+  background-color: #050d17;
+  border: 9px solid transparent;
+  border-image: url('../lobby/console-art/chrome-case.webp') 41 / 15px stretch;
+  border-radius: 0 !important;
+  box-shadow: 0 18px 40px rgb(0 0 0 / 62%) !important;
+  text-align: left;
   animation: leaveConfirmSlideUp 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
@@ -56,31 +60,41 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 56px;
-  height: 56px;
-  margin-bottom: 16px;
-  background: rgba(248, 81, 73, 0.12);
-  border-radius: 16px;
-  color: #f85149;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 10px;
+  border: 4px solid transparent;
+  border-image: url('../lobby/console-art/chrome-stat.webp') 11 / 6px stretch;
+  background: linear-gradient(155deg, #12273b, #07111c 70%);
+  color: #ff7d8c;
 }
 
 .leave-confirm__title {
   margin: 0 0 8px;
-  font-size: 1.125rem;
-  font-weight: 700;
-  color: #e4e6eb;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #253e57;
+  color: #fff;
+  font:
+    800 20px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: -0.2px;
+  text-shadow: none;
 }
 
 .leave-confirm__desc {
-  margin: 0 0 24px;
-  font-size: 0.875rem;
-  color: rgba(228, 230, 235, 0.65);
-  line-height: 1.5;
+  margin: 0 0 16px;
+  color: #c9d6e3;
+  font:
+    500 14px/1.45 Inter,
+    system-ui,
+    sans-serif;
 }
 
 .leave-confirm__desc strong {
-  color: #e4e6eb;
-  font-weight: 600;
+  color: #74dfff;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .leave-confirm__actions {
@@ -88,27 +102,38 @@
   gap: 10px;
 }
 
-.leave-confirm__btn {
+.leave-confirm__dialog .leave-confirm__btn {
   flex: 1;
-  padding: 12px 16px;
-  font-size: 0.875rem;
-  font-weight: 600;
-  border: none;
-  border-radius: 12px;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 4px 10px;
+  border: 5px solid transparent !important;
+  border-image: url('../lobby/console-art/chrome-stat.webp') 11 / 6px stretch !important;
+  border-radius: 0 !important;
+  background: linear-gradient(#152639, #06111e 65%) !important;
+  box-shadow: none !important;
+  color: #dce5ef;
+  font:
+    700 14px/1.1 Arial,
+    sans-serif;
   cursor: pointer;
-  transition: all 0.15s ease;
 }
 
-.leave-confirm__btn--cancel {
-  background: rgba(255, 255, 255, 0.08);
-  color: #e4e6eb;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+/* Stay is the safe choice and keeps focus; Leave Table reads as the
+   destructive one in red ink on the same chrome key. */
+.leave-confirm__dialog .leave-confirm__btn--cancel {
+  border-image-source: url('../lobby/console-art/chrome-active.webp') !important;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
+  color: #fff;
 }
 
-.leave-confirm__btn--confirm {
-  background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%);
-  color: #ffffff;
-  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+.leave-confirm__dialog .leave-confirm__btn--confirm {
+  color: #ff7d8c;
+}
+
+.leave-confirm__btn:focus-visible {
+  outline: 2px solid #8fd4ff;
+  outline-offset: 2px;
 }
 
 .leave-confirm__btn--confirm:active {

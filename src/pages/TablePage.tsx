@@ -73,7 +73,7 @@ import { TableLoadFailureOverlay } from '../components/table/TableLoadFailureOve
 import { InviteLandedLateOverlay } from '../components/table/InviteLandedLateOverlay';
 /* #ClubArenaConsole: the felt's own dialogs print into Dan's approved master
    rather than drawing a card in CSS. See .claude/skills/club-arena-console. */
-import { SpadeConsole } from '../components/console/SpadeConsole';
+import { ConsoleMaterialProvider, SpadeConsole } from '../components/console/SpadeConsole';
 import { ButtonImagePreloader } from '../components/table/ButtonImagePreloader';
 import { WaitlistCallToAction } from '../components/table/WaitlistCallToAction';
 import { TournamentLateRegCallToAction } from '../components/table/TournamentLateRegCallToAction';
@@ -744,6 +744,7 @@ import {
 import '../components/table/ControlThemeTokens.css';
 import '../styles/table-design-tokens.css';
 import './TablePage.css';
+import '../components/table/TableSmarterDesign.css';
 import { TableErrorBoundary } from '../components/common/TableErrorBoundary';
 // Phase 8-9 Premium Components
 import { TableReactions } from '../components/table/TableReactions';
@@ -1752,10 +1753,15 @@ function warmSeatsToPlayers(
 const MYSTERY_CHEST_LEGACY_KEY = '__legacy_chest__';
 
 export default function TablePage(props: TablePageProps = {}) {
+  /* #SmarterDesign (Dan 2026-11-27): every console the table draws, and every
+     popup it portals out to document.body, prints on the arena workspace
+     material rather than the painted chassis. The felt is untouched. */
   return (
-    <TableRouteBoundary embeddedTableId={props.embeddedTableId}>
-      {(tableId) => <LiveTablePage key={tableId} {...props} />}
-    </TableRouteBoundary>
+    <ConsoleMaterialProvider value="smarter">
+      <TableRouteBoundary embeddedTableId={props.embeddedTableId}>
+        {(tableId) => <LiveTablePage key={tableId} {...props} />}
+      </TableRouteBoundary>
+    </ConsoleMaterialProvider>
   );
 }
 
