@@ -1,0 +1,126 @@
+/*
+ * CLUB ARENA - the routed tournament page's mast and states in #SmarterDesign
+ * (2026-11-28, batch T1)
+ *
+ * TournamentLobbySmarterDesign.css dresses the lobby's own bands (header,
+ * section rail, tab panels, footer) for every place the lobby is shown. This
+ * sheet adds what the ROUTE has on top of that (.claude/skills/smarter-design):
+ *
+ *   - the ArenaWorkspaceHeader mast, a fixed band at the top of the shell
+ *     (only the route draws it: TournamentDetails.tsx, `mast`);
+ *   - the loading and Tournament Not Found states as one thin chrome case
+ *     (`arena-case arena-ops-case`) centred under the mast, with Back To Clubs
+ *     a lit chrome key;
+ *   - the two recovery notices (a read that failed, a game that is gone) as
+ *     chrome ledger rows (`arena-ledger-row`) with their action a chrome key.
+ *
+ * Every selector starts at the page root `.tournament-details.arena-workspace`,
+ * so nothing here reaches another page. The shell geometry stays
+ * TournamentDetails.css's: the mast is `flex: none`, so the tab panel is still
+ * the only band that grows. No :hover, no new art, colour, radius or shadow.
+ */
+
+/* ---- The mast: one slim fixed band, on the lobby's column.
+   This shell is measured to the viewport and its tab panel is the only band
+   that grows (tests/e2e/css/tournamentLobbyTabPanelHeightCases.ts), so every
+   pixel the mast takes comes out of the panel. Measured in the harness with
+   the full workspace mast (101px on a phone, 128px at 1280), the Details
+   panel fell from 373 to 262px at 393x852, from 249 to 111px at 1280x900 and
+   from 69 to 6px at 1280x720. So on this page the mast is the same art at its
+   slim height, one 56px row (medallion, title, the chrome "?"): 307px at
+   393x852 and 183px at 1280x900. On a screen 760px tall or less it gives its
+   row back to the panel entirely, so 375x667 and 1280x720 keep the old
+   panel (196 and 69px). */
+.tournament-details.arena-workspace > .arena-workspace-mast {
+  flex: 0 0 auto;
+  align-self: stretch;
+  min-height: 56px;
+  margin: 6px max(6px, calc((100% - 1040px) / 2)) 4px;
+  padding: 6px 12px;
+  gap: 10px;
+}
+.tournament-details.arena-workspace > .arena-workspace-mast > .arena-mast-medallion {
+  width: 44px;
+}
+.tournament-details.arena-workspace > .arena-workspace-mast .arena-mast-lettering > span {
+  display: none;
+}
+.tournament-details.arena-workspace > .arena-workspace-mast h1 {
+  margin: 0;
+  font-size: 26px;
+}
+.tournament-details.arena-workspace > .arena-workspace-mast > .ca-page-help {
+  top: 6px;
+}
+/* In the loading and empty states the root is the whole content width, not the
+   lobby's column; the mast keeps to a column width there too. */
+.tournament-details.arena-workspace.loading > .arena-workspace-mast,
+.tournament-details.arena-workspace.error > .arena-workspace-mast {
+  box-sizing: border-box;
+  align-self: center;
+  width: min(100% - 12px, 760px);
+  margin-inline: 0;
+}
+@media (max-height: 760px) {
+  .tournament-details.arena-workspace > .arena-workspace-mast {
+    display: none;
+  }
+}
+
+/* ---- Loading and Tournament Not Found: one case, centred in what is left. */
+.tournament-details.arena-workspace > .tournament-details__state {
+  box-sizing: border-box;
+  width: min(100% - 12px, 420px);
+  margin: auto;
+  align-items: center;
+  text-align: center;
+}
+.tournament-details.arena-workspace > .tournament-details__state > .arena-section-title {
+  align-self: stretch;
+  justify-content: center;
+}
+.tournament-details.arena-workspace > .tournament-details__state > p {
+  margin: 0;
+  color: #dce5ef;
+  font:
+    14px/1.45 Arial,
+    sans-serif;
+}
+.tournament-details.arena-workspace .tournament-details__state-keys {
+  align-self: stretch;
+  margin: 2px 0 0;
+}
+
+/* ---- The recovery notices: chrome ledger rows with a chrome key. */
+.tournament-details.arena-workspace .tournament-recovery-notice.arena-ledger-row {
+  flex: 0 0 auto;
+  margin: 6px max(6px, calc((100% - 1040px) / 2)) 0;
+  padding: 6px 8px 6px 12px;
+  color: #ff5b6e;
+  font:
+    700 14px/1.3 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.tournament-details.arena-workspace
+  .tournament-recovery-notice.tournament-recovery-notice--next-game.arena-ledger-row {
+  color: #dce5ef;
+}
+.tournament-details.arena-workspace.error > .tournament-recovery-notice.arena-ledger-row {
+  box-sizing: border-box;
+  width: min(100% - 12px, 420px);
+  margin: auto;
+}
+.tournament-details.arena-workspace .tournament-recovery-notice__keys {
+  flex: 0 0 auto;
+  margin: 0;
+}
+.tournament-details.arena-workspace .tournament-recovery-notice__keys > button {
+  min-width: 112px;
+}
+
+/* ---- The club join step: its case centred under the mast. */
+.tournament-details.arena-workspace > .tournament-club-join-gate {
+  width: min(100% - 12px, 420px);
+  margin: auto;
+}

@@ -17,6 +17,37 @@ const table = (i: number, status: string, seated: number) => ({
   created_at: now,
   is_deleted: false,
 });
+function tournamentRow(id: string, status: string, extra: Record<string, unknown>) {
+  return {
+    id,
+    club_id: CLUB_UUID,
+    name: 'Kings Sunday Major',
+    status,
+    format_contract: 'mtt-v1',
+    game_type: 'nlh',
+    variant: 'nlh',
+    starting_chips: 20000,
+    buy_in_amount: 100,
+    buy_in_fee: 10,
+    guaranteed_prize: 5000,
+    prize_pool: 1320,
+    current_level: 1,
+    current_players: 12,
+    max_players: 180,
+    min_players: 2,
+    late_reg_levels: 6,
+    start_time: new Date(Date.now() + 45 * 60_000).toISOString(),
+    blind_structure: [
+      { level: 1, small_blind: 100, big_blind: 200, ante: 0, duration: 10 },
+      { level: 2, small_blind: 150, big_blind: 300, ante: 0, duration: 10 },
+      { level: 3, small_blind: 200, big_blind: 400, ante: 50, duration: 10 },
+    ],
+    payout_structure: [],
+    short_description: 'Deep Stack Sunday Event',
+    created_at: now,
+    ...extra,
+  };
+}
 const overview = {
   generated_at: now,
   club: { id: CLUB_UUID, name: 'Kings Club', slug: SLUG },
@@ -182,6 +213,36 @@ export const fixtures = {
         user_id: ownerId,
         club_id: CLUB_UUID,
         chip_balance: 33442.45,
+      },
+    ],
+    /* The routed tournament page (/tournaments/:id), one row per state it
+       shows. The stub honours .eq() on these tables so each id reads its own
+       row and t-none reads nothing (Tournament Not Found). */
+    tournaments: [
+      tournamentRow('7d000000-0000-4000-8000-000000000001', 'REGISTERING', {}),
+      tournamentRow('7d000000-0000-4000-8000-000000000002', 'LATE_REG', {
+        late_reg_levels: null,
+        late_reg_mins: 30,
+        started_at: new Date(Date.now() - 5 * 60_000).toISOString(),
+        current_players: 48,
+        prize_pool: 5280,
+      }),
+      tournamentRow('7d000000-0000-4000-8000-000000000003', 'COMPLETED', {
+        started_at: new Date(Date.now() - 300 * 60_000).toISOString(),
+        ended_at: new Date(Date.now() - 10 * 60_000).toISOString(),
+        current_players: 64,
+        prize_pool: 7040,
+      }),
+    ],
+    tournament_players_public: [
+      {
+        id: 'entry-owner-1',
+        tournament_id: '7d000000-0000-4000-8000-000000000001',
+        user_id: ownerId,
+        username: 'KingDan',
+        status: 'registered',
+        chips: 20000,
+        table_id: null,
       },
     ],
     profiles: [

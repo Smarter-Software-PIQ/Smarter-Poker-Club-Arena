@@ -82,6 +82,11 @@ import './TournamentDetails.css';
    re-dress of its own classes with it. See TournamentLobbySmarterDesign.css. */
 import '../../components/lobby/ArenaWorkspace.css';
 import './TournamentLobbySmarterDesign.css';
+/* #SmarterDesign batch T1 (2026-11-28): the routed page's mast and its empty,
+   error and loading states on the workspace kit. See TournamentDetailsArena.css. */
+import '../../components/ops/ArenaOps.css';
+import './TournamentDetailsArena.css';
+import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
 import { MttEventHeader } from '../../components/tournament/details/MttEventHeader';
 import { TournamentRegisterButton } from '../../components/tournament/TournamentRegisterButton';
 import { useToast } from '../../components/common/Toast';
@@ -1985,17 +1990,31 @@ export default function TournamentDetails({
   );
 
   const recoveryNotice = loadError ? (
-    <div role="alert" className="tournament-recovery-notice">
+    <div role="alert" className="tournament-recovery-notice arena-ledger-row">
       <p>{loadError}</p>
-      <button
-        type="button"
-        className="btn btn-primary"
-        onClick={() => void loadTournament(undefined, { quiet: true })}
-      >
-        Try Again
-      </button>
+      <div className="arena-switch arena-ops-primary tournament-recovery-notice__keys">
+        <button type="button" onClick={() => void loadTournament(undefined, { quiet: true })}>
+          Try Again
+        </button>
+      </div>
     </div>
   ) : null;
+
+  /* THE MAST (#SmarterDesign batch T1, 2026-11-28). The routed page is a
+     workspace page, so it opens on the arena mast with the chrome "?" like
+     every other page. Only on the route: in the in-game popup and the lobby tab
+     this page is a panel inside a screen that already has its own head, and
+     Dan's 2026-10-04 ruling ("remove all these large frames") keeps those to
+     the event band alone. The mast is drawn in every state the route can be
+     in, so the page does not jump when the event arrives. */
+  const mast =
+    isEmbedded || onClose ? null : (
+      <ArenaWorkspaceHeader
+        area="dashboard"
+        title="Tournament Lobby"
+        summary="Read The Event, Its Blinds, Entries, Tables And Prizes, And Register, Watch Or Take Your Seat From One Place."
+      />
+    );
 
   /* The way out of the popup. Drawn in EVERY state the shell can be in - a
      full screen popup that is still loading, or failed to load, with no
@@ -2028,9 +2047,12 @@ export default function TournamentDetails({
         aria-live="polite"
         aria-busy="true"
       >
+        {mast}
         {closeButton}
-        <div className="loader-spinner" aria-hidden="true" />
-        <p>Loading Tournament...</p>
+        <div className="arena-case arena-ops-case tournament-details__state">
+          <div className="loader-spinner" aria-hidden="true" />
+          <p>Loading Tournament...</p>
+        </div>
       </div>
     );
   }
@@ -2038,6 +2060,7 @@ export default function TournamentDetails({
   if (loadError && !snapshotOwnerRef.current?.hasSnapshot) {
     return (
       <div className="tournament-details arena-workspace error">
+        {mast}
         {closeButton}
         {recoveryNotice}
       </div>
@@ -2059,6 +2082,7 @@ export default function TournamentDetails({
     if (clubJoin?.inviteCode) {
       return (
         <div className="tournament-details arena-workspace error">
+          {mast}
           {closeButton}
           <TournamentClubJoinGate
             inviteCode={clubJoin.inviteCode}
@@ -2069,20 +2093,23 @@ export default function TournamentDetails({
     }
     return (
       <div className="tournament-details arena-workspace error">
+        {mast}
         {closeButton}
-        <h2>Tournament Not Found</h2>
-        {/* Dan 2026-08-28: "Back To Clubs" is a real anchor to a route OUTSIDE
+        <div className="arena-case arena-ops-case tournament-details__state">
+          <h2 className="arena-section-title">Tournament Not Found</h2>
+          {/* Dan 2026-08-28: "Back To Clubs" is a real anchor to a route OUTSIDE
             /table/*, so in the in-tab lobby it did the exact thing this whole
             change exists to stop - one 404 satellite and the action bar, the
             tab strip and every running game's container were gone. In the tab
             the way back is MultiTablePage's own "Lobby" pill, rendered
             directly above this; offering a second, destructive one is worse
             than offering none. On the real route the link is unchanged. */}
-        {!tournamentIdOverride && (
-          <Link to="/clubs" className="btn btn-primary">
-            Back To Clubs
-          </Link>
-        )}
+          {!tournamentIdOverride && (
+            <div className="arena-switch arena-ops-primary tournament-details__state-keys">
+              <Link to="/clubs">Back To Clubs</Link>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -2387,13 +2414,14 @@ export default function TournamentDetails({
         data-embedded={isEmbedded}
         data-lobby-tab={inLobbyTab}
       >
+        {mast}
         {recoveryNotice}
         {privateInvite.element}
         {sitAndGoHold.element}
         {goneTournamentId && (
           <div
             role="status"
-            className="tournament-recovery-notice tournament-recovery-notice--next-game"
+            className="tournament-recovery-notice tournament-recovery-notice--next-game arena-ledger-row"
             data-testid="tournament-next-game"
           >
             <p>
@@ -2408,22 +2436,23 @@ export default function TournamentDetails({
                   ? 'No New One Is Open Yet.'
                   : 'Looking For An Open One.'}
             </p>
-            <button
-              type="button"
-              className="btn btn-primary"
-              data-testid="tournament-next-game-btn"
-              disabled={!nextGameAnswer}
-              onClick={() => {
-                if (!nextGameAnswer) return;
-                navigate(
-                  nextGameAnswer.game
-                    ? nextOpenGamePath(nextGameAnswer.game)
-                    : openGamesListPath(tournament)
-                );
-              }}
-            >
-              {nextGameAnswer?.game ? 'Play New Game' : 'Browse Open Games'}
-            </button>
+            <div className="arena-switch arena-ops-primary tournament-recovery-notice__keys">
+              <button
+                type="button"
+                data-testid="tournament-next-game-btn"
+                disabled={!nextGameAnswer}
+                onClick={() => {
+                  if (!nextGameAnswer) return;
+                  navigate(
+                    nextGameAnswer.game
+                      ? nextOpenGamePath(nextGameAnswer.game)
+                      : openGamesListPath(tournament)
+                  );
+                }}
+              >
+                {nextGameAnswer?.game ? 'Play New Game' : 'Browse Open Games'}
+              </button>
+            </div>
           </div>
         )}
         {/* THE HEADER (Dan 2026-10-04: "remove all these large frames, and make
