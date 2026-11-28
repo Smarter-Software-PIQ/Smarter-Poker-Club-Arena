@@ -29,6 +29,7 @@ MAX_NATIVE_PROBE_WORKERS = 3
 # Root-anchored heavy directories verified unreferenced by any qualification
 # Vitest test or native PG17 probe (leading '/' ensures server/src is kept).
 # Keeps /server, /server/src, /scripts/ci, /scripts/dev, /supabase, /tests/unit,
+# /tests/operations (hashed by satellite_entry_club_native.py and F06 probes),
 # and every satellite/f06 fixture intact while stripping client/media/mobile/build
 # trees and unrelated accounting/e2e evidence from Qualification.pg & fallback builds.
 DOCKERIGNORE_EXCLUDES = (
@@ -49,7 +50,6 @@ DOCKERIGNORE_EXCLUDES = (
     '/tests/e2e',
     '/tests/components',
     '/tests/sql',
-    '/tests/operations',
     '/tests/_archive',
     '/tests/fixtures/full-weekly-accounting',
     '/tests/fixtures/horse-feature-ablation-stores',

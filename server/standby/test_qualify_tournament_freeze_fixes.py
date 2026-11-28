@@ -282,6 +282,9 @@ class QualificationBuildCachingAndParallelProbes(unittest.TestCase):
             '/supabase/migrations',
             '/tests',
             '/tests/unit/fixtureNativeCi.test.ts',
+            '/tests/operations/satellite-qualifier-results.test.py',
+            '/tests/operations/f06-elimination-results.test.py',
+            '/tests/operations/f06-movement-results.test.py',
             '/tests/fixtures/satellite-value-awards',
             '/tests/fixtures/satellite-single-value-awards',
             '/tests/fixtures/legacy-engine-checkpoint',
@@ -300,6 +303,62 @@ class QualificationBuildCachingAndParallelProbes(unittest.TestCase):
                     required_node == excluded or required_node.startswith(excluded + '/'),
                     f'Qualification.node path {required_node} excluded by {excluded}',
                 )
+
+    def test_no_native_probe_referenced_file_is_excluded_by_dockerignore(self):
+        """Every repo file transitively referenced by Qualification.pg's native
+        probes (including sha() inputs like tests/operations/satellite-qualifier-results.test.py,
+        incident 46148552900) must remain inside the Docker build context."""
+        import ast
+        import re
+
+        repo_root = Path(__file__).resolve().parents[2]
+        seeds = [
+            repo_root / 'scripts/ci/test-hand-submission.py',
+            repo_root / 'scripts/ci/test-f06-shared-hand-lane.py',
+            repo_root / 'scripts/ci/test-satellite-qualifiers.py',
+            repo_root / 'scripts/ci/test-satellite-value-awards.py',
+            repo_root / 'scripts/ci/test-fixed-sng-satellites.py',
+        ]
+        visited = set()
+        queue = list(seeds)
+        path_re = re.compile(r"""['"]([A-Za-z0-9_.\-/]+(?:/[A-Za-z0-9_.\-/]+)+)['"]""")
+        excluded_hits = []
+        while queue:
+            current = queue.pop(0)
+            if current in visited or not current.exists():
+                continue
+            visited.add(current)
+            text = current.read_text(errors='replace')
+            if current.suffix == '.py':
+                tree = ast.parse(text)
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.ImportFrom) and node.module:
+                        cand = repo_root / 'scripts/ci' / (node.module.replace('.', '/') + '.py')
+                        if cand.exists():
+                            queue.append(cand)
+                    elif isinstance(node, ast.Import):
+                        for alias in node.names:
+                            cand = repo_root / 'scripts/ci' / (alias.name.replace('.', '/') + '.py')
+                            if cand.exists():
+                                queue.append(cand)
+            for match in path_re.finditer(text):
+                raw = match.group(1)
+                candidate = repo_root / raw.lstrip('/')
+                if not candidate.exists():
+                    continue
+                if candidate.is_file() and candidate.suffix == '.py' and (
+                    str(candidate).startswith(str(repo_root / 'scripts/ci'))
+                ):
+                    queue.append(candidate)
+                rel = '/' + raw.lstrip('/')
+                for excluded in qualification.DOCKERIGNORE_EXCLUDES:
+                    if rel == excluded or rel.startswith(excluded + '/'):
+                        excluded_hits.append((str(current.relative_to(repo_root)), raw, excluded))
+        self.assertEqual(
+            excluded_hits,
+            [],
+            f'Qualification.pg native probes reference excluded path(s): {excluded_hits}',
+        )
 
 if __name__ == '__main__':
     unittest.main()
