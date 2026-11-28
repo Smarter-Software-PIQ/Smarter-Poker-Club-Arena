@@ -1532,6 +1532,21 @@ describe('the owner says what the cycle will find while there is still time (O25
     const table: [unknown, string][] = [
       [ready, 'READY a1b2c3d4e5f6'],
       [
+        report('AT_RISK', {
+          selectableSha: sha('f'),
+          summary:
+            'ffffffffffff is certified and selectable now, but an install is in flight that the Backup copy lacks: 20261127230642_x.sql (Apply Merged Migration run 9, in_progress)',
+        }),
+        'AT RISK ffffffffffff: ffffffffffff is certified and selectable now, but an install is in flight that the Backup copy lacks: 20261127230642_x.sql (Apply Merged Migration run 9, in_progress)',
+      ],
+      [
+        report('AT_RISK', {
+          selectableSha: sha('f'),
+          schedule: { preparationCutoffEpoch: cutoff + 10800 },
+        }),
+        'readiness unknown (the check read another cycle than this one)',
+      ],
+      [
         report('IN_FLIGHT', {
           summary:
             'no selectable candidate yet; bbbbbbbbbbbb is in flight (awaiting backup=in_progress (run 7), prequal=absent)',
