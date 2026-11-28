@@ -66,12 +66,13 @@
      to sit here belonged to a chip renderer this file stopped drawing on
      2026-08-23; they are deleted with it. */
 
-  /* Gold palette */
-  --pd-gold: #ffd700;
-  --pd-gold-dim: rgba(255, 215, 0, 0.2);
-  --pd-gold-mid: rgba(255, 215, 0, 0.4);
-  --pd-gold-bright: rgba(255, 215, 0, 0.6);
-  --pd-gold-glow: rgba(255, 215, 0, 0.15);
+  /* Accent palette. The names say gold for history; the values are the
+     #SmarterDesign ice (2026-11-28): yellow is not an approved colour. */
+  --pd-gold: var(--sd-ice);
+  --pd-gold-dim: rgba(134, 218, 255, 0.2);
+  --pd-gold-mid: rgba(134, 218, 255, 0.4);
+  --pd-gold-bright: rgba(134, 218, 255, 0.6);
+  --pd-gold-glow: rgba(134, 218, 255, 0.15);
 
   /* Side pot palette */
   --pd-blue: #4169e5;
@@ -181,7 +182,7 @@
     90deg,
     transparent 0%,
     rgba(255, 255, 255, 0.04) 40%,
-    rgba(255, 215, 0, 0.03) 50%,
+    rgba(134, 218, 255, 0.03) 50%,
     rgba(255, 255, 255, 0.04) 60%,
     transparent 100%
   );
@@ -215,7 +216,7 @@
   position: absolute;
   inset: -1px;
   border-radius: inherit;
-  background: radial-gradient(ellipse at 50% 0%, rgba(255, 215, 0, 0.06) 0%, transparent 70%);
+  background: radial-gradient(ellipse at 50% 0%, rgba(134, 218, 255, 0.06) 0%, transparent 70%);
   pointer-events: none;
   z-index: -1;
 }
@@ -237,8 +238,8 @@
   border-color: var(--pd-gold-bright);
   box-shadow:
     0 6px 24px rgba(0, 0, 0, 0.45),
-    0 0 50px rgba(255, 215, 0, 0.3),
-    0 0 80px rgba(255, 215, 0, 0.1),
+    0 0 50px rgba(134, 218, 255, 0.3),
+    0 0 80px rgba(134, 218, 255, 0.1),
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     inset 0 -1px 0 rgba(0, 0, 0, 0.2);
 }
@@ -250,8 +251,8 @@
 .pot-display__label {
   font-size: 0.7rem;
   font-weight: 800;
-  color: #f5a623; /* PokerBros-style amber POT label */
-  text-transform: uppercase;
+  color: var(--sd-ice); /* ice POT label (#SmarterDesign 2026-11-28; was amber) */
+  text-transform: none;
   letter-spacing: 0.12em;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
 }
@@ -488,7 +489,7 @@
   15% {
     transform: scale(1.12);
     filter: brightness(1.4);
-    color: #fff5cc;
+    color: #e8f7ff;
   }
   35% {
     transform: scale(0.96);
@@ -615,7 +616,7 @@
   font-size: 0.5625rem;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.5);
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.1em;
 }
 
@@ -662,7 +663,7 @@
   font-size: 0.5625rem;
   font-weight: 600;
   color: rgba(63, 185, 80, 0.8);
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.1em;
 }
 
@@ -874,7 +875,7 @@
   100% {
     box-shadow:
       0 6px 28px rgba(0, 0, 0, 0.6),
-      0 0 30px rgba(255, 215, 0, 0.1),
+      0 0 30px rgba(134, 218, 255, 0.1),
       0 0 0 1px rgba(255, 255, 255, 0.03),
       inset 0 1px 0 rgba(255, 255, 255, 0.06),
       inset 0 -1px 0 rgba(0, 0, 0, 0.2);
@@ -885,10 +886,10 @@
   50% {
     box-shadow:
       0 6px 24px rgba(0, 0, 0, 0.5),
-      0 0 55px rgba(255, 215, 0, 0.3),
-      0 0 90px rgba(255, 215, 0, 0.12),
-      0 0 120px rgba(255, 215, 0, 0.05),
-      inset 0 1px 0 rgba(255, 215, 0, 0.1),
+      0 0 55px rgba(134, 218, 255, 0.3),
+      0 0 90px rgba(134, 218, 255, 0.12),
+      0 0 120px rgba(134, 218, 255, 0.05),
+      inset 0 1px 0 rgba(134, 218, 255, 0.1),
       inset 0 -1px 0 rgba(0, 0, 0, 0.15);
     border-color: var(--pd-gold-bright);
     transform: translate(-50%, -50%) scale(1.015);
@@ -912,15 +913,15 @@
     filter: brightness(1);
     box-shadow:
       0 6px 28px rgba(0, 0, 0, 0.6),
-      0 0 40px rgba(255, 215, 0, 0.15);
+      0 0 40px rgba(134, 218, 255, 0.15);
   }
   15% {
     transform: translate(-50%, -50%) scale(1.18);
     filter: brightness(1.5);
     box-shadow:
       0 6px 24px rgba(0, 0, 0, 0.4),
-      0 0 60px rgba(255, 215, 0, 0.4),
-      0 0 100px rgba(255, 215, 0, 0.15);
+      0 0 60px rgba(134, 218, 255, 0.4),
+      0 0 100px rgba(134, 218, 255, 0.15);
   }
   35% {
     transform: translate(-50%, -50%) scale(1.1);
@@ -931,7 +932,7 @@
     transform: translate(-50%, -50%) scale(0.7);
     opacity: 0.7;
     filter: brightness(2);
-    box-shadow: 0 0 80px rgba(255, 215, 0, 0.3);
+    box-shadow: 0 0 80px rgba(134, 218, 255, 0.3);
   }
   85% {
     transform: translate(-50%, -50%) scale(0.4);
@@ -1175,7 +1176,7 @@
     border-color: var(--pd-gold-mid);
     box-shadow:
       0 6px 28px rgba(0, 0, 0, 0.6),
-      0 0 40px rgba(255, 215, 0, 0.2);
+      0 0 40px rgba(134, 218, 255, 0.2);
   }
 
   /* Award becomes instant fade */
@@ -1208,7 +1209,7 @@
 .pot-label {
   font-size: 10px;
   font-weight: 700;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 2px;
   color: rgba(255, 255, 255, 0.5);
 }
@@ -1219,8 +1220,8 @@
   font-weight: 700;
   color: var(--sp-text-bright);
   text-shadow:
-    0 0 20px rgba(255, 215, 0, 0.6),
-    0 0 40px rgba(255, 215, 0, 0.2),
+    0 0 20px rgba(134, 218, 255, 0.6),
+    0 0 40px rgba(134, 218, 255, 0.2),
     0 2px 4px rgba(0, 0, 0, 0.5);
 }
 

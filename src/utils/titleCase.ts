@@ -183,6 +183,56 @@ export function enumToTitleCase(value: string | null | undefined): string {
 }
 
 /**
+ * Short English words (and common first names) that a name typed in capitals
+ * may contain. A 2-3 letter token in an ALL-CAPS name that is NOT here is read
+ * as an initialism and kept upper case ("MSP POKER" -> "MSP Poker"); one that
+ * is here is a word and Title Cased ("THE ACE CLUB" -> "The Ace Club").
+ * Extend it when a real name proves a word missing; it only ever decides
+ * between "Abc" and "ABC" for a name its owner typed in capitals.
+ */
+const SHORT_WORDS = new Set(
+  // two letters
+  (
+    'a am an as at be by do go he hi if in is it me my no of oh ok on or ox so to up us we ' +
+    // three letters
+    'ace act add age ago aid aim air all and ant any ape arc are ark arm art ash ask ate awe axe ' +
+    'bad bag ban bar bat bay bed bee beg bet bid big bin bit boa bow box boy bud bug bun bus but buy ' +
+    'cab can cap car cat cob cod cop cow cry cub cue cup cut dad dam day den dew did die dig dim dip ' +
+    'doc doe dog dot dry dub due dug duo dye ear eat ebb egg ego elf elk elm emu end era eve ewe eye ' +
+    'fad fan far fat fax fed fee few fig fin fir fit fix flu fly foe fog for fox fry fun fur gag gal ' +
+    'gap gas gel gem get gig gin god got gum gun gut guy gym had ham has hat hay hen her hew hey hid ' +
+    'him hip his hit hog hop hot how hub hue hug hum hut ice icy ill imp ink inn ion ire irk its ivy ' +
+    'jab jam jar jaw jet jig job jog jot joy jug keg key kid kin kit lab lad lag lap law lay led leg ' +
+    'let lid lie lip lit log lot low mad man map mat maw may men met mid mix mob mod mom mop mow mud ' +
+    'mug nab nag nap net new nil nip nit nod nor not now nun nut oak oar oat odd ode off oil old one ' +
+    'opt orb ore our out owe owl own pad pal pan par pat paw pay pea peg pen pep per pet pew pie pig ' +
+    'pin pit ply pod pop pot pro pry pub pug pun pup put rag ram ran rap rat raw ray red rib rid rig ' +
+    'rim rip rob rod roe rot row rub rug rum run rut rye sad sag sap sat saw say sea see set sew she ' +
+    'shy sin sip sir sis sit six ski sky sly sob sod son sow soy spa spy sty sub sue sum sun sup tab ' +
+    'tag tan tap tar tax tea tee ten the thy tic tie tin tip toe ton too top tot tow toy try tub tug ' +
+    'two urn use van vat vet via vie vow wad wag war was wax way web wed wee wet who why wig win wit ' +
+    'woe wok won woo wow yak yam yap yaw yes yet yew you zap zen zip zoo ' +
+    // first names a club is often named after
+    'al ed jo abe amy ann art ava ben bob dan deb don eli eva gus ian ida jay jim joe jon kat ken kim ' +
+    'lee leo liz lou max meg mia ned pam pat peg ray rex rob ron roy sal sam sue ted tim tom val vic ' +
+    'zoe'
+  ).split(/\s+/)
+);
+
+/**
+ * In an ALL-CAPS name, is this token an initialism the owner meant?
+ * Letters only, then either: no vowel (a e i o u y) and 2-5 letters
+ * ("MSP", "BCLC", "WPT"), or 2-3 letters and not a short English word or a
+ * common first name ("NYC", "GTO", "AA"). Everything else is a word.
+ */
+function isTypedInitialism(token: string): boolean {
+  if (!/^[A-Z]+$/.test(token)) return false;
+  const lower = token.toLowerCase();
+  if (token.length >= 2 && token.length <= 5 && !/[aeiouy]/.test(lower)) return true;
+  return token.length >= 2 && token.length <= 3 && !SHORT_WORDS.has(lower);
+}
+
+/**
  * Title Case a NAME somebody typed (a club, a union, a custom table name).
  *
  * A name typed in mixed case ("The Felt Society", "iPoker Nights") is how its
@@ -190,12 +240,26 @@ export function enumToTitleCase(value: string | null | undefined): string {
  * case, "KINGS CLUB" or "kings club", is put into Title Case, with the known
  * acronyms (PLO, NLH, VIP ...) kept upper case. This replaces the CSS
  * uppercase transform the table masthead used to carry (2026-11-28).
+ *
+ * ACRONYMS THE LIST DOES NOT KNOW (2026-11-28). A name typed in capitals keeps
+ * its initialisms: "MSP POKER" -> "MSP Poker", not "Msp Poker". A token stays
+ * upper case when it is letters only and either has no vowel (a e i o u y) and
+ * 2-5 letters, or has 2-3 letters and is not a short English word or common
+ * first name (SHORT_WORDS). A token with an apostrophe ("DAN'S") is a word. A
+ * name typed all lower case carries no such signal, so "msp poker" still reads
+ * "Msp Poker"; nothing here guesses at a mixed-case name.
  */
 export function titleCaseName(name: string | null | undefined): string {
   if (!name) return '';
   const typed = String(name);
   if (/[a-z]/.test(typed) && /[A-Z]/.test(typed)) return stripEmDashes(typed);
-  return titleCase(typed.toLowerCase());
+  if (!/[A-Z]/.test(typed)) return titleCase(typed);
+  /* All capitals: lower every word except a kept initialism, which titleCase
+     then leaves alone because it is already shouting. */
+  const marked = typed.replace(/[A-Za-z][A-Za-z'’]*/g, (w) =>
+    isTypedInitialism(w) ? w : w.toLowerCase()
+  );
+  return titleCase(marked);
 }
 
 export default titleCase;

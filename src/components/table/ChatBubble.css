@@ -59,7 +59,7 @@
   font-size: 0.5625rem;
   font-weight: 700;
   letter-spacing: 0.02em;
-  text-transform: uppercase;
+  text-transform: none;
   color: rgba(16, 21, 31, 0.55);
   max-width: 100%;
   overflow: visible;

@@ -129,7 +129,7 @@
 
 .rit-prompt__timer-fill {
   height: 100%;
-  background: linear-gradient(90deg, #ffb800 0%, #ff8a00 100%);
+  background: linear-gradient(90deg, var(--sd-ice-strong) 0%, var(--sd-cobalt-top) 100%);
   border-radius: 3px;
   transition: width 1s linear;
 }
@@ -304,7 +304,7 @@
 .rit-panel__timer-fill {
   height: 100%;
   border-radius: 2px;
-  background: linear-gradient(90deg, #ffb800, #d19a00);
+  background: linear-gradient(90deg, var(--sd-ice-strong), var(--sd-cobalt-top));
   transition: width 1s linear;
 }
 

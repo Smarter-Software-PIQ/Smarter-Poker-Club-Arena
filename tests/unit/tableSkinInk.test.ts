@@ -14,7 +14,12 @@
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { bannedBand as lintBand, scanStylesheet } from '../../scripts/ci/check-table-skin-ink.mjs';
+import {
+  ARTWORK_FILES,
+  BASELINE,
+  bannedBand as lintBand,
+  scanStylesheet,
+} from '../../scripts/ci/check-table-skin-ink.mjs';
 import {
   backdropAt,
   bannedBand,
@@ -82,6 +87,20 @@ describe('the stylesheet rules', () => {
       encoding: 'utf8',
     });
     expect(run.status, run.stderr).toBe(0);
+  });
+
+  it('freezes nothing: the baseline was cleared to zero on 2026-11-28', () => {
+    expect(BASELINE).toEqual({});
+  });
+
+  it('exempts the seat artwork sheet and no UI stylesheet', () => {
+    expect(ARTWORK_FILES['src/components/table/SeatArtwork.css']).toMatch(/note colour/);
+    for (const ui of [
+      'src/components/table/SeatSlot.css',
+      'src/components/table/PotDisplay.css',
+      'src/components/table/TournamentAnnouncementOverlay.css',
+    ])
+      expect(ARTWORK_FILES, ui).not.toHaveProperty([ui]);
   });
 });
 

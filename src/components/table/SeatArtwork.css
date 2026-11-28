@@ -1,0 +1,63 @@
+/**
+ * SEAT ARTWORK - the two seat colours that are not UI ink, kept apart from
+ * SeatSlot.css on 2026-11-28 so the table ink rule
+ * (scripts/ci/check-table-skin-ink.mjs) exempts exactly these and nothing
+ * else:
+ *
+ *   1. The colour a player chose for an opponent's note (PlayerNotesService
+ *      NOTE_COLORS), painted on the post-it at the avatar's shoulder. It is
+ *      data the player picked: an opponent filed under orange or purple must
+ *      read orange or purple, the way a purchased controller theme keeps its
+ *      own swatches.
+ *   2. The winning hole card's rim and halo. It is card art, and it is the
+ *      same warm rim the winning BOARD cards wear (CommunityCards.css, also
+ *      artwork), so the five cards that make the hand glow as one set.
+ *      SeatSlot.css's `.seat__card--winner` paints it through these custom
+ *      properties.
+ *
+ * Imported by SeatSlot.tsx right after SeatSlot.css. Nothing else belongs
+ * here: UI ink on the seat (labels, rims, badges, the winner plate) is ice.
+ */
+/* The colour the player chose for the note (PlayerNotesService NOTE_COLORS),
+   so a red post-it is a warning before the note is opened. User-chosen data,
+   not chrome: the brass face stays the default for an uncoloured note. */
+.seat__note-marker--red {
+  --sp-note-face: #ef4444;
+  --sp-note-fold: #7f1d1d;
+  --sp-note-ink: #fff1f1;
+}
+.seat__note-marker--orange {
+  --sp-note-face: #f97316;
+  --sp-note-fold: #7c2d12;
+  --sp-note-ink: #2a1205;
+}
+.seat__note-marker--yellow {
+  --sp-note-face: #eab308;
+  --sp-note-fold: #713f12;
+  --sp-note-ink: #2a2208;
+}
+.seat__note-marker--green {
+  /* The house green and its dark step (tests/gameplay-wears-the-house-colours):
+     the note picker's green and the seat marker's green are the same read. */
+  --sp-note-face: #3fb950;
+  --sp-note-fold: #2ea043;
+  --sp-note-ink: #052e16;
+}
+.seat__note-marker--blue {
+  --sp-note-face: #3b82f6;
+  --sp-note-fold: #1e3a8a;
+  --sp-note-ink: #eff6ff;
+}
+.seat__note-marker--purple {
+  --sp-note-face: #a855f7;
+  --sp-note-fold: #581c87;
+  --sp-note-ink: #faf5ff;
+}
+
+/* The winning hole card's rim and halo, matched to the board's winning cards. */
+.seat__card--winner {
+  --sp-win-card-rim: #e9b355;
+  --sp-win-card-halo: rgba(240, 180, 80, 0.8);
+  --sp-win-card-halo-wide: rgba(235, 165, 50, 0.45);
+  --sp-win-card-inset: rgba(235, 170, 60, 0.18);
+}

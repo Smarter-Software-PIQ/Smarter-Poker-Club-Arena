@@ -32,10 +32,9 @@
  *
  * BASELINE. Turning this on found older literals in surfaces the #SmarterDesign
  * passes had not reached (mostly painted-skin rules a `.sc--sd` override now
- * outranks, and on-felt labels). They are frozen here by COUNT per file and
- * rule, so the check lands green and anything NEW fails. The baseline may only
- * shrink: an entry whose count drops must be lowered in the same commit (the
- * check says so), and an entry may never be raised. Adding to it is not a fix.
+ * outranks, and on-felt labels). They were frozen by COUNT per file and rule,
+ * then cleared to zero the same day (2026-11-28). The baseline may only
+ * shrink, and it is empty: anything new fails. Adding to it is not a fix.
  *
  * Run: node scripts/ci/check-table-skin-ink.mjs
  */
@@ -63,35 +62,19 @@ export const ARTWORK_FILES = {
     "Table Studio's miniature of the felt and the player's purchased theme",
   'src/components/table/PremiumCard.css': 'premium card-back artwork',
   'src/components/table/SeatKnockout.css': 'knockout celebration keyframes',
+  'src/components/table/SeatArtwork.css':
+    "the note colour a player chose for an opponent, and the winning hole card's rim (matched to the board's)",
 };
 
 /**
- * Frozen counts, 2026-11-28. Shrink only. `hue` is banned-hue literals,
- * `upper` is uppercase transforms. A file absent here allows zero of each.
+ * Frozen counts. EMPTY since 2026-11-28: every older literal the first run
+ * froze was converted to the table palette, its uppercase transform dropped,
+ * or (the seat's note colours and winning-card rim) moved into an artwork
+ * stylesheet above. Shrink only: an entry may never be added back, and a new
+ * finding is fixed, not frozen. `hue` is banned-hue literals, `upper` is
+ * uppercase transforms. A file absent here allows zero of each.
  */
-export const BASELINE = {
-  'src/components/handdetail/HandDetailView.css': { hue: 19 },
-  'src/components/handdetail/HandFlagControl.css': { hue: 8 },
-  'src/components/handdetail/HandNoteEditor.css': { hue: 6 },
-  'src/components/table/ActionController.css': { upper: 1 },
-  'src/components/table/ActionPanel.css': { hue: 2, upper: 3 },
-  'src/components/table/AddOnModal.css': { hue: 1 },
-  'src/components/table/BadBeatJackpot.css': { hue: 5, upper: 2 },
-  'src/components/table/BBJCelebration.css': { upper: 4 },
-  'src/components/table/BombPotWheel.css': { upper: 1 },
-  'src/components/table/ChatBubble.css': { upper: 1 },
-  'src/components/table/CommunityCards.css': { upper: 2 },
-  'src/components/table/HandReveal.css': { hue: 3, upper: 1 },
-  'src/components/table/PotDisplay.css': { hue: 23, upper: 4 },
-  'src/components/table/PreActionBar.css': { hue: 7, upper: 2 },
-  'src/components/table/RabbitHunt.css': { hue: 4 },
-  'src/components/table/RunItTwice.css': { hue: 4 },
-  'src/components/table/SeatSlot.css': { hue: 79, upper: 6 },
-  'src/components/table/TableChat.css': { hue: 3 },
-  'src/components/table/TablePerfMonitor.css': { upper: 1 },
-  'src/components/table/TableReactions.css': { hue: 4, upper: 1 },
-  'src/components/table/TournamentAnnouncementOverlay.css': { hue: 4 },
-};
+export const BASELINE = {};
 
 export const BANNED_BANDS = [
   [20, 70, 'orange/gold/yellow'],

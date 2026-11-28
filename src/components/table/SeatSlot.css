@@ -645,43 +645,10 @@
   width: 100%;
   height: 100%;
 }
-/* The colour the player chose for the note (PlayerNotesService NOTE_COLORS),
-   so a red post-it is a warning before the note is opened. User-chosen data,
-   not chrome: the brass face stays the default for an uncoloured note. */
-.seat__note-marker--red {
-  --sp-note-face: #ef4444;
-  --sp-note-fold: #7f1d1d;
-  --sp-note-ink: #fff1f1;
-}
-.seat__note-marker--orange {
-  --sp-note-face: #f97316;
-  --sp-note-fold: #7c2d12;
-  --sp-note-ink: #2a1205;
-}
-.seat__note-marker--yellow {
-  --sp-note-face: #eab308;
-  --sp-note-fold: #713f12;
-  --sp-note-ink: #2a2208;
-}
-.seat__note-marker--green {
-  /* The house green and its dark step (tests/gameplay-wears-the-house-colours):
-     the note picker's green and the seat marker's green are the same read. */
-  --sp-note-face: #3fb950;
-  --sp-note-fold: #2ea043;
-  --sp-note-ink: #052e16;
-}
-.seat__note-marker--blue {
-  --sp-note-face: #3b82f6;
-  --sp-note-fold: #1e3a8a;
-  --sp-note-ink: #eff6ff;
-}
-.seat__note-marker--purple {
-  --sp-note-face: #a855f7;
-  --sp-note-fold: #581c87;
-  --sp-note-ink: #faf5ff;
-}
+/* The note colours the player chose live in SeatArtwork.css (2026-11-28):
+   user-chosen data, exempt from the table ink rule as artwork is. */
 .seat__status-dot--away {
-  background: #f59e0b;
+  background: var(--sd-ice);
 }
 .seat__status-dot--sitting_out {
   background: #6b7280;
@@ -716,7 +683,7 @@
   font-size: 0.5rem;
   font-weight: 800;
   color: #ef4444;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.08em;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
   white-space: nowrap;
@@ -915,11 +882,11 @@
 }
 
 .seat__stack--warning {
-  color: var(--stack-warning, #f59e0b);
+  color: var(--stack-warning, #86daff);
 }
 
 .seat__stack--danger {
-  color: var(--stack-danger, #f97316);
+  color: var(--stack-danger, #ff8a93);
 }
 
 .seat__stack--critical {
@@ -1273,10 +1240,10 @@
    that checks one of two seats is a guard for one of two seats. */
 
 .seat--hero .seat__avatar {
-  border-color: #ffd700;
+  border-color: #86daff;
   border-width: 3px;
   box-shadow:
-    0 0 12px rgba(255, 215, 0, 0.25),
+    0 0 12px rgba(134, 218, 255, 0.25),
     0 4px 12px rgba(0, 0, 0, 0.5);
 }
 
@@ -1284,7 +1251,7 @@
   /* Keep the taller plate wider than the old text box while preserving the
      rotated-card corner clearance beside the larger hero avatar. */
   width: min(100%, max(100px, calc(var(--seat-avatar-size) * 0.95)));
-  border-color: rgba(255, 215, 0, 0.25);
+  border-color: rgba(134, 218, 255, 0.25);
 }
 
 /* ── HERO ACTION BADGE + BET CHIPS SWAP (Dan 2026-08-28) ──────────────────
@@ -1371,14 +1338,14 @@
   0%,
   100% {
     box-shadow:
-      0 0 20px rgba(255, 215, 0, 0.5),
-      0 0 40px rgba(255, 215, 0, 0.2),
+      0 0 20px rgba(134, 218, 255, 0.5),
+      0 0 40px rgba(134, 218, 255, 0.2),
       0 4px 16px rgba(0, 0, 0, 0.5);
   }
   50% {
     box-shadow:
-      0 0 28px rgba(255, 215, 0, 0.65),
-      0 0 56px rgba(255, 215, 0, 0.25),
+      0 0 28px rgba(134, 218, 255, 0.65),
+      0 0 56px rgba(134, 218, 255, 0.25),
       0 6px 20px rgba(0, 0, 0, 0.5);
   }
 }
@@ -1464,7 +1431,7 @@
   color: var(--sp-text-bright);
   text-shadow:
     0 1px 0 rgba(0, 0, 0, 0.65),
-    0 0 12px rgba(255, 233, 74, 0.55);
+    0 0 12px rgba(134, 218, 255, 0.55);
   letter-spacing: 0.02em;
   white-space: nowrap;
   z-index: 40;
@@ -1499,9 +1466,9 @@
 
 .seat__win-sparkle {
   position: absolute;
-  background: radial-gradient(circle at 50% 45%, #fff7cf 0%, #ffe94a 45%, #eab308 100%);
+  background: radial-gradient(circle at 50% 45%, #ffffff 0%, #d6f6ff 45%, #74dfff 100%);
   clip-path: polygon(50% 0%, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0% 50%, 39% 39%);
-  filter: drop-shadow(0 0 4px rgba(255, 233, 74, 0.8));
+  filter: drop-shadow(0 0 4px rgba(134, 218, 255, 0.8));
   animation: seatWinSparkleTwinkle 1.1s ease-in-out infinite;
 }
 
@@ -1956,7 +1923,7 @@
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45)) drop-shadow(0 0 5px rgba(0, 229, 255, 0.4));
 }
 .seat--winner .seat__cards--opponent {
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45)) drop-shadow(0 0 7px rgba(255, 215, 0, 0.45));
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45)) drop-shadow(0 0 7px rgba(134, 218, 255, 0.45));
 }
 
 /* When opponent cards are revealed at showdown, they pop out larger.
@@ -2341,12 +2308,13 @@
    table scale and holds for the entire winning-card display, even with reduced motion. */
 .seat__card--winner {
   translate: 0 -20%;
+  /* Card art: the rim and halo colours live in SeatArtwork.css. */
   box-shadow:
-    0 0 0 2px #e9b355,
-    0 0 10px rgba(240, 180, 80, 0.8),
-    0 0 22px rgba(235, 165, 50, 0.45),
+    0 0 0 2px var(--sp-win-card-rim),
+    0 0 10px var(--sp-win-card-halo),
+    0 0 22px var(--sp-win-card-halo-wide),
     0 4px 12px rgba(0, 0, 0, 0.4),
-    inset 0 0 14px rgba(235, 170, 60, 0.18);
+    inset 0 0 14px var(--sp-win-card-inset);
 }
 
 /* POKERBROS PARITY 2026-08-26: while the winning five are lit, every OTHER
@@ -2409,7 +2377,7 @@
   font-weight: 800;
   white-space: nowrap;
   z-index: 30;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.06em;
   line-height: 1.05;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
@@ -2449,7 +2417,7 @@
 
 .seat__action--bet,
 .seat__action--raise {
-  background: rgba(245, 158, 11, 0.9);
+  background: rgba(8, 124, 250, 0.9);
   color: #111;
 }
 
@@ -2459,8 +2427,8 @@
    Amber-leaning slate: it belongs to the same family as the fold above (a card
    leaving) without claiming the fold's "this hand is dead" grey. */
 .seat__action--discard {
-  background: rgba(120, 96, 62, 0.92);
-  color: #fdf1d8;
+  background: rgba(18, 39, 59, 0.92);
+  color: var(--sd-ink);
 }
 
 .seat__action--all_in {
@@ -2536,16 +2504,16 @@
    ═══════════════════════════════════════════════════════════════════════════════ */
 
 .seat--in-hand .seat__avatar {
-  border-color: rgba(255, 215, 0, 0.6);
+  border-color: rgba(134, 218, 255, 0.6);
   box-shadow:
-    0 0 10px rgba(255, 215, 0, 0.3),
-    0 0 20px rgba(255, 215, 0, 0.12),
+    0 0 10px rgba(134, 218, 255, 0.3),
+    0 0 20px rgba(134, 218, 255, 0.12),
     0 4px 12px rgba(0, 0, 0, 0.5);
 }
 
 .seat--in-hand .seat__info {
-  border-color: rgba(255, 215, 0, 0.2);
-  box-shadow: 0 0 8px rgba(255, 215, 0, 0.1);
+  border-color: rgba(134, 218, 255, 0.2);
+  box-shadow: 0 0 8px rgba(134, 218, 255, 0.1);
 }
 
 /* The active player (whose turn it is) gets the stronger glow — override in-hand */
@@ -2558,11 +2526,11 @@
    ═══════════════════════════════════════════════════════════════════════════════ */
 
 .seat--winner .seat__avatar {
-  border-color: #ffd700;
+  border-color: #86daff;
   box-shadow:
-    0 0 24px rgba(255, 215, 0, 0.6),
-    0 0 48px rgba(255, 215, 0, 0.25),
-    0 0 80px rgba(255, 215, 0, 0.1),
+    0 0 24px rgba(134, 218, 255, 0.6),
+    0 0 48px rgba(134, 218, 255, 0.25),
+    0 0 80px rgba(134, 218, 255, 0.1),
     0 4px 16px rgba(0, 0, 0, 0.5);
   animation: seatWinnerAvatarGlow 1.2s ease-in-out infinite;
   transform: scale(1.08);
@@ -2578,25 +2546,25 @@
   0%,
   100% {
     box-shadow:
-      0 0 24px rgba(255, 215, 0, 0.6),
-      0 0 48px rgba(255, 215, 0, 0.25),
-      0 0 80px rgba(255, 215, 0, 0.1),
+      0 0 24px rgba(134, 218, 255, 0.6),
+      0 0 48px rgba(134, 218, 255, 0.25),
+      0 0 80px rgba(134, 218, 255, 0.1),
       0 4px 16px rgba(0, 0, 0, 0.5);
-    border-color: #ffd700;
+    border-color: #86daff;
   }
   50% {
     box-shadow:
-      0 0 36px rgba(255, 215, 0, 0.8),
-      0 0 72px rgba(255, 215, 0, 0.35),
-      0 0 100px rgba(255, 215, 0, 0.15),
+      0 0 36px rgba(134, 218, 255, 0.8),
+      0 0 72px rgba(134, 218, 255, 0.35),
+      0 0 100px rgba(134, 218, 255, 0.15),
       0 6px 20px rgba(0, 0, 0, 0.5);
-    border-color: #fff5cc;
+    border-color: #e8f7ff;
   }
 }
 
 .seat--winner .seat__info {
-  border-color: rgba(255, 215, 0, 0.6);
-  box-shadow: 0 0 16px rgba(255, 215, 0, 0.2);
+  border-color: rgba(134, 218, 255, 0.6);
+  box-shadow: 0 0 16px rgba(134, 218, 255, 0.2);
   position: relative;
   overflow: hidden;
 }
@@ -2611,13 +2579,13 @@
   background: conic-gradient(
     from 0deg,
     transparent 0deg,
-    rgba(255, 215, 0, 0.06) 30deg,
+    rgba(134, 218, 255, 0.06) 30deg,
     transparent 60deg,
-    rgba(255, 215, 0, 0.04) 120deg,
+    rgba(134, 218, 255, 0.04) 120deg,
     transparent 150deg,
-    rgba(255, 215, 0, 0.06) 210deg,
+    rgba(134, 218, 255, 0.06) 210deg,
     transparent 240deg,
-    rgba(255, 215, 0, 0.04) 300deg,
+    rgba(134, 218, 255, 0.04) 300deg,
     transparent 330deg
   );
   animation: winnerInfoSpin 8s linear infinite;
@@ -2656,7 +2624,7 @@
 
 .seat--winner .seat__stack {
   color: var(--sp-text-bright);
-  text-shadow: 0 0 8px rgba(255, 215, 0, 0.5);
+  text-shadow: 0 0 8px rgba(134, 218, 255, 0.5);
   font-weight: var(--weight-extrabold);
   animation: winnerStackPulse 1.5s ease-in-out infinite;
 }
@@ -2664,12 +2632,12 @@
 @keyframes winnerStackPulse {
   0%,
   100% {
-    text-shadow: 0 0 8px rgba(255, 215, 0, 0.5);
+    text-shadow: 0 0 8px rgba(134, 218, 255, 0.5);
   }
   50% {
     text-shadow:
-      0 0 16px rgba(255, 215, 0, 0.7),
-      0 0 32px rgba(255, 215, 0, 0.3);
+      0 0 16px rgba(134, 218, 255, 0.7),
+      0 0 32px rgba(134, 218, 255, 0.3);
   }
 }
 
@@ -2700,10 +2668,10 @@
    so the seat that took the pot is the one the eye lands on. Text colour and
    glow only; the label is not a control and gets no frame. */
 .seat__hand-name--winner {
-  color: #ffe097;
+  color: #d6f6ff;
   text-shadow:
     0 1px 3px rgba(0, 0, 0, 0.85),
-    0 0 10px rgba(240, 170, 50, 0.55);
+    0 0 10px rgba(134, 218, 255, 0.55);
 }
 
 /* ...and a beaten hand that is still face up names itself, muted, so every
@@ -2729,7 +2697,7 @@
   color: rgba(255, 255, 255, 0.55);
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
   letter-spacing: 0.06em;
-  text-transform: uppercase;
+  text-transform: none;
   white-space: nowrap;
   z-index: 25;
   animation: handNameAppear 0.4s var(--ease-spring, cubic-bezier(0.175, 0.885, 0.32, 1.275));
@@ -2766,7 +2734,7 @@
   border-radius: 4px;
   font-size: 0.5rem;
   font-weight: 700;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.06em;
   z-index: 6;
   white-space: nowrap;
@@ -2778,7 +2746,7 @@
 /* SB — gold tint */
 .seat__position-badge--sb {
   color: var(--sp-text-bright);
-  border-color: rgba(251, 191, 36, 0.3);
+  border-color: rgba(134, 218, 255, 0.3);
 }
 
 /* BB — blue tint */
@@ -2847,7 +2815,7 @@
   text-align: center;
   line-height: 1.1;
   color: var(--sp-text-bright);
-  border-color: rgba(255, 215, 0, 0.55);
+  border-color: rgba(134, 218, 255, 0.55);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
@@ -3751,7 +3719,7 @@
     filter: brightness(1);
   }
   30% {
-    filter: brightness(1.3) drop-shadow(0 0 8px rgba(255, 215, 0, 0.5));
+    filter: brightness(1.3) drop-shadow(0 0 8px rgba(134, 218, 255, 0.5));
   }
   100% {
     filter: brightness(1);
@@ -3761,15 +3729,15 @@
 /* Winner persistent glow */
 .seat--winner-glow .seat__info {
   box-shadow:
-    0 0 12px rgba(255, 215, 0, 0.4),
-    0 0 24px rgba(255, 215, 0, 0.2),
+    0 0 12px rgba(134, 218, 255, 0.4),
+    0 0 24px rgba(134, 218, 255, 0.2),
     inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 215, 0, 0.6);
+  border-color: rgba(134, 218, 255, 0.6);
 }
 
 .seat--winner-glow .seat__avatar {
-  border-color: rgba(255, 215, 0, 0.7);
-  box-shadow: 0 0 16px rgba(255, 215, 0, 0.4);
+  border-color: rgba(134, 218, 255, 0.7);
+  box-shadow: 0 0 16px rgba(134, 218, 255, 0.4);
 }
 
 /* ── BBJ credit float (2026-08-18) ──
@@ -3786,11 +3754,11 @@
   font-weight: 900;
   color: var(--sp-text-bright);
   background: rgba(20, 12, 0, 0.72);
-  border: 1px solid rgba(255, 215, 0, 0.65);
+  border: 1px solid rgba(134, 218, 255, 0.65);
   text-shadow:
     0 1px 0 rgba(0, 0, 0, 0.7),
-    0 0 14px rgba(255, 215, 0, 0.8);
-  box-shadow: 0 0 18px rgba(255, 215, 0, 0.35);
+    0 0 14px rgba(134, 218, 255, 0.8);
+  box-shadow: 0 0 18px rgba(134, 218, 255, 0.35);
   letter-spacing: 0.03em;
   white-space: nowrap;
   z-index: 41;
@@ -4045,7 +4013,7 @@
 /* Marked = will be shown at hand end. Gold, matching the winner language. */
 .seat__card-pick--marked {
   transform: translateY(-6px);
-  filter: drop-shadow(0 0 6px rgba(255, 200, 60, 0.85));
+  filter: drop-shadow(0 0 6px rgba(134, 218, 255, 0.85));
 }
 .seat__card-pick--marked::after {
   content: '\1F441'; /* eye */
@@ -4055,8 +4023,8 @@
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #ffd34d, #e0a112);
-  color: #26200a;
+  background: linear-gradient(135deg, #d6f6ff, #74dfff);
+  color: #04121f;
   font-size: 10px;
   line-height: 18px;
   text-align: center;
@@ -4311,7 +4279,7 @@
   font-weight: 700;
   letter-spacing: 0.04em;
   line-height: 1.1;
-  text-transform: uppercase;
+  text-transform: none;
   color: #a8c8ff;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
   white-space: nowrap;
@@ -4473,7 +4441,7 @@
   font-weight: 700;
   letter-spacing: 0.04em;
   line-height: 1.1;
-  text-transform: uppercase;
+  text-transform: none;
   /* Dan 2026-08-26 (regression report): NO RED anywhere on the acting
      seat's clock. The label reads in the same neon blue as the ring; the
      blink alone carries the urgency. */
@@ -5206,14 +5174,14 @@
       0 0 10px rgba(24, 119, 242, 0.45);
   }
   .table-page .seat--winner .seat__info[style*='--sp-frame-w']::before {
-    border-color: rgba(255, 215, 0, 0.6);
-    box-shadow: 0 0 16px rgba(255, 215, 0, 0.2);
+    border-color: rgba(134, 218, 255, 0.6);
+    box-shadow: 0 0 16px rgba(134, 218, 255, 0.2);
   }
   .table-page .seat--winner-glow .seat__info[style*='--sp-frame-w']::before {
-    border-color: rgba(255, 215, 0, 0.6);
+    border-color: rgba(134, 218, 255, 0.6);
     box-shadow:
-      0 0 12px rgba(255, 215, 0, 0.4),
-      0 0 24px rgba(255, 215, 0, 0.2),
+      0 0 12px rgba(134, 218, 255, 0.4),
+      0 0 24px rgba(134, 218, 255, 0.2),
       inset 0 1px 0 rgba(255, 255, 255, 0.1);
   }
   /* Keep overflow: visible on enlarged winning plates so ::before is never

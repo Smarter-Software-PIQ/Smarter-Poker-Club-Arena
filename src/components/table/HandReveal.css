@@ -75,8 +75,8 @@
 }
 
 .hand-reveal__card--facedown {
-  background: linear-gradient(145deg, #2a1530 0%, #1a0a20 100%);
-  border: 1px solid rgba(128, 0, 128, 0.2);
+  background: linear-gradient(145deg, #12273b 0%, #07111c 100%);
+  border: 1px solid rgba(134, 218, 255, 0.2);
   position: relative;
 }
 
@@ -108,7 +108,7 @@
   color: rgba(255, 255, 255, 0.3);
   font-weight: 600;
   letter-spacing: 1px;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 /* ─── Actions ─── */
@@ -142,7 +142,11 @@
 }
 
 .hand-reveal__btn--pay {
-  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+  background: linear-gradient(
+    var(--sd-cobalt-top),
+    var(--sd-cobalt-mid) 55%,
+    var(--sd-cobalt-deep)
+  );
   color: white;
 }
 

@@ -24,6 +24,8 @@ const read = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
 describe('the post-it marks a noted opponent', () => {
   const seat = read('src/components/table/SeatSlot.tsx');
   const seatCss = read('src/components/table/SeatSlot.css');
+  // The note colours moved to their own artwork-exempt sheet (2026-11-28).
+  const noteColorsCss = read('src/components/table/SeatArtwork.css');
   const table = read('src/pages/TablePage.tsx');
   const panel = read('src/components/gameplay/PlayerNotesPanel.tsx');
   const service = read('src/services/PlayerNotesService.ts');
@@ -58,8 +60,9 @@ describe('the post-it marks a noted opponent', () => {
   it('the post-it is tinted with the note colour the player chose', () => {
     expect(seat).toContain('seat__note-marker--${noteColor}');
     expect(seat).toContain('if (prev.noteColor !== next.noteColor) return false;');
+    expect(seat).toContain("import './SeatArtwork.css';");
     for (const c of ['red', 'orange', 'yellow', 'green', 'blue', 'purple']) {
-      expect(seatCss).toContain(`.seat__note-marker--${c} {`);
+      expect(noteColorsCss).toContain(`.seat__note-marker--${c} {`);
     }
     expect(table).toContain(
       'noteColor={displayPlayer ? notedPlayerIds.get(displayPlayer.id) : undefined}'
