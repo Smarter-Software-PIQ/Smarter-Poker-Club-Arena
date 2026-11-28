@@ -1,0 +1,59 @@
+/* THE SETTLEMENT CENTER in #SmarterDesign (batch S1, 2026-11-28).
+
+   The mast, cases, keys and status line come from ArenaWorkspace.css and
+   ArenaOps.css; the weekly workspace inside wears
+   src/components/accounting/WeeklyAccountingArena.css and the ledger wears
+   src/components/common/TransactionLedgerArena.css. This sheet gives the page
+   its height, gives the weekly workspace a container to size against and sets
+   the inks of the lines that are the page's own. Every rule is scoped under
+   .arena-workspace. Nothing reacts to a pointer resting on it. */
+
+.arena-workspace.settlement-dashboard-page {
+  min-height: 100dvh;
+  padding-bottom: max(var(--bottom-nav-clearance, 74px), env(safe-area-inset-bottom));
+  overflow-x: clip;
+}
+
+.arena-workspace .settlement-dashboard-page__back {
+  margin-bottom: 7px;
+}
+
+/* One Back key, not a full-width bar across the phone. */
+.arena-workspace .arena-switch.arena-ops-keys.settlement-dashboard-page__back > button {
+  flex: 0 1 140px;
+}
+
+.arena-workspace .settlement-dashboard-page__case {
+  container-type: inline-size;
+}
+
+/* The weekly workspace's own state lines, in the workspace's inks. */
+.arena-workspace .settlement-dashboard-page__case p[role='alert'] {
+  color: #ff5b6e;
+}
+
+.arena-workspace .settlement-dashboard-page__case p[role='status'] {
+  color: #9fbacc;
+}
+
+.arena-workspace .settlement-dashboard-page__state {
+  margin: 0;
+  padding: 20px 12px;
+  text-align: center;
+  font:
+    13px/1.45 Arial,
+    sans-serif;
+}
+
+.arena-workspace .settlement-dashboard-page__chooser > p {
+  margin: 10px 2px;
+  color: #dce5ef;
+  font:
+    13px/1.45 Arial,
+    sans-serif;
+}
+
+.arena-workspace .settlement-dashboard-page__ledger > .arena-section-title small {
+  color: #74dfff;
+  font-weight: 700;
+}

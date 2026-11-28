@@ -1,0 +1,24 @@
+body 0: div
+money: {
+  "figures": [],
+  "hooks": []
+}
+text: Weekly Workspace club Kings Club
+regions: [
+  "div||||"
+]
+body 1: div
+money: {
+  "figures": [],
+  "hooks": []
+}
+text: The Club Ledger Could Not Be Loaded Try Again
+regions: [
+  "div|alert|||"
+]
+controls: [
+  "button|Back",
+  "button|Try Again"
+]
+Club Transaction Records: 1
+Your Account Transactions: 0

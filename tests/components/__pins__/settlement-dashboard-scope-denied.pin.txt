@@ -1,0 +1,14 @@
+body 0: p
+money: {
+  "figures": [],
+  "hooks": []
+}
+text: Your Role Does Not Include Finance Access.
+regions: [
+  "p|alert|||"
+]
+controls: [
+  "button|Back"
+]
+Club Transaction Records: 0
+Your Account Transactions: 0

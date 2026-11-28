@@ -1,0 +1,121 @@
+/* THE LEDGER INSIDE THE ARENA WORKSPACE (#SmarterDesign batch S1, 2026-11-28)
+
+   TransactionLedgerView prints on painted console glass on Union Operations,
+   the Agent Dashboard, the Agent Portal and Financials. A host that passes
+   `arena` (the Settlement Center) gets this dress instead: each movement a
+   chrome ledger row (its rim comes from .arena-ledger-row in
+   ArenaWorkspace.css), Try Again a lit chrome key (ArenaOps.css), and the
+   workspace's inks. Every rule is scoped under .arena-workspace and keyed to
+   the arena-only classes, so the painted hosts keep their look. Nothing reacts
+   to a resting pointer. */
+
+.arena-workspace .tlv.tlv--arena {
+  padding: 4px 0 0;
+  color: #dce5ef;
+  font-family: Arial, sans-serif;
+}
+
+.arena-workspace .tlv--arena .tlv-count {
+  margin: 0 2px 6px;
+  color: #9fbacc;
+  font:
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+}
+
+.arena-workspace .tlv--arena .tlv-list {
+  display: grid;
+  gap: 4px;
+  max-height: min(150vw, 34rem);
+  padding: 1px;
+}
+
+.arena-workspace .tlv--arena .tlv-row.arena-ledger-row {
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin: 0;
+  padding: 7px 10px;
+}
+
+.arena-workspace .tlv--arena .tlv-row.arena-ledger-row:last-child {
+  border-bottom: 4px solid transparent;
+}
+
+.arena-workspace .tlv--arena .tlv-category {
+  margin-bottom: 2px;
+  color: #74dfff;
+  font:
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
+}
+
+.arena-workspace .tlv--arena .tlv-path {
+  color: #f1f5fc;
+  font:
+    700 14px/1.25 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.arena-workspace .tlv--arena .tlv-description {
+  margin-top: 2px;
+  color: #9fbacc;
+  font:
+    12px/1.35 Arial,
+    sans-serif;
+}
+
+.arena-workspace .tlv--arena .tlv-amount {
+  min-width: 0;
+}
+
+.arena-workspace .tlv--arena .tlv-value {
+  color: #f1f5fc;
+  font:
+    800 18px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.arena-workspace .tlv--arena .tlv-time {
+  margin-top: 2px;
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+}
+
+/* Loading, empty, refused and failed: one quiet line in the case. */
+.arena-workspace .tlv-state.tlv-state--arena {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-height: 0;
+  padding: 20px 12px;
+  color: #9fbacc;
+  text-align: center;
+  font:
+    13px/1.45 Arial,
+    sans-serif;
+}
+
+.arena-workspace .tlv-state.tlv-state--arena[role='alert'] {
+  color: #ff5b6e;
+}
+
+.arena-workspace .tlv-state--arena .tlv-keys {
+  width: min(100%, 240px);
+}
+
+@media (min-width: 640px) {
+  .arena-workspace .tlv.tlv--arena {
+    padding-inline: 0;
+  }
+}
