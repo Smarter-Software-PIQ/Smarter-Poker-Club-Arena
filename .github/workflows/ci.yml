@@ -764,6 +764,8 @@ jobs:
           node scripts/ci/check-migration-hot-row-locks.mjs
           node scripts/ci/check-cron-deletes-are-bounded.mjs
           node scripts/ci/check-migration-preimage-collisions.mjs
+          node scripts/ci/check-server-test-determinism.mjs
+          node scripts/ci/check-cutover-ci-budgets.mjs
           GUARDS
 
           TOTAL=$(grep -c . "$OUT/list")
@@ -4150,8 +4152,44 @@ jobs:
         timeout-minutes: 8
         run: bash scripts/verification-harness/leaderboard-native-function-batch-build.sh "${{ runner.temp }}"
 
+  # ═══════════════════════════════════════════════════════════════════════════
+  #  SHIFT-LEFT SERVER DOCKERFILE & HIST215 NATIVE SMOKE (2026-11-28)
+  # ═══════════════════════════════════════════════════════════════════════════
+  #
+  # Builds server/Dockerfile with BuildKit layer caching on PRs touching
+  # server/ and runs an offline (--network=none) container probe proving the
+  # compiled ESM JS, public_hist215_wtl.node, and legacy-census.node load and
+  # pass deterministic checks inside the exact production container image.
+  server_dockerfile_smoke:
+    needs: changes
+    if: >-
+      !cancelled() &&
+      (github.event_name == 'pull_request' || github.event_name == 'merge_group') &&
+      needs.changes.outputs.head_current != 'false' &&
+      (needs.changes.result != 'success' ||
+       needs.changes.outputs.server == 'true')
+    name: Server Dockerfile build & hist215 native smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Restore BuildKit cache for server/Dockerfile
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/server-docker-buildx-cache
+          key: server-dockerfile-smoke-${{ runner.os }}-${{ hashFiles('server/Dockerfile', 'server/package-lock.json', 'server/native/public_hist215_wtl.cc', 'server/scripts/native/legacy-census.cc') }}
+          restore-keys: |
+            server-dockerfile-smoke-${{ runner.os }}-
+      - name: Build server/Dockerfile and run offline hist215 native smoke check
+        timeout-minutes: 12
+        run: bash scripts/ci/server-dockerfile-smoke.sh "${{ (github.event.pull_request.head.sha || github.event.merge_group.head_sha) || github.sha }}" "${{ runner.temp }}/server-docker-buildx-cache"
+
   server:
-    needs: [changes, server_shards, accounting_postgres, native_qualification_image]
+    needs: [changes, server_shards, accounting_postgres, native_qualification_image, server_dockerfile_smoke]
     if: always()
     name: Server Engine (typecheck + tests)
     runs-on: ubuntu-latest
@@ -4210,6 +4248,29 @@ jobs:
                 exit 1
               fi ;;
             *) echo "::error::The native qualification image did not build or pass its fixture ($IMAGE_RESULT)."; exit 1 ;;
+          esac
+      - name: Server Dockerfile built and passed offline hist215 native smoke
+        env:
+          DOCKER_SMOKE_RESULT: ${{ needs.server_dockerfile_smoke.result }}
+          DIFF_RESULT: ${{ needs.changes.result }}
+          SERVER_CHANGED: ${{ needs.changes.outputs.server }}
+          HEAD_CURRENT: ${{ needs.changes.outputs.head_current }}
+          CI_EVENT_NAME: ${{ github.event_name }}
+        run: |
+          case "$DOCKER_SMOKE_RESULT" in
+            success) echo "Server Dockerfile built and passed offline hist215 native smoke." ;;
+            skipped)
+              if [ "$CI_EVENT_NAME" != pull_request ] && [ "$CI_EVENT_NAME" != merge_group ]; then
+                echo "Server Dockerfile smoke check is pull-request only."
+              elif [ "$DIFF_RESULT" = success ] && [ "$SERVER_CHANGED" = false ]; then
+                echo "Server Dockerfile smoke check skipped: the checked diff does not change the server."
+              elif [ "$HEAD_CURRENT" = false ]; then
+                echo "::notice title=SUPERSEDED::server Dockerfile smoke check skipped: this sha is no longer the pull request head."
+              else
+                echo "::error::Server Dockerfile smoke check was unexpectedly skipped."
+                exit 1
+              fi ;;
+            *) echo "::error::Server Dockerfile build or hist215 native smoke check did not pass ($DOCKER_SMOKE_RESULT)."; exit 1 ;;
           esac
 
   # ═══════════════════════════════════════════════════════════════════════════
