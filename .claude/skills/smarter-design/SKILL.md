@@ -12,7 +12,7 @@ description: >
   It is NOT the painted SpadeConsole: read this before reaching for
   .claude/skills/club-arena-console. Every agent or subagent doing the work must
   read this file in full and pass it to any subagent it spawns.
-version: 1.0.0
+version: 1.1.0
 ---
 
 # #SmarterDesign: The Arena Workspace Language
@@ -337,6 +337,83 @@ passing one.
 
 ---
 
+## 5.5 Finding the work, claiming it, and shared components (2026-11-28)
+
+### The inventory is generated; read it, never edit it
+
+`docs/club-operations/SMARTERDESIGN-INVENTORY.md` is the output of
+`scripts/smarterdesign-inventory.mjs`, which resolves every route in
+`src/App.tsx` to its page module and grades it from markers in source (the
+page file plus the page-owned components it renders one hop down):
+
+| Grade         | Meaning                                                                                                    |
+| ------------- | ---------------------------------------------------------------------------------------------------------- |
+| Converted     | `arena-workspace` on the page root, an `ArenaWorkspaceHeader` mast, and no painted console section left    |
+| Partial       | some arena evidence, but the line names what is missing (no mast, a PageBar only, a painted panel left)    |
+| Not converted | no arena evidence: painted `SpadeConsole` sections, its own rounded/gradient module dress, or a flat sheet |
+| UNKNOWN       | the scan could not read the evidence; read the source yourself. Never treat it as done                     |
+| Excluded      | the commented `EXCLUDED` list in the script (other masters, staff desks, the front door)                   |
+
+Two traps it accounts for, so you do not have to:
+
+- **The root skin is not a conversion.** `src/App.tsx` provides
+  `<ConsoleSkinProvider value="smarterdesign">` (PR #12299), so every
+  `SpadeConsole` already renders as a thin chrome case. A page built from
+  console sections looks closer than it is: it still has no root, mast,
+  readouts or chrome keys, and stays on the list.
+- **The #ClubArenaConsole scanner does not measure pages.** Its "0 to go"
+  counts painted pages as done. It stays the measure for popups, modals,
+  sheets and dialogs only.
+
+When your PR converts a page, run `node scripts/smarterdesign-inventory.mjs
+--write` and commit the regenerated file in the same PR;
+`tests/the-smarterdesign-inventory-matches-the-code.law.test.ts` fails until
+you do. The batch history (what each PR changed and why) is hand-written in
+`docs/club-operations/SMARTERDESIGN-HISTORY.md`; add your batch there.
+
+### Claim before you start
+
+Two lanes once converted the same page because the hand-kept list was stale.
+Before starting a page, run:
+
+```bash
+node scripts/smarterdesign-inventory.mjs --claims            # every page still to convert
+node scripts/smarterdesign-inventory.mjs --claims Rakeback   # one page, by name or path
+```
+
+It lists the open pull requests touching each page, its stylesheets and its
+page-owned components. `CLAIMED` means an open PR that reads as design work
+touches it: coordinate with that PR (or `COORDINATION-INBOX.md`, CLAUDE.md
+10.8 rule 5) instead of starting a second conversion. `touched` means only
+other work touches it: expect a merge, not a duplicate. Your own PR is the
+claim; open it as a draft early if the page will take a while. The step is
+advisory: it never blocks a commit or push and never runs on a timer. Exit 3
+and `UNKNOWN` mean GitHub could not be read; that is never "unclaimed", so
+check the open PRs by hand.
+
+### A shared component is restyled by scope or by opt-in
+
+A component that a non-arena page or a dialog also renders must not change
+for them. Restyle it one of two ways, and pin the scoping with a unit test:
+
+1. **A sheet scoped under `.arena-workspace`.** Every rule in the new sheet
+   starts with `.arena-workspace`, so the component only changes inside an
+   arena page. Worked example: `src/components/accounting/WeeklyAccountingArena.css`
+   (the Settlement body), whose scoping is asserted by
+   `tests/unit/weeklyAccountingArenaIsScoped.test.ts`; the Settlement
+   Dashboard, Union Statements and admin dashboard keep their look.
+2. **An opt-in `arena` prop.** The component keeps its painted markup by
+   default and renders the arena case only when a host passes `arena`.
+   Worked example: `AgentCashoutPanel`'s `arena` prop
+   (`src/components/agent/AgentCashoutPanel.tsx`) with its dress in
+   `src/components/agent/AgentCashoutArena.css`, scoped and asserted by
+   `tests/unit/agentTeamArenaDressIsScoped.test.ts`; only Agent Team passes
+   it, so the Cashier trade dialog and the player record keep the console.
+
+The inventory reads a shared component with an opt-in `arena` prop only on
+the pages that pass `arena`, so the arena branch is never credited to a host
+that does not use it.
+
 ## 6. Verification
 
 1. **Before.** Render the section as it is, 393px wide, with the
@@ -399,6 +476,8 @@ passing one.
 - [ ] Every removed class name searched in `tests/e2e` and updated in the
       same PR.
 - [ ] Before/after at 393px, every state, shown to Dan before the push.
+- [ ] `--claims` run before starting; the inventory regenerated (`--write`) and
+      the batch added to `SMARTERDESIGN-HISTORY.md` in the same PR.
 - [ ] Gates green; changelog under `docs/changelog/`; merged SHA verified live.
 
 ---
