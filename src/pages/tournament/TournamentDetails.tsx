@@ -78,6 +78,10 @@ import { useMasterBusSubscription } from '../../hooks/useMasterBusSubscription';
 import type { Tournament } from '../../types/database.types';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import './TournamentDetails.css';
+/* #SmarterDesign (2026-11-27): the arena workspace kit, then this lobby's
+   re-dress of its own classes with it. See TournamentLobbySmarterDesign.css. */
+import '../../components/lobby/ArenaWorkspace.css';
+import './TournamentLobbySmarterDesign.css';
 import { MttEventHeader } from '../../components/tournament/details/MttEventHeader';
 import { TournamentRegisterButton } from '../../components/tournament/TournamentRegisterButton';
 import { useToast } from '../../components/common/Toast';
@@ -2018,7 +2022,12 @@ export default function TournamentDetails({
 
   if (isLoading) {
     return (
-      <div className="tournament-details loading" role="status" aria-live="polite" aria-busy="true">
+      <div
+        className="tournament-details arena-workspace loading"
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+      >
         {closeButton}
         <div className="loader-spinner" aria-hidden="true" />
         <p>Loading Tournament...</p>
@@ -2028,7 +2037,7 @@ export default function TournamentDetails({
 
   if (loadError && !snapshotOwnerRef.current?.hasSnapshot) {
     return (
-      <div className="tournament-details error">
+      <div className="tournament-details arena-workspace error">
         {closeButton}
         {recoveryNotice}
       </div>
@@ -2049,7 +2058,7 @@ export default function TournamentDetails({
       : parseTournamentInviteParams(tournamentId, search);
     if (clubJoin?.inviteCode) {
       return (
-        <div className="tournament-details error">
+        <div className="tournament-details arena-workspace error">
           {closeButton}
           <TournamentClubJoinGate
             inviteCode={clubJoin.inviteCode}
@@ -2059,7 +2068,7 @@ export default function TournamentDetails({
       );
     }
     return (
-      <div className="tournament-details error">
+      <div className="tournament-details arena-workspace error">
         {closeButton}
         <h2>Tournament Not Found</h2>
         {/* Dan 2026-08-28: "Back To Clubs" is a real anchor to a route OUTSIDE
@@ -2372,7 +2381,7 @@ export default function TournamentDetails({
   return (
     <PageErrorBoundary pageName="TournamentDetails">
       <div
-        className="tournament-details console-lobby"
+        className="tournament-details console-lobby arena-workspace"
         ref={shellRef}
         data-active-tab={activeTab}
         data-embedded={isEmbedded}
