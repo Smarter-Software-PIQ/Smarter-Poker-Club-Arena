@@ -147,7 +147,6 @@ describe('cinematic retained route families', () => {
     const missions = readDailyChallengesSurface();
     expect(missions).toContain('mediaUrl(');
     for (const path of [
-      'src/components/account/AccountSurfaceHeader.tsx',
       'src/components/community/CommunitySurfaceHeader.tsx',
       'src/pages/workspaces/ArenaWorkspacePages.tsx',
     ]) {

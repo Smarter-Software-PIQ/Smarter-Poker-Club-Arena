@@ -94,16 +94,17 @@ describe('Player Identity Vault interaction semantics', () => {
 
 describe('#SmarterCasinoRealism account surfaces', () => {
   it('prints a page bar, not a hero, and keeps the engineered visual tokens', () => {
-    /* Dan 2026-10-17: "PAGES DON'T NEED TITLES LIKE THIS". The shared
-       account header renders PageBar: no artwork, no stylesheet of its own. */
-    const heroComponent = read('src/components/account/AccountSurfaceHeader.tsx');
+    /* Dan 2026-10-17: "PAGES DON'T NEED TITLES LIKE THIS". 2026-11-28: the
+       account pages wear the arena workspace's chrome mast (#SmarterDesign),
+       so the shared account header that printed their page bar is gone. */
     const profileCss = read('src/pages/ProfilePage.module.css');
     const settingsCss = read('src/pages/SettingsPage.module.css');
     const notificationsCss = read('src/pages/NotificationsPage.css');
 
-    expect(heroComponent).toContain("import PageBar from '../help/PageBar'");
-    expect(heroComponent).not.toContain('mediaUrl(');
-    expect(existsSync('src/components/account/AccountSurfaceHeader.module.css')).toBe(false);
+    expect(existsSync('src/components/account/AccountSurfaceHeader.tsx')).toBe(false);
+    for (const page of [PROFILE, SETTINGS, NOTIFICATIONS]) {
+      expect(page).toContain('<ArenaWorkspaceHeader');
+    }
     expect(profileCss).toContain('--identity-gunmetal: #26333d');
     expect(settingsCss).toContain('--control-steel: #b9cad7');
     expect(notificationsCss).toContain('--notif-card: #080d12');

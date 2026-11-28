@@ -137,9 +137,6 @@ vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 vi.mock('../../src/components/layouts/StandardContentLayout', () => ({
   default: ({ children }: { children: React.ReactNode }) => <main>{children}</main>,
 }));
-vi.mock('../../src/components/account/AccountSurfaceHeader', () => ({
-  default: ({ children }: { children?: React.ReactNode }) => <header>{children}</header>,
-}));
 vi.mock('../../src/components/common/ConfirmModal', () => ({
   default: () => null,
 }));

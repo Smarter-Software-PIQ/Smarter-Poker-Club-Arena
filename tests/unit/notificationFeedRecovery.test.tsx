@@ -18,15 +18,6 @@ vi.mock('../../src/hooks/useVisibilityRefresh', () => ({
   },
 }));
 vi.mock('../../src/components/notifications/PushEnableBanner', () => ({ default: () => null }));
-vi.mock('../../src/components/account/AccountSurfaceHeader', () => ({
-  default: ({ title, status, children }: any) => (
-    <header>
-      <h1>{title}</h1>
-      <span>{status}</span>
-      {children}
-    </header>
-  ),
-}));
 vi.mock('../../src/lib/openExternal', () => ({ leaveForHub: vi.fn(), openInBrowser: vi.fn() }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 vi.mock('../../src/core/MasterBus', () => ({
