@@ -1,6 +1,6 @@
 # omahaMultiwayRiverBetPriorIsPeopleMeasured: Authority For The Live Switch
 
-Built 2026-11-27 by lead-9 workers MWR, RV and RV2 (session 01UxDLnJ) on Dan's order of 2026-11-27 4:48 PM ("#1 priority ... are the over folding bugs ... not just multiway, but also heads up"). Default OFF (read `=== true`), switchable `off / shadow / on_shadow / on`, scopable per game (`horse.omahaGameScope.omahaMultiwayRiverBetPriorIsPeopleMeasured`; compiled scope 0 = PLO4 and PLO5). It acts inside `omahaFacingBetEv`. **Evidence NOT MET**: the measurements are below and in `plo-lead7-01TLQer8/l9-river2/BUILD.md`; this file does not authorize switching the option on.
+**State: OFF** (dark: source default OFF, no switch row; this file proposes none). It does nothing on a first encounter (next section). Built 2026-11-27 by lead-9 workers MWR, RV, RV2 and RV3 (session 01UxDLnJ) on Dan's order of 2026-11-27 4:48 PM ("#1 priority ... are the over folding bugs ... not just multiway, but also heads up"). Default OFF (read `=== true`), switchable `off / shadow / on_shadow / on`, scopable per game (`horse.omahaGameScope.omahaMultiwayRiverBetPriorIsPeopleMeasured`; compiled scope 0 = PLO4 and PLO5). It acts inside `omahaFacingBetEv`. **Evidence NOT MET**: the measurements are below and in `plo-lead7-01TLQer8/l9-river2/BUILD.md`; this file does not authorize switching the option on.
 
 ## It Does Nothing On A First Encounter
 
@@ -26,7 +26,18 @@ It replaces the old constant and the reads against the Horse mean for that decis
 
 Real multiway river decisions (worker MWR's set: 1,289 recorded Horse decisions facing a multiway river first bet, Oct 27 to Nov 27, the deciding Horse's own cards only, seeds 1/7/42), replayed on this head with the opponent memory as of each decision AND the bet-read record as of each decision, learned from the cards PEOPLE showed (people export; a day of hands is learned only once the decision is at least two days later): the option priced 250 decisions and read a record of the bettor on 129 of them. It turned no fold into a call and 12 calls into folds. The recorded calls among those 12 realised -2.8 +/- 8.0 bb (n 9; against a person's bet -11.7 +/- 2.7, n 3): the folds it adds were not winning calls. The zero-equity bluff cells against a person's multiway river bet do not move (PLO4 all sizes +10.7 +/- 4.2 bb per bet, n 72, before and after; PLO5 +12.3 -> +12.6 +/- 8.2, n 145): today's people show value on the multiway river, so their records make the Horses fold, not call. Bar "added calls against people not significantly negative": no call is added (n 0), so the bar is met with nothing to measure.
 
-Fixed harness (ON-minus-same-seed-no-op, base = the stacked head af927a781830): the multiway river bluffer and value-only cards are recorded in `plo-lead7-01TLQer8/l9-river2/BUILD.md` and the PR body.
+## Fixed Harness
+
+ON-minus-same-seed-no-op (no-op 0.00, 0 divergent deals on every card), base = the stacked head, 6-max cash, 100 bb:
+
+| card                                                                                                             | PLO4                                     | PLO5                                      | bar            | result |
+| ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | ----------------------------------------- | -------------- | ------ |
+| multiway river bluffer mwp (seed 802, 16,000 deals), its bluff bb per river bet into two or more, base -> option | -3.98 +/- 1.91 -> -9.11 +/- 1.81 (n 250) | -6.93 +/- 1.91 -> -11.07 +/- 1.77 (n 168) | not > +2 SE    | PASS   |
+| Horses against mwp (bb/100)                                                                                      | +3.35 +/- 1.34 (43 divergent deals)      | +2.21 +/- 0.98 (35 divergent)             |                |        |
+| value-only bettor, multiway field, seeds 211 + 212 pooled (bb/100)                                               | 0.00 (0 divergent in 8,000)              | 0.00 (0 divergent in 8,000)               | >= -3.0 / -4.0 | PASS   |
+| flag-off (base vs this branch)                                                                                   | 0 differences in 28,000                  |                                           | 0              | PASS   |
+
+The value-only cards do not move because a never-bluffer's shown record is value, which the people cell already prices; the bluffer card is where the own record acts (it shows river bluffs, and the Horses call it more).
 
 ## Watch And Rollback
 
