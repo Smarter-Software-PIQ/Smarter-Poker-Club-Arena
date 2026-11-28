@@ -1306,6 +1306,20 @@
       "prefixes": ["omaha_priced_facing_bet_"],
       "unlessOn": ["omahaFacingBetIndifferenceCalls", "omahaFacingBetRangeIsMeasuredByLine"]
     },
+    "omahaBareOverpairContinuationIsPeoplePriced": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_bare_overpair_people_priced"],
+      "unlessOn": []
+    },
+    "omahaGiveUpPricedTurnCallIsAtIndifference": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_give_up_indifference_"],
+      "unlessOn": []
+    },
     "omahaMultiwayCallNeedsNutShare": {
       "releaseDefault": "off",
       "source": "declared",

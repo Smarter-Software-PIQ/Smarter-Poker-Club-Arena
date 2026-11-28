@@ -5225,6 +5225,46 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaFacingBetEv: true, omahaFacingBetFieldIsJoint: true },
     b: { omahaFacingBetEv: true },
   })),
+  // 2026-11-27 lead-9 lane HU2 (default OFF, PLO4/PLO5 cash): the bare-overpair flop continuation priced on the
+  // people-measured flop range (the flop pressure cap's own price) instead of the sampler's aggressor tiers.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_bare_overpair_continuation_is_people_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaBareOverpairOopFlopCheck: true,
+      omahaFlopPressureCapIsPriced: true,
+      omahaPeoplePriorCountsHiddenBets: true,
+      omahaBareOverpairContinuationIsPeoplePriced: true,
+    },
+    b: {
+      omahaBareOverpairOopFlopCheck: true,
+      omahaFlopPressureCapIsPriced: true,
+      omahaPeoplePriorCountsHiddenBets: true,
+    },
+  })),
+  // 2026-11-27 lead-9 lane HU2 (default OFF, PLO4/PLO5 cash): the call on a give-up-priced heads-up turn bet at
+  // EV >= 0 instead of EV > the safety margin.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_give_up_priced_turn_call_is_at_indifference`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaFacingBetEv: true,
+      omahaFacingBetPriorIsPeopleMeasured: true,
+      omahaPeoplePriorCountsHiddenBets: true,
+      omahaHiddenBetsArePricedAsGiveUps: true,
+      omahaGiveUpPricedTurnCallIsAtIndifference: true,
+    },
+    b: {
+      omahaFacingBetEv: true,
+      omahaFacingBetPriorIsPeopleMeasured: true,
+      omahaPeoplePriorCountsHiddenBets: true,
+      omahaHiddenBetsArePricedAsGiveUps: true,
+    },
+  })),
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_multiway_call_needs_nut_share`,
     variant,

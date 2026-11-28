@@ -63,6 +63,13 @@ export const OPTION_COST_LAWS: Readonly<Record<string, string>> = Object.freeze(
   omahaRiverBetPriorIsPotTypeSplit: 'engine/anOmahaRiverPotPriorIsFast.law.test.ts',
   // the priced flop pressure cap: one sampled flop count where the V40 cap prices a weak made hand (2026-11-26)
   omahaFlopPressureCapIsPriced: 'engine/anOmahaFlopPressureCapPriceIsFast.law.test.ts',
+  // the people-priced bare-overpair continuation (2026-11-27): one sampled flop count (the flop pressure cap's own,
+  // 6 rivers per turn card) in place of up to four sampler equities, only in the continuation's heads-up spot
+  omahaBareOverpairContinuationIsPeoplePriced:
+    'engine/anOmahaBareOverpairPeoplePriceIsFast.law.test.ts',
+  // the indifference call inside the give-up price (2026-11-27): one comparison on the verdict already computed
+  omahaGiveUpPricedTurnCallIsAtIndifference:
+    'engine/anOmahaGiveUpIndifferenceCallIsFast.law.test.ts',
   // the line-split turn prior inside the facing-bet price (2026-11-27): one line scan, one cell lookup and, with
   // telemetry on, the second verdict that names omaha_turn_line_prior_changed
   omahaTurnFacingBetPriorIsLineSplit: 'engine/anOmahaTurnLinePriorIsFast.law.test.ts',
