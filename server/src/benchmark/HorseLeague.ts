@@ -5563,6 +5563,15 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemRiverFacingBetPriorIsPeopleMeasured: true },
     b: {},
   },
+  // 2026-11-28 lead-10 (default OFF): a fold facing a heads-up NLH cash turn stab after a checked flop priced with the
+  // river played to a plan; a switches it on, b is today's brain. Graded by the lane's own mirror, probes and replay.
+  {
+    name: 'nlh_holdem_turn_facing_bet_after_checked_flop_is_people_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced: true },
+    b: {},
+  },
   // 2026-11-27 lead-9 (default OFF): the NLH cash heads-up turn bluff priced on people's turn fold; a switches it
   // on, b is today's brain. Graded by the lane's own mirror, probes and replay (docs/horse-option-authority.d).
   {

@@ -54,8 +54,19 @@ import {
   holdemFacingBetPotOf,
   holdemFacingBetPrice,
   holdemFacingBetRegionWins,
+  holdemFacingBetFlopWasChecked,
+  holdemTurnFacingBetOwnShares,
+  holdemTurnFacingBetPeopleShares,
 } from './HorseHoldemFacingBetPeoplePrior.js';
-import { holdemBetReadOf } from './HorseHoldemBetRead.js';
+import {
+  holdemBetReadBarrelOf,
+  holdemBetReadOf,
+  holdemBetReadTurnOf,
+} from './HorseHoldemBetRead.js';
+import {
+  holdemTurnRiverPlanRiverPrice,
+  holdemTurnRiverPlanTurnPrice,
+} from './HorseHoldemTurnRiverPlan.js';
 import {
   HOLDEM_PEOPLE_TURN_RECORD_BIG_ABOVE,
   holdemPeopleTurnFold,
@@ -6637,6 +6648,20 @@ export interface HorseDecideOpts {
    * (HorseHoldemFacingBetPeoplePrior). How often he bets is not read. It never folds a call, never raises, never
    * acts facing a raise. Off: byte-identical. */
   holdemRiverFacingBetPriorIsPeopleMeasured?: boolean;
+  /** PLO-OWNER lead-10 2026-11-28 (lane nlt; owner order of 2026-11-27 "all overfolding fixes ... No Limit"; owner rule:
+   * floating a street is right only when the Horse will continue later, calling and then folding to every later barrel
+   * must stop; 30 days of NLH cash against people: the first bet of a heads-up turn after a checked-through flop folds
+   * the Horse 57.8% of the time where a pure bluff breaks even at 36.3%, +2.26 +/- 0.58 bb per bet, 128 bets): opt-in
+   * (`=== true`), default OFF. NLH cash (table and Lightning), one board, heads-up, the flop checked through, limped
+   * and single-raised pots. TURN: facing the turn's FIRST bet, the brain's FOLD becomes a call when the call is worth
+   * more than the fold with the RIVER PLAYED TO A PLAN (HorseHoldemTurnRiverPlan): his turn range from his own turn
+   * stabs -> people's measured turn bets on that line (hidden bets counted) -> equilibrium; on every river card his
+   * barrel is the part of that range whose make-up matches his river bets after his own turn bet (his shown river bets
+   * -> people's -> equilibrium), and the Horse calls it exactly where the river price calls; the value is taken with his
+   * turn shares one standard error toward his top fifth. RIVER: facing that turn bettor's first river bet after the
+   * Horse called his stab, the brain's FOLD becomes a call where the same plan calls on the card that came. It never
+   * folds a call, never raises, never acts facing a raise or in a re-raised pot. Off: byte-identical. */
+  holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced?: boolean;
   /** PLO-OWNER lead-9 2026-11-27 (lane nlzb; daily real-hand audits list missed turn bluffs as a top Hold'em cash
    * leak; measured on people Oct 28 to Nov 27: a heads-up turn barrel is NOT a profitable pure bluff, people fold
    * 34% where break-even is 36%, while a small bet after a checked flop is, 43% where break-even is 22%): opt-in
@@ -19845,6 +19870,10 @@ export class HorseLogic {
           decision = this.holdemMultiwayOpeningPriced(decision, player, gs, vi, opts);
         // holdemRiverFacingBetPriorIsPeopleMeasured (default off): a fold facing the first bet of a heads-up river
         // re-priced on the bettor's own shown river bets, then people's measured river bets.
+        // holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced (default off): a fold facing the first bet of a heads-up turn
+        // after a checked flop, and facing that bettor's river bet after the call, priced with the river played to a plan.
+        if (opts.holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced === true)
+          decision = this.holdemTurnRiverPlanOnPeople(decision, player, gs, vi, opts);
         if (opts.holdemRiverFacingBetPriorIsPeopleMeasured === true)
           decision = this.holdemRiverFacingBetOnPeople(decision, player, gs, vi, opts);
         // holdemTournamentRiverBluffIsPriced / holdemTournamentTurnBluffIsPriced (default off): the tournament bluff priced.
@@ -36905,6 +36934,175 @@ export class HorseLogic {
       return called;
     } catch {
       if (tele) noteFire('holdem_river_people_prior_unpriced');
+      return decision;
+    }
+  }
+
+  /**
+   * holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced (PLO-OWNER lead-10 2026-11-28, default off, read `=== true`): NLH
+   * cash (table and Lightning), one board, heads-up, the flop checked through, a limped or single-raised pot.
+   *  - TURN, facing the turn's FIRST bet (the Horse has nothing in on the turn, nobody raised, nobody folded to it): the
+   *    brain's FOLD becomes a call when the call, with the river played to the plan of HorseHoldemTurnRiverPlan, is worth
+   *    more than the fold with his turn shares one standard error toward his top fifth.
+   *  - RIVER, facing the river's first bet by the same player after the Horse called his turn stab: the brain's FOLD
+   *    becomes a call where that plan calls on the card that came (the same price the turn counted).
+   * Every other decision is kept: it never folds a call, never raises, and prices nothing facing a raise. Draws nothing
+   * from fastRandom.
+   */
+  private static holdemTurnRiverPlanOnPeople(
+    decision: HorseDecision,
+    player: SeatPlayer,
+    gs: HorseGameStateV2,
+    vi: VariantInfo,
+    opts: HorseDecideOpts
+  ): HorseDecision {
+    if (opts.holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced !== true) return decision;
+    if (decision.action !== 'fold' || (gs.stage !== 'turn' && gs.stage !== 'river'))
+      return decision;
+    if (
+      String(gs.gameVariant ?? '').toLowerCase() !== 'nlh' ||
+      vi.isOmaha ||
+      vi.isShortDeck ||
+      vi.isFixedLimit ||
+      vi.holeCount !== 2 ||
+      isTournamentMode(gs) ||
+      gs.bombPot === true ||
+      gs.allInOrFold === true ||
+      ((gs as { communityCards2?: readonly unknown[] }).communityCards2?.length ?? 0) > 0 ||
+      !Array.isArray(player.cards) ||
+      player.cards.length !== 2
+    )
+      return decision;
+    const live = gs.players.filter(
+      (p) => p.seat !== player.seat && !p.is_folded && (!p.is_sitting_out || p.is_all_in)
+    );
+    if (live.length !== 1) return decision;
+    const opp = live[0] as SeatPlayer;
+    const tele = telemetryOn(opts);
+    const river = gs.stage === 'river';
+    try {
+      const board = gs.communityCards ?? [];
+      if (board.length !== (river ? 5 : 4)) return decision;
+      const history = gs.actionHistory ?? [];
+      // the line: nobody bet the flop; the pot: limped or single raised (a re-raised pot is not priced)
+      if (!holdemFacingBetFlopWasChecked(history)) return decision;
+      const potType = holdemFacingBetPotOf(history);
+      if (potType === 'reraised') return decision;
+      const isWager = (a: string) => a === 'bet' || a === 'raise' || a === 'all_in';
+      // the turn: exactly one wager, his first bet, made heads-up (nobody folded to it)
+      if (history.some((x) => x.stage === 'turn' && x.action === 'fold')) return decision;
+      const turnWagers = history.filter((x) => x.stage === 'turn' && isWager(String(x.action)));
+      if (turnWagers.length !== 1 || (turnWagers[0] as { seat: number }).seat !== opp.seat)
+        return decision;
+      const heroIn = Math.max(0, Number(player.bet ?? 0));
+      const villainIn = Math.max(0, Number(opp.bet ?? 0));
+      const currentBet = Math.max(Number(gs.currentBet ?? 0), villainIn);
+      const heroStack = Math.max(0, Number(player.stack ?? 0));
+      const owed = currentBet - heroIn;
+      if (!(owed > 0) || heroIn > 0 || !(heroStack > 0)) return decision;
+      const pot = Math.max(0, Number(gs.pot ?? 0));
+      const toCall = Math.min(owed, heroStack);
+      const winnable = pot - (owed - toCall);
+      if (!(winnable > 0)) return decision;
+      const rake = rakeDrag(pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat));
+      let ratio: number;
+      if (river) {
+        // the river: the Horse called his turn bet, and his river bet is the river's first and only wager
+        const turnBet = Math.max(0, Number((turnWagers[0] as { amount?: number }).amount ?? 0));
+        const heroTurn = history.filter((x) => x.stage === 'turn' && x.seat === player.seat);
+        const heroCall = heroTurn.find((x) => String(x.action) === 'call');
+        if (!heroCall || heroTurn.some((x) => isWager(String(x.action)))) return decision;
+        if (history.some((x) => x.stage === 'river' && x.action === 'fold')) return decision;
+        const riverWagers = history.filter((x) => x.stage === 'river' && isWager(String(x.action)));
+        if (riverWagers.length !== 1 || (riverWagers[0] as { seat: number }).seat !== opp.seat)
+          return decision;
+        const turnBefore =
+          pot -
+          villainIn -
+          turnBet -
+          Math.max(0, Number((heroCall as { amount?: number }).amount ?? 0));
+        if (!(turnBet > 0) || !(turnBefore > 0)) return decision;
+        ratio = turnBet / turnBefore;
+      } else {
+        const before = pot - villainIn;
+        if (!(before > 0)) return decision;
+        ratio = villainIn / before;
+      }
+      const record = opts.mind !== false ? holdemBetReadTurnOf(opp.user_id, ratio) : null;
+      const turnShares = holdemTurnFacingBetOwnShares(ratio, potType, record);
+      if (tele && turnShares.shown > 0)
+        noteFire(
+          river ? 'holdem_turn_plan_river_own_record_read' : 'holdem_turn_plan_own_record_read'
+        );
+      let call: boolean;
+      if (river) {
+        const riverRatio = villainIn / (pot - villainIn);
+        const riverShares = holdemFacingBetOwnShares(
+          riverRatio,
+          'b',
+          potType,
+          opts.mind !== false ? holdemBetReadOf(opp.user_id, 'b', riverRatio) : null
+        );
+        const price = holdemTurnRiverPlanRiverPrice(
+          player.cards,
+          board,
+          turnShares.share,
+          riverShares,
+          winnable,
+          toCall,
+          rake
+        );
+        if (price === null) {
+          if (tele)
+            noteFire(river ? 'holdem_turn_plan_river_unpriced' : 'holdem_turn_plan_unpriced');
+          return decision;
+        }
+        call = price.call;
+      } else {
+        const riverShares = holdemFacingBetOwnShares(
+          ratio,
+          'b',
+          potType,
+          opts.mind !== false ? holdemBetReadOf(opp.user_id, 'b', ratio) : null
+        );
+        // the error of his turn shares: people's cell and his own stabs
+        const turnN = holdemTurnFacingBetPeopleShares(ratio, potType).n + turnShares.shown;
+        const behind = Math.min(heroStack - toCall, Math.max(0, Number(opp.stack ?? 0)));
+        const price = holdemTurnRiverPlanTurnPrice(player.cards, board, turnShares.share, turnN, {
+          toCall,
+          winnable,
+          behind: Math.max(0, behind),
+          riverRatio: ratio,
+          rake,
+          river: riverShares,
+          barrels: opts.mind !== false ? holdemBetReadBarrelOf(opp.user_id) : null,
+        });
+        if (price === null) {
+          if (tele)
+            noteFire(river ? 'holdem_turn_plan_river_unpriced' : 'holdem_turn_plan_unpriced');
+          return decision;
+        }
+        call = price.call;
+      }
+      if (!call) {
+        if (tele)
+          noteFire(river ? 'holdem_turn_plan_river_fold_stands' : 'holdem_turn_plan_fold_stands');
+        return decision;
+      }
+      const called = this.legalize(
+        { action: 'call', amount: toCall, thinkTime: 0 },
+        player,
+        gs,
+        vi
+      );
+      if (called.action !== 'call' && called.action !== 'all_in') {
+        if (tele) noteFire(river ? 'holdem_turn_plan_river_unpriced' : 'holdem_turn_plan_unpriced');
+        return decision;
+      }
+      if (tele) noteFire(river ? 'holdem_turn_plan_river_call' : 'holdem_turn_plan_call');
+      return called;
+    } catch {
+      if (tele) noteFire(river ? 'holdem_turn_plan_river_unpriced' : 'holdem_turn_plan_unpriced');
       return decision;
     }
   }

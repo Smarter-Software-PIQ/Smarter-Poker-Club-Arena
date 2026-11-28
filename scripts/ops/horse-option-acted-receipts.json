@@ -2604,6 +2604,22 @@
       "prefixes": [],
       "unlessOn": []
     },
+    "holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": [
+        "holdem_turn_plan_call",
+        "holdem_turn_plan_fold_stands",
+        "holdem_turn_plan_own_record_read",
+        "holdem_turn_plan_river_call",
+        "holdem_turn_plan_river_fold_stands",
+        "holdem_turn_plan_river_own_record_read",
+        "holdem_turn_plan_river_unpriced",
+        "holdem_turn_plan_unpriced"
+      ],
+      "prefixes": [],
+      "unlessOn": []
+    },
     "holdemTurnBluffIsPricedOnPeople": {
       "releaseDefault": "off",
       "source": "ledger",

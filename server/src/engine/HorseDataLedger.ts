@@ -3034,6 +3034,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "Hold'em Strategy"
   ),
   flag(
+    'holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced',
+    "PLO-OWNER lead-10 2026-11-28 (lane nlt; owner: 'all overfolding fixes for PLO4, PLO5 and No Limit'; owner rule: floating a street is right only when the Horse will continue later, calling and then folding to every later barrel must stop; 30 days of NLH cash against people: the first bet of a heads-up turn after a checked-through flop folded the Horse 57.8% of the time against a pure-bluff break-even of 36.3%, +2.26 bb per bet). Default off (read === true), Evidence in docs/horse-option-authority.d. No-limit hold'em cash (table and Lightning), one board, heads-up, the flop checked through, limped and single-raised pots: facing the turn's first bet the brain's fold becomes a call when the call is worth more than the fold with the river played to a plan (HorseHoldemTurnRiverPlan: his turn range from his own turn stabs, then people's measured turn bets with the hidden bets counted, then equilibrium; on every river card his barrel is the part of that range whose make-up matches his river bets after his own turn bet, his own shown river bets, then people's, then equilibrium; the Horse calls it where the river price calls); facing that bettor's first river bet after the call, the brain's fold becomes a call where the same plan calls. Never folds a call, never raises.",
+    "Hold'em Strategy"
+  ),
+  flag(
     'holdemTurnBluffIsPricedOnPeople',
     "PLO-OWNER lead-9 2026-11-27 (lane nlzb; daily real-hand audits, NLH cash against people: missed turn bluffs are a top Hold'em chip leak; measured on people's answers: a heads-up turn barrel is not a profitable pure bluff, people fold 34% where break-even is 36%, while a small bet after a checked flop is, 39% where break-even is 22%; owner: late-street bluffs are math dependent and blocker dependent or have the range advantage, never random). Default off (read === true). No-limit hold'em cash, table and Lightning, one board, heads-up, turn, the flop checked through, not facing a wager (after a flop wager the option stands aside: people fold a turn bet at or below equilibrium there): the brain's check becomes a bluff at the legal priced size of highest EV only when the hand has no value size, the bluff prices above the check by more than the error of his fold, and the Horse's cards block his calling part or its line range outscores his. His fold is read size by size: his own lifetime turn record of that size, shrunk to people's measured turn fold for the Horse's line and that size (answers by people only), shrunk to equilibrium (HorseHoldemPeopleTurnFold). Off never runs it.",
     "Hold'em Strategy"
@@ -10807,6 +10812,54 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdem_river_people_prior_unpriced',
     'HorseLogic.holdemRiverFacingBetOnPeople (holdemRiverFacingBetPriorIsPeopleMeasured)',
     "a fold facing the first bet of a heads-up river could not be priced on people's measured river first bets: the fold stands",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_turn_plan_call',
+    'HorseLogic.holdemTurnRiverPlanOnPeople (holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced)',
+    "facing the first bet of a heads-up NLH cash turn after a checked flop the brain's fold became a call: with the river played to the plan (his turn range from his own turn stabs and people's measured turn bets, his river barrel from his own shown river bets and people's), the call is worth more than the fold with his shares one standard error toward his top fifth",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_turn_plan_fold_stands',
+    'HorseLogic.holdemTurnRiverPlanOnPeople (holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced)',
+    "facing the first bet of a heads-up turn after a checked flop the brain's fold was re-priced with the river played to the plan and the call was not worth more than the fold: the fold stands",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_turn_plan_own_record_read',
+    'HorseLogic.holdemTurnRiverPlanOnPeople (holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced)',
+    "the bettor's own turn stabs (shown, mucked at the showdown or given up) moved people's measured shares of a turn bet after a checked flop",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_turn_plan_unpriced',
+    'HorseLogic.holdemTurnRiverPlanOnPeople (holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced)',
+    'a fold facing the first bet of a heads-up turn after a checked flop could not be priced with the river plan: the fold stands',
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_turn_plan_river_call',
+    'HorseLogic.holdemTurnRiverPlanOnPeople (holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced)',
+    "facing the turn bettor's first river bet after the Horse called his stab, the brain's fold became a call: the river plan's price (the Horse against his turn range's barrelling holdings of each river region, weighted by his river bets) clears its error",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_turn_plan_river_fold_stands',
+    'HorseLogic.holdemTurnRiverPlanOnPeople (holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced)',
+    "facing the turn bettor's first river bet after the Horse called his stab, the river plan's price did not clear its error: the fold stands",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_turn_plan_river_own_record_read',
+    'HorseLogic.holdemTurnRiverPlanOnPeople (holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced)',
+    "the bettor's own turn stabs moved the turn range the river plan prices his river bet on",
+    "Hold'em Strategy"
+  ),
+  receipt(
+    'holdem_turn_plan_river_unpriced',
+    'HorseLogic.holdemTurnRiverPlanOnPeople (holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced)',
+    "a fold facing the turn bettor's river bet after a called stab could not be priced with the river plan: the fold stands",
     "Hold'em Strategy"
   ),
   receipt(
