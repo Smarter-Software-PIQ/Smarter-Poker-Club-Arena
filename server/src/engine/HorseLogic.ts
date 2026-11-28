@@ -1,3 +1,4 @@
+import { omahaRiverPotKeyOf } from './HorseOmahaRiverPotPrior.js';
 import { omahaRiverFrequencySpotOf } from './HorseOmahaRiverFrequencyPrior.js';
 import {
   checkedToNonBottomBoat,
@@ -3961,6 +3962,14 @@ export interface HorseDecideOpts {
    * rest of the share as today. A hidden bet is by construction one that did not bet the river and did not win.
    */
   omahaHiddenBetsArePricedAsGiveUps?: boolean;
+  /**
+   * lead-9 lane RV2 2026-11-27 (default OFF, read === true). PLO4/PLO5 cash, heads-up, a river BET (never a raise) in
+   * a RE-RAISED pot, only inside omahaFacingBetPriorIsPeopleMeasured's river price: the people cell is the one
+   * measured on people's shown river bets in re-raised pots (HorseOmahaRiverPotPrior), shrunk toward the pooled river
+   * cell, then the equilibrium anchor, moved by the bettor's own record as today. Single-raised and limped pots keep
+   * the pooled cell. A fold may become a call and a call a fold: the price decides.
+   */
+  omahaRiverBetPriorIsPotTypeSplit?: boolean;
   /**
    * lead-9 lane RFQ 2026-11-27 (default OFF, read === true). PLO4/PLO5 cash, heads-up, a river BET (never a raise) in
    * a single-raised or limped pot, only inside omahaFacingBetPriorIsPeopleMeasured's river price: the bettor's own
@@ -15036,6 +15045,8 @@ let omahaFacingBetEvCountMemo: {
   turnLineHidden: boolean;
   /** omahaHiddenBetsArePricedAsGiveUps */
   hiddenGiveUps: boolean;
+  /** omahaRiverBetPriorIsPotTypeSplit */
+  riverPotSplit: boolean;
   /** omahaRiverBetPriorReadsHisFrequency */
   riverFreq: boolean;
   /** omahaFacingBetRangeIsMeasuredByLine and its siblings (HorseOmahaFacingBetPriced) */
@@ -15270,6 +15281,11 @@ function omahaFacingBetEvCount(
     opts.omahaPeoplePriorCountsHiddenBets === true &&
     !isTournamentMode(gs) &&
     ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
+  // omahaRiverBetPriorIsPotTypeSplit (default off): the pot type's river cell inside #12116's heads-up river price
+  const riverPotSplit =
+    opts.omahaRiverBetPriorIsPotTypeSplit === true &&
+    !isTournamentMode(gs) &&
+    ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
   // omahaRiverBetPriorReadsHisFrequency (default off): his river frequency inside #12116's heads-up river price
   const riverFreq =
     opts.omahaRiverBetPriorReadsHisFrequency === true &&
@@ -15317,6 +15333,7 @@ function omahaFacingBetEvCount(
     memo.turnLineSplit === turnLineSplit &&
     memo.turnLineHidden === turnLineHidden &&
     memo.hiddenGiveUps === hiddenGiveUps &&
+    memo.riverPotSplit === riverPotSplit &&
     memo.riverFreq === riverFreq &&
     memo.pricedKey === pricedKey
   )
@@ -15476,8 +15493,14 @@ function omahaFacingBetEvCount(
                 : null))
             : null;
         if (hiddenKey && telemetryOn(opts)) noteFire('omaha_hidden_bets_prior_read');
+        // omahaRiverBetPriorIsPotTypeSplit (default off): a river bet in a pot type the split reads
+        const riverPotKey = riverPotSplit
+          ? omahaRiverPotKeyOf(variant, spot.street, spot.isRaise === true, gs.actionHistory)
+          : null;
+        if (riverPotKey && telemetryOn(opts)) noteFire('omaha_river_pot_prior_read');
         const priorInput = {
           hidden: hiddenKey,
+          riverPot: riverPotKey,
           giveUps: hiddenGiveUps && hiddenKey !== null,
           street: spot.street,
           potFrac: spot.potFrac,
@@ -15881,6 +15904,7 @@ function omahaFacingBetEvCount(
     turnLineSplit,
     turnLineHidden,
     hiddenGiveUps,
+    riverPotSplit,
     riverFreq,
     pricedKey,
     answer,

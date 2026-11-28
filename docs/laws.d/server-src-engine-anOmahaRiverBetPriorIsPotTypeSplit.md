@@ -1,0 +1,3 @@
+# server/src/engine/anOmahaRiverBetPriorIsPotTypeSplit.law.test.ts
+
+The pot-type river cell (omahaRiverBetPriorIsPotTypeSplit) ships dark and, on, reads only a PLO4/PLO5 heads-up river bet (never a raise) in a re-raised pot inside the people-measured facing-bet price: the cell is the people-only re-raised-pot river cell shrunk toward the pooled river cell by the stated pseudo-bets and nothing else, the bettor's own record still moves it in both directions, without the key or without the people-measured prior nothing changes, a decision changes only where the cell was read and never into a raise, and the bettor's identity is no input.

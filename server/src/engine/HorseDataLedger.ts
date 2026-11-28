@@ -1387,6 +1387,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaRiverBetPriorIsPotTypeSplit',
+    "lead-9 lane RV2 2026-11-27 (plo-lead7-01TLQer8/l9-river2/BUILD.md). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. inside omahaFacingBetPriorIsPeopleMeasured's heads-up river price, a river bet (never a raise) in a re-raised pot reads the people-only river regions measured in re-raised pots (HorseOmahaRiverPotPrior), shrunk toward the pooled river cell, then the equilibrium anchor, moved by the bettor's own shown bets; single-raised and limped pots keep the pooled cell. Public actions and shown cards of people only; no identity input.",
+    'V94'
+  ),
+  flag(
     'omahaRiverBetPriorReadsHisFrequency',
     "lead-9 lane RFQ 2026-11-27 (plo-lead7-01TLQer8/l9-rfq/BUILD.md). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. inside omahaFacingBetPriorIsPeopleMeasured's heads-up river price, a river bet (never a raise) in a single-raised or limped pot: the bettor's own public heads-up unopened river first-bet record (OPPONENT-HUD) shrunk to people's measured rate sets the prior mean of his shown-bet record (HorseOmahaRiverFrequencyPrior); only a fold becomes a call. Public actions of the bettor and people-only measurements; no identity input.",
     'V94'
@@ -6414,6 +6419,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_river_pot_prior_read',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetEv)',
+    'the heads-up river people cell was read from the pot-type river cells: a river bet in a re-raised pot (omahaRiverBetPriorIsPotTypeSplit)',
+    'V94'
+  ),
+  receipt(
     'omaha_river_frequency_prior_read',
     'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetEv)',
     "the heads-up river bettor's own river first-bet frequency was read for the price: a river bet in a single-raised or limped pot (omahaRiverBetPriorReadsHisFrequency)",
@@ -11246,6 +11257,8 @@ export const OPTION_ACTED_RECEIPTS_DECLARED: Readonly<
   omahaPeoplePriorCountsHiddenBets: { prefixes: ['omaha_hidden_bets_prior_'] },
   // the give-up pricing names its own receipts in their descriptions; declared by prefix
   omahaHiddenBetsArePricedAsGiveUps: { prefixes: ['omaha_hidden_give_up_'] },
+  // the pot-type river cell names its own receipt in its description; declared by prefix
+  omahaRiverBetPriorIsPotTypeSplit: { prefixes: ['omaha_river_pot_prior_'] },
   // the river frequency prior names its own receipts in its description; declared by prefix
   omahaRiverBetPriorReadsHisFrequency: { prefixes: ['omaha_river_frequency_prior_'] },
   omahaFlopPressureCapIsPriced: { prefixes: ['omaha_flop_pressure_cap_priced'] },

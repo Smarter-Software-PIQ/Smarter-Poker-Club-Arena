@@ -549,6 +549,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaHiddenBetsArePricedAsGiveUps: priced(
     "inside the hidden-bets people prior's heads-up turn bet (never a raise, never a re-raised pot), the hidden part of the bettor's non-value share (people's bets that checked and folded later or mucked, the one-street balanced share behind a thin cell, moved by his own record) is priced as his weakest half of holdings at full realization; the rest of the share as before; Horse play never enters (default OFF; lead-9 lane HUOOP 2026-11-27)"
   ),
+  omahaRiverBetPriorIsPotTypeSplit: priced(
+    "inside the people-measured heads-up river price, a river bet (never a raise) in a re-raised pot is priced on the PEOPLE-ONLY regions measured on people's shown river bets in re-raised pots, shrunk toward the pooled river cell and then the balanced share, moved by his own shown bets as today; single-raised and limped pots keep the pooled cell (default OFF; lead-9 lane RV2 2026-11-27)"
+  ),
   omahaRiverBetPriorReadsHisFrequency: priced(
     "inside the people-measured heads-up river price, a river bet (never a raise) in a single-raised or limped pot: the bettor's own public heads-up river first-bet frequency, shrunk to people's rate by a measured 34 opportunities, sets the prior mean of his shown-bet record (value arrives at people's rate, so a frequency above people's is non-value); his shown bets still dominate as they grow; fold -> call only (default OFF; lead-9 lane RFQ 2026-11-27)"
   ),
