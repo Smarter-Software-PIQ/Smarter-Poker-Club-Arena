@@ -4056,6 +4056,39 @@ export class HandController {
     return { handStarted: this.handStarted, handCompleted: this.handCompleted };
   }
 
+  /**
+   * Capture detached public continuation metadata (`handStarted` and `publicState`
+   * with `deck: []`) synchronously alongside `serializeRecoveryState()` so live
+   * F06 retention skips `JSON.parse(batch.controller)` on the main thread while
+   * keeping durable retained bytes identical (incident 1e532243 Phase 5).
+   */
+  capturePublicContinuationMetadata(): { handStarted: boolean; publicState: GameState } {
+    const { deck: _deck, ...state } = this.state;
+    return {
+      handStarted: this.handStarted,
+      publicState: {
+        ...state,
+        deck: [],
+        players: state.players.map((p) => ({
+          ...p,
+          cards: p.cards.map((c) => ({ ...c })),
+          ...(p.knownDeadCards ? { knownDeadCards: p.knownDeadCards.map((c) => ({ ...c })) } : {}),
+        })),
+        communityCards: state.communityCards.map((c) => ({ ...c })),
+        communityCards2: state.communityCards2
+          ? state.communityCards2.map((c) => ({ ...c }))
+          : state.communityCards2,
+        communityCards3: state.communityCards3
+          ? state.communityCards3.map((c) => ({ ...c }))
+          : state.communityCards3,
+        pots: state.pots.map((p) => ({ ...p, eligiblePlayers: [...p.eligiblePlayers] })),
+        actionHistory: state.actionHistory.map((a) =>
+          a.publicNode ? { ...a, publicNode: structuredClone(a.publicNode) } : { ...a }
+        ),
+      } as GameState,
+    };
+  }
+
   serializeRecoveryState(): string {
     if (this.boardDealtOutsideState)
       throw new Error('Hand Recovery Requires The External Runout Original');

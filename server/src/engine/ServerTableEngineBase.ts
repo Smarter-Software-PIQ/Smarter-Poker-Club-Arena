@@ -30,7 +30,10 @@ import type { F06MovementAdmission } from '../tournament/f06MovementAdmission.js
  */
 
 import { HandController } from './HandController.js';
-import { HandContinuationLane } from './HandContinuationLane.js';
+import {
+  HandContinuationLane,
+  type HandContinuationControllerMetadata,
+} from './HandContinuationLane.js';
 import type { PrivateHandContinuation } from './PrivateHandContinuation.js';
 import { retainHandContinuation } from '../services/supabase/handContinuation.js';
 import { CooperativeHandPause } from './CooperativeHandPause.js';
@@ -510,18 +513,30 @@ export abstract class ServerTableEngineBase {
   protected async retainOriginalBatch(
     original: PrivateHandContinuation['original'],
     seats: PrivateHandContinuation['seats'],
-    batch: PrivateHandContinuation['batch']
+    batch: PrivateHandContinuation['batch'],
+    controllerMeta?: Readonly<HandContinuationControllerMetadata>
   ): Promise<void> {
     const authority = this.getEngineLeaseAuthority();
     if (authority?.scope !== 'tournament' || !authority.verified || !authority.generation)
       throw new Error('Hand Continuation Lease Is Unproven');
-    // Parse once per batch instead of parsing twice on seq 0 (incident 1e532243).
-    const parsedController = JSON.parse(batch.controller) as {
-      handStarted?: boolean;
-      state: GameState;
-    };
-    const prepared =
-      batch.sequence === 0 && batch.events.length === 0 && parsedController.handStarted === false;
+    // Use pre-captured detached metadata from the synchronous capture turn so
+    // live tournament action batches skip JSON.parse(batch.controller) on the
+    // main thread; fall back to JSON.parse for legacy callers and recovered
+    // batches (incident 1e532243 Phase 5).
+    let handStarted: boolean | undefined;
+    let publicState: GameState;
+    if (controllerMeta) {
+      handStarted = controllerMeta.handStarted;
+      publicState = controllerMeta.publicState as GameState;
+    } else {
+      const parsedController = JSON.parse(batch.controller) as {
+        handStarted?: boolean;
+        state: GameState;
+      };
+      handStarted = parsedController.handStarted;
+      publicState = { ...parsedController.state, deck: [] } as GameState;
+    }
+    const prepared = batch.sequence === 0 && batch.events.length === 0 && handStarted === false;
     if (prepared) this.preparedOriginalRetentionUnconfirmed = true;
     const retained = retainHandContinuation(
       original,
@@ -537,7 +552,7 @@ export abstract class ServerTableEngineBase {
     await retained;
     // State copied from these exact retained bytes, never a later controller
     // mutation still waiting behind this batch. The future deck stays private.
-    this.retainedPublicHandState = { ...parsedController.state, deck: [] } as GameState;
+    this.retainedPublicHandState = publicState;
   }
 
   /** Positive retained bytes or a canonical claimed seq0 own this capability. */

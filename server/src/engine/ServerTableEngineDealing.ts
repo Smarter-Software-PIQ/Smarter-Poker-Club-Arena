@@ -2417,6 +2417,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     'maintenance_lock',
     'idle_cluster_closed',
     'idle_seat_moves',
+    'cluster_dealing_halted',
+    'recover_busted_horses_halted',
   ]);
 
   /** Per-phase share of the current gap; called from setLoopPhase while a rest is armed. */
@@ -5389,7 +5391,14 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         events: [],
         engine: this.captureContinuationEngine(),
       };
-      await this.retainOriginalBatch(original, seats, preparedBatch);
+      await this.retainOriginalBatch(
+        original,
+        seats,
+        preparedBatch,
+        typeof preparedController?.capturePublicContinuationMetadata === 'function'
+          ? preparedController.capturePublicContinuationMetadata()
+          : undefined
+      );
       if (
         this.handController !== preparedController ||
         !this.running ||
@@ -5730,7 +5739,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
             recovered?.batch.sequence ?? 0,
             () => controllerForHand.serializeRecoveryState(),
             () => this.captureContinuationEngine(),
-            (batch) => this.retainOriginalBatch(original, seats, batch),
+            (batch, controllerMeta) =>
+              this.retainOriginalBatch(original, seats, batch, controllerMeta),
             dispatchOriginalEvent,
             () =>
               this.running &&
@@ -5782,13 +5792,21 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
                   this.detachTableWork('flushSnapshot', this.flushSnapshot());
                 }
               : undefined,
-            typeof this.captureContinuationAccounting === 'function' &&
+            {
+              ...(typeof this.captureContinuationAccounting === 'function' &&
               !Object.prototype.hasOwnProperty.call(this, 'captureContinuationEngine')
-              ? {
-                  captureAccounting: () => this.captureContinuationAccounting(),
-                  engineCaptureDetached: true,
-                }
-              : undefined
+                ? {
+                    captureAccounting: () => this.captureContinuationAccounting(),
+                    engineCaptureDetached: true,
+                  }
+                : {}),
+              ...(typeof controllerForHand.capturePublicContinuationMetadata === 'function'
+                ? {
+                    captureControllerMetadata: () =>
+                      controllerForHand.capturePublicContinuationMetadata(),
+                  }
+                : {}),
+            }
           );
         };
         // Start the hand!

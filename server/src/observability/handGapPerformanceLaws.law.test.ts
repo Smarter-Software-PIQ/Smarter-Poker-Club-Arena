@@ -183,4 +183,48 @@ describe('hand-gap performance & anti-regression laws (1e532243)', () => {
       'this.hasParkedGapBalanceSource() || this.boundaryPlanAwaitingPark.size > 0'
     );
   });
+
+  it('pins Phase 5 seat-move parallelism, proactive miss_epoch re-prepare, F06 zero-JSON.parse retention, off-heap mainHistoryCache, cluster-halt gap isolation, and early event-loop lag alert (1e532243 Phase 5)', () => {
+    const tmSrc = readServer('src/tournament/TournamentManager.ts');
+    const hcSrc = readServer('src/engine/HandController.ts');
+    const laneSrc = readServer('src/engine/HandContinuationLane.ts');
+    const baseSrc = readServer('src/engine/ServerTableEngineBase.ts');
+    const dealingSrc = readServer('src/engine/ServerTableEngineDealing.ts');
+    const historySrc = readServer('src/engine/horseDecision/ownPublicHistory.ts');
+    const gapSrc = readServer('src/engine/NextHandGap.ts');
+    const alertsSrc = readRepo('infra/monitoring/alert-rules.yml');
+
+    // 1. Distinct-destination seat-move wave parallelism & proactive miss_epoch re-prepare.
+    const execMoves = sliceMethod(tmSrc, 'private async executePlayerMovesOwned(');
+    expect(execMoves).toContain('distinctDestWaves');
+    expect(execMoves).toContain('boundaryGuardEntered: true');
+    expect(sliceMethod(tmSrc, 'protected override onManagedHandSettled(')).toContain(
+      'this.scheduleBoundaryPlanReprepare()'
+    );
+    expect(sliceMethod(tmSrc, 'protected executePlayerMoves(')).toContain(
+      'this.scheduleBoundaryPlanReprepare()'
+    );
+
+    // 2. F06 retainOriginalBatch skips JSON.parse via pre-captured controller metadata.
+    expect(hcSrc).toContain('capturePublicContinuationMetadata()');
+    expect(laneSrc).toContain('captureControllerMetadata');
+    expect(sliceMethod(baseSrc, 'protected async retainOriginalBatch(')).toContain(
+      'if (controllerMeta)'
+    );
+    expect(dealingSrc).toContain('capturePublicContinuationMetadata');
+
+    // 3. Off-heap Buffer storage for acknowledged mainHistoryCache entries.
+    expect(historySrc).toContain("Buffer.from(JSON.stringify(entry.packet), 'utf8')");
+    expect(historySrc).toContain("known.serialized.payload.toString('utf8')");
+    expect(historySrc).not.toContain('known.serialized.json');
+
+    // 4. Cluster/Lightning halt dwell excluded from live nextHandGap over/maxMs & early event-loop lag alert.
+    expect(gapSrc).toContain('CLUSTER_HALT_GAP_PHASES');
+    expect(gapSrc).toContain('withClusterHalt');
+    expect(dealingSrc).toContain("'cluster_dealing_halted'");
+    expect(dealingSrc).toContain("'recover_busted_horses_halted'");
+    expect(alertsSrc).toContain('- alert: EngineCoreOutOfHeadroom');
+    expect(alertsSrc).toContain('poker_event_loop_delay_p99_ms > 150');
+    expect(alertsSrc).toContain('poker_main_event_loop_governor_scale < 1');
+  });
 });
