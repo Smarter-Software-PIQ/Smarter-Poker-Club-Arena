@@ -1193,25 +1193,40 @@ BACKUP_DISK_KEEP_HOURS=${BACKUP_DISK_KEEP_HOURS:-24}
 BACKUP_DISK_MIN_FREE_GIB=${BACKUP_DISK_MIN_FREE_GIB:-12}
 
 reclaim_backup_disk() {  # candidate sha, serving sha (may be empty)
-  local keep="$1" serving="${2:-}" now cutoff tag created_epoch removed=0
+  local keep="$1" serving="${2:-}" now cutoff tag created_epoch removed=0 kept_serving=''
   now=$(date +%s); cutoff=$((now - BACKUP_DISK_KEEP_HOURS * 3600))
+  # AN UNKNOWN SERVING RELEASE REMOVES NO ENGINE IMAGE BY AGE (2026-11-27,
+  # release custody). The serving sha comes from production's /health. When
+  # that read fails it is empty, the keep rule below protects nothing, and a
+  # serving image older than BACKUP_DISK_KEEP_HOURS was removed: the rollback
+  # rehearsal then ran a rebuild, which is what keeping it set out to stop.
+  # Unknown is not "none": this pass leaves every engine image, still removes
+  # the other classes, and the free-space floor in cmd_certify refuses by name
+  # (backup_disk_low) if space is short.
+  if [ -n "$serving" ]; then
+    while read -r tag; do
+      [ -n "$tag" ] || continue
+      [ "$tag" = "$IMAGE_REPO:$keep" ] && continue
+      # THE RECLAIM KEEPS THE SERVING IMAGE (2026-11-27). Both rehearsal swaps
+      # run production's serving release. When nothing has sealed for more than
+      # BACKUP_DISK_KEEP_HOURS its image is older than the cutoff, and deleting
+      # it made the rehearsal run a rebuild instead of the bytes production runs.
+      if [ "$tag" = "$IMAGE_REPO:$serving" ]; then kept_serving="${serving:0:12}"; continue; fi
+      created_epoch=$(date -d "$(docker image inspect -f '{{.Created}}' "$tag" 2>/dev/null)" +%s 2>/dev/null) || continue
+      [ "$created_epoch" -lt "$cutoff" ] || continue
+      # No -f: an image a container still uses is refused and kept.
+      if docker image rm "$tag" >/dev/null 2>&1; then removed=$((removed + 1)); fi
+    done < <(docker image ls --filter "reference=$IMAGE_REPO:*" --format '{{.Repository}}:{{.Tag}}' 2>/dev/null || true)
+  fi
+  # A REFUSED REMOVAL IS SKIPPED, NEVER FATAL (2026-11-27). This was a piped
+  # loop whose last command was the removal: under set -Eeuo pipefail, docker
+  # refusing the LAST listed qualification image made the pipeline fail and
+  # ended the whole certification. Nothing here may abort the script.
   while read -r tag; do
     [ -n "$tag" ] || continue
-    [ "$tag" = "$IMAGE_REPO:$keep" ] && continue
-    # THE RECLAIM KEEPS THE SERVING IMAGE (2026-11-27). Both rehearsal swaps
-    # run production's serving release. When nothing has sealed for more than
-    # BACKUP_DISK_KEEP_HOURS its image is older than the cutoff, and deleting
-    # it made the rehearsal run a rebuild instead of the bytes production runs.
-    [ -n "$serving" ] && [ "$tag" = "$IMAGE_REPO:$serving" ] && continue
-    created_epoch=$(date -d "$(docker image inspect -f '{{.Created}}' "$tag" 2>/dev/null)" +%s 2>/dev/null) || continue
-    [ "$created_epoch" -lt "$cutoff" ] || continue
-    # No -f: an image a container still uses is refused and kept.
-    docker image rm "$tag" >/dev/null 2>&1 && removed=$((removed + 1))
-  done < <(docker image ls --filter "reference=$IMAGE_REPO:*" --format '{{.Repository}}:{{.Tag}}' 2>/dev/null)
-  docker image ls --filter 'reference=standby-freeze-node:*' --filter 'reference=standby-freeze-pg:*' \
-    --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | while read -r tag; do
-    [ -n "$tag" ] && docker image rm "$tag" >/dev/null 2>&1
-  done
+    docker image rm "$tag" >/dev/null 2>&1 || log "disk: could not remove $tag (skipped)"
+  done < <(docker image ls --filter 'reference=standby-freeze-node:*' --filter 'reference=standby-freeze-pg:*' \
+    --format '{{.Repository}}:{{.Tag}}' 2>/dev/null || true)
   docker image prune -f >/dev/null 2>&1 || true
   docker builder prune -f --filter "until=${BACKUP_DISK_KEEP_HOURS}h" >/dev/null 2>&1 || true
   if [ -d "$STATE_DIR/qualifications" ]; then
@@ -1221,7 +1236,13 @@ reclaim_backup_disk() {  # candidate sha, serving sha (may be empty)
   find "$STATE_DIR" -maxdepth 1 -type d -name 'player-proof.*' -mmin +120 -exec rm -rf -- {} + 2>/dev/null || true
   find /tmp -maxdepth 1 -type d -name 'standby-ctx.*' -mmin +120 -exec rm -rf -- {} + 2>/dev/null || true
   [ -d "$LOG_DIR" ] && find "$LOG_DIR" -maxdepth 1 -type f -name 'build-*.log' -mtime +7 -delete 2>/dev/null || true
-  log "disk: removed $removed engine image(s) older than ${BACKUP_DISK_KEEP_HOURS}h; free $(backup_disk_free_gib) GiB"
+  if [ -z "$serving" ]; then
+    log "disk: serving release unknown, no engine image removed by age; free $(backup_disk_free_gib) GiB"
+  elif [ -n "$kept_serving" ]; then
+    log "disk: removed $removed engine image(s) older than ${BACKUP_DISK_KEEP_HOURS}h; free $(backup_disk_free_gib) GiB; kept serving $kept_serving"
+  else
+    log "disk: removed $removed engine image(s) older than ${BACKUP_DISK_KEEP_HOURS}h; free $(backup_disk_free_gib) GiB; serving ${serving:0:12} has no image here"
+  fi
 }
 
 # The smallest free space, in whole GiB, of the filesystems a certification

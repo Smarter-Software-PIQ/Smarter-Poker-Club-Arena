@@ -21,6 +21,13 @@
  * scrolled into view and lit while its step is showing, so the tour points at
  * the real control rather than describing it from a distance.
  *
+ * THE PANEL IS #SMARTERDESIGN (Dan 2026-11-27). It wears the arena workspace
+ * language - the thin chrome case, a section title over a hairline, chrome-stat
+ * buttons with the lit blue chrome on the way forward - and carries it itself
+ * in PageHelp.css, because it opens on every page with help, inside an
+ * .arena-workspace or not. `data-popup-chassis="none"` keeps the generic
+ * metallic popup chassis from repainting it.
+ *
  * Steps come from, in order: a curated tour for the route (pageTutorials.ts),
  * the steps the page passed in, or a tour built from the page itself - the
  * sentences of its explanation, then each section heading on the page.
@@ -296,6 +303,7 @@ export default function PageHelp({ title, summary, steps, className, children }:
             aria-labelledby={titleId}
             tabIndex={-1}
             data-page-help=""
+            data-popup-chassis="none"
           >
             <div className="ca-tutorial-popup__meta">
               <span className="ca-tutorial-popup__count">

@@ -16,22 +16,34 @@
  *  2. Its eligibility is the election's own, and its windows are Stage's.
  *  3. A real cron runs it inside every cycle's preparation window, every day.
  *  4. Stage still admits the operator dispatch it sends.
+ *  5. (2026-11-27) It outlasts a spent shared REST quota: when the quota resets
+ *     before the cycle's deadline it waits once, then reads once and sends at
+ *     most once; a reset after the deadline sends nothing and says so; every
+ *     gh failure is logged with gh's own reason, never "Command failed".
  */
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   CYCLE_HOURS,
   EVENT_TYPE,
+  EXIT_RATE_LIMITED_PAST_DEADLINE,
+  RESET_SETTLE_MS,
+  SEND_MARGIN_MS,
   PREPARATION_LEAD_MINUTES,
   PREPARATION_WINDOW_MINUTES,
   REPO,
   RESERVATION_LOOKBACK_MINUTES,
   canOwn,
+  chicagoHHMM,
   decide,
+  failureReason,
   main,
   preparationWindow,
   readStageRuns,
+  sendDeadline,
+  takeCycleLock,
 } from '../scripts/ops/cutover-operator-preparation.mjs';
 
 const ROOT = resolve(__dirname, '..');
@@ -215,6 +227,194 @@ describe('every cycle gets an owner', () => {
       return JSON.stringify({ total_count: 0, workflow_runs: [] });
     };
     expect(main({ nowMs: at('2026-11-26T15:33:00Z'), run: failing, log: () => {} })).toBe(2);
+  });
+});
+
+describe('the fallback outlasts a spent quota (2026-11-27)', () => {
+  // The 13:00 Chicago cycle of 2026-11-27: cutoff 18:30Z, window to 18:50Z, deadline 18:49Z.
+  const FIRE = at('2026-11-27T18:33:00Z'); // 12:33 CST, the first refused firing
+  const quota = (remaining: number, resetIso: string) =>
+    JSON.stringify({
+      resources: { core: { limit: 5000, remaining, reset: at(resetIso) / 1000, used: 0 } },
+    });
+  const gh403 = (msg: string) =>
+    Object.assign(new Error('Command failed: gh api --method POST ...'), {
+      stderr: `{"message":"x"}\ngh: ${msg} (HTTP 403)\n`,
+    });
+  const harness = (handlers: { rate?: () => string; list?: () => string; post?: () => string }) => {
+    const calls: string[][] = [];
+    const logs: string[] = [];
+    const sleeps: number[] = [];
+    const lockDir = mkdtempSync(join(tmpdir(), 'quota-'));
+    let now = FIRE;
+    const gh = (args: string[]) => {
+      calls.push(args);
+      if (args[1] === 'rate_limit')
+        return (handlers.rate ?? (() => quota(5000, '2026-11-27T19:00:00Z')))();
+      if (args.includes('POST')) return (handlers.post ?? (() => ''))();
+      return (handlers.list ?? (() => JSON.stringify({ total_count: 0, workflow_runs: [] })))();
+    };
+    const go = () =>
+      main({
+        nowMs: FIRE,
+        run: gh,
+        log: (l: string) => logs.push(l),
+        sleep: (ms: number) => {
+          sleeps.push(ms);
+          now += ms;
+        },
+        clock: () => now,
+        lockDir,
+      });
+    const count = (pred: (c: string[]) => boolean) => calls.filter(pred).length;
+    return { go, calls, logs, sleeps, lockDir, count };
+  };
+  const isList = (c: string[]) => c.some((a) => a.includes('stage-engine-release.yml/runs'));
+  const isPost = (c: string[]) => c.includes('POST');
+
+  it('the deadline is the preparation window end, less the send margin', () => {
+    const window = preparationWindow(FIRE)!;
+    expect(window.end).toBe(at('2026-11-27T18:50:00Z'));
+    expect(sendDeadline(window)).toBe(window.end - SEND_MARGIN_MS);
+    expect(chicagoHHMM(at('2026-11-27T18:42:00Z'))).toBe('12:42 CST');
+  });
+
+  it('rate limited with a reset before the deadline: waits once, then one read and one send', () => {
+    // Another lane measured the shared quota at 0/5000 until 12:42 CST.
+    const h = harness({ rate: () => quota(0, '2026-11-27T18:42:00Z') });
+    expect(h.go()).toBe(0);
+    expect(h.sleeps).toEqual([at('2026-11-27T18:42:00Z') + RESET_SETTLE_MS - FIRE]);
+    expect(h.count(isList)).toBe(1);
+    expect(h.count(isPost)).toBe(1);
+    // The read and the send both come after the wait, never before it.
+    const firstRead = h.calls.findIndex(isList);
+    expect(h.calls.slice(0, firstRead).every((c) => c[1] === 'rate_limit')).toBe(true);
+    expect(h.logs.join('\n')).toContain('RATE LIMITED until 12:42 CST; waiting once');
+    expect(h.logs.join('\n')).toContain('SENT');
+    // The cycle's lock is released afterwards: a new instance can take it.
+    const release = takeCycleLock(preparationWindow(FIRE)!, h.lockDir);
+    expect(release).not.toBeNull();
+    release!();
+  });
+
+  it('a second firing while one instance waits sends nothing', () => {
+    const h = harness({ rate: () => quota(0, '2026-11-27T18:42:00Z') });
+    const window = preparationWindow(FIRE)!;
+    // A live holder: this very process.
+    writeFileSync(
+      join(h.lockDir, `ca-cutover-operator-preparation-${window.start}.lock`),
+      String(process.pid)
+    );
+    expect(h.go()).toBe(0);
+    expect(h.sleeps).toEqual([]);
+    expect(h.count(isList) + h.count(isPost)).toBe(0);
+    expect(h.logs.join('\n')).toMatch(/FOLLOW: another instance is waiting/);
+    // A stale lock (dead pid) is taken over.
+    writeFileSync(
+      join(h.lockDir, `ca-cutover-operator-preparation-${window.start}.lock`),
+      '999999999'
+    );
+    const release = takeCycleLock(window, h.lockDir);
+    expect(release).not.toBeNull();
+    release!();
+  });
+
+  it('rate limited with a reset after the deadline: sends nothing and names both times', () => {
+    const h = harness({ rate: () => quota(1, '2026-11-27T18:55:00Z') });
+    expect(h.go()).toBe(EXIT_RATE_LIMITED_PAST_DEADLINE);
+    expect(EXIT_RATE_LIMITED_PAST_DEADLINE).not.toBe(0);
+    expect(EXIT_RATE_LIMITED_PAST_DEADLINE).not.toBe(2);
+    expect(h.sleeps).toEqual([]);
+    expect(h.count(isList) + h.count(isPost)).toBe(0);
+    expect(h.logs.join('\n')).toContain(
+      'RATE LIMITED until 12:55 CST after the deadline 12:49 CST'
+    );
+  });
+
+  it('an unreadable rate_limit behaves as before: read, then send', () => {
+    for (const rate of [
+      () => {
+        throw gh403('API rate limit exceeded for user ID 1');
+      },
+      () => 'not json',
+      () => JSON.stringify({ resources: {} }),
+    ]) {
+      const h = harness({ rate });
+      expect(h.go()).toBe(0);
+      expect(h.sleeps).toEqual([]);
+      expect(h.count(isList)).toBe(1);
+      expect(h.count(isPost)).toBe(1);
+    }
+    // Enough quota left: no wait either.
+    const h = harness({ rate: () => quota(2, '2026-11-27T18:42:00Z') });
+    expect(h.go()).toBe(0);
+    expect(h.sleeps).toEqual([]);
+  });
+
+  it('a failed read and a failed send log gh stderr reason, never just "Command failed"', () => {
+    const h = harness({
+      rate: () => 'unreadable',
+      list: () => {
+        throw gh403('API rate limit exceeded for user ID 1');
+      },
+      post: () => {
+        throw gh403('API rate limit exceeded for user ID 1');
+      },
+    });
+    expect(h.go()).toBe(2);
+    const text = h.logs.join('\n');
+    expect(text).toContain(
+      'READ FAILED: RATE LIMITED: gh: API rate limit exceeded for user ID 1 (HTTP 403)'
+    );
+    expect(text).toMatch(
+      /SEND FAILED: RATE LIMITED until an unreadable reset: gh: API rate limit exceeded/
+    );
+    expect(text).not.toMatch(/SEND FAILED: Command failed/);
+    // With the quota readable after the failure, the reset is named in Chicago time.
+    let rateCalls = 0;
+    const h2 = harness({
+      rate: () => (rateCalls++ === 0 ? 'unreadable' : quota(0, '2026-11-27T18:42:00Z')),
+      post: () => {
+        throw gh403('API rate limit exceeded for user ID 1');
+      },
+    });
+    expect(h2.go()).toBe(2);
+    expect(h2.logs.join('\n')).toContain(
+      'SEND FAILED: RATE LIMITED until 12:42 CST: gh: API rate limit'
+    );
+    // Another cause is named as gh said it.
+    const h3 = harness({
+      post: () => {
+        throw Object.assign(new Error('Command failed: gh api'), {
+          stderr: 'gh: Resource not accessible by personal access token (HTTP 403)\n',
+        });
+      },
+    });
+    expect(h3.go()).toBe(2);
+    expect(h3.logs.join('\n')).toContain(
+      'SEND FAILED: gh: Resource not accessible by personal access token (HTTP 403)'
+    );
+  });
+
+  it('never logs a token gh might echo', () => {
+    const reason = failureReason(
+      Object.assign(new Error('x'), {
+        stderr: 'bad credentials for ghp_abcDEF123 and github_pat_11AA_bb22\n',
+      })
+    );
+    expect(reason).not.toMatch(/ghp_|github_pat_/);
+    expect(reason).toContain('[redacted]');
+    expect(failureReason(new Error('first line\nsecond line'))).toBe('second line');
+  });
+
+  it('the cron timeout covers the longest possible wait', () => {
+    const job = JSON.parse(read('ops/openclaw/ca-cutover-operator-preparation.json'));
+    const [minutes] = String(job.schedule.expr).split(' ');
+    const earliest = Math.min(...minutes.split(',').map(Number)) % 60; // minutes past the hour
+    // Each cutoff falls at :30, so the earliest firing is (earliest - 30) min after it.
+    const waitMs = PREPARATION_WINDOW_MINUTES * MIN - SEND_MARGIN_MS - (earliest - 30) * MIN;
+    expect(job.payload.timeoutSeconds * 1000).toBeGreaterThanOrEqual(waitMs + 120_000);
+    expect(job.comment).toContain(`--timeout-seconds ${job.payload.timeoutSeconds}`);
   });
 });
 

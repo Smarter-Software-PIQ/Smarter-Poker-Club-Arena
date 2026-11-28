@@ -537,8 +537,17 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaFacingBetPriorIsPeopleMeasured: priced(
     'a heads-up turn or river bettor (a bet or a raise) is priced on the PEOPLE-ONLY measured non-value share for the street and size (river: three measured regions, core / middle / weakest half), the balanced share weighting only a thin cell, moved by his own shown bets; Horse play never enters (default OFF; PLO-OWNER lead-7 2026-11-26)'
   ),
+  omahaPeoplePriorCountsHiddenBets: priced(
+    "the people-only flop (per pot type) and turn (per the bettor's flop line) non-value shares of the facing-bet price, per game, count the bets people never showed although they did not win them uncontested (folded later in the hand, mucked at showdown) as non-value; a thin split cell is blended toward the equilibrium anchor, never the pooled cell; the bettor's own record counts his hidden bets the same way; public events only, no unshown card, Horse play never enters (default OFF; lead-8 lane OFA 2026-11-27)"
+  ),
   omahaMultiwayFieldIsPeopleMeasured: priced(
     "a multiway turn or river call is priced with each caller holding the PEOPLE-measured caller width and each player still to act continuing at the PEOPLE-measured multiway continue rate, both anchored to equilibrium (1 / (1 + s); the field's joint break-even); heads-up untouched; Horse play never enters (default OFF; PLO-OWNER lead-7 2026-11-27)"
+  ),
+  omahaTurnFacingBetPriorIsLineSplit: priced(
+    'a turn first wager (never a raise), heads-up or multiway, is priced on the PEOPLE-ONLY measured non-value share of its flop line (checked through / wagered) and size, the balanced share weighting only a thin cell, moved by his own shown bets; Horse play never enters (default OFF; lead-8 lane OFB 2026-11-27)'
+  ),
+  omahaHiddenBetsArePricedAsGiveUps: priced(
+    "inside the hidden-bets people prior's heads-up turn bet (never a raise, never a re-raised pot), the hidden part of the bettor's non-value share (people's bets that checked and folded later or mucked, the one-street balanced share behind a thin cell, moved by his own record) is priced as his weakest half of holdings at full realization; the rest of the share as before; Horse play never enters (default OFF; lead-9 lane HUOOP 2026-11-27)"
   ),
   omahaFacingBetFieldIsJoint: priced(
     'a multiway turn or river call is priced with the bettor, the callers, the earlier all-ins and the players behind (at their measured continue rate) dealt on the same cards from measured ranges (default OFF; PLO-OWNER lead-6 2026-11-24)'
@@ -611,6 +620,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   ),
   omahaReraisedPotFoldReraiseIsPriced: priced(
     "preflop facing exactly a 3-bet, heads-up against the re-raiser: a standing fold becomes the pot-size re-raise only where EV(re-raise) is above max(EV(call), 0) by more than the deadband plus the sampling error of the price, the re-raiser's width and his fold to the re-raise read from his own public record, then the people-only person-level prior; it never makes a call and changes no call or re-raise (default OFF; lead-8 lane preflop 2026-11-27)"
+  ),
+  omahaLimpReraiseVsIsoRaiser: priced(
+    "preflop first in: a strong raise becomes the limp only where EV(limp, then the pot re-raise of the likeliest raiser's pot isolation) is above EV(open) by more than the deadband plus the sampling error, his raise rate and his fold to a re-raise read from his own public record against the people-only prior, mixed with the open; the Horse's own limp (never the VPIP floor's), raised heads-up, becomes the pot re-raise only where EV(re-raise) is above max(EV(call), 0) by more than the deadband plus the sampling error; both only in position against that player or with a connected rundown (default OFF; owner order 2026-11-27, lead-8 lane limprr)"
   ),
   omahaOopReraiseRangeHoldsVsReraise: priced(
     "an out-of-position preflop 3-bet facing one open stands only when EV(3-bet), priced on the opener's measured answer to a 3-bet (fitted population answer when unread) and the Horse's own answer to the 4-bet at the real depth, is at least the priced call the existing calling rule admits (or 0), and that answer is not a fold except a blocker kept at the seeded frequency that holds the range's fold-to-4-bet share under horse.reraiseFoldShareCap; it only removes 3-bets, as the call or the fold (default OFF; PLO-LEAD-6)"

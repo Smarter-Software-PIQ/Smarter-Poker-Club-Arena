@@ -4740,6 +4740,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaReraisedPotFoldReraiseIsPriced: true },
     b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
+  // 2026-11-27 (owner order 12:48 PM Chicago, lead-8 lane limprr): omahaLimpReraiseVsIsoRaiser, default OFF: a strong
+  // first-in raise may become the priced limp and the Horse's own limp, raised heads-up, the priced pot re-raise, only in
+  // position or with a connected rundown. Both arms carry production's live set; a adds the option
+  // (docs/horse-option-authority.d/omahaLimpReraiseVsIsoRaiser.md).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_limp_reraise_vs_iso_raiser`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaLimpReraiseVsIsoRaiser: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
   // 2026-11-15 OMAHA OUT-OF-POSITION RE-RAISED POT STRONG RANGE (default OFF):
   // a preflop call of a 3-bet or more out of position against the last raiser
   // stands only with suited aces, as a priced commitment, or with a
@@ -5122,6 +5134,24 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   })),
   // 2026-11-27 PLO-OWNER lead-7 (default OFF, PLO4/PLO5 cash): the multiway field of the facing-bet price measured on
   // people (HorseOmahaMultiwayPeopleField).
+  // 2026-11-27 lead-8 lane OFA (default OFF, PLO4/PLO5 cash): the flop / turn people cells count people's hidden bets
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_people_prior_counts_hidden_bets`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaFacingBetEv: true,
+      omahaFacingBetPriorIsPeopleMeasured: true,
+      omahaFlopPressureCapIsPriced: true,
+      omahaPeoplePriorCountsHiddenBets: true,
+    },
+    b: {
+      omahaFacingBetEv: true,
+      omahaFacingBetPriorIsPeopleMeasured: true,
+      omahaFlopPressureCapIsPriced: true,
+    },
+  })),
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_multiway_field_is_people_measured`,
     variant,
@@ -5129,6 +5159,39 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     productionStyles: true,
     a: { omahaFacingBetEv: true, omahaMultiwayFieldIsPeopleMeasured: true },
     b: { omahaFacingBetEv: true },
+  })),
+  // 2026-11-27 lead-8 lane OFB (default OFF, PLO4/PLO5 cash): the turn bettor priced on the people cell of the flop
+  // line (checked through / wagered), heads-up and multiway (HorseOmahaTurnLinePeoplePrior).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_turn_facing_bet_prior_is_line_split`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaFacingBetEv: true,
+      omahaFacingBetPriorIsPeopleMeasured: true,
+      omahaTurnFacingBetPriorIsLineSplit: true,
+    },
+    b: { omahaFacingBetEv: true, omahaFacingBetPriorIsPeopleMeasured: true },
+  })),
+  // 2026-11-27 lead-9 lane HUOOP (default OFF, PLO4/PLO5 cash): the hidden part of the heads-up turn bettor's
+  // non-value share priced as give-ups (weakest half, full realization), on top of the hidden-bets people prior.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_hidden_bets_are_priced_as_give_ups`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaFacingBetEv: true,
+      omahaFacingBetPriorIsPeopleMeasured: true,
+      omahaPeoplePriorCountsHiddenBets: true,
+      omahaHiddenBetsArePricedAsGiveUps: true,
+    },
+    b: {
+      omahaFacingBetEv: true,
+      omahaFacingBetPriorIsPeopleMeasured: true,
+      omahaPeoplePriorCountsHiddenBets: true,
+    },
   })),
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_facing_bet_field_is_joint`,
@@ -5397,6 +5460,15 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     variant: 'nlh',
     pairs: 6000,
     a: { holdemRiverBluffIsPricedOnPeople: true },
+    b: {},
+  },
+  // 2026-11-27 lead-9 (default OFF): the NLH cash heads-up turn bluff priced on people's turn fold; a switches it
+  // on, b is today's brain. Graded by the lane's own mirror, probes and replay (docs/horse-option-authority.d).
+  {
+    name: 'nlh_holdem_turn_bluff_is_priced_on_people',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemTurnBluffIsPricedOnPeople: true },
     b: {},
   },
   // 2026-11-26 plo-lead7 tourney-postflop (default OFF): the Hold'em tournament bluff after the flop, each option

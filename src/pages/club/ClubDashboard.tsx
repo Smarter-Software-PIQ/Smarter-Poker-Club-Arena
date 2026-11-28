@@ -3,14 +3,14 @@ import { titleCase } from '../../utils/titleCase';
 import { getTournamentEntryCapacity } from '../../utils/tournamentPresentation';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- *  CLUB DASHBOARD — Comprehensive Club Analytics
+ *  CLUB DASHBOARD - Comprehensive Club Analytics
  * ═══════════════════════════════════════════════════════════════════════════════
  * Data sources (all club-membership gated, see 20260819b/c/d migrations):
- *   ca_club_dashboard_stats  — metric cards + 14-day sparkline series
- *   ca_club_top_players      — leaderboard, real profit from stack deltas
- *   ca_club_members          — full searchable roster for the Players tab;
+ *   ca_club_dashboard_stats  - metric cards + 14-day sparkline series
+ *   ca_club_top_players      - leaderboard, real profit from stack deltas
+ *   ca_club_members          - full searchable roster for the Players tab;
  *                              money and hands only on rows the viewer may see
- *   ca_club_activity         — activity feed synthesized from real events
+ *   ca_club_activity         - activity feed synthesized from real events
  *
  * Profit note: figures come from post-hand stack deltas with session/rebuy
  * gating, so a player's number is only counted over hands it could be proven
@@ -38,7 +38,8 @@ import ClubStatsCards, { DashboardStats } from '../../components/club/ClubStatsC
 import ClubActivityFeed from '../../components/club/ClubActivityFeed';
 import ClubDashboardAvatar from '../../components/club/ClubDashboardAvatar';
 import PageSkeleton from '../../components/common/PageSkeleton';
-import PageHelp from '../../components/help/PageHelp';
+import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
+import { ArenaReadings } from '../../components/ops/ArenaOps';
 import { useToast } from '../../components/common/Toast';
 import ClubMemberManagement from '../../components/admin/ClubMemberManagement';
 import { useVisibilityRefresh } from '../../hooks/useVisibilityRefresh';
@@ -84,7 +85,7 @@ interface TopPlayer {
   totalProfit: number;
   totalWon: number;
   handsPlayed: number;
-  /** Hands the profit figure could actually be proven on — see migration 20260819c. */
+  /** Hands the profit figure could actually be proven on - see migration 20260819c. */
   handsAttributed: number;
   handsWon: number;
   biggestPotWon: number;
@@ -252,22 +253,6 @@ const MEMBER_PAGE_SIZE = 25;
 const LEADERBOARD_VISIBLE = 10;
 type MemberSortId = 'hands' | 'profit' | 'name' | 'joined' | 'last_active';
 
-const selectStyle: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.06)',
-  color: 'inherit',
-  border: '1px solid rgba(255,255,255,0.12)',
-  borderRadius: 8,
-  padding: '5px 10px',
-  fontSize: '0.78rem',
-  cursor: 'pointer',
-};
-
-const RANK_COLORS: Record<number, string> = {
-  1: 'linear-gradient(135deg, #f5c518, #b8860b)',
-  2: 'linear-gradient(135deg, #d7d7d7, #8e8e8e)',
-  3: 'linear-gradient(135deg, #cd7f32, #8b5a2b)',
-};
-
 export default function ClubDashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { clubId: routeClubId } = useParams<{ clubId?: string }>();
@@ -407,7 +392,7 @@ export default function ClubDashboard() {
   //
   // Visibility is tracked by userId, not list index. The rendered list is
   // sorted and optionally horse-filtered, so an index into the raw array does
-  // not identify the same row — the activity feed had exactly this bug, where
+  // not identify the same row - the activity feed had exactly this bug, where
   // filtering left rows stuck at opacity 0. Only the rows actually rendered
   // are staggered, so a 100-row payload no longer schedules 100 timers.
   const topPlayersRef = useRef(topPlayers);
@@ -537,7 +522,7 @@ export default function ClubDashboard() {
     try {
       const uuid = isUUID(clubId) ? clubId : await resolveClubUUID(clubId);
       if (!isUUID(uuid)) {
-        // Unknown club code — render the not-found state rather than throwing
+        // Unknown club code - render the not-found state rather than throwing
         // an opaque 22P02 from the uuid-typed RPCs.
         if (isCurrent()) {
           setClub(null);
@@ -956,7 +941,7 @@ export default function ClubDashboard() {
     );
   };
 
-  /** Exports the page currently on screen — labelled as such, not as the roster. */
+  /** Exports the page currently on screen - labelled as such, not as the roster. */
   const exportMembersCsv = () => {
     const header = [
       'display_name',
@@ -999,145 +984,109 @@ export default function ClubDashboard() {
 
   if (notAMember) {
     return (
-      <div className={styles.error}>
-        <h2>Members Only</h2>
-        <p style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>
-          Club Analytics Are Visible To Members Of This Club.
-        </p>
-        <Link to="/clubs">Back To Clubs</Link>
+      <div className={`arena-workspace ${styles.dashboard}`} data-arena-surface="club-dashboard">
+        <section className={`arena-case arena-ops-case ${styles.notice}`}>
+          <h2 className="arena-section-title">Members Only</h2>
+          <p className="arena-ops-copy">Club Analytics Are Visible To Members Of This Club.</p>
+          <div className="arena-switch">
+            <Link to="/clubs">Back To Clubs</Link>
+          </div>
+        </section>
       </div>
     );
   }
 
   if (loadError && !loading && !club) {
     return (
-      <div className={styles.dashboard} data-arena-surface="club-dashboard">
-        <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-secondary)' }}>
-          <p style={{ fontSize: '1.1rem', marginBottom: '16px' }}>Failed To Load Dashboard</p>
-          <button
-            onClick={() => loadDashboardData()}
-            style={{
-              padding: '10px 24px',
-              borderRadius: '8px',
-              background: 'var(--accent-blue, #3b82f6)',
-              color: '#fff',
-              border: 'none',
-              cursor: 'pointer',
-              fontSize: '0.95rem',
-              fontWeight: 600,
-            }}
-          >
-            Retry
-          </button>
-        </div>
+      <div className={`arena-workspace ${styles.dashboard}`} data-arena-surface="club-dashboard">
+        <section className={`arena-case arena-ops-case ${styles.notice}`}>
+          <h2 className="arena-section-title">Failed To Load Dashboard</h2>
+          <div className="arena-switch arena-ops-primary">
+            <button onClick={() => loadDashboardData()}>Retry</button>
+          </div>
+        </section>
       </div>
     );
   }
 
   if (!club) {
     return (
-      <div className={styles.error}>
-        <h2>Club Not Found</h2>
-        <Link to="/clubs">Back To Clubs</Link>
+      <div className={`arena-workspace ${styles.dashboard}`} data-arena-surface="club-dashboard">
+        <section className={`arena-case arena-ops-case ${styles.notice}`}>
+          <h2 className="arena-section-title">Club Not Found</h2>
+          <div className="arena-switch">
+            <Link to="/clubs">Back To Clubs</Link>
+          </div>
+        </section>
       </div>
     );
   }
 
   const rangeLabel = rangeLabelFor(dateRange);
   const hasInsurance = !!revenue?.insurance && revenue.insurance.contracts > 0;
+  const headerContext = club.levelInfo
+    ? `Club Dashboard · Level ${club.levelInfo.level}`
+    : 'Club Dashboard';
+  const headerSubtitle =
+    `${formatInt(club.memberCount)} Members • ${club.tableCount} Active ` +
+    `${club.tableCount === 1 ? 'Table' : 'Tables'}` +
+    (dashStats && dashStats.seatedNow > 0 ? ` • ${formatInt(dashStats.seatedNow)} Seated Now` : '');
 
   return (
-    <div className={styles.dashboard} data-arena-surface="club-dashboard">
-      {/* Dashboard Header */}
-      {/* The header is the club's identity (its avatar, name, level and live
-          counts) and its actions. The "Club Dashboard" eyebrow and the hero
-          artwork are gone (Dan 2026-10-17); the explanation sits behind the
-          "?" in the header's top right, so the club name stays the page's one
-          visible heading instead of gaining a second bar above it. */}
-      <header className={styles.header}>
-        <PageHelp
-          className={styles.help}
-          title="Club Dashboard"
-          summary="The Club's Live Floor And Accounts On One Page. Start A Table, Read The Books, Answer Disputes And Talk To Members From Here."
-          steps={[
-            {
-              title: 'Quick Actions',
-              body: 'New Table, Financials, Disputes, Announcements And Settings Are One Tap Away.',
-              target: `.${styles.quickActions}`,
-            },
-            {
-              title: 'Time Range',
-              body: 'Choose Today, This Week, This Month Or All Time For Hosted Table Players, Players, Revenue And Tournaments. The Metric Cards Always Read Today And This Week.',
-              target: `.${styles.filterBar}`,
-            },
-          ]}
-        />
-        <div className={styles.clubInfo}>
-          <div className={styles.clubAvatar}>
+    <div className={`arena-workspace ${styles.dashboard}`} data-arena-surface="club-dashboard">
+      {/* #SmarterDesign (Dan 2026-11-27): the club's identity sits in the arena
+          mast, its logo in the medallion and its level in the context line.
+          The explanation stays behind the mast's "?" so the club name is the
+          page's one visible heading. */}
+      <ArenaWorkspaceHeader
+        area="dashboard"
+        title={club.name}
+        context={headerContext}
+        subtitle={headerSubtitle}
+        helpTitle="Club Dashboard"
+        emblem={
+          <span className={styles.emblem}>
             <ClubDashboardAvatar src={club.avatarUrl} name={club.name} />
-          </div>
-          <div className={styles.clubMeta}>
-            <h1 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {club.name}
-              {club.levelInfo && (
-                <span
-                  style={{
-                    fontSize: '0.8rem',
-                    padding: '4px 10px',
-                    borderRadius: '12px',
-                    background: club.levelInfo.gradient,
-                    color: '#fff',
-                    fontWeight: 700,
-                    textShadow: '0 1px 2px rgba(0,0,0,0.5)',
-                  }}
-                >
-                  Lv.{club.levelInfo.level}
-                </span>
-              )}
-            </h1>
-            <p>
-              {formatInt(club.memberCount)} Members {'•'} {club.tableCount} Active{' '}
-              {club.tableCount === 1 ? 'Table' : 'Tables'}
-              {dashStats && dashStats.seatedNow > 0 && (
-                <>
-                  {' '}
-                  {'•'} {formatInt(dashStats.seatedNow)} Seated Now
-                </>
-              )}
-            </p>
-          </div>
-        </div>
-        <div className={styles.quickActions}>
-          <Link to={`/clubs/${clubId}/create-table`} className={styles.actionBtn}>
-            New Table
-          </Link>
-          <Link to={`/clubs/${clubId}/financials`} className={styles.actionBtn}>
-            Financials
-          </Link>
-          <Link to={`/clubs/${clubId}/disputes`} className={styles.actionBtn}>
-            Disputes
-          </Link>
-          <Link to={`/clubs/${clubId}/announcements`} className={styles.actionBtn}>
-            Announce
-          </Link>
-          <Link to={`/clubs/${clubId}/settings`} className={styles.actionBtn}>
-            Settings
-          </Link>
-          {/* No "Recalculate Level" button (2026-10-19): it called
-              recompute_club_levels, which only the service role may run, so it
-              failed for every owner. A club's level is recomputed in the
-              database on every rake and membership change. */}
-        </div>
-      </header>
+          </span>
+        }
+        summary="The Club's Live Floor And Accounts On One Page. Start A Table, Read The Books, Answer Disputes And Talk To Members From Here."
+        steps={[
+          {
+            title: 'Quick Actions',
+            body: 'New Table, Financials, Disputes, Announcements And Settings Are One Tap Away.',
+            target: `.${styles.quickActions}`,
+          },
+          {
+            title: 'Time Range',
+            body: 'Choose Today, This Week, This Month Or All Time For Hosted Table Players, Players, Revenue And Tournaments. The Metric Cards Always Read Today And This Week.',
+            target: `.${styles.filterBar}`,
+          },
+        ]}
+      />
+
+      <nav
+        className={`arena-switch arena-ops-keys ${styles.quickActions}`}
+        aria-label="Club Quick Actions"
+      >
+        <Link to={`/clubs/${clubId}/create-table`}>New Table</Link>
+        <Link to={`/clubs/${clubId}/financials`}>Financials</Link>
+        <Link to={`/clubs/${clubId}/disputes`}>Disputes</Link>
+        <Link to={`/clubs/${clubId}/announcements`}>Announce</Link>
+        <Link to={`/clubs/${clubId}/settings`}>Settings</Link>
+        {/* No "Recalculate Level" button (2026-10-19): it called
+            recompute_club_levels, which only the service role may run, so it
+            failed for every owner. A club's level is recomputed in the
+            database on every rake and membership change. */}
+      </nav>
 
       {/* Date Range Filter */}
       <div className={styles.filterBar}>
-        <span className={styles.filterLabel}>Time Range:</span>
-        <div className={styles.filterButtons}>
+        <span className="arena-ops-eyebrow">Time Range:</span>
+        <div className="arena-switch">
           {(['today', 'week', 'month', 'all'] as const).map((range) => (
             <button
               key={range}
-              className={`${styles.filterBtn} ${dateRange === range ? styles.active : ''}`}
+              aria-pressed={dateRange === range}
               onClick={() => setDateRange(range)}
             >
               {range.charAt(0).toUpperCase() + range.slice(1)}
@@ -1150,9 +1099,13 @@ export default function ClubDashboard() {
             on the page). */}
       </div>
 
-      {/* Tab Navigation — real tablist semantics so screen readers announce
+      {/* Tab Navigation: real tablist semantics so screen readers announce
           the selected tab and arrow keys move between them. */}
-      <nav className={styles.tabNav} role="tablist" aria-label="Club Dashboard Sections">
+      <nav
+        className={`arena-switch arena-ops-keys ${styles.tabNav}`}
+        role="tablist"
+        aria-label="Club Dashboard Sections"
+      >
         {(
           [
             { id: 'overview', label: 'Overview' },
@@ -1172,7 +1125,6 @@ export default function ClubDashboard() {
             aria-selected={activeTab === tab.id}
             aria-controls="ca-tabpanel"
             tabIndex={activeTab === tab.id ? 0 : -1}
-            className={`${styles.tab} ${activeTab === tab.id ? styles.active : ''}`}
             onClick={() => switchTab(tab.id)}
             onKeyDown={(e) => {
               if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
@@ -1189,18 +1141,8 @@ export default function ClubDashboard() {
 
       {/* Freshness. Background refreshes are silent by design, so state the
           age of the numbers and offer an explicit refresh. */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'flex-end',
-          gap: 10,
-          padding: '0 4px 6px',
-          fontSize: '0.7rem',
-          color: 'var(--text-secondary, #8a8f98)',
-        }}
-      >
-        <span aria-live="polite">
+      <div className={`arena-switch ${styles.freshness}`}>
+        <span className={styles.freshnessLine} aria-live="polite">
           {loading
             ? 'Refreshing...'
             : lastUpdated
@@ -1211,16 +1153,6 @@ export default function ClubDashboard() {
           onClick={() => loadDashboardData()}
           disabled={loading}
           aria-label="Refresh Dashboard Data"
-          style={{
-            background: 'rgba(255,255,255,0.06)',
-            color: 'inherit',
-            border: '1px solid rgba(255,255,255,0.12)',
-            borderRadius: 8,
-            padding: '3px 10px',
-            fontSize: '0.7rem',
-            cursor: loading ? 'default' : 'pointer',
-            opacity: loading ? 0.6 : 1,
-          }}
         >
           Refresh
         </button>
@@ -1235,28 +1167,13 @@ export default function ClubDashboard() {
       >
         {activeTab === 'overview' && (
           <div className={styles.overviewGrid}>
-            <section className={styles.statsSection}>
-              <h2>Club Metrics</h2>
+            <section className={`arena-case arena-ops-case ${styles.statsSection}`}>
+              <h2 className="arena-section-title">Club Metrics</h2>
               {clubId && <ClubStatsCards clubId={clubId} stats={dashStats} failed={statsFailed} />}
               {dashStats && dashStats.dailySeries.length > 0 && (
-                <div style={{ marginTop: 16 }}>
-                  <h2 style={{ fontSize: '0.95rem', marginBottom: 4 }}>Last 14 Days</h2>
-                  <Suspense
-                    fallback={
-                      <div
-                        style={{
-                          height: 240,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          color: 'var(--text-secondary, #8a8f98)',
-                          fontSize: '0.85rem',
-                        }}
-                      >
-                        Loading Chart...
-                      </div>
-                    }
-                  >
+                <div className={styles.chartBlock}>
+                  <h3 className={styles.subTitle}>Last 14 Days</h3>
+                  <Suspense fallback={<div className={styles.chartLoading}>Loading Chart...</div>}>
                     {/* ca_club_dashboard_stats.daily_series carries hands
                         DEALT beside the club's cash rake. */}
                     <ClubActivityChart data={dashStats.dailySeries} handsLabel="Hosted Hands" />
@@ -1265,58 +1182,30 @@ export default function ClubDashboard() {
               )}
             </section>
 
-            <section className={styles.leaderboardSection}>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  flexWrap: 'wrap',
-                  gap: 8,
-                }}
+            <section className="arena-case arena-ops-case">
+              <h2
+                className="arena-section-title"
+                title="Ranks Play At Tables Hosted By This Club. Shared Union Table Play Appears In Club Data And Player Records."
               >
-                <h2
-                  style={{ margin: 0 }}
-                  title="Ranks Play At Tables Hosted By This Club. Shared Union Table Play Appears In Club Data And Player Records."
+                Hosted Table Players
+              </h2>
+              <div className={styles.toolbar}>
+                <select
+                  className="arena-ops-well"
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as SortId)}
+                  aria-label="Sort Leaderboard"
                 >
-                  Hosted Table Players
-                </h2>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <select
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value as SortId)}
-                    aria-label="Sort Leaderboard"
-                    style={{
-                      background: 'rgba(255,255,255,0.06)',
-                      color: 'inherit',
-                      border: '1px solid rgba(255,255,255,0.12)',
-                      borderRadius: 8,
-                      padding: '4px 8px',
-                      fontSize: '0.78rem',
-                    }}
-                  >
-                    <option value="profit">Profit</option>
-                    <option value="hands">Hands</option>
-                    <option value="winrate">Win Rate</option>
-                    <option value="biggest">Biggest Pot</option>
-                  </select>
-                  {rankedPlayers.length > 0 && (
-                    <button
-                      onClick={exportLeaderboardCsv}
-                      style={{
-                        background: 'rgba(255,255,255,0.06)',
-                        color: 'inherit',
-                        border: '1px solid rgba(255,255,255,0.12)',
-                        borderRadius: 8,
-                        padding: '4px 10px',
-                        fontSize: '0.78rem',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Export CSV
-                    </button>
-                  )}
-                </div>
+                  <option value="profit">Profit</option>
+                  <option value="hands">Hands</option>
+                  <option value="winrate">Win Rate</option>
+                  <option value="biggest">Biggest Pot</option>
+                </select>
+                {rankedPlayers.length > 0 && (
+                  <div className="arena-switch">
+                    <button onClick={exportLeaderboardCsv}>Export CSV</button>
+                  </div>
+                )}
               </div>
 
               <div className={styles.leaderboard}>
@@ -1327,40 +1216,13 @@ export default function ClubDashboard() {
                     <Link
                       key={player.userId}
                       to={`/profile/${player.userId}`}
-                      className={styles.playerRow}
+                      className={`arena-ledger-row ${styles.playerRow} ${
+                        visiblePlayers.has(player.userId) ? '' : styles.pending
+                      }`}
                       title={`View ${player.displayName}'s Profile`}
-                      style={{
-                        textDecoration: 'none',
-                        color: 'inherit',
-                        opacity: visiblePlayers.has(player.userId) ? 1 : 0,
-                        transform: visiblePlayers.has(player.userId)
-                          ? 'translateY(0)'
-                          : 'translateY(8px)',
-                        transition: 'all 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-                      }}
                     >
-                      <span className={styles.rank}>
-                        {player.rank <= 3 ? (
-                          <span
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              width: '22px',
-                              height: '22px',
-                              borderRadius: '50%',
-                              background: RANK_COLORS[player.rank],
-                              color: '#fff',
-                              fontWeight: 800,
-                              fontSize: '0.75rem',
-                              textShadow: '0 1px 1px rgba(0,0,0,0.4)',
-                            }}
-                          >
-                            {player.rank}
-                          </span>
-                        ) : (
-                          `#${player.rank}`
-                        )}
+                      <span className={`${styles.rank} ${player.rank <= 3 ? styles.rankTop : ''}`}>
+                        {player.rank <= 3 ? player.rank : `#${player.rank}`}
                       </span>
                       <div className={styles.playerAvatar}>
                         {player.avatarUrl ? (
@@ -1371,13 +1233,7 @@ export default function ClubDashboard() {
                       </div>
                       <span className={styles.playerName}>
                         {player.displayName}
-                        <span
-                          style={{
-                            display: 'block',
-                            fontSize: '0.7rem',
-                            color: 'var(--text-secondary, #888)',
-                          }}
-                        >
+                        <span className={styles.playerLine}>
                           {formatInt(player.handsPlayed)} Hands {'•'} {player.winRate}% Won
                         </span>
                       </span>
@@ -1390,28 +1246,15 @@ export default function ClubDashboard() {
                   ))
                 )}
                 {rankedPlayers.length > LEADERBOARD_VISIBLE && (
-                  <button
-                    onClick={() => switchTab('players')}
-                    className={styles.viewAllLink}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      marginTop: 4,
-                    }}
-                  >
-                    See All {formatInt(rankedPlayers.length)} Ranked Players {'→'}
-                  </button>
+                  <div className="arena-switch">
+                    <button onClick={() => switchTab('players')}>
+                      See All {formatInt(rankedPlayers.length)} Ranked Players {'→'}
+                    </button>
+                  </div>
                 )}
               </div>
               {attribution && (
-                <p
-                  style={{
-                    fontSize: '0.7rem',
-                    color: 'var(--text-secondary, #888)',
-                    marginTop: 8,
-                  }}
-                >
+                <p className="arena-ops-live">
                   Profit Measured From Post-Hand Stack Movement On{' '}
                   {formatInt(attribution.attributed)} Of {formatInt(attribution.played)}{' '}
                   Player-Hands {rangeLabel}
@@ -1424,80 +1267,56 @@ export default function ClubDashboard() {
               )}
             </section>
 
-            <section className={styles.activityPreview}>
-              <h2>Recent Activity</h2>
+            <section className="arena-case arena-ops-case">
+              <h2 className="arena-section-title">Recent Activity</h2>
               {clubId && <ClubActivityFeed plain clubId={clubId} limit={5} />}
-              <button
-                onClick={() => switchTab('activity')}
-                className={styles.viewAllLink}
-                style={{ background: 'none', border: 'none', cursor: 'pointer' }}
-              >
-                View All Activity {'→'}
-              </button>
+              <div className="arena-switch">
+                <button onClick={() => switchTab('activity')}>View All Activity {'→'}</button>
+              </div>
             </section>
           </div>
         )}
 
         {activeTab === 'activity' && (
-          <div className={styles.activityFull}>
-            <h2>Club Activity Feed</h2>
+          <section className="arena-case arena-ops-case">
+            <h2 className="arena-section-title">Club Activity Feed</h2>
             {clubId && <ClubActivityFeed plain clubId={clubId} limit={50} showFilter />}
-          </div>
+          </section>
         )}
 
         {activeTab === 'players' && (
-          <div className={styles.playersSection}>
-            <div className={styles.sectionHeader}>
-              {/* `memberTotal || club.memberCount` was wrong on two counts: a
-                  search matching nothing gives 0, which is falsy, so the
-                  heading fell back to the full roster size and read "Club
-                  Members (327)" directly above "No members matching"; and with
-                  a filter applied the total describes the filtered set, not the
-                  club. Say which one is being counted. */}
-              <h2>
-                {memberFiltered ? 'Matching Members' : 'Club Members'} (
-                {formatInt(membersReady ? memberTotal : club.memberCount)})
-              </h2>
-              <Link to={`/clubs/${clubId}/members`} className={styles.manageLink}>
-                Manage Members {'→'}
-              </Link>
+          <section className="arena-case arena-ops-case">
+            {/* `memberTotal || club.memberCount` was wrong on two counts: a
+                search matching nothing gives 0, which is falsy, so the
+                heading fell back to the full roster size and read "Club
+                Members (327)" directly above "No members matching"; and with
+                a filter applied the total describes the filtered set, not the
+                club. Say which one is being counted. */}
+            <h2 className="arena-section-title">
+              {memberFiltered ? 'Matching Members' : 'Club Members'} (
+              {formatInt(membersReady ? memberTotal : club.memberCount)})
+            </h2>
+            <div className="arena-switch">
+              <Link to={`/clubs/${clubId}/members`}>Manage Members {'→'}</Link>
             </div>
 
             <input
+              className="arena-ops-well"
               value={memberSearch}
               onChange={(e) => setMemberSearch(e.target.value)}
               placeholder="Search Members By Name"
               aria-label="Search Members"
-              style={{
-                width: '100%',
-                boxSizing: 'border-box',
-                margin: '8px 0 8px',
-                padding: '10px 12px',
-                borderRadius: 8,
-                border: '1px solid rgba(255,255,255,0.12)',
-                background: 'rgba(255,255,255,0.05)',
-                color: 'inherit',
-                fontSize: '0.9rem',
-              }}
             />
 
             {/* Sorting and role filtering are applied SERVER-side: the list is
                 paged, so ordering 25 rows in the browser would present one
                 page as if it were the ranking of the whole roster. */}
-            <div
-              style={{
-                display: 'flex',
-                gap: 8,
-                flexWrap: 'wrap',
-                alignItems: 'center',
-                marginBottom: 12,
-              }}
-            >
+            <div className={styles.toolbar}>
               <select
+                className="arena-ops-well"
                 value={memberSort}
                 onChange={(e) => setMemberSort(e.target.value as MemberSortId)}
                 aria-label="Sort Members"
-                style={selectStyle}
               >
                 <option value="hands">Most Hands</option>
                 <option value="profit">Top Win/Loss</option>
@@ -1506,10 +1325,10 @@ export default function ClubDashboard() {
                 <option value="last_active">Recently Active</option>
               </select>
               <select
+                className="arena-ops-well"
                 value={memberRole}
                 onChange={(e) => setMemberRole(e.target.value)}
                 aria-label="Filter Members By Role"
-                style={selectStyle}
               >
                 <option value="">All Roles</option>
                 <option value="owner">Owner</option>
@@ -1519,11 +1338,11 @@ export default function ClubDashboard() {
                 <option value="member">Member</option>
               </select>
               {members.length > 0 && (
-                <button onClick={exportMembersCsv} style={selectStyle}>
-                  Export CSV
-                </button>
+                <div className="arena-switch">
+                  <button onClick={exportMembersCsv}>Export CSV</button>
+                </div>
               )}
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary, #8a8f98)' }}>
+              <span className="arena-ops-live">
                 {membersLoading
                   ? 'Loading...'
                   : memberFiltered
@@ -1544,49 +1363,24 @@ export default function ClubDashboard() {
                   <Link
                     key={m.userId}
                     to={`/profile/${m.userId}`}
-                    className={styles.playerCard}
+                    className={`arena-ledger-row ${styles.playerCard}`}
                     title={`View ${m.displayName}'s Profile`}
-                    style={{ textDecoration: 'none', color: 'inherit' }}
                   >
-                    <div className={styles.playerAvatar} style={{ position: 'relative' }}>
+                    <div className={styles.playerAvatar}>
                       {m.avatarUrl ? (
                         <img src={m.avatarUrl} alt="" loading="lazy" />
                       ) : (
                         <span>{m.displayName.charAt(0)}</span>
                       )}
                       {m.isOnline && (
-                        <span
-                          title="Online"
-                          aria-label="Online"
-                          style={{
-                            position: 'absolute',
-                            right: -1,
-                            bottom: -1,
-                            width: 10,
-                            height: 10,
-                            borderRadius: '50%',
-                            background: '#10b981',
-                            border: '2px solid rgba(15,15,30,0.9)',
-                          }}
-                        />
+                        <span className={styles.onlineDot} title="Online" aria-label="Online" />
                       )}
                     </div>
                     <div className={styles.playerInfo}>
                       <span className={styles.playerName}>
                         {m.displayName}
                         {m.role && m.role !== 'player' && m.role !== 'member' && (
-                          <span
-                            style={{
-                              marginLeft: 6,
-                              fontSize: '0.6rem',
-                              padding: '1px 5px',
-                              borderRadius: 6,
-                              background: 'rgba(59,130,246,0.18)',
-                              color: '#60a5fa',
-                            }}
-                          >
-                            {m.role.toUpperCase()}
-                          </span>
+                          <span className={styles.roleTag}>{m.role.toUpperCase()}</span>
                         )}
                       </span>
                       {m.handsPlayed !== null && (
@@ -1615,23 +1409,14 @@ export default function ClubDashboard() {
             </div>
 
             {memberTotal > MEMBER_PAGE_SIZE && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 12,
-                  padding: '12px 0',
-                }}
-              >
+              <div className={`arena-switch ${styles.pager}`}>
                 <button
                   onClick={() => setMemberPage((p) => Math.max(0, p - 1))}
                   disabled={memberPage === 0 || membersLoading}
-                  className={styles.actionBtn}
                 >
                   Previous
                 </button>
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                <span className={styles.pagerLine}>
                   Page {memberPage + 1} Of {Math.max(1, Math.ceil(memberTotal / MEMBER_PAGE_SIZE))}
                 </span>
                 <button
@@ -1639,7 +1424,6 @@ export default function ClubDashboard() {
                     setMemberPage((p) => ((p + 1) * MEMBER_PAGE_SIZE < memberTotal ? p + 1 : p))
                   }
                   disabled={(memberPage + 1) * MEMBER_PAGE_SIZE >= memberTotal || membersLoading}
-                  className={styles.actionBtn}
                 >
                   Next
                 </button>
@@ -1649,34 +1433,25 @@ export default function ClubDashboard() {
             {clubId && isClubStaff(userRole) && (
               <ClubMemberManagement clubId={clubId} isAdmin={true} />
             )}
-          </div>
+          </section>
         )}
 
         {activeTab === 'tables' && (
-          <div className={styles.tablesSection}>
-            <div className={styles.sectionHeader}>
-              <h2>
-                Club Tables ({formatInt(tablesMeta?.totalCount ?? 0)})
-                {liveTableCount > 0 && (
-                  <span
-                    style={{
-                      marginLeft: 8,
-                      fontSize: '0.72rem',
-                      fontWeight: 600,
-                      color: '#10b981',
-                    }}
-                  >
-                    {formatInt(liveTableCount)} Live {'•'} {formatInt(seatedAcrossTables)} People
-                    Seated
-                    {tablesMeta && tablesMeta.seatRows > tablesMeta.seatedPeople && (
-                      <> ({formatInt(tablesMeta.seatRows)} Seats)</>
-                    )}
-                  </span>
-                )}
-              </h2>
-              <Link to={`/clubs/${clubId}/create-table`} className={styles.createBtn}>
-                + Create Table
-              </Link>
+          <section className="arena-case arena-ops-case">
+            <h2 className="arena-section-title">
+              Club Tables ({formatInt(tablesMeta?.totalCount ?? 0)})
+              {liveTableCount > 0 && (
+                <small className={styles.liveNote}>
+                  {formatInt(liveTableCount)} Live {'•'} {formatInt(seatedAcrossTables)} People
+                  Seated
+                  {tablesMeta && tablesMeta.seatRows > tablesMeta.seatedPeople && (
+                    <> ({formatInt(tablesMeta.seatRows)} Seats)</>
+                  )}
+                </small>
+              )}
+            </h2>
+            <div className="arena-switch arena-ops-primary">
+              <Link to={`/clubs/${clubId}/create-table`}>+ Create Table</Link>
             </div>
             {tablesFailed && !tablesMeta ? (
               <p className={styles.empty}>The Table List Could Not Be Loaded</p>
@@ -1686,7 +1461,7 @@ export default function ClubDashboard() {
               <p className={styles.empty}>No Tables Yet. Create One To Get The Club Playing.</p>
             ) : (
               <>
-                <h2 style={{ fontSize: '0.95rem', margin: '4px 0 8px' }}>
+                <h3 className={styles.subTitle}>
                   Live Now ({formatInt(liveTableCount)})
                   {tablesMeta.liveTruncated && (
                     <span className={styles.capNote}>
@@ -1694,7 +1469,7 @@ export default function ClubDashboard() {
                       Showing The Fullest {formatInt(sortedLiveTables.length)}
                     </span>
                   )}
-                </h2>
+                </h3>
                 <div className={styles.playersList}>
                   {sortedLiveTables.length === 0 ? (
                     <p className={styles.empty}>No Table Is Running Right Now</p>
@@ -1703,8 +1478,7 @@ export default function ClubDashboard() {
                       <Link
                         key={t.id}
                         to={`/table/${t.id}`}
-                        className={styles.playerCard}
-                        style={{ textDecoration: 'none' }}
+                        className={`arena-ledger-row ${styles.playerCard}`}
                       >
                         <div className={styles.playerInfo}>
                           <span className={styles.playerName}>{t.name}</span>
@@ -1722,9 +1496,9 @@ export default function ClubDashboard() {
                   )}
                 </div>
 
-                <h2 style={{ fontSize: '0.95rem', margin: '18px 0 8px' }}>
+                <h3 className={styles.subTitle}>
                   Recently Closed ({formatInt(recentTables.length)})
-                </h2>
+                </h3>
                 <div className={styles.playersList}>
                   {recentTables.length === 0 ? (
                     <p className={styles.empty}>No Closed Tables Yet</p>
@@ -1733,8 +1507,7 @@ export default function ClubDashboard() {
                       <Link
                         key={t.id}
                         to={`/table/${t.id}`}
-                        className={styles.playerCard}
-                        style={{ textDecoration: 'none' }}
+                        className={`arena-ledger-row ${styles.playerCard}`}
                       >
                         <div className={styles.playerInfo}>
                           <span className={styles.playerName}>{t.name}</span>
@@ -1753,19 +1526,19 @@ export default function ClubDashboard() {
                 </div>
               </>
             )}
-            <Link to={`/clubs/${clubId}/lobby`} className={styles.lobbyLink}>
-              View Table Lobby {'→'}
-            </Link>
-          </div>
+            <div className="arena-switch">
+              <Link to={`/clubs/${clubId}/lobby`}>View Table Lobby {'→'}</Link>
+            </div>
+          </section>
         )}
 
         {activeTab === 'revenue' && (
-          <div className={styles.tablesSection}>
-            <div className={styles.sectionHeader}>
-              {/* ca_club_revenue caps at 90 days, so "All" is not all time
-                  here and the heading must not say it is. */}
-              <h2>Revenue ({dateRange === 'all' ? 'Last 90 Days' : rangeLabel})</h2>
-            </div>
+          <section className="arena-case arena-ops-case">
+            {/* ca_club_revenue caps at 90 days, so "All" is not all time
+                here and the heading must not say it is. */}
+            <h2 className="arena-section-title">
+              Revenue ({dateRange === 'all' ? 'Last 90 Days' : rangeLabel})
+            </h2>
             {revenueLoading && !revenue ? (
               <p className={styles.empty}>Loading Revenue...</p>
             ) : revenueError === 'restricted' ? (
@@ -1776,15 +1549,9 @@ export default function ClubDashboard() {
               <p className={styles.empty}>The Revenue Figures Could Not Be Loaded</p>
             ) : (
               <>
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-                    gap: 10,
-                    marginBottom: 16,
-                  }}
-                >
-                  {[
+                <ArenaReadings
+                  label="Club Revenue"
+                  readings={[
                     { label: 'Rake Collected', value: formatChips(revenue.totals.rake) },
                     { label: 'Bad Beat Drop', value: formatChips(revenue.totals.bbj) },
                     {
@@ -1837,63 +1604,24 @@ export default function ClubDashboard() {
                           },
                         ]
                       : []),
-                  ].map((m) => (
-                    <div
-                      key={m.label}
-                      style={{
-                        background: 'rgba(255,255,255,0.03)',
-                        border: '1px solid rgba(255,255,255,0.08)',
-                        borderRadius: 10,
-                        padding: '10px 12px',
-                      }}
-                    >
-                      <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>{m.value}</div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary, #8a8f98)' }}>
-                        {m.label}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                  ].map((m) => ({ id: m.label, label: m.label, value: m.value }))}
+                />
 
                 {/* INSURANCE REPORT 2026-08-28: the headline net above raises
-                    questions only the funnel can answer — take rate, timeouts,
-                    cashouts, per-day money. That lives on its own page. */}
-                {hasInsurance && (
-                  <Link
-                    to={`/clubs/${clubId}/insurance-report`}
-                    style={{
-                      display: 'inline-block',
-                      marginBottom: 14,
-                      fontSize: '0.78rem',
-                      fontWeight: 700,
-                      color: '#1877f2',
-                      textDecoration: 'none',
-                    }}
-                  >
-                    View Full Insurance Report
-                  </Link>
-                )}
-
-                {/* BOMB POT REPORT 2026-08-29. Unconditional, unlike the
-                    insurance link above: that one is gated on the club HAVING
+                    questions only the funnel can answer: take rate, timeouts,
+                    cashouts, per-day money. That lives on its own page.
+                    BOMB POT REPORT 2026-08-29. Unconditional, unlike the
+                    insurance link: that one is gated on the club HAVING
                     insurance revenue, but the first question about bomb pots is
                     whether to run them at all, and an owner who has never
                     switched them on is exactly who needs to see the page. It
                     tells them plainly when there is nothing to show yet. */}
-                <Link
-                  to={`/clubs/${clubId}/bomb-pot-report`}
-                  style={{
-                    display: 'inline-block',
-                    marginBottom: 14,
-                    marginLeft: hasInsurance ? 14 : 0,
-                    fontSize: '0.78rem',
-                    fontWeight: 700,
-                    color: '#1877f2',
-                    textDecoration: 'none',
-                  }}
-                >
-                  View Bomb Pot Report
-                </Link>
+                <div className="arena-switch arena-ops-keys">
+                  {hasInsurance && (
+                    <Link to={`/clubs/${clubId}/insurance-report`}>View Full Insurance Report</Link>
+                  )}
+                  <Link to={`/clubs/${clubId}/bomb-pot-report`}>View Bomb Pot Report</Link>
+                </div>
 
                 <Suspense fallback={<p className={styles.empty}>Loading Chart...</p>}>
                   {/* ca_club_revenue.daily.hands is RAKED hands, the same
@@ -1905,7 +1633,7 @@ export default function ClubDashboard() {
                   />
                 </Suspense>
 
-                <h2 style={{ fontSize: '0.95rem', margin: '18px 0 8px' }}>Busiest Tables</h2>
+                <h3 className={styles.subTitle}>Busiest Tables</h3>
                 <div className={styles.playersList}>
                   {revenue.by_table.length === 0 ? (
                     <p className={styles.empty}>No Table Activity In This Period</p>
@@ -1914,8 +1642,7 @@ export default function ClubDashboard() {
                       <Link
                         key={t.table_id}
                         to={`/table/${t.table_id}`}
-                        className={styles.playerCard}
-                        style={{ textDecoration: 'none', color: 'inherit' }}
+                        className={`arena-ledger-row ${styles.playerCard}`}
                       >
                         <div className={styles.playerInfo}>
                           <span className={styles.playerName}>{t.name}</span>
@@ -1933,30 +1660,21 @@ export default function ClubDashboard() {
                 </div>
               </>
             )}
-          </div>
+          </section>
         )}
 
         {activeTab === 'tournaments' && (
-          <div className={styles.tablesSection}>
-            <div className={styles.sectionHeader}>
-              <h2>
-                Tournaments
-                {tournaments && (
-                  <span
-                    style={{
-                      marginLeft: 8,
-                      fontSize: '0.72rem',
-                      fontWeight: 600,
-                      color: 'var(--text-secondary, #8a8f98)',
-                    }}
-                  >
-                    {formatInt(tournaments.summary.completed_in_window)} Finished In Last{' '}
-                    {formatInt(tournaments.summary.window_days)}D {'•'}{' '}
-                    {formatChips(tournaments.summary.prize_pool_in_window)} In Prizes
-                  </span>
-                )}
-              </h2>
-            </div>
+          <section className="arena-case arena-ops-case">
+            <h2 className="arena-section-title">
+              Tournaments
+              {tournaments && (
+                <small>
+                  {formatInt(tournaments.summary.completed_in_window)} Finished In Last{' '}
+                  {formatInt(tournaments.summary.window_days)}D {'•'}{' '}
+                  {formatChips(tournaments.summary.prize_pool_in_window)} In Prizes
+                </small>
+              )}
+            </h2>
             {tournamentsLoading && !tournaments ? (
               <p className={styles.empty}>Loading Tournaments...</p>
             ) : tournamentsError === 'restricted' ? (
@@ -1965,9 +1683,7 @@ export default function ClubDashboard() {
               <p className={styles.empty}>The Tournament List Could Not Be Loaded</p>
             ) : (
               <>
-                <h2 style={{ fontSize: '0.95rem', margin: '4px 0 8px' }}>
-                  Live And Upcoming ({tournaments.live.length})
-                </h2>
+                <h3 className={styles.subTitle}>Live And Upcoming ({tournaments.live.length})</h3>
                 <div className={styles.playersList}>
                   {tournaments.live.length === 0 ? (
                     <p className={styles.empty}>Nothing Scheduled Right Now</p>
@@ -1976,8 +1692,7 @@ export default function ClubDashboard() {
                       <Link
                         key={t.id}
                         to={`/tournaments/${t.id}`}
-                        className={styles.playerCard}
-                        style={{ textDecoration: 'none', color: 'inherit' }}
+                        className={`arena-ledger-row ${styles.playerCard}`}
                       >
                         <div className={styles.playerInfo}>
                           <span className={styles.playerName}>{t.name}</span>
@@ -1990,16 +1705,7 @@ export default function ClubDashboard() {
                             Entered
                           </span>
                         </div>
-                        <span
-                          style={{
-                            padding: '4px 10px',
-                            borderRadius: 10,
-                            fontSize: '0.75rem',
-                            fontWeight: 700,
-                            background: 'rgba(16,185,129,0.15)',
-                            color: '#10b981',
-                          }}
-                        >
+                        <span className={`${styles.statusPill} ${styles.statusLive}`}>
                           {tableStatusLabel(t.status)}
                         </span>
                       </Link>
@@ -2009,12 +1715,12 @@ export default function ClubDashboard() {
 
                 {/* The list is capped at 25; the summary above carries the
                     true count for the window, so both are stated. */}
-                <h2 style={{ fontSize: '0.95rem', margin: '18px 0 8px' }}>
+                <h3 className={styles.subTitle}>
                   Recently Finished
                   {tournaments.summary.completed_in_window > tournaments.recent.length
                     ? ` (Newest ${formatInt(tournaments.recent.length)} Of ${formatInt(tournaments.summary.completed_in_window)})`
                     : ` (${formatInt(tournaments.recent.length)})`}
-                </h2>
+                </h3>
                 <div className={styles.playersList}>
                   {tournaments.recent.length === 0 ? (
                     <p className={styles.empty}>
@@ -2026,8 +1732,7 @@ export default function ClubDashboard() {
                       <Link
                         key={t.id}
                         to={`/tournaments/${t.id}`}
-                        className={styles.playerCard}
-                        style={{ textDecoration: 'none', color: 'inherit' }}
+                        className={`arena-ledger-row ${styles.playerCard}`}
                       >
                         <div className={styles.playerInfo}>
                           <span className={styles.playerName}>{t.name}</span>
@@ -2043,7 +1748,7 @@ export default function ClubDashboard() {
                 </div>
               </>
             )}
-          </div>
+          </section>
         )}
       </div>
 
@@ -2053,7 +1758,7 @@ export default function ClubDashboard() {
           22P02 (seen live as a 400 on 2026-09-04) and a message could never
           be sent from this page. It gets the resolved uuid. */}
       {resolvedClubId && user?.id && (
-        <div style={{ padding: '0 16px 80px', maxWidth: '100%' }}>
+        <div className={styles.chat}>
           <ClubChat clubId={resolvedClubId} userId={user.id} userName={playerDisplayName(user)} />
         </div>
       )}

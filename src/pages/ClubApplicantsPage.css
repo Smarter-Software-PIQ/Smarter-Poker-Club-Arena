@@ -1,73 +1,81 @@
-.club-applicants-page {
-  width: min(100%, 1100px);
-  margin: 0 auto;
-  padding: 24px 20px 112px;
-  color: #e4e7ec;
-  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
+/* #SmarterDesign (Dan 2026-11-27). The mast, case, title, chrome keys and
+   ledger rows come from ArenaWorkspace.css and ArenaOps.css; this sheet only
+   lays the queue out. No hover rule here (tests/no-hover-effects.law.test.ts). */
+.club-applicants-page.arena-workspace.arena-workspace {
+  max-width: 1100px;
+  min-height: 100dvh;
+  overflow-x: clip;
+  padding-bottom: calc(var(--bottom-nav-clearance, 74px) + 24px);
 }
-.applicants-toolbar,
-.applicants-list li {
+.arena-workspace .applicants-keys {
+  margin: 7px 0 0;
+}
+.arena-workspace .applicants-keys > :is(button, a) {
+  flex: 0 1 auto;
+  min-width: 128px;
+  padding-inline: 14px;
+}
+.arena-workspace .applicants-toolbar {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  gap: 16px;
+  gap: 6px 10px;
 }
-.club-applicants-page p {
-  color: #9aa5b3;
-  margin: 8px 0;
+.arena-workspace .applicants-toolbar > .arena-section-title {
+  flex: 1 1 auto;
+  margin: 0;
 }
-/* The page bar's painted "?" brings its own box; these text controls do not. */
-.club-applicants-page button:not(.ca-page-help),
-.club-applicants-page a {
-  min-height: 44px;
-  display: inline-flex;
-  align-items: center;
-  padding: 10px 14px;
-  border: 0;
-  background: transparent;
-  color: #45adff;
-  font:
-    700 16px/1.3 'Roboto Condensed',
-    sans-serif;
-  text-decoration: none;
-  cursor: pointer;
+.arena-workspace .applicants-toolbar > .applicants-keys {
+  margin: 0;
 }
-.club-applicants-page button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.club-applicants-page button:focus-visible,
-.club-applicants-page a:focus-visible {
-  outline: 2px solid #45adff;
-  outline-offset: 2px;
-}
-.applicants-toolbar {
-  margin-top: 24px;
-}
-.applicants-list {
+.arena-workspace .applicants-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
-.applicants-list li {
-  padding: 20px 0;
-  border-top: 1px solid rgb(154 165 179 / 20%);
+.arena-workspace .applicants-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+  padding: 6px 8px;
 }
-.applicants-list h3 {
+.arena-workspace .applicant-identity {
+  min-width: 0;
+}
+.arena-workspace .applicant-identity h3 {
+  margin: 0;
+  color: #f1f5fc;
+  font:
+    700 15px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+  overflow-wrap: anywhere;
+}
+.arena-workspace .applicant-identity p {
+  margin: 2px 0 0;
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+}
+.arena-workspace .applicant-actions.arena-switch {
   margin: 0;
 }
-.applicant-actions {
-  display: flex;
-  gap: 12px;
+.arena-workspace .applicant-actions.arena-switch > button {
+  min-width: 96px;
 }
+/* Approve is the decisive key: club-page-key--primary (ClubPageSection.css)
+   lights it blue, as on the other operations pages. */
 @media (max-width: 620px) {
-  .club-applicants-page {
-    padding-inline: 16px;
-  }
-  .applicant-actions {
+  .arena-workspace .applicant-actions.arena-switch {
     width: 100%;
   }
-  .applicant-actions button {
+  .arena-workspace .applicant-actions.arena-switch > button {
     flex: 1;
   }
 }

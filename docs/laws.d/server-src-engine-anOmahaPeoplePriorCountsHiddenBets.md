@@ -1,0 +1,3 @@
+# server/src/engine/anOmahaPeoplePriorCountsHiddenBets.law.test.ts
+
+The hidden-bet people cells (omahaPeoplePriorCountsHiddenBets, default OFF): with no key every people cell and share is exactly today's; the river is never read from them; every split cell's corrected share is at or above its shown share; a thin or empty split cell is blended toward the equilibrium anchor and never replaced by the pooled cell; the split keys (flop pot type, turn line) read public actions only; a bet the bettor gave up later or mucked is hidden while one he won uncontested is not; and his own record counts his hidden bets only when the option asks.

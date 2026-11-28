@@ -201,6 +201,7 @@ export const OPTION_SWITCH_NOT_A_SWITCH: Readonly<Record<string, string>> = Obje
         'horsePlayStyleForce',
         'omahaOptionGameScope',
         'omahaBlanketRowsOffList',
+        'vpipFloorLimpOnlyTenHandWindowGames',
       ] satisfies ReadonlyArray<keyof HorseDecideOpts>
     ).map((name) => [name, PARAMETER])
   ),
@@ -365,6 +366,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   // 2026-11-27 PLO-OWNER + Hold'em owner lead-8: the NLH cash heads-up river bluff priced on people's river fold by
   // size and his own river record by size; blockers or the range advantage required (ship dark)
   'holdemRiverBluffIsPricedOnPeople',
+  // 2026-11-27 PLO-OWNER lead-9: the NLH cash heads-up turn bluff after a checked-through flop priced on people's
+  // turn fold by size and his own turn record by size; blockers or the range advantage required (ship dark)
+  'holdemTurnBluffIsPricedOnPeople',
   'cashDefenceTrimColdCalls',
   // 2026-11-21: a process switch like fixedLimitBetsAreNeverProbes, read `=== true` (HorseMind.apply...Option)
   'styleShiftReleaseIsNoiseAware',
@@ -394,6 +398,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   // 2026-11-27 lead-8 lane preflop: a standing fold facing a 3-bet or more priced against the pot-size re-raise
   // (ships dark)
   'omahaReraisedPotFoldReraiseIsPriced',
+  // 2026-11-27 lead-8 lane limprr (owner order 12:48 PM): the priced limp of a strong first-in raise and the Horse's own
+  // limp re-raised, only in position or with a connected rundown (ships dark)
+  'omahaLimpReraiseVsIsoRaiser',
   // 2026-11-24 PLO-LEAD-6 (hand a6f9206d): the out-of-position 3-bet range holds against a 4-bet, PLO4/PLO5 cash and
   // NLH cash (ships dark)
   'omahaOopReraiseRangeHoldsVsReraise',
@@ -442,9 +449,16 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaFacingBetPriorIsPeopleMeasured',
   // 2026-11-27 PLO-OWNER lead-7 (plo4-audit): the multiway field of the facing-bet price measured on people (ships dark)
   'omahaMultiwayFieldIsPeopleMeasured',
+  // 2026-11-27 lead-8 lane OFA: the flop / turn people cells and the bettor's record count the bets people never
+  // showed although they did not win them uncontested (folded later, mucked) as non-value (ships dark)
+  'omahaPeoplePriorCountsHiddenBets',
+  // 2026-11-27 lead-9 lane HUOOP: the hidden part of the turn bettor's non-value share priced as give-ups (ships dark)
+  'omahaHiddenBetsArePricedAsGiveUps',
   // 2026-11-26 PLO-OWNER lead-7: heads-up flop facing one bet, the V40 class cap priced against the bettor's range
   // on people-only flop shares for the call-or-fold check (ships dark)
   'omahaFlopPressureCapIsPriced',
+  // 2026-11-27 lead-8 lane OFB: the turn bettor priced on the people cell of the flop line, heads-up and multiway (ships dark)
+  'omahaTurnFacingBetPriorIsLineSplit',
   'omahaFacingBetFieldIsJoint',
   'omahaMultiwayCallNeedsNutShare',
   'omahaMultiwayValueBetIsPriced',
@@ -1186,6 +1200,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     HOLDEM,
     'NLH cash (table and Lightning), heads-up, river, not facing a wager',
     "a check becomes a bluff only when it prices above the check on his river record by size, then people's, with blockers or the range advantage",
+  ],
+  holdemTurnBluffIsPricedOnPeople: [
+    HOLDEM,
+    'NLH cash (table and Lightning), heads-up, turn after a checked-through flop, not facing a wager',
+    "a check becomes a bluff only when it prices above the check on his turn record by size, then people's, with blockers or the range advantage",
   ],
   holdemCommittedNoPairIsPriced: [
     HOLDEM,

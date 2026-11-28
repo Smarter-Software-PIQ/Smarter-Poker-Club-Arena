@@ -76,5 +76,6 @@ it('keeps the exact decimal text of a figure a JavaScript number cannot hold', a
   expect(figure?.net_text).toBe('123456789012345678.91');
   expect(figure?.fees_text).toBe('0.000000000001');
   expect(winLossChips(figure?.net_text ?? figure?.net)).toBe('+123,456,789,012,345,678.91');
-  expect(feeFigure(figure?.fees_text ?? figure?.fees)).toBe('0.000000000001');
+  // The text twin stays exact; the screen stops at two decimals (Dan 2026-11-27).
+  expect(feeFigure(figure?.fees_text ?? figure?.fees)).toBe('0.00');
 });

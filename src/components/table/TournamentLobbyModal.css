@@ -253,3 +253,17 @@
     animation: tlmFadeIn calc(0.16s * var(--animation-speed, 1)) ease-out;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   #SMARTERDESIGN (Dan 2026-11-27): the full-screen Tournament Lobby host
+   takes the arena workspace's ink navy instead of the old flat slate. It
+   stays frameless (Dan 2026-10-04: "full screen pop up ... remove all these
+   large frames"); the lobby page inside owns its header, tabs and Close.
+   The fade-in still plays.
+   ══════════════════════════════════════════════════════════════════════════ */
+.tlm-overlay.tlm-overlay--full,
+.tlm-panel.tlm-panel--full {
+  background:
+    radial-gradient(ellipse at 80% -10%, #12304d, transparent 55%),
+    linear-gradient(160deg, #081626, #030b14 72%);
+}

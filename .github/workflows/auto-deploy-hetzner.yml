@@ -1457,11 +1457,29 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   certify-production:
-    if: "!(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
+    # THE ESTATE APP STARTS THE NEXT CYCLE (2026-11-27). This job's one
+    # dispatch starts Post-Deploy E2E and, after a seal, "Backup after seal
+    # <run>-<attempt>". Sent with the job token, that Backup's completion
+    # raised no workflow_run event (GitHub raises none for a run the job token
+    # started), so it never started the next cycle's election although Stage
+    # has admitted it since O25. The dispatch is now sent as the estate GitHub
+    # App (smarter-poker-autopilot[bot]), whose runs do raise workflow_run.
+    # The App key lives only in the main-only environment github-app-main;
+    # this job held no environment and no secret before, reads nothing but
+    # the dispatch-intent script at this commit, and the token is scoped to
+    # this repository and to contents: write (what a repository_dispatch
+    # needs) and used for the one POST. Both receivers prove the same intent
+    # record whoever sent it.
+    # FAIL-SAFE. The seal is already decided when this job starts, so a
+    # missing App token never fails it: the mint step may fail and the send
+    # then goes out with the job token exactly as before this change, said
+    # plainly in the log.
+    if: ((github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') || (github.event_name == 'repository_dispatch' && github.event.action == 'deploy-club-arena-engine')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Dispatch Exact Cross-Artifact Production Certification
     needs: [preflight, deploy, record-receipt]
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
+    environment: github-app-main
     permissions:
       actions: read
       contents: write
@@ -1495,9 +1513,22 @@ jobs:
           path: ${{ runner.temp }}/dispatch-intents
           if-no-files-found: error
           retention-days: 7
+      - name: Mint the estate App token for this one dispatch
+        id: app-token
+        # Never fatal: the next step falls back to the job token.
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.AUTOPILOT_APP_ID }}
+          private-key: ${{ secrets.AUTOPILOT_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: Smarter-Poker-Club-Arena
+          permission-contents: write
       - name: Dispatch and prove the exact post-deploy E2E receiver
         env:
           GH_TOKEN: ${{ github.token }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
           ENGINE_SHA: ${{ needs.preflight.outputs.target_sha }}
           RELEASE_RESULT: ${{ needs.deploy.outputs.release_result }}
           GAMEPLAY_RECEIPT: ${{ needs.deploy.outputs.gameplay_receipt }}
@@ -1511,14 +1542,48 @@ jobs:
           jq -e --arg sha "$ENGINE_SHA" '.event_type == "run-post-deploy-e2e" and .client_payload.engine_sha == $sha' \
             "$RUNNER_TEMP/certification-dispatch.json" >/dev/null
           SENT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          gh api --method POST "repos/$REPO/dispatches" --input "$RUNNER_TEMP/certification-dispatch.json"
-          echo "Production E2E dispatch accepted for exact engine component $ENGINE_SHA."
+          # One POST of the recorded body, with the token named by $1.
+          send() {
+            GH_TOKEN="$1" gh api --method POST "repos/$REPO/dispatches" --input "$RUNNER_TEMP/certification-dispatch.json"
+          }
+          # The E2E run this dispatch started, read with the job token.
+          receiver() {
+            gh api \
+              "repos/$REPO/actions/workflows/post-deploy-e2e.yml/runs?event=repository_dispatch&per_page=30" \
+              --jq "[.workflow_runs[] | select(.display_title == \"Post-Deploy E2E $ENGINE_SHA $INTENT_NONCE\" and .created_at >= \"$SENT_AT\")][0].id // empty"
+          }
+          SENDER='the job token'
+          if [ -n "$APP_TOKEN" ]; then
+            if send "$APP_TOKEN"; then
+              SENDER='the estate App'
+            else
+              # A refused or failed App POST. GitHub may still have accepted it
+              # and list the run late, so look six times, five seconds apart,
+              # before sending again: the intent is honoured once, and a second
+              # run would go red for nothing.
+              seen=''
+              for _ in $(seq 1 6); do
+                sleep 5
+                seen=$(receiver || true)
+                [ -z "$seen" ] || break
+              done
+              if [ -n "$seen" ]; then
+                SENDER='the estate App'
+                echo '::warning title=ESTATE APP DISPATCH ANSWER LOST::GitHub answered the estate App dispatch with an error and started the receiver anyway; nothing is sent again.'
+              else
+                echo '::warning title=ESTATE APP DISPATCH FAILED, JOB TOKEN FALLBACK::GitHub did not accept the estate App dispatch. Sending the certification with the job token exactly as before 2026-11-27: both receivers still run, but the completion of the post-seal Backup starts no election. The operator fallback on the Mac is the cover for the next cycle while that Mac is on.'
+                send "$GH_TOKEN"
+              fi
+            fi
+          else
+            echo '::warning title=NO ESTATE APP TOKEN, JOB TOKEN FALLBACK::No estate App token could be minted (see the step above). Sending the certification with the job token exactly as before 2026-11-27: both receivers still run, but the completion of the post-seal Backup starts no election. The operator fallback on the Mac is the cover for the next cycle while that Mac is on.'
+            send "$GH_TOKEN"
+          fi
+          echo "Production E2E dispatch accepted for exact engine component $ENGINE_SHA (sent by $SENDER)."
 
           RECEIVER_ID=''
           for _ in $(seq 1 12); do
-            RECEIVER_ID="$(gh api \
-              "repos/$REPO/actions/workflows/post-deploy-e2e.yml/runs?event=repository_dispatch&per_page=30" \
-              --jq "[.workflow_runs[] | select(.display_title == \"Post-Deploy E2E $ENGINE_SHA $INTENT_NONCE\" and .created_at >= \"$SENT_AT\")][0].id // empty")"
+            RECEIVER_ID="$(receiver || true)"
             [ -n "$RECEIVER_ID" ] && break
             sleep 5
           done
@@ -1529,14 +1594,23 @@ jobs:
           if [ "$RELEASE_RESULT" = sealed ]; then
             title="Backup after seal $GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
             backup_id=''
+            backup_actor=unknown
             for _ in $(seq 1 8); do
-              backup_id=$(gh api "repos/$REPO/actions/workflows/backup-engine.yml/runs?event=repository_dispatch&per_page=30" |
-                jq -r --arg title "$title" '[.workflow_runs[] | select(.display_title==$title)][0].id // empty')
+              read -r backup_id backup_actor <<< "$(gh api "repos/$REPO/actions/workflows/backup-engine.yml/runs?event=repository_dispatch&per_page=30" |
+                jq -r --arg title "$title" '[.workflow_runs[] | select(.display_title==$title)] | sort_by(.id)[0] | if . == null then empty else "\(.id) \(.triggering_actor.login // .actor.login // "unknown")" end')" || true
               [ -z "$backup_id" ] || break
               sleep 5
             done
             [[ "$backup_id" =~ ^[1-9][0-9]*$ ]] || { echo '::error::No Backup run accepted the original sealed release event'; exit 1; }
             echo "Backup run $backup_id accepted sealed receiver $GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT for $ENGINE_SHA"
+            # WHO STARTED IT, READ BACK (CLAUDE.md 10.86). Only a run GitHub
+            # records under the App's name raises workflow_run.
+            if [ "$backup_actor" = 'smarter-poker-autopilot[bot]' ]; then
+              echo "Backup run $backup_id was started by $backup_actor: its completion starts the next cycle's election."
+            else
+              echo "Backup run $backup_id was started by $backup_actor: its completion does not start the election (a job-token run fires no workflow_run)."
+              [ "$SENDER" != 'the estate App' ] || echo "::warning title=ESTATE APP RUN NOT ATTRIBUTED::The dispatch was sent as the estate App but GitHub records Backup run $backup_id as started by $backup_actor."
+            fi
           fi
 
   cutover-log:

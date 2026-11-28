@@ -281,9 +281,30 @@ class StepDownPastHeldMigration(unittest.TestCase):
         )
         self.assertEqual(res, (0, good))
 
-        # Unknown prequalification (API unreadable) is NEVER treated as failed (CLAUDE.md 10.86).
+        # Unknown prequalification (API unreadable) is NEVER treated as failed (CLAUDE.md 10.86),
+        # AND BUG 1B: with allow_empty_pending=True the caller already proved `sha` itself
+        # failed prequalification, so the walk starts strictly below `sha` (`sha^1`), never
+        # re-querying or returning `sha` itself.
+        seen_prequal = []
         res_unknown = sd.decide(
             sha=bad_pq_2, control=bad_pq_2, producer=bad_pq_2, serving=serving, pending=[],
+            input_sha='', git=git, projection=lambda _sha: 'same',
+            control_inputs=lambda: ['.github/workflows/stage-engine-release.yml'],
+            pending_reader=lambda _sha: [],
+            prequal_reader=lambda c: (seen_prequal.append(c), 'unknown')[1],
+            backup_reader=lambda _c: 'unknown',
+            allow_empty_pending=True,
+        )
+        self.assertEqual(res_unknown, (0, bad_pq_1))
+        self.assertNotIn(bad_pq_2, seen_prequal)
+
+        # Even when a held migration sits above `sha` (control == producer == mig_above),
+        # allow_empty_pending=True excludes `sha` itself.
+        mig_above = repo.commit('held migration above failed sha',
+                                {'supabase/migrations/%s_fix.sql' % HELD: 'SELECT 1;\n'})
+        res_below_mig = sd.decide(
+            sha=bad_pq_2, control=mig_above, producer=mig_above, serving=serving,
+            pending=['  ' + HELD + '\n'],
             input_sha='', git=git, projection=lambda _sha: 'same',
             control_inputs=lambda: ['.github/workflows/stage-engine-release.yml'],
             pending_reader=lambda _sha: [],
@@ -291,7 +312,8 @@ class StepDownPastHeldMigration(unittest.TestCase):
             backup_reader=lambda _c: 'unknown',
             allow_empty_pending=True,
         )
-        self.assertEqual(res_unknown, (0, bad_pq_2))
+        self.assertEqual(res_below_mig, (0, bad_pq_1))
+        self.assertNotEqual(res_below_mig[1], mig_above)
 
     def test_o37_walk_stops_at_release_control_mismatch_and_reports_none_when_exhausted(self):
         repo = self.repo
@@ -315,9 +337,24 @@ class StepDownPastHeldMigration(unittest.TestCase):
             allow_empty_pending=True,
         )
         self.assertEqual(code, 1)
-        self.assertIn('failed prequalification', reason)
-        self.assertIn('different release controls', reason)
+        self.assertIn('release controls that differ', reason)
         self.assertNotIn(old_ctrl, reason)
+
+        # With an additional failed-prequal commit above the control boundary, both reasons are summarized.
+        bad_above_ctrl = repo.commit('second failed prequal on v2', {'server/src/a.ts': 'c\n'})
+        code2, reason2 = sd.decide(
+            sha=bad_above_ctrl, control=bad_above_ctrl, producer=bad_above_ctrl, serving=serving, pending=[],
+            input_sha='', git=git,
+            projection=lambda c: 'v2' if c in (new_ctrl, bad_above_ctrl) else 'v1',
+            control_inputs=lambda: ['.github/workflows/stage-engine-release.yml'],
+            pending_reader=lambda _sha: [],
+            prequal_reader=lambda c: 'failed' if c in (new_ctrl, bad_above_ctrl) else 'passed',
+            allow_empty_pending=True,
+        )
+        self.assertEqual(code2, 1)
+        self.assertIn('failed prequalification', reason2)
+        self.assertIn('different release controls', reason2)
+        self.assertNotIn(old_ctrl, reason2)
 
     def test_o37_check_prequal_only_mode_reports_unknown_without_network(self):
         sha = 'a' * 40
@@ -326,6 +363,60 @@ class StepDownPastHeldMigration(unittest.TestCase):
             cwd=self.repo.path, capture_output=True, text=True, env=ENV)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), 'prequal=unknown')
+
+    def test_o37b_prequal_state_enforces_read_engine_prequalification_trust_predicates(self):
+        from unittest.mock import patch
+
+        sha = 'a' * 40
+        repo = 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena'
+        base_run = {
+            'id': 999,
+            'head_sha': sha,
+            'head_branch': 'main',
+            'event': 'push',
+            'path': '.github/workflows/engine-release-prequalification.yml',
+            'repository': {'full_name': repo},
+            'head_repository': {'full_name': repo},
+            'status': 'completed',
+            'conclusion': 'success',
+        }
+
+        def fake_run(payload, rc=0):
+            return subprocess.CompletedProcess(
+                args=['gh'], returncode=rc,
+                stdout=json.dumps(payload) if isinstance(payload, dict) else str(payload),
+                stderr='',
+            )
+
+        with patch.object(sd.subprocess, 'run', return_value=fake_run({'workflow_runs': [base_run]})):
+            self.assertEqual(sd.prequal_state(repo, sha), ('passed', '999', 'success'))
+        for bad_conclusion in ('failure', 'cancelled', 'timed_out'):
+            with patch.object(sd.subprocess, 'run',
+                              return_value=fake_run({'workflow_runs': [{**base_run, 'conclusion': bad_conclusion}]})):
+                self.assertEqual(sd.prequal_state(repo, sha), ('failed', '999', bad_conclusion))
+        with patch.object(sd.subprocess, 'run',
+                          return_value=fake_run({'workflow_runs': [{**base_run, 'status': 'in_progress', 'conclusion': ''}]})):
+            self.assertEqual(sd.prequal_state(repo, sha), ('pending', '999', ''))
+        with patch.object(sd.subprocess, 'run', return_value=fake_run({'workflow_runs': []})):
+            self.assertEqual(sd.prequal_state(repo, sha), ('absent', '', ''))
+
+        # Any untrusted provenance field fails safe to 'unknown' (CLAUDE.md 10.86),
+        # matching scripts/ci/read-engine-prequalification.py.
+        for field, bad_val in (
+            ('head_sha', 'b' * 40),
+            ('head_branch', 'feature'),
+            ('event', 'pull_request'),
+            ('path', '.github/workflows/other.yml'),
+            ('repository', {'full_name': 'fork/other'}),
+            ('head_repository', {'full_name': 'fork/other'}),
+        ):
+            with self.subTest(field=field), patch.object(
+                    sd.subprocess, 'run',
+                    return_value=fake_run({'workflow_runs': [{**base_run, field: bad_val}]})):
+                self.assertEqual(sd.prequal_state(repo, sha), ('unknown', '', ''))
+
+        with patch.object(sd.subprocess, 'run', return_value=fake_run('', rc=1)):
+            self.assertEqual(sd.prequal_state(repo, sha), ('unknown', '', ''))
 
 
 if __name__ == '__main__':

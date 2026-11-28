@@ -44,6 +44,15 @@ O27b (2026-11-26), what was not true in O27 and the arithmetic that is:
     window exactly when the run took 25 to 124 minutes, which every real
     certification does.
 
+The estate App starts the next cycle (2026-11-27). Stage now sends that
+dispatch as the estate GitHub App (job start-backup-as-estate-app), and a run
+the App starts raises workflow_run like a person's, so the completion of a
+real certification lands inside the election window above and elects. When no
+App token can be had the dispatch goes out with the job token as before, and
+then, as O27b says, its completion does NOT start the next election. A run
+that ends before the window opens (it planned nothing, or handed the Backup
+host back) elects nothing under either identity.
+
 This script only decides. It never dispatches anything itself.
 
   plan    --cycle YYYY-MM-DD[THH] [--now EPOCH]
@@ -125,14 +134,22 @@ def cycle_label(epoch: int) -> str:
 
 
 # Plain reasons, most specific first. Matched against the selection's deferred
-# and refused candidates plus its reason (scripts/ci/select-daily-engine.py wording).
+# and refused candidates plus its reason (scripts/ci/select-daily-engine.py and
+# server/scripts/engine-release-installed-migrations.py wording).
 PLAIN_REASONS = (
     ('lacks installed migration', 'a database update landed after the new build was tested'),
-    ('installed or changed after certification', 'a database update landed after the new build was tested'),
+    ("does not hold production's definition of", 'a database update landed after the new build was tested'),
+    ('lacks the exact candidate migration', 'a database update landed after the new build was tested'),
+    ('holds migration production does not have', 'a database update landed after the new build was tested'),
+    ('holds a different name for', 'a database update landed after the new build was tested'),
     ('rollback rehearsal unavailable', 'the newest build had been tested against an older engine'),
+    ('protected release controls differ', 'release controls changed after the newest build was tested'),
     ('backup certificate is pending', 'the newest build was still finishing its test at the cutoff'),
+    ('certified after the selection cutoff', 'the newest build finished its test just after the cutoff'),
+    ('finished after the selection cutoff', 'the newest build finished its test just after the cutoff'),
     ('backup engine refused', 'the newest build failed its safety test before the cutoff'),
     ('backup certificate is failure', 'the newest build failed its safety test before the cutoff'),
+    ('backup certificate is error', 'the test runner hit an error before finishing the safety test'),
     ('prequalification unavailable', 'the newest build did not pass pre-release checks before the cutoff'),
     ('no newer protected candidate has complete current evidence', 'no new build passed its test in time'),
 )

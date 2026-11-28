@@ -135,6 +135,8 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
   omahaReraisedPotReraiseIsPriced: PLO4_PLO5,
   // lead-8 lane preflop 2026-11-27: preflop facing a 3-bet or more only
   omahaReraisedPotFoldReraiseIsPriced: PLO4_PLO5,
+  // lead-8 lane limprr 2026-11-27: preflop only (a first-in limp, and the Horse's own limp facing one raise)
+  omahaLimpReraiseVsIsoRaiser: PLO4_PLO5,
   // PLO-LEAD-6 2026-11-24: acts only preflop, facing one open out of position
   omahaOopReraiseRangeHoldsVsReraise: Object.freeze({
     games: Object.freeze([4, 5] as const),
@@ -188,9 +190,21 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['turn', 'river']),
   }),
+  omahaPeoplePriorCountsHiddenBets: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['flop', 'turn']),
+  }),
+  omahaHiddenBetsArePricedAsGiveUps: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['turn']),
+  }),
   omahaMultiwayCallNeedsNutShare: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['flop', 'turn', 'river']),
+  }),
+  omahaTurnFacingBetPriorIsLineSplit: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['turn']),
   }),
   omahaMultiwayValueBetIsPriced: Object.freeze({
     games: Object.freeze([4, 5] as const),
@@ -308,6 +322,8 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
   ),
   // lead-8 2026-11-27: the NLH cash heads-up river bluff priced on people's river fold (river only)
   holdemRiverBluffIsPricedOnPeople: holdemStage(['nlh_cash', 'nlh_lightning'], ['river']),
+  // lead-9 2026-11-27: the NLH cash heads-up turn bluff after a checked flop priced on people's turn fold (turn only)
+  holdemTurnBluffIsPricedOnPeople: holdemStage(['nlh_cash', 'nlh_lightning'], ['turn']),
 });
 
 /**

@@ -495,13 +495,36 @@ describe('statistics', () => {
       'plo5 table | turn | facing 67-100% pot | fold | pair',
     ]);
     expect(rows[0]).toMatchObject({ n: 1, flagged: false });
-    expect(rows[1]).toMatchObject({ n: 12, flagged: true, topPersonShare: 1 });
+    // every one of the 12 is against vera: a read on vera, reported as "one person", not flagged
+    expect(rows[1]).toMatchObject({ n: 12, flagged: false, onePerson: true, topPersonShare: 1 });
     expect(mostFrequentPerson(ds)).toEqual({ alias: 'vera', n: 12, share: 12 / 14 });
     expect(classTable(ds, rollupKey).map((r) => [r.key, r.n])).toEqual([
       ['plo5 Lightning | turn | call', 1],
       ['plo5 table | turn | call', 12],
       ['plo5 table | turn | fold', 1],
     ]);
+  });
+
+  it('a class over 80% against one person flags only if it still flags without that person', () => {
+    // 2026-11-27: PLO5 preflop facing-open calls flagged four days running at 92% WooWoo.
+    const onePerson = Array.from({ length: 20 }, (_, i) => d(`p${i}`, 4 + (i % 3), 'vera'));
+    const [lone] = classTable(onePerson);
+    expect(lone.mean - lone.se!).toBeGreaterThan(0); // the old rule's flag test is met
+    expect(lone).toMatchObject({ flagged: false, onePerson: true, topPersonShare: 1 });
+    // 50 against vera + 10 others (83% one person); the class still flags without vera
+    const still = classTable([
+      ...Array.from({ length: 50 }, (_, i) => d(`v${i}`, 4 + (i % 3), 'vera')),
+      ...Array.from({ length: 10 }, (_, i) => d(`q${i}`, 5 + (i % 3), `other${i}`)),
+    ]);
+    expect(still[0].topPersonShare).toBeGreaterThan(0.8);
+    expect(still[0]).toMatchObject({ flagged: true, onePerson: false });
+    // at 80% or below the rule does not apply: 12 vera + 3 others losing nothing still flags
+    const mixed = classTable([
+      ...onePerson.slice(0, 12),
+      ...Array.from({ length: 3 }, (_, i) => d(`r${i}`, -0.1 * i, `other${i}`)),
+    ]);
+    expect(mixed[0].topPersonShare).toBe(0.8);
+    expect(mixed[0]).toMatchObject({ flagged: true, onePerson: false });
   });
 
   it('reports bb/100 for people and for Horses per game and pool', () => {

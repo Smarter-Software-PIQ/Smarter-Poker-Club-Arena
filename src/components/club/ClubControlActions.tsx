@@ -8,6 +8,8 @@ import { masterBus } from '../../core/MasterBus';
 import { reportError } from '../../utils/errorReporter';
 import { safeErrorMessage } from '../../utils/safeErrorMessage';
 import { CLUB_ENTRY_MESSAGE_MAX } from './ClubEntryMessage';
+import '../lobby/ArenaWorkspace.css';
+import '../ops/ArenaOps.css';
 import './ClubControlActions.css';
 
 /** The existing message transaction owns revision bumping and member delivery. */
@@ -126,36 +128,47 @@ export default function ClubControlActions() {
   if (!workspace.canControlClub || workspace.loading || workspace.error) return null;
   return (
     <section className="club-control-actions" aria-label="Club Policy Controls">
-      <div className="control-policy">
-        <h2>Membership & Access</h2>
+      <div className="control-policy arena-case arena-ops-case">
+        <h2 className="arena-section-title">Membership & Access</h2>
         {!current ? (
-          <p role="status">Loading Club Policy...</p>
+          <p className="arena-ops-copy" role="status">
+            Loading Club Policy...
+          </p>
         ) : current.error ? (
-          <div role="alert">
-            <p>{current.error}</p>
-            <button onClick={() => void load()}>Retry Policy</button>
+          <div className="control-policy-error" role="alert">
+            <p className="arena-ops-copy">{current.error}</p>
+            <div className="arena-switch">
+              <button type="button" onClick={() => void load()}>
+                Retry Policy
+              </button>
+            </div>
           </div>
         ) : (
           <>
-            <p>
+            <p className="arena-ops-copy">
               {current.public ? 'Public Club' : 'Private Club'} ·{' '}
               {current.approval
                 ? 'New Members Require Approval'
                 : 'New Members Join Without Review'}
             </p>
-            <Link to={`/clubs/${workspace.routeClubId}/applicants`}>Review Applicants</Link>
-            <Link to={`/clubs/${workspace.routeClubId}/settings#settings-privacy`}>
-              Joining Policy
-            </Link>
+            <div className="arena-switch arena-ops-keys">
+              <Link to={`/clubs/${workspace.routeClubId}/applicants`}>Review Applicants</Link>
+              <Link to={`/clubs/${workspace.routeClubId}/settings#settings-privacy`}>
+                Joining Policy
+              </Link>
+            </div>
           </>
         )}
       </div>
-      <div className="control-message">
-        <h2>Club Entry Message</h2>
-        <p>This Message Greets Members When They Enter The Club. Updates Show Again To Members.</p>
+      <div className="control-message arena-case arena-ops-case">
+        <h2 className="arena-section-title">Club Entry Message</h2>
+        <p className="arena-ops-copy">
+          This Message Greets Members When They Enter The Club. Updates Show Again To Members.
+        </p>
         <label htmlFor="control-club-message">Message</label>
         <textarea
           id="control-club-message"
+          className="arena-ops-well"
           rows={3}
           maxLength={CLUB_ENTRY_MESSAGE_MAX}
           value={current ? draft : ''}
@@ -166,12 +179,15 @@ export default function ClubControlActions() {
           <span>
             {draft.length}/{CLUB_ENTRY_MESSAGE_MAX}
           </span>
-          <button
-            disabled={!current || !!current.error || busy || draft === current.message}
-            onClick={() => void save()}
-          >
-            {busy ? 'Saving...' : 'Save Club Message'}
-          </button>
+          <div className="arena-switch arena-ops-primary">
+            <button
+              type="button"
+              disabled={!current || !!current.error || busy || draft === current.message}
+              onClick={() => void save()}
+            >
+              {busy ? 'Saving...' : 'Save Club Message'}
+            </button>
+          </div>
         </div>
       </div>
     </section>

@@ -735,7 +735,7 @@ export function RolloutReadiness({ clusterId }: { clusterId: string }) {
           ) : null}
         </>
       )}
-      <div className={styles.words}>
+      <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.words}`}>
         <button
           type="button"
           className={`${styles.word} sc-ink--white`}
@@ -806,7 +806,11 @@ export default function LightningOperatorControls({
       ) : null}
 
       <span className={`${styles.recordMeta} ${styles.subhead} sc-ink--muted`}>Cluster</span>
-      <div className={styles.words} role="group" aria-label="Cluster Controls">
+      <div
+        className={`arena-switch arena-ops-keys ${styles.words}`}
+        role="group"
+        aria-label="Cluster Controls"
+      >
         {paused ? (
           <ControlWord action="resume" onPick={pick} disabled={frozen} />
         ) : (
@@ -831,7 +835,11 @@ export default function LightningOperatorControls({
       </div>
 
       <Row label="Worker Mode" value={c.workerMode ? enumLabel(c.workerMode) : 'Unknown'} />
-      <div className={styles.words} role="group" aria-label="Worker Mode">
+      <div
+        className={`arena-switch arena-ops-keys ${styles.words}`}
+        role="group"
+        aria-label="Worker Mode"
+      >
         {(['off', 'shadow', 'form'] as const).map((mode) => (
           <button
             type="button"
@@ -871,7 +879,11 @@ export default function LightningOperatorControls({
           Controls Are Installed.
         </p>
       ) : null}
-      <div className={styles.words} role="group" aria-label="Calibration And Integrity Controls">
+      <div
+        className={`arena-switch arena-ops-keys ${styles.words}`}
+        role="group"
+        aria-label="Calibration And Integrity Controls"
+      >
         <ControlWord
           action="set_shadow_window"
           onPick={pick}
@@ -892,7 +904,11 @@ export default function LightningOperatorControls({
       </div>
 
       <span className={`${styles.recordMeta} ${styles.subhead} sc-ink--muted`}>Lightning</span>
-      <div className={styles.words} role="group" aria-label="Lightning Controls">
+      <div
+        className={`arena-switch arena-ops-keys ${styles.words}`}
+        role="group"
+        aria-label="Lightning Controls"
+      >
         {c.lightningEnabled ? (
           <ControlWord action="disable_lightning" onPick={pick} disabled={frozen || draining} />
         ) : (
@@ -912,7 +928,11 @@ export default function LightningOperatorControls({
         ink={m?.shadowDisabled ? 'gold' : 'silver'}
       />
       <Row label="Disabled" value={m && m.disabled.length ? m.disabled.join(', ') : 'None'} />
-      <div className={styles.words} role="group" aria-label="Matcher Controls">
+      <div
+        className={`arena-switch arena-ops-keys ${styles.words}`}
+        role="group"
+        aria-label="Matcher Controls"
+      >
         <ControlWord
           action="set_matcher_version"
           label="Set Version"

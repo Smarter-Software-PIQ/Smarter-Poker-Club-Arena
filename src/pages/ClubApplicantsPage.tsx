@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import PageBar from '../components/help/PageBar';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
 import { Link, useParams } from 'react-router-dom';
 import { useIsMounted } from '../hooks/useIsMounted';
 import { useAuthUser } from '../hooks/useAuthUser';
@@ -12,6 +13,8 @@ import { resolveClubUUIDStrict } from '../utils/clubIdResolver';
 import { reportError } from '../utils/errorReporter';
 import { safeErrorMessage } from '../utils/safeErrorMessage';
 import { titleCase } from '../utils/titleCase';
+import '../components/ops/ArenaOps.css';
+import '../components/club/ClubPageSection.css';
 import './ClubApplicantsPage.css';
 
 interface Applicant {
@@ -30,19 +33,39 @@ export default function ClubApplicantsPage() {
   const { user } = useAuthUser();
   const access = useClubNavigationAccess(clubId);
   return (
-    <section className="club-applicants-page">
-      <PageBar title="Applicants" summary="Review Requests To Join This Club.">
-        <Link to={`/clubs/${clubId}/members`}>Back To Players</Link>
+    <section className="club-applicants-page arena-workspace">
+      {/* #SmarterDesign (Dan 2026-11-27): the chrome mast its People & Safety
+          siblings wear, the help behind its "?", and the way back as a chrome
+          key. Same title, summary, link and states as before. */}
+      <ArenaWorkspaceHeader
+        area="operations"
+        title="Applicants"
+        summary="Review Requests To Join This Club."
+      />
+      <PageBar title="Applicants" titleAs={false} showHelp={false}>
+        <div className="arena-switch applicants-keys">
+          <Link to={`/clubs/${clubId}/members`}>Back To Players</Link>
+        </div>
       </PageBar>
       {access.loading ? (
-        <p role="status">Confirming Club Access...</p>
+        <div className="arena-case arena-ops-case">
+          <p className="arena-ops-copy" role="status">
+            Confirming Club Access...
+          </p>
+        </div>
       ) : access.error ? (
-        <div role="alert">
-          <p>{access.error}</p>
-          <button onClick={access.reload}>Retry Access</button>
+        <div className="arena-case arena-ops-case" role="alert">
+          <p className="arena-ops-copy">{access.error}</p>
+          <div className="arena-switch arena-ops-keys arena-ops-primary">
+            <button onClick={access.reload}>Retry Access</button>
+          </div>
         </div>
       ) : !user || !access.canControlClub ? (
-        <p role="note">Club Owner, CO Owner Or Admin Access Is Required.</p>
+        <div className="arena-case arena-ops-case">
+          <p className="arena-ops-copy" role="note">
+            Club Owner, CO Owner Or Admin Access Is Required.
+          </p>
+        </div>
       ) : (
         <ApplicantQueue key={`${clubId}:${user.id}`} clubId={clubId} />
       )}
@@ -133,40 +156,50 @@ function ApplicantQueue({ clubId }: { clubId: string }) {
     }
   };
   return (
-    <>
+    <div className="arena-case arena-ops-case applicants-case">
       <div className="applicants-toolbar">
-        <h2>
+        <h2 className="arena-section-title">
           Pending Requests
           {!queue.loading && !queue.error ? ` (${queue.rows.length})` : ''}
         </h2>
-        <button disabled={queue.loading || !!busy} onClick={() => void load()}>
-          Refresh Applicants
-        </button>
+        <div className="arena-switch applicants-keys">
+          <button disabled={queue.loading || !!busy} onClick={() => void load()}>
+            Refresh Applicants
+          </button>
+        </div>
       </div>
       {queue.loading ? (
-        <p role="status">Loading Applicants...</p>
+        <p className="arena-ops-copy" role="status">
+          Loading Applicants...
+        </p>
       ) : queue.error ? (
         <div role="alert">
-          <p>{queue.error}</p>
-          <button onClick={() => void load()}>Retry Applicant Queue</button>
+          <p className="arena-ops-copy">{queue.error}</p>
+          <div className="arena-switch arena-ops-keys arena-ops-primary">
+            <button onClick={() => void load()}>Retry Applicant Queue</button>
+          </div>
         </div>
       ) : queue.rows.length === 0 ? (
-        <p>No Pending Applicants. New Join Requests Will Appear Here.</p>
+        <p className="arena-ops-copy">No Pending Applicants. New Join Requests Will Appear Here.</p>
       ) : (
         <ul className="applicants-list">
           {queue.rows.map((applicant) => (
-            <li key={applicant.user_id}>
-              <div>
+            <li key={applicant.user_id} className="arena-ledger-row">
+              <div className="applicant-identity">
                 <h3>{titleCase(applicant.display_name || 'Player')}</h3>
                 <p>Requested {new Date(applicant.created_at).toLocaleDateString()}</p>
               </div>
-              <div className="applicant-actions">
+              <div className="applicant-actions arena-switch">
                 <button disabled={!!busy} onClick={() => void review(applicant, false)}>
                   {busy?.userId === applicant.user_id && !busy.approve
                     ? 'Processing...'
                     : 'Decline'}
                 </button>
-                <button disabled={!!busy} onClick={() => void review(applicant, true)}>
+                <button
+                  className="club-page-key--primary"
+                  disabled={!!busy}
+                  onClick={() => void review(applicant, true)}
+                >
                   {busy?.userId === applicant.user_id && busy.approve ? 'Processing...' : 'Approve'}
                 </button>
               </div>
@@ -174,6 +207,6 @@ function ApplicantQueue({ clubId }: { clubId: string }) {
           ))}
         </ul>
       )}
-    </>
+    </div>
   );
 }

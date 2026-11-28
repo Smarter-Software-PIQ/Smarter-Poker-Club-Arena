@@ -777,12 +777,14 @@ test.describe('Production Kings Club Players', () => {
       await expectContainedControls(
         page,
         '.members-roster-footer',
-        '.members-roster-footer .members-columns, .members-roster-footer .members-export, .members-roster-footer .members-select-loaded'
+        '.members-roster-footer .members-columns, .members-roster-footer .roster-records__actions button'
       );
       // Permission-specific controls are checked whenever the actual viewer
       // can see them; the required search and sort checks always execute.
       for (const control of await page
-        .locator('.members-export, .members-select-loaded, .members-columns, .member-row__open')
+        .locator(
+          '.members-export, .roster-records__actions button, .members-columns, .member-row__open'
+        )
         .all()) {
         const box = await control.boundingBox();
         expect(box).not.toBeNull();
@@ -845,6 +847,21 @@ test.describe('Production Kings Club Players', () => {
     const axe = await new AxeBuilder({ page }).include('.club-members-page').analyze();
     expect(
       axe.violations.filter((violation) => ['serious', 'critical'].includes(violation.impact || ''))
+    ).toEqual([]);
+
+    // The roster footer (Roster Export, its readouts, actions, scope note and
+    // Metric Definitions, then Change History) on its own, with the
+    // disclosure open so its contents are scanned too.
+    const rosterRecords = page.locator('.roster-records');
+    await expect(rosterRecords.first()).toBeVisible();
+    const definitions = page.locator('.roster-records__disclosure');
+    if (!(await definitions.evaluate((node) => (node as HTMLDetailsElement).open)))
+      await definitions.locator('summary').click();
+    const rosterRecordsAxe = await new AxeBuilder({ page }).include('.roster-records').analyze();
+    expect(
+      rosterRecordsAxe.violations.filter((violation) =>
+        ['serious', 'critical'].includes(violation.impact || '')
+      )
     ).toEqual([]);
     expect(probe.responseFailures).toEqual([]);
     expect(probe.requestFailureCount).toBe(0);

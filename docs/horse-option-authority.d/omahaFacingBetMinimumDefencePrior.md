@@ -1,6 +1,6 @@
 # omahaFacingBetMinimumDefencePrior: Authority For The Live Switch
 
-Built 2026-11-24 by PLO-OWNER lead-6 (session 01BNteGX) from the PLO4/PLO5 over-fold root cause (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4) and the multiway audit (multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). Evidence NOT MET: the option is registered, default off (read `=== true`), and has offline replay and law-test evidence only. This file does not authorize switching the option on.
+Built 2026-11-24 by PLO-OWNER lead-6 (session 01BNteGX) from the PLO4/PLO5 over-fold root cause (plo-overfold/PLO-OVERFOLD-ROOT-CAUSE.md section 4) and the multiway audit (multiway/MULTIWAY-AUDIT-AND-PLAN.md section 5). Evidence NOT MET: reads the pooled every-player table (owner order Nov 26: people only); superseded by omahaFacingBetPriorIsPeopleMeasured (#12116; it acts only inside omahaFacingBetRangeIsMeasuredByLine and omahaFlopRealizationIsPriced, both superseded). The option is registered, default off (read `=== true`), and has offline replay and law-test evidence only. This file does not authorize switching the option on.
 
 ## What It Does
 
