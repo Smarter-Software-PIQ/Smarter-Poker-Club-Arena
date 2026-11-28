@@ -7,7 +7,7 @@
  * stack size and asking for confirmation before executing the cashout.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import './LeaveTableConfirm.css';
 import { exactChips } from '../../utils/format';
 
