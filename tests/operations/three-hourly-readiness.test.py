@@ -1645,13 +1645,41 @@ class CopyFreshnessTests(unittest.TestCase):
 
         return gh_get, gh_text
 
-    def _zip(self, cert):
+    def _zip(self, cert, evidence=None):
         buf = io.BytesIO()
         import zipfile
 
         with zipfile.ZipFile(buf, "w") as zf:
             zf.writestr("certificate.json", json.dumps(cert))
+            if evidence is not None:
+                zf.writestr("schema-evidence.json", evidence)
         return buf.getvalue()
+
+    DUMP = "d" * 64
+
+    def _evidenced(self, restored_at, captured_at, versions=(), bound=True):
+        """A certificate archive in the real shape (Backup run 46085911560, 2026-11-27): the
+        certificate's database block binds schema-evidence.json by sha256 and both name the dump."""
+        import hashlib
+
+        evidence = json.dumps({
+            "schema": "club-arena-schema-evidence/v1",
+            "capturedAt": captured_at,
+            "dumpSha256": self.DUMP,
+            "functions": {},
+            "migrations": [[v, f"m{v}"] for v in versions],
+        }).encode()
+        digest = hashlib.sha256(evidence).hexdigest() if bound else "0" * 64
+        cert = {"database": {"restoredAt": restored_at, "dump": "schema.dump", "dumpSha256": self.DUMP,
+                             "schemaEvidenceValidated": True, "schemaEvidenceSha256": digest}}
+        return {5: self._zip(cert, evidence)}
+
+    def _inflight(self, run_id, file, job_status="in_progress", jobs=None, nonce=" 0123abcd"):
+        run = {"id": run_id, "status": "in_progress" if job_status != "queued" else "queued",
+               "created_at": "2026-11-27T11:00:00Z", "display_title": f"Apply Merged Migration {file}{nonce}"}
+        if jobs is None:
+            jobs = [] if job_status == "queued" else [{"id": run_id + 1, "name": f"Apply {file}", "status": job_status, "conclusion": None}]
+        return (run, jobs)
 
     def _helper(self, inert=(), seen=None):
         """A stand-in for the installed-migrations helper: its inert_versions answers `inert`,
@@ -2119,6 +2147,123 @@ class CopyFreshnessTests(unittest.TestCase):
         verdict, sha, summary = mod.determine_verdict(health, cand, [], git_info)
         self.assertEqual((verdict, sha), (mod.VERDICT_READY, "a" * 40))
         self.assertIn("no install seen in the applier's job logs", summary)
+
+    # --- 2026-11-27: an install in flight is a risk, not a blind spot ---
+
+    PENDING = "20261127120000_horse_threshold.sql"
+
+    def test_an_install_in_flight_of_a_non_inert_file_is_at_risk_naming_it(self):
+        for state in ("in_progress", "queued"):
+            gh_get, gh_text = self._gh([self._inflight(910, self.PENDING, state)], [], {})
+            verdict, detail = self._judge(gh_get, gh_text, helper=self._helper())
+            self.assertEqual(verdict, "at-risk", detail)
+            self.assertIn(self.PENDING, detail)
+            self.assertIn("run 910", detail)
+            self.assertIn(state, detail)
+            self.assertIn("refuses this certificate", detail)
+        health = {"phase": "idle"}
+        git_info = {"totalCommitsSinceServing": 1, "controlSha": "c" * 40, "servingSha": "s" * 40}
+        cand = [{"sha": "a" * 40, "subject": "x", "status": "SELECTABLE", "reason": "", "copyFreshness": verdict, "copyFreshnessDetail": detail}]
+        got, sha, summary = mod.determine_verdict(health, cand, [], git_info)
+        self.assertEqual((got, sha), (mod.VERDICT_AT_RISK, "a" * 40))
+        self.assertNotEqual(got, mod.VERDICT_READY)
+        self.assertIn("aaaaaaaaaaaa is certified and selectable now, but", summary)
+        self.assertIn(self.PENDING, summary)
+        self.assertEqual(mod.EXIT_CODES[mod.VERDICT_AT_RISK], 0)
+        # A committed install the copy lacks still makes it stale, whatever is in flight beside it.
+        done = self._apply(911, 92, "2026-11-27T11:00:00Z")
+        gh_get, gh_text = self._gh([done, self._inflight(912, self.PENDING)], [], {92: "[apply] 20261127000005_v.sql\n[apply] APPLIED"})
+        self.assertEqual(self._judge(gh_get, gh_text)[0], "stale")
+        # The apply job finished and only the refusal report runs: its log is read, not guessed.
+        jobs = [{"id": 914, "name": f"Apply {self.PENDING}", "status": "completed", "conclusion": "success", "completed_at": "2026-11-27T11:00:00Z"},
+                {"id": 915, "name": mod.APPLY_REPORT_JOB, "status": "in_progress", "conclusion": None}]
+        gh_get, gh_text = self._gh([self._inflight(913, self.PENDING, jobs=jobs)], [], {914: f"[apply] {self.PENDING}\n[apply] APPLIED"})
+        verdict, detail = self._judge(gh_get, gh_text)
+        self.assertEqual(verdict, "stale", detail)
+        self.assertIn(self.PENDING[:14], detail)
+
+    def test_an_install_in_flight_of_an_inert_file_or_one_the_copy_holds_changes_nothing(self):
+        gh_get, gh_text = self._gh([self._inflight(920, self.PENDING)], [], {})
+        verdict, detail = self._judge(gh_get, gh_text, helper=self._helper({self.PENDING[:14]}))
+        self.assertEqual(verdict, "fresh", detail)
+        self.assertIn(f"left out as engine-inert: {self.PENDING[:14]}", detail)
+        self.assertIn(f"install in flight changes nothing: {self.PENDING[:14]}", detail)
+        archives = self._evidenced(self.COPY_AT, "2026-11-27T10:04:00Z", versions=[self.PENDING[:14]])
+        verdict, detail = self._judge(gh_get, gh_text, helper=self._helper(), archives=archives)
+        self.assertEqual(verdict, "fresh", detail)
+        self.assertIn(f"already in the copy: {self.PENDING[:14]}", detail)
+        # The same copy without it: at risk.
+        archives = self._evidenced(self.COPY_AT, "2026-11-27T10:04:00Z", versions=["20261127000001"])
+        self.assertEqual(self._judge(gh_get, gh_text, helper=self._helper(), archives=archives)[0], "at-risk")
+
+    def test_an_install_in_flight_whose_file_cannot_be_identified_is_unread(self):
+        cases = {
+            "no name": ({"id": 930, "status": "queued", "created_at": "2026-11-27T11:00:00Z"}, []),
+            "names disagree": self._inflight(931, self.PENDING, jobs=[{"id": 1, "name": "Apply 20261127120001_other.sql", "status": "in_progress"}]),
+            "a name that is not a migration": ({"id": 932, "status": "queued", "created_at": "2026-11-27T11:00:00Z", "display_title": "Apply Merged Migration ../x"}, []),
+            "an unknown job running": self._inflight(933, self.PENDING, jobs=[{"id": 2, "name": "something else", "status": "in_progress"}]),
+        }
+        for label, run in cases.items():
+            gh_get, gh_text = self._gh([run], [], {})
+            verdict, detail = self._judge(gh_get, gh_text, helper=self._helper())
+            self.assertEqual(verdict, "unread", label)
+            self.assertIn(str(run[0]["id"]), detail, label)
+
+    def test_the_skipped_refusal_report_of_a_finished_apply_run_is_not_a_log_to_read(self):
+        # Run 46091917200 (2026-11-27): its "Report a refused install" job was skipped and GitHub
+        # answers its log with HTTP 404, so every Apply run after a copy read as unread.
+        run = {"id": 950, "status": "completed", "created_at": "2026-11-27T11:00:00Z", "updated_at": "2026-11-27T11:01:00Z"}
+        jobs = [
+            {"id": 951, "name": f"Apply {self.PENDING}", "status": "completed", "conclusion": "success", "completed_at": "2026-11-27T11:00:30Z"},
+            {"id": 952, "name": mod.APPLY_REPORT_JOB, "status": "completed", "conclusion": "skipped", "completed_at": "2026-11-27T11:00:31Z"},
+        ]
+        calls = []
+        gh_get, gh_text = self._gh([(run, jobs)], [], {951: f"[apply] {self.PENDING}\n[apply] committed in 9ms"}, calls=calls)
+        verdict, detail = self._judge(gh_get, gh_text, helper=self._helper({self.PENDING[:14]}))
+        self.assertEqual(verdict, "fresh", detail)
+        self.assertNotIn("repos/o/r/actions/jobs/952/logs", calls)
+        self.assertEqual(self._judge(gh_get, gh_text, helper=self._helper())[0], "stale")
+        # A skipped apply job ran nothing either.
+        skipped = [dict(jobs[0], conclusion="skipped")]
+        gh_get, gh_text = self._gh([(run, skipped)], [], {})
+        self.assertEqual(self._judge(gh_get, gh_text, helper=self._helper())[0], "fresh")
+
+    def test_the_names_are_the_ones_the_apply_workflow_gives(self):
+        workflow = (ROOT / ".github/workflows/apply-merged-migration.yml").read_text()
+        self.assertIn(
+            "run-name: Apply Merged Migration ${{ inputs.migration || github.event.client_payload.migration }}"
+            "${{ github.event.client_payload.intent_nonce && format(' {0}', github.event.client_payload.intent_nonce) || '' }}",
+            workflow,
+        )
+        self.assertIn("    name: Apply ${{ inputs.migration || github.event.client_payload.migration }}\n", workflow)
+        self.assertIn(f"    name: {mod.APPLY_REPORT_JOB}\n", workflow)
+        self.assertEqual(re.findall(r"^  ([a-z][a-z-]*):$", workflow.split("\njobs:\n", 1)[1], re.M), ["apply", "report-refusal"])
+        self.assertTrue(mod.APPLY_RUN_NAME_RE.match(
+            "Apply Merged Migration 20261127230642_horse_option_register_holdem_turn_bluff_on_people.sql f032cf11ec76b0e0cd7c7e9e8925777e"))
+
+    def test_the_copy_is_dated_by_the_export_when_it_is_earlier_than_the_restore(self):
+        # Backup run 46085911560: evidence captured 22:14:43Z after pg_dump, copy restored 22:15:45Z.
+        install = [self._apply(940, 94, "2026-11-27T10:02:00Z")]
+        gh_get, gh_text = self._gh(install, [], {94: "[apply] 20261127000005_v.sql\n[apply] APPLIED"})
+        self.assertEqual(self._judge(gh_get, gh_text)[0], "fresh")  # restoredAt 10:05 alone
+        archives = self._evidenced(self.COPY_AT, "2026-11-27T10:00:00.479625+00:00")
+        verdict, detail = self._judge(gh_get, gh_text, archives=archives)
+        self.assertEqual(verdict, "stale", detail)
+        self.assertIn("04:00", detail)
+        # An evidence time after the restore never moves the copy later.
+        archives = self._evidenced(self.COPY_AT, "2026-11-27T10:30:00Z")
+        self.assertEqual(self._judge(gh_get, gh_text, archives=archives)[0], "fresh")
+        # Evidence the certificate does not bind is unread, never a date.
+        archives = self._evidenced(self.COPY_AT, "2026-11-27T10:00:00Z", bound=False)
+        self.assertEqual(self._judge(gh_get, gh_text, archives=archives)[0], "unread")
+        # The export captures the evidence after pg_dump, compared equal to the set before it.
+        tool = (ROOT / "server/standby/schema-evidence.py").read_text()
+        self.assertIn("'capturedAt': datetime.now(timezone.utc).isoformat()", tool)
+        backup = (ROOT / ".github/workflows/backup-engine.yml").read_text()
+        before = backup.index('schema-evidence.py capture --output "$RUNNER_TEMP/out/schema-before.json"')
+        after = backup.index('schema-evidence.py capture --dump "$RUNNER_TEMP/out/schema.dump" --output "$RUNNER_TEMP/out/schema-evidence.json"')
+        self.assertLess(before, after)
+        self.assertIn('schema-evidence.py compare "$RUNNER_TEMP/out/schema-before.json" "$RUNNER_TEMP/out/schema-evidence.json"', backup)
 
 
 if __name__ == "__main__":
