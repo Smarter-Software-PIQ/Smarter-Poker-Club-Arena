@@ -1,0 +1,39 @@
+{
+  "pre_md5": "a539fd43bb2992f8d75253f2d7a4dd7c",
+  "post_md5": "c142f16547e8cde3ba10338c2bf6e6e4",
+  "migration_sha256": "a30d4f69c421b3437587ef41f01af613a2cb96fa51db85de8fad8ccceb097707",
+  "production_mutations": false,
+  "sections": [
+    {
+      "cycle": true,
+      "label": "before",
+      "capacity": {
+        "ok": true,
+        "reason": "tournament_not_running",
+        "created": false
+      },
+      "hand_error": "ERROR:  deadlock detected\nDETAIL:  Process 850 waits for ShareLock on transaction 733; blocked by process 849.\nProcess 849 waits for ShareLock on transaction 734; blocked by process 850.\nHINT:  See server log for query details.\nCONTEXT:  while locking tuple (0,1) in relation \"tournaments\"",
+      "capacity_ms": 201.7,
+      "rebuy_error": null,
+      "capacity_waited_on_hand": true
+    },
+    {
+      "cycle": false,
+      "label": "after",
+      "capacity": {
+        "ok": true,
+        "reason": "tournament_not_running",
+        "created": false
+      },
+      "hand_error": null,
+      "capacity_ms": 5.7,
+      "rebuy_error": null,
+      "capacity_waited_on_hand": false
+    },
+    {
+      "serialised": true
+    }
+  ],
+  "passed": true,
+  "server_log_deadlocks": 1
+}
