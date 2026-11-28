@@ -201,4 +201,56 @@ describe('scripts/release/check-host-posture.sh', () => {
     expect(src).toContain('ssh ca-engine');
     expect(src).toContain('ssh ca-backup');
   });
+
+  it('supports --warn-inode-pct and --docker-log-rotation warn for live production severity split', () => {
+    // 71% inodes + daemon.json lacking max-size: warn (exit 0) when configured with warn threshold 70 / fail 85
+    const warned = runWithStubs(
+      {
+        dfInodePct: 71,
+        daemonJson: JSON.stringify({ 'log-driver': 'json-file', 'log-opts': {} }),
+      },
+      [
+        '--min-free-gib',
+        '15',
+        '--max-inode-pct',
+        '85',
+        '--warn-inode-pct',
+        '70',
+        '--max-clock-skew-ms',
+        '250',
+        '--docker-log-rotation',
+        'warn',
+        '--require-image',
+        'ghcr.io/smarter/engine:cand',
+        '--require-image',
+        'ghcr.io/smarter/engine:rollback',
+      ]
+    );
+    expect(warned.status).toBe(0);
+    expect(warned.parsed.ok).toBe(true);
+    expect(warned.parsed.checks.inode.ok).toBe(true);
+    expect(warned.parsed.checks.inode.warning).toBe(true);
+    expect(warned.parsed.checks.dockerLogRotation.ok).toBe(true);
+    expect(warned.parsed.checks.dockerLogRotation.warning).toBe(true);
+    expect(warned.parsed.warnings.length).toBe(2);
+    expect(warned.parsed.failures).toEqual([]);
+
+    // 85% inodes STILL hard-fails closed (exit 1)
+    const hardFailInode = runWithStubs({ dfInodePct: 85 }, [
+      '--max-inode-pct',
+      '85',
+      '--warn-inode-pct',
+      '70',
+      '--docker-log-rotation',
+      'warn',
+    ]);
+    expect(hardFailInode.status).toBe(1);
+    expect(hardFailInode.parsed.ok).toBe(false);
+    expect(hardFailInode.parsed.checks.inode.ok).toBe(false);
+
+    // Invalid --docker-log-rotation mode fails closed (exit 3)
+    const badMode = runWithStubs({}, ['--docker-log-rotation', 'ignore']);
+    expect(badMode.status).toBe(3);
+    expect(badMode.parsed.ok).toBe(false);
+  });
 });

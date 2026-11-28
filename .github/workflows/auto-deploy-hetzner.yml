@@ -515,7 +515,7 @@ jobs:
       exit_error: ${{ steps.exit_path.outputs.error || '' }}
       superseded_by: ${{ steps.release.outputs.superseded_by || '' }}
       verified: ${{ steps.verify.outputs.verified || 'false' }}
-      shipped: ${{ (steps.release.outputs.result == 'sealed' || steps.release.outputs.result == 'already-released') && steps.verify.outputs.verified == 'true' }}
+      shipped: ${{ (steps.release.outputs.result == 'sealed' || steps.release.outputs.result == 'already-released') && steps.verify.outputs.verified == 'true' && steps.canary.outputs.passed != 'false' }}
     env:
       HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
       SSH_USER: root
@@ -867,6 +867,109 @@ jobs:
             fi
           fi
 
+      - name: Read-only host posture and image pre-flight
+        id: host_posture
+        if: steps.prepare.outputs.superseded_by == ''
+        env:
+          PREPARED_IMAGE: ${{ needs.preflight.outputs.image_id }}
+          ROLLBACK_IMAGE: ${{ needs.preflight.outputs.rollback_image_id }}
+        run: |
+          set -euo pipefail
+          POSTURE_REMAINING=$((RELEASE_DISPATCH_DEADLINE_EPOCH - $(date +%s)))
+          [ "$POSTURE_REMAINING" -gt 5 ] \
+            || { echo '::error::host posture pre-flight exhausted the absolute deploy budget'; exit 70; }
+          POSTURE_TIMEOUT=$((POSTURE_REMAINING - 5))
+          [ "$POSTURE_TIMEOUT" -le 60 ] || POSTURE_TIMEOUT=60
+          POSTURE_SCRIPT_B64="$(base64 -w 0 scripts/release/check-host-posture.sh)"
+          [[ "$POSTURE_SCRIPT_B64" =~ ^[A-Za-z0-9+/]*={0,2}$ ]]
+          POSTURE_OUT="$RUNNER_TEMP/host-posture-$RUN_KEY.json"
+          set +e
+          timeout --signal=TERM --kill-after=5s "${POSTURE_TIMEOUT}s" \
+            "$HSSH" "TARGET_SHA='$SHA' RUN_KEY='$RUN_KEY' PREPARED_IMAGE='$PREPARED_IMAGE' ROLLBACK_IMAGE='$ROLLBACK_IMAGE' POSTURE_SCRIPT_B64='$POSTURE_SCRIPT_B64' bash -se" <<'REMOTE' > "$POSTURE_OUT"
+          set -euo pipefail
+          STAGE="/var/lib/club-arena/control-staging/$RUN_KEY"
+          CANDIDATE_IMG="$PREPARED_IMAGE"
+          ROLLBACK_IMG="$ROLLBACK_IMAGE"
+          if [ -r "$STAGE/prepared-image" ]; then
+            CANDIDATE_IMG="$(sed -n '3p' "$STAGE/prepared-image" || echo "$PREPARED_IMAGE")"
+            ROLLBACK_IMG="$(sed -n '4p' "$STAGE/prepared-image" || echo "$ROLLBACK_IMAGE")"
+          fi
+          DESIRED_SHA="$(/usr/local/lib/club-arena/engine-control/engine-release-seal.py get desired-sha 2>/dev/null || true)"
+          DESIRED_IMAGE="$(/usr/local/lib/club-arena/engine-control/engine-release-seal.py get desired-image-id 2>/dev/null || true)"
+          RUNNING_IMAGE="$(docker container inspect -f '{{if .State.Running}}{{.Image}}{{end}}' club-arena-engine 2>/dev/null || true)"
+          REQ_IMG_ARGS=()
+          if [[ "$CANDIDATE_IMG" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            REQ_IMG_ARGS+=(--require-image "$CANDIDATE_IMG")
+          fi
+          if [[ "$ROLLBACK_IMG" =~ ^sha256:[0-9a-f]{64}$ ]] \
+            && ! { [ "$DESIRED_SHA" = "$TARGET_SHA" ] && [ "$DESIRED_IMAGE" = "$CANDIDATE_IMG" ] && [ "$RUNNING_IMAGE" = "$CANDIDATE_IMG" ]; }; then
+            REQ_IMG_ARGS+=(--require-image "$ROLLBACK_IMG")
+          fi
+          exec bash <(printf '%s' "$POSTURE_SCRIPT_B64" | base64 -d) \
+            --local --min-free-gib 15 --max-inode-pct 85 --warn-inode-pct 70 \
+            --max-clock-skew-ms 250 --docker-log-rotation warn "${REQ_IMG_ARGS[@]}"
+          REMOTE
+          POSTURE_RC=$?
+          set -e
+          cat "$POSTURE_OUT" || true
+          if [ -s "$POSTURE_OUT" ] && jq -e 'type == "object"' "$POSTURE_OUT" >/dev/null 2>&1; then
+            while IFS= read -r w; do
+              [ -n "$w" ] && echo "::warning title=Host Posture Warning::$w"
+            done < <(jq -r '.warnings[]? // empty' "$POSTURE_OUT")
+            if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+              {
+                echo '### Pre-Flight Host Posture Check (Read-Only)'
+                echo ''
+                jq -r '
+                  "- **Verdict:** `" + (if .ok then "PASS" else "FAIL (exit " + (.exitCode|tostring) + ")" end) + "`",
+                  "- **Disk free:** `" + ((.checks.disk.freeGiB // "unknown")|tostring) + " GiB` (min `>= 15 GiB`)",
+                  "- **Inodes used:** `" + ((.checks.inode.inodeUsedPct // "unknown")|tostring) + "%` (warn `>= 70%`, fail `>= 85%`)",
+                  "- **Clock skew:** `" + ((.checks.clockSkew.skewMs // "unknown")|tostring) + " ms` (max `< 250 ms`, synced `" + ((.checks.clockSkew.synchronized // "unknown")|tostring) + "`)",
+                  "- **Swap used:** `" + ((.checks.swap.swapUsedPct // "unknown")|tostring) + "%` (max `< 50%`)",
+                  "- **Docker log rotation:** `" + (if .checks.dockerLogRotation.warning then "WARN (container --log-opt)" elif .checks.dockerLogRotation.ok then "OK" else "FAIL" end) + "`",
+                  "- **Required images present:** `" + (((.checks.requiredImages.present // [])|length)|tostring) + "/" + (((.checks.requiredImages.requested // [])|length)|tostring) + "`",
+                  (if ((.warnings // [])|length) > 0 then "- **Warnings:** " + ((.warnings // [])|join("; ")) else empty end),
+                  (if ((.failures // [])|length) > 0 then "- **Failures:** " + ((.failures // [])|join("; ")) else empty end)
+                ' "$POSTURE_OUT"
+                echo ''
+              } >> "$GITHUB_STEP_SUMMARY" || true
+            fi
+          else
+            echo '::error title=Host Posture Unreadable::check-host-posture.sh returned no readable JSON (fail-closed).'
+            exit 3
+          fi
+          if [ "$POSTURE_RC" -ne 0 ] || ! jq -e '.ok == true' "$POSTURE_OUT" >/dev/null 2>&1; then
+            echo "::error title=Host Posture Pre-Flight Refused::Host posture check failed closed (exit $POSTURE_RC); refusing cutover before freeze notice."
+            exit "${POSTURE_RC:-1}"
+          fi
+
+      - name: Capture pre-cutover /health baseline snapshot
+        id: pre_cutover_health
+        if: steps.prepare.outputs.superseded_by == ''
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          PRE_FILE="$RUNNER_TEMP/pre-cutover-health-$RUN_KEY.json"
+          if curl -fsS --max-time 15 -H 'Cache-Control: no-cache, no-store' \
+              "$ENGINE_URL/health?nocache=$(date +%s%N)" -o "$PRE_FILE" \
+            && jq -e 'type == "object"' "$PRE_FILE" >/dev/null 2>&1; then
+            echo 'captured=true' >> "$GITHUB_OUTPUT"
+            echo "Captured pre-cutover /health baseline snapshot ($PRE_FILE)."
+          else
+            rm -f -- "$PRE_FILE"
+            echo '::warning title=Pre-Cutover Snapshot Unreadable::Could not capture pre-cutover /health baseline snapshot; post-cutover diff will fail-safe as unreadable.'
+          fi
+
+      - name: Retain pre-cutover /health baseline snapshot
+        if: steps.pre_cutover_health.outputs.captured == 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: pre-cutover-health-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pre-cutover-health-${{ github.run_id }}-${{ github.run_attempt }}.json
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Wait for the immutable activation floor before creating any intake
         id: floor
         if: steps.prepare.outputs.superseded_by == ''
@@ -1146,6 +1249,131 @@ jobs:
           [ "$PUBLIC_INSTANCE" = "$LOCAL_INSTANCE" ]
           echo 'verified=true' >> "$GITHUB_OUTPUT"
 
+      - name: Deterministic post-swap live canary check and rollback guard
+        id: canary
+        if: steps.release.outputs.result == 'sealed' && steps.verify.outputs.verified == 'true'
+        env:
+          ROLLBACK_IMAGE: ${{ needs.preflight.outputs.rollback_image_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          CANARY_REMAINING=$((RELEASE_RECEIPT_DEADLINE_EPOCH - $(date +%s) - 90))
+          CANARY_DURATION=120
+          if [ "$CANARY_REMAINING" -lt "$CANARY_DURATION" ]; then
+            CANARY_DURATION="$CANARY_REMAINING"
+          fi
+          [ "$CANARY_DURATION" -ge 15 ] || CANARY_DURATION=15
+          CANARY_JSON="$RUNNER_TEMP/canary-$RUN_KEY.json"
+          CANARY_MD="$RUNNER_TEMP/canary-$RUN_KEY.md"
+          set +e
+          python3 -B scripts/release/post-swap-canary.py \
+            --url "$ENGINE_URL/health" \
+            --expected-sha "$SHA" \
+            --duration-seconds "$CANARY_DURATION" \
+            --interval-seconds 15 \
+            --json-out "$CANARY_JSON" \
+            --markdown-out "$CANARY_MD"
+          CANARY_RC=$?
+          set -e
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ] && [ -r "$CANARY_MD" ]; then
+            cat "$CANARY_MD" >> "$GITHUB_STEP_SUMMARY" || true
+          fi
+          if [ "$CANARY_RC" -eq 0 ]; then
+            echo 'passed=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo 'passed=false' >> "$GITHUB_OUTPUT"
+          if [ "$CANARY_RC" -eq 3 ]; then
+            echo '::error title=Post-Swap Canary Unreadable::/health was unreadable during the post-swap canary window; failing closed without blind rollback.'
+            exit 1
+          fi
+          BREACH_SUMMARY="$(jq -r '(.breaches // ["hard SLO breach"]) | join("; ")' "$CANARY_JSON" 2>/dev/null || echo 'hard SLO breach')"
+          echo "::error title=Post-Swap Canary Hard SLO Breach::$BREACH_SUMMARY — triggering deterministic rollback."
+          RB_RUN_KEY="${GITHUB_RUN_ID}-$((GITHUB_RUN_ATTEMPT + 1000))"
+          RB_REASON="$(printf 'post-swap canary SLO breach: %s' "$BREACH_SUMMARY" | tr -cd '[:print:]' | cut -c1-128)"
+          RB_REASON_B64="$(printf '%s' "$RB_REASON" | base64 -w 0)"
+          RB_ACTOR_B64="$(printf '%s' "$RUN_ACTOR" | base64 -w 0)"
+          RB_NOT_AFTER="$(( $(date +%s) + 14400 ))"
+          RB_REMAINING=$((RELEASE_REMOTE_CLEANUP_DEADLINE_EPOCH - $(date +%s) - 10))
+          [ "$RB_REMAINING" -gt 15 ] || { echo '::error::insufficient budget for deterministic canary rollback handoff'; exit 1; }
+          [ "$RB_REMAINING" -le 90 ] || RB_REMAINING=90
+          timeout --signal=TERM --kill-after=5s "${RB_REMAINING}s" \
+            "$HSSH" "TARGET_SHA='$SHA' CONTROL_SHA='$CONTROL_SHA' RUN_KEY='$RUN_KEY' RB_RUN_KEY='$RB_RUN_KEY' RB_ACTOR_B64='$RB_ACTOR_B64' RB_REASON_B64='$RB_REASON_B64' RB_NOT_AFTER='$RB_NOT_AFTER' ROLLBACK_IMAGE='$ROLLBACK_IMAGE' REPO_DIR='$REPO_DIR' bash -se" <<'REMOTE'
+          set -euo pipefail
+          CONTROL=/usr/local/lib/club-arena/engine-control
+          STAGE="/var/lib/club-arena/control-staging/$RUN_KEY"
+          CURRENT_SHA="$($CONTROL/engine-release-seal.py get desired-sha)"
+          if [ "$CURRENT_SHA" != "$TARGET_SHA" ]; then
+            echo "Desired release already moved to $CURRENT_SHA (expected $TARGET_SHA); skipping rollback handoff." >&2
+            exit 1
+          fi
+          EFFECTIVE_ROLLBACK_IMAGE="$ROLLBACK_IMAGE"
+          if [ -r "$STAGE/prepared-image" ]; then
+            EFFECTIVE_ROLLBACK_IMAGE="$(sed -n '4p' "$STAGE/prepared-image" || echo "$ROLLBACK_IMAGE")"
+          fi
+          [[ "$EFFECTIVE_ROLLBACK_IMAGE" =~ ^sha256:[0-9a-f]{64}$ ]]
+          ROLLBACK_SHA="$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$EFFECTIVE_ROLLBACK_IMAGE")"
+          [[ "$ROLLBACK_SHA" =~ ^[0-9a-f]{40}$ ]] && [ "$ROLLBACK_SHA" != "$TARGET_SHA" ]
+          RB_ACTOR="$(printf '%s' "$RB_ACTOR_B64" | base64 -d)"
+          RB_STAGE="/var/lib/club-arena/control-staging/$RB_RUN_KEY"
+          [[ "$RB_STAGE" =~ ^/var/lib/club-arena/control-staging/[1-9][0-9]*-[1-9][0-9]*$ ]]
+          rm -rf -- "$RB_STAGE"
+          install -d -m 0700 /var/lib/club-arena /var/lib/club-arena/control-staging "$RB_STAGE"
+          GIT_NO_REPLACE_OBJECTS=1 git -c tar.umask=0022 -C "$REPO_DIR" archive "$CONTROL_SHA" server/scripts \
+            | tar --no-same-owner -xf - -C "$RB_STAGE"
+          chmod 0755 "$RB_STAGE/server/scripts/"*.sh
+          "$RB_STAGE/server/scripts/install-engine-drill.sh" \
+            --mode rollback --target-sha "$ROLLBACK_SHA" --control-sha "$CONTROL_SHA" \
+            --run-id "$RB_RUN_KEY" --actor "$RB_ACTOR" --reason-b64 "$RB_REASON_B64" \
+            --not-after-epoch "$RB_NOT_AFTER"
+          echo "DETERMINISTIC CANARY ROLLBACK HANDED TO SEALED INTAKE: target $ROLLBACK_SHA (run $RB_RUN_KEY)."
+          REMOTE
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            echo "- **Automatic Rollback:** Handed deterministic rollback to sealed intake (\`install-engine-drill.sh --mode rollback\`, run \`$RB_RUN_KEY\`) after canary hard SLO breach." >> "$GITHUB_STEP_SUMMARY" || true
+          fi
+          exit 1
+
+      - name: Run pre/post cutover /health baseline diff
+        id: baseline_diff
+        if: steps.release.outputs.result == 'sealed' && steps.verify.outputs.verified == 'true' && steps.canary.outputs.passed == 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          PRE_FILE="$RUNNER_TEMP/pre-cutover-health-$RUN_KEY.json"
+          POST_FILE="$RUNNER_TEMP/post-cutover-health-$RUN_KEY.json"
+          DIFF_JSON="$RUNNER_TEMP/baseline-diff-$RUN_KEY.json"
+          DIFF_MD="$RUNNER_TEMP/baseline-diff-$RUN_KEY.md"
+          curl -fsS --max-time 15 -H 'Cache-Control: no-cache, no-store' \
+            "$ENGINE_URL/health?nocache=$(date +%s%N)" -o "$POST_FILE" || : > "$POST_FILE"
+          set +e
+          python3 -B scripts/release/post-cutover-baseline-diff.py \
+            --pre "$PRE_FILE" --post "$POST_FILE" \
+            --json-out "$DIFF_JSON" --markdown-out "$DIFF_MD"
+          DIFF_RC=$?
+          set -e
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ] && [ -r "$DIFF_MD" ]; then
+            cat "$DIFF_MD" >> "$GITHUB_STEP_SUMMARY" || true
+          fi
+          case "$DIFF_RC" in
+            0) echo "Post-cutover baseline diff: HEALTHY." ;;
+            2) echo "::warning title=Post-Cutover Baseline Regression Warning::Relative telemetry regression detected (non-fatal exit 2); see job summary." ;;
+            1) echo "::error title=Post-Cutover Hard SLO Breach::Hard SLO breach detected in post-cutover baseline diff (exit 1); see job summary." ;;
+            3) echo "::warning title=Post-Cutover Baseline Diff Unreadable::Pre or post /health snapshot unreadable (fail-safe exit 3); see job summary." ;;
+            *) echo "::warning title=Post-Cutover Baseline Diff Unexpected Exit::Unexpected exit code $DIFF_RC." ;;
+          esac
+
+      - name: Retain cutover baseline diff artifact
+        if: steps.baseline_diff.outcome != 'skipped'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: cutover-baseline-diff-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/baseline-diff-${{ github.run_id }}-${{ github.run_attempt }}.json
+            ${{ runner.temp }}/baseline-diff-${{ github.run_id }}-${{ github.run_attempt }}.md
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Read original sealed runtime for the post-deploy gameplay observer
         id: gameplay_receipt
         if: steps.release.outputs.result == 'sealed' && steps.verify.outputs.verified == 'true'
@@ -1166,7 +1394,14 @@ jobs:
             rm -rf -- "${SSH_DIR:-$RUNNER_TEMP/club-arena-ssh-$RUN_KEY}" || true
             rm -f -- "${HSSH:-$RUNNER_TEMP/hssh-$RUN_KEY}" \
               "$RUNNER_TEMP/engine-release-$RUN_KEY.log" \
-              "$RUNNER_TEMP/engine-public-health-$RUN_KEY.json" || true
+              "$RUNNER_TEMP/engine-public-health-$RUN_KEY.json" \
+              "$RUNNER_TEMP/host-posture-$RUN_KEY.json" \
+              "$RUNNER_TEMP/pre-cutover-health-$RUN_KEY.json" \
+              "$RUNNER_TEMP/post-cutover-health-$RUN_KEY.json" \
+              "$RUNNER_TEMP/canary-$RUN_KEY.json" \
+              "$RUNNER_TEMP/canary-$RUN_KEY.md" \
+              "$RUNNER_TEMP/baseline-diff-$RUN_KEY.json" \
+              "$RUNNER_TEMP/baseline-diff-$RUN_KEY.md" || true
           }
           # Local credentials are removed even when the remote cleanup cannot
           # start or is killed at its absolute deadline.
@@ -1214,9 +1449,11 @@ jobs:
             ssh=${{ steps.ssh.outcome }}
             stage=${{ steps.stage.outcome }}
             prepare=${{ steps.prepare.outcome }}
+            host_posture=${{ steps.host_posture.outcome }}
             floor=${{ steps.floor.outcome }}
             release=${{ steps.release.outcome }}
             verify=${{ steps.verify.outcome }}
+            canary=${{ steps.canary.outcome }}
           RELEASE_RESULT: ${{ steps.release.outputs.result || '' }}
           RELEASE_FAILED_STAGE: ${{ steps.release.outputs.failed_stage || '' }}
           VERIFIED: ${{ steps.verify.outputs.verified || 'false' }}

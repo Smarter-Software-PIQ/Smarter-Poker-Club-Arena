@@ -173,18 +173,121 @@ INERT_CALLS = (
 )
 INERT_FRAME = (re.compile(r'BEGIN;'), re.compile(r"SET LOCAL lock_timeout = '[0-9]{1,3}s';"), re.compile(r'COMMIT;'))
 # Narrows the files engine_inert() reads; a file without one of these names cannot be inert.
-INERT_HINT = r'fn_ca_horse_option_(register|allow_shadow|unlock)\('
+INERT_HINT = (
+    r'fn_ca_horse_option_(register|allow_shadow|unlock)\('
+    r'|public\.(training_|social_|ui_|cosmetic_|analytics_|club_announcements\b)'
+)
+
+# ---- STRICTLY NON-ENGINE TABLE MIGRATIONS (Wave B-2, fail-closed) ----
+# Verified non-engine public tables/views (zero engine readers in server/src/,
+# pinned by tests/cutover-release-controls-hardening.law.test.ts).
+_NON_ENGINE_TABLE = r'(?:training_[a-z][a-z0-9_]*|social_[a-z][a-z0-9_]*|ui_[a-z][a-z0-9_]*|cosmetic_[a-z][a-z0-9_]*|analytics_[a-z][a-z0-9_]*|club_announcements)'
+_NON_ENGINE_TABLE_RE = re.compile(r'^' + _NON_ENGINE_TABLE + r'$')
+_ENGINE_DOMAIN_TOKEN_RE = re.compile(
+    r'(?:^|_)(?:hands?|tables?|tournaments?|chips?|wallets?|escrows?|ledgers?|seats?|'
+    r'horses?|rakes?|settlements?|diamonds?|unions?|lightning|bbj|blinds?|pots?|'
+    r'cashouts?|payouts?|buyins?|rebuys?|addons?|maintenance|releases?)(?:_|$)',
+    re.IGNORECASE,
+)
+_FORBIDDEN_SQL_RE = re.compile(
+    r'(?:^DO\b|\bDO\s+(?:LANGUAGE\b|__STR__))'
+    r'|\b(?:FUNCTION|PROCEDURE|TRIGGER|RULE|EXTENSION|PUBLICATION|SUBSCRIPTION|'
+    r'DROP|TRUNCATE|GRANT|REVOKE|COPY|EXECUTE|PREPARE|DEALLOCATE|LISTEN|NOTIFY|'
+    r'UNLISTEN|LOCK|VACUUM|REINDEX|CLUSTER|PERFORM|CALL)\b'
+    r'|\bALTER\s+(?:SYSTEM|DATABASE|ROLE|USER|SCHEMA|DEFAULT\s+PRIVILEGES)\b'
+    r'|\bCREATE\s+(?:ROLE|USER|SCHEMA|TYPE|DOMAIN|SEQUENCE|OPERATOR|AGGREGATE|CAST|FOREIGN)\b'
+    r'|\bSET\s+(?:ROLE|SESSION|SEARCH_PATH)\b'
+    r'|\bSECURITY\s+DEFINER\b',
+    re.IGNORECASE,
+)
+_NON_ENGINE_STMT_PATTERNS = (
+    re.compile(r'^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?public\.(' + _NON_ENGINE_TABLE + r')\s*\(', re.IGNORECASE),
+    re.compile(r'^ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?public\.(' + _NON_ENGINE_TABLE + r')\s+', re.IGNORECASE),
+    re.compile(
+        r'^CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?'
+        r'[a-z_][a-z0-9_]*\s+ON\s+public\.(' + _NON_ENGINE_TABLE + r')\b',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'^CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+public\.(' + _NON_ENGINE_TABLE + r')\s+AS\s+SELECT\b',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'^CREATE\s+POLICY\s+[a-z_][a-z0-9_]*\s+ON\s+public\.(' + _NON_ENGINE_TABLE + r')\b',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'^COMMENT\s+ON\s+(?:TABLE|VIEW|INDEX)\s+public\.(' + _NON_ENGINE_TABLE + r')\s+IS\s+__STR__$',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'^COMMENT\s+ON\s+COLUMN\s+public\.(' + _NON_ENGINE_TABLE + r')\.[a-z_][a-z0-9_]*\s+IS\s+__STR__$',
+        re.IGNORECASE,
+    ),
+    re.compile(r'^INSERT\s+INTO\s+public\.(' + _NON_ENGINE_TABLE + r')\b', re.IGNORECASE),
+    re.compile(r'^UPDATE\s+public\.(' + _NON_ENGINE_TABLE + r')\s+SET\b', re.IGNORECASE),
+    re.compile(r'^DELETE\s+FROM\s+public\.(' + _NON_ENGINE_TABLE + r')\b', re.IGNORECASE),
+)
+_QUALIFIED_REF_RE = re.compile(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)\b')
+_TABLE_CLAUSE_RE = re.compile(r'\b(?:FROM|JOIN|REFERENCES|INTO)\s+([a-zA-Z_][a-zA-Z0-9_.]*)', re.IGNORECASE)
+_CUSTOM_FN_CALL_RE = re.compile(r'\b(?:fn|ca|sp|rpc)_[a-zA-Z0-9_]*\s*\(', re.IGNORECASE)
+_LOCK_TIMEOUT_RE = re.compile(r"^SET\s+LOCAL\s+lock_timeout\s*=\s*'[0-9]{1,3}s'$", re.IGNORECASE)
 
 
-def engine_inert(text):
-    """True only when every statement of the migration text is BEGIN;, COMMIT;,
-    SET LOCAL lock_timeout = '<n>s'; or one INERT_CALLS call, one statement per
-    line, after whole-line "--" comments and blank lines are dropped: BEGIN
-    first, COMMIT last, each once, at least one call. Anything else (another
-    statement, a trailing comment, a block comment, a DO block, a non-literal
-    argument, two statements on one line, a byte that is not text) is False."""
-    if not isinstance(text, str) or '\x00' in text:
-        return False
+def _strip_sql_and_split(text):
+    """Strip -- line comments, mask single-quoted strings as __STR__, and split
+    into (raw_stmt, masked_stmt) pairs on top-level semicolons. Returns None on
+    any block comment, dollar-quote, unterminated string, or trailing junk."""
+    if '/*' in text or '*/' in text or '$' in text:
+        return None
+    raw_buf = []
+    masked_buf = []
+    stmts = []
+    in_str = False
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if in_str:
+            raw_buf.append(ch)
+            if ch == "'":
+                if i + 1 < n and text[i + 1] == "'":
+                    raw_buf.append("'")
+                    i += 2
+                    continue
+                in_str = False
+            i += 1
+            continue
+        if ch == '-' and i + 1 < n and text[i + 1] == '-':
+            while i < n and text[i] != '\n':
+                i += 1
+            continue
+        if ch == "'":
+            in_str = True
+            raw_buf.append(ch)
+            masked_buf.append('__STR__')
+            i += 1
+            continue
+        if ch == ';':
+            raw_s = ''.join(raw_buf).strip()
+            masked_s = ' '.join(''.join(masked_buf).split())
+            raw_buf.clear()
+            masked_buf.clear()
+            if not masked_s:
+                return None
+            stmts.append((raw_s, masked_s))
+            i += 1
+            continue
+        raw_buf.append(ch)
+        masked_buf.append(ch)
+        i += 1
+    if in_str or ''.join(masked_buf).strip():
+        return None
+    return stmts
+
+
+def _is_horse_option_register_inert(text):
+    """O33: horse-option register/allow_shadow/unlock literal-only migrations."""
     lines = []
     for raw in text.split('\n'):
         line = raw.strip()
@@ -200,6 +303,91 @@ def engine_inert(text):
         elif not INERT_FRAME[1].fullmatch(line):
             return False
     return calls > 0
+
+
+def _is_non_engine_table_inert(text):
+    """Fail-closed verifier for strictly non-engine public table/view/index/policy
+    migrations. Returns True ONLY when EVERY statement targets a verified
+    non-engine allowlisted table/view, contains zero forbidden DDL/functions/
+    triggers/DO-blocks, and makes zero references to any engine or unknown table."""
+    if re.search(r'^--\s*(?:@install-window:|SUPERSEDED BY\b)', text, re.MULTILINE | re.IGNORECASE):
+        return False
+    stmts = _strip_sql_and_split(text)
+    if not stmts:
+        return False
+    # Optional BEGIN ... COMMIT frame must be balanced if present.
+    body = list(stmts)
+    has_begin = body[0][1].upper() == 'BEGIN'
+    has_commit = body[-1][1].upper() == 'COMMIT'
+    if has_begin != has_commit:
+        return False
+    if has_begin:
+        body = body[1:-1]
+    if not body:
+        return False
+
+    non_frame = 0
+    for raw_s, masked_s in body:
+        upper = masked_s.upper()
+        if upper in ('BEGIN', 'COMMIT'):
+            return False
+        if _LOCK_TIMEOUT_RE.fullmatch(' '.join(raw_s.split())):
+            continue
+        if _FORBIDDEN_SQL_RE.search(masked_s):
+            return False
+        if _CUSTOM_FN_CALL_RE.search(masked_s):
+            return False
+        matched_table = None
+        for pat in _NON_ENGINE_STMT_PATTERNS:
+            m = pat.match(masked_s)
+            if m:
+                matched_table = m.group(1)
+                break
+        if not matched_table or not _NON_ENGINE_TABLE_RE.fullmatch(matched_table):
+            return False
+        if _ENGINE_DOMAIN_TOKEN_RE.search(matched_table):
+            return False
+        # CREATE POLICY must never embed a subquery (FROM/JOIN or parenthesized SELECT).
+        if upper.startswith('CREATE POLICY ') and re.search(r'\b(?:FROM|JOIN)\b|\(\s*SELECT\b', masked_s, re.IGNORECASE):
+            return False
+        # Every schema-qualified reference must be public.<allowed_non_engine>,
+        # auth.users (FK), auth.uid/role/jwt, or <allowed_non_engine>.<col>.
+        for schema, obj in _QUALIFIED_REF_RE.findall(masked_s):
+            s_low, o_low = schema.lower(), obj.lower()
+            if s_low == 'public':
+                if not _NON_ENGINE_TABLE_RE.fullmatch(o_low) or _ENGINE_DOMAIN_TOKEN_RE.search(o_low):
+                    return False
+            elif s_low == 'auth':
+                if o_low not in ('users', 'uid', 'role', 'jwt'):
+                    return False
+            elif _NON_ENGINE_TABLE_RE.fullmatch(s_low) and not _ENGINE_DOMAIN_TOKEN_RE.search(s_low):
+                # Column qualifier on an allowlisted table (e.g. COMMENT ON COLUMN public.t.c)
+                continue
+            else:
+                return False
+        # Every FROM/JOIN/REFERENCES/INTO target must be explicitly public.<allowed> or auth.users.
+        for target in _TABLE_CLAUSE_RE.findall(masked_s):
+            t_low = target.lower()
+            if t_low == 'auth.users':
+                continue
+            if not t_low.startswith('public.'):
+                return False
+            tbl = t_low[len('public.'):]
+            if not _NON_ENGINE_TABLE_RE.fullmatch(tbl) or _ENGINE_DOMAIN_TOKEN_RE.search(tbl):
+                return False
+        non_frame += 1
+    return non_frame > 0
+
+
+def engine_inert(text):
+    """True only when the migration is machine-verified engine-inert: either an
+    O33 horse-option whitelist register migration OR a strictly non-engine
+    allowlisted table/view/index/policy migration with zero engine references.
+    Fail closed on any ambiguity, unknown table/DDL, function, trigger, DO block,
+    block comment, dollar-quoting, or non-text byte."""
+    if not isinstance(text, str) or '\x00' in text:
+        return False
+    return _is_horse_option_register_inert(text) or _is_non_engine_table_inert(text)
 
 
 def _migration_blobs(repo, sha):
@@ -225,28 +413,70 @@ def inert_versions(repo, control, *others):
         for sha in (control, *others):
             if not isinstance(sha, str) or not re.fullmatch(r'[0-9a-f]{40}', sha):
                 return frozenset()
+        if control in others:
+            return frozenset()
         mine = _migration_blobs(repo, control)
-        hits = git(repo, 'grep', '-l', '-E', '-e', INERT_HINT, control, '--', MIGRATIONS, ok=(0, 1))
         theirs = [_migration_blobs(repo, sha) for sha in others]
-        found = set()
-        for hit in hits.splitlines():
-            path = hit.split(':', 1)[1] if hit.startswith(control + ':') else hit
-            match = TREE_FILE.fullmatch(path.rsplit('/', 1)[-1])
-            if not match or len(mine.get(match[1], [])) != 1 or mine[match[1]][0][0] != path:
-                continue
-            version, blob = match[1], mine[match[1]][0][1]
-            if any(version in other for other in theirs):
-                continue
-            raw = subprocess.run(['git', '-C', repo, 'cat-file', 'blob', blob], capture_output=True, timeout=30,
-                                 env={**os.environ, 'GIT_NO_REPLACE_OBJECTS': '1'})
-            if raw.returncode:
+        if others:
+            diff_candidates = [
+                (version, entries[0][1])
+                for version, entries in mine.items()
+                if len(entries) == 1 and not any(version in other for other in theirs)
+            ]
+            if not diff_candidates:
                 return frozenset()
+        else:
+            diff_candidates = None
+        if diff_candidates is not None and len(diff_candidates) <= 64:
+            candidates = diff_candidates
+        else:
+            hits = git(repo, 'grep', '-l', '-E', '-e', INERT_HINT, control, '--', MIGRATIONS, ok=(0, 1))
+            candidates = []
+            for hit in hits.splitlines():
+                path = hit.split(':', 1)[1] if hit.startswith(control + ':') else hit
+                match = TREE_FILE.fullmatch(path.rsplit('/', 1)[-1])
+                if not match or len(mine.get(match[1], [])) != 1 or mine[match[1]][0][0] != path:
+                    continue
+                version, blob = match[1], mine[match[1]][0][1]
+                if any(version in other for other in theirs):
+                    continue
+                candidates.append((version, blob))
+        if not candidates:
+            return frozenset()
+        batch_in = ('\n'.join(blob for _, blob in candidates) + '\n').encode('ascii')
+        raw = subprocess.run(
+            ['git', '-C', repo, 'cat-file', '--batch'],
+            input=batch_in,
+            capture_output=True,
+            timeout=30,
+            env={**os.environ, 'GIT_NO_REPLACE_OBJECTS': '1', 'GIT_NO_LAZY_FETCH': '1'},
+        )
+        if raw.returncode:
+            return frozenset()
+        buf = raw.stdout
+        pos = 0
+        found = set()
+        for version, expected_blob in candidates:
+            nl = buf.find(b'\n', pos)
+            if nl < 0:
+                return frozenset()
+            header = buf[pos:nl].decode('ascii', errors='strict').split()
+            pos = nl + 1
+            if len(header) != 3 or header[0] != expected_blob or header[1] != 'blob':
+                return frozenset()
+            size = int(header[2])
+            if pos + size + 1 > len(buf) or buf[pos + size:pos + size + 1] != b'\n':
+                return frozenset()
+            content = buf[pos:pos + size]
+            pos += size + 1
             try:
-                text = raw.stdout.decode('utf-8')
+                text = content.decode('utf-8')
             except UnicodeDecodeError:
                 continue
             if engine_inert(text):
                 found.add(version)
+        if pos != len(buf):
+            return frozenset()
         return frozenset(found)
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
         return frozenset()
@@ -317,7 +547,7 @@ def digest(rows):
 
 def git(repo, *args, ok=(0,)):
     result = subprocess.run(['git', '-C', repo, *args], capture_output=True, timeout=30,
-                            env={**os.environ, 'GIT_NO_REPLACE_OBJECTS': '1'})
+                            env={**os.environ, 'GIT_NO_REPLACE_OBJECTS': '1', 'GIT_NO_LAZY_FETCH': '1'})
     if result.returncode not in ok:
         raise RuntimeError('git ' + args[0] + ' failed')
     return result.stdout.decode()
