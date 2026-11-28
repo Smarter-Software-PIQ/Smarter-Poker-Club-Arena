@@ -127,6 +127,13 @@ jobs:
             scripts/ci/test-hot-path-no-history-scans.py
             tests/hot-path-never-scans-promo-history.law.test.ts
             tests/promo-play-through-is-a-required-proof.law.test.ts
+            tests/every-promo-flow-keeps-a-required-proof.law.test.ts
+            scripts/ci/fixtures/promo-hand-commit-payload/**
+            server/src/engine/thePromoHandCommitPayloadKeepsItsContract.test.ts
+            server/src/engine/ServerTableEngineSettlement.ts
+            server/src/engine/ServerTableEngineHandEvents.ts
+            server/src/engine/handSeatGeneration.ts
+            server/src/services/supabase/handHistory.ts
         shell: bash
         run: |
           set -uo pipefail
@@ -225,7 +232,7 @@ jobs:
         run: |
           set -o pipefail
           python3 -B scripts/ci/test-promo-obligation-earning-matrix.py --pg-bin /usr/lib/postgresql/17/bin | tee "$RUNNER_TEMP/promo-obligation-matrix.log"
-          tail -n 1 "$RUNNER_TEMP/promo-obligation-matrix.log" | python3 -c 'import json,sys; v=json.load(sys.stdin); sys.exit(0 if v.get("status")=="passed" and v.get("checks",0)>=160 else "the matrix printed no passed verdict with its full case count")'
+          tail -n 1 "$RUNNER_TEMP/promo-obligation-matrix.log" | python3 -c 'import json,sys; v=json.load(sys.stdin); sys.exit(0 if v.get("status")=="passed" and v.get("checks",0)>=192 else "the matrix printed no passed verdict with its full case count")'
       - name: Settled Mystery Bounty pool residual earns from champion entry (5f8a23ea)
         if: steps.relevant.outputs.run == 'true'
         env:

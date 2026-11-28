@@ -16,6 +16,12 @@ champion residual refusal, applies 20261117184500 and proves the fixed matrix.
 Collaborators the trigger delegates to (generation and PKO residual head) are
 recording stubs: the routing decision is what is under test here; their own
 financial behaviour is proven by test-promo-tournament-earning-generation.py.
+
+The equal-share kinds (equal_share, equal_share_bounty) come from migration
+20261124171000, which pays an aborted event's equal shares through the
+tournament obligation door. That migration widens the kind CHECK and the door;
+it does not redefine the earning trigger under test. The stub table here carries
+no kind CHECK, so these cases hold whether that migration has merged or not.
 No production endpoint or credentials are accepted.
 """
 import argparse, hashlib, itertools, json, os, re, subprocess, sys, tempfile, uuid
@@ -27,7 +33,8 @@ PREIMAGE_MD5 = '53819ac20e4f87659df84d05fb442d19'
 MIGRATION = ROOT / 'supabase/migrations/20261117184500_mystery_champion_residual_earns_from_the_champions_own_entry.sql'
 
 KINDS = ['place', 'bubble_protection', 'final_table_deal', 'seat', 'satellite_remainder',
-         'refund', 'bounty_residual', 'own_bounty', 'bounty', 'mystery_bounty']
+         'refund', 'bounty_residual', 'own_bounty', 'bounty', 'mystery_bounty',
+         'equal_share', 'equal_share_bounty']
 CONTEXTS = ['knockout', 'none']
 RECIPIENTS = ['champion', 'other']
 PLAYERS = ['human', 'horse']
@@ -43,6 +50,10 @@ def expected(kind, ctx, recipient, fixed):
       With no knockout it is unearned and must refuse.
     - The Mystery Bounty champion residual (fn_mystery_bounty_settle) has no
       knockout: the sole winner earned it by winning, like a place prize.
+    - An equal share of an aborted event's prize or bounty bank (equal_share,
+      equal_share_bounty) is tournament winnings and earns exactly like a
+      place prize, from the recipient's own entry, knockout context or not
+      (owner ruling 2026-11-24: done exactly like anything else is done).
     - Every other prize earns from the recipient's own current entry.
     A Horse earns exactly as a human does.
     """

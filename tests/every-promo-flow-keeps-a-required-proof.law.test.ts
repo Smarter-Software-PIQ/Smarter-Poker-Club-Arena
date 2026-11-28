@@ -92,21 +92,53 @@ const FLOWS: Flow[] = [
     proves: ["PLAYERS = ['human', 'horse']"],
   },
   {
+    flow: "the engine's own hand-commit payload (golden, from the contract) through the promo capture",
+    script: 'scripts/ci/test-promo-custody.py',
+    proves: [
+      "the engine's golden payload retires exactly the promo it lost",
+      "the engine's golden payload records the net contribution as fee exposure",
+      'uncalled chips do not inflate promo fee exposure',
+    ],
+  },
+  {
+    flow: 'cash promo readers take the net contribution (no second uncalled subtraction)',
+    script: 'scripts/ci/test-promo-profit.py',
+    proves: ['no cash promo reader subtracts the uncalled return from the net contribution'],
+  },
+  {
     flow: 'Spin zero-fee entry (the only variant-specific promo path)',
     script: 'scripts/ci/test-a-spin-fee-source-agrees-with-its-zero-fee-entry.py',
     proves: [],
   },
 ];
 
+/* A step must EXECUTE the script: being listed as a promo input is not running it. */
 function requiredJobRuns(script: string): boolean {
   const start = WORKFLOW.indexOf(`name: ${REQUIRED_JOB}`);
   if (start < 0) return false;
-  return WORKFLOW.slice(start).includes(script);
+  const escaped = script.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`python3(?: -B)? ${escaped}(?:\\s|$)`).test(WORKFLOW.slice(start));
 }
+
+/* An engine change to the hand-commit payload must run the promo proofs: the
+   files that build or forward it, and its contract, are promo inputs. */
+const ENGINE_PAYLOAD_INPUTS = [
+  'scripts/ci/fixtures/promo-hand-commit-payload/**',
+  'server/src/engine/thePromoHandCommitPayloadKeepsItsContract.test.ts',
+  'server/src/engine/ServerTableEngineSettlement.ts',
+  'server/src/engine/ServerTableEngineHandEvents.ts',
+  'server/src/engine/handSeatGeneration.ts',
+  'server/src/services/supabase/handHistory.ts',
+];
 
 describe('every promo flow keeps a required proof', () => {
   it('the required job exists under its ruleset name', () => {
     expect(WORKFLOW).toContain(`name: ${REQUIRED_JOB}`);
+  });
+  it('an engine change to the hand-commit payload runs every promo proof', () => {
+    for (const path of ENGINE_PAYLOAD_INPUTS) {
+      expect(WORKFLOW, `${path} must be a promo input`).toContain(`            ${path}\n`);
+    }
   });
   for (const f of FLOWS) {
     it(`${f.flow}: proven by ${f.script}`, () => {
