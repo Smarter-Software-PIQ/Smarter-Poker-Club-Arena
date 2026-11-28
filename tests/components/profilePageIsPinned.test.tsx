@@ -38,7 +38,10 @@ function profile(id: string, alias: string, lifetime: boolean): ProfileResult {
       avatar_url: 'https://example.test/portrait.png',
       arena_avatar_url: '',
       use_avatar_as_profile_pic: false,
-      created_at: '2026-01-01T00:00:00.000Z',
+      // Mid-month and mid-day: the Member tile prints month and year, and
+      // midnight UTC on the 1st is the previous month in Chicago, so the pin
+      // read 'Dec 2025' locally and 'Jan 2026' on CI.
+      created_at: '2026-01-15T12:00:00.000Z',
       diamonds: 1234,
       is_vip: lifetime,
       vip_tier: lifetime ? 'lifetime' : null,
@@ -319,7 +322,7 @@ describe('the Profile page prints the same surface after its frames move', () =>
             "101",
             "River Rat Since 2019",
             "1,234",
-            "<date>25",
+            "<date>26",
             "1,520",
             "23.4%",
             "+16.5%",
@@ -370,7 +373,7 @@ describe('the Profile page prints the same surface after its frames move', () =>
           "button|tab|",
           "section|tabpanel|",
         ],
-        "text": "Last Hand 17h Ago | LIFETIME VIP | AlphaAce | Player # | 101 | River Rat Since 2019 | Grinder | Bluffer | Member | <date>25 | Cash Hands | 1,520 | VPIP | 23.4% | ROI | +16.5% | Streak | 4D | Table Avatar | Not Set | Membership | Lifetime VIP | Never Expires | Unlimited | Rabbit Hunts | Unlimited | 20-Second Time Bank Activations | All | Digital Emoji Packs | All | Digital Player Tag Packs | Unlimited | Throwables | All | Table Skins, Card Backs, And Buttons | VIP | Avatars, Frames, And Auras | Core Stats | 1,520 | Cash Hands Played | 1,200 | Cash Hands | 320 | Tourney Hands | 7.1% | 3-Bet | 2.45 | Aggression | 27.1% | WTSD | 55.0% | Won At SD | 41.5h | On Felt | Financial | +7.89 | BB/100 | 2,540.75 | Biggest Pot | +3,321.25 | Total Profit | -980.50 | Worst Hand | Tournaments | 18 | Played | 2 | Won | 7 | Bounty KOs | 11.1% | Win Rate | 27.7% | ITM | 1st | Best Finish | 5 | Cashes | +412.50 | Net Result | By Variant | Hold'em | 1,200 | Hands | +3,000.25 | +8.1 | BB/100",
+        "text": "Last Hand 17h Ago | LIFETIME VIP | AlphaAce | Player # | 101 | River Rat Since 2019 | Grinder | Bluffer | Member | <date>26 | Cash Hands | 1,520 | VPIP | 23.4% | ROI | +16.5% | Streak | 4D | Table Avatar | Not Set | Membership | Lifetime VIP | Never Expires | Unlimited | Rabbit Hunts | Unlimited | 20-Second Time Bank Activations | All | Digital Emoji Packs | All | Digital Player Tag Packs | Unlimited | Throwables | All | Table Skins, Card Backs, And Buttons | VIP | Avatars, Frames, And Auras | Core Stats | 1,520 | Cash Hands Played | 1,200 | Cash Hands | 320 | Tourney Hands | 7.1% | 3-Bet | 2.45 | Aggression | 27.1% | WTSD | 55.0% | Won At SD | 41.5h | On Felt | Financial | +7.89 | BB/100 | 2,540.75 | Biggest Pot | +3,321.25 | Total Profit | -980.50 | Worst Hand | Tournaments | 18 | Played | 2 | Won | 7 | Bounty KOs | 11.1% | Win Rate | 27.7% | ITM | 1st | Best Finish | 5 | Cashes | +412.50 | Net Result | By Variant | Hold'em | 1,200 | Hands | +3,000.25 | +8.1 | BB/100",
       }
     `);
     await openTab('Achievements');
@@ -402,7 +405,7 @@ describe('the Profile page prints the same surface after its frames move', () =>
             "101",
             "River Rat Since 2019",
             "1,234",
-            "<date>25",
+            "<date>26",
             "1,520",
             "23.4%",
             "+16.5%",
@@ -427,7 +430,7 @@ describe('the Profile page prints the same surface after its frames move', () =>
           "button|tab|",
           "section|tabpanel|",
         ],
-        "text": "Last Hand 17h Ago | LIFETIME VIP | AlphaAce | Player # | 101 | River Rat Since 2019 | Grinder | Bluffer | Member | <date>25 | Cash Hands | 1,520 | VPIP | 23.4% | ROI | +16.5% | Streak | 4D | Table Avatar | Not Set | Membership | Lifetime VIP | Never Expires | Unlimited | Rabbit Hunts | Unlimited | 20-Second Time Bank Activations | All | Digital Emoji Packs | All | Digital Player Tag Packs | Unlimited | Throwables | All | Table Skins, Card Backs, And Buttons | VIP | Avatars, Frames, And Auras | No Achievements Yet. Start Playing To Unlock Achievements!",
+        "text": "Last Hand 17h Ago | LIFETIME VIP | AlphaAce | Player # | 101 | River Rat Since 2019 | Grinder | Bluffer | Member | <date>26 | Cash Hands | 1,520 | VPIP | 23.4% | ROI | +16.5% | Streak | 4D | Table Avatar | Not Set | Membership | Lifetime VIP | Never Expires | Unlimited | Rabbit Hunts | Unlimited | 20-Second Time Bank Activations | All | Digital Emoji Packs | All | Digital Player Tag Packs | Unlimited | Throwables | All | Table Skins, Card Backs, And Buttons | VIP | Avatars, Frames, And Auras | No Achievements Yet. Start Playing To Unlock Achievements!",
       }
     `);
     await openTab('Activity');
@@ -459,7 +462,7 @@ describe('the Profile page prints the same surface after its frames move', () =>
             "101",
             "River Rat Since 2019",
             "1,234",
-            "<date>25",
+            "<date>26",
             "1,520",
             "23.4%",
             "+16.5%",
@@ -491,7 +494,7 @@ describe('the Profile page prints the same surface after its frames move', () =>
           "button|tab|",
           "section|tabpanel|",
         ],
-        "text": "Last Hand 17h Ago | LIFETIME VIP | AlphaAce | Player # | 101 | River Rat Since 2019 | Grinder | Bluffer | Member | <date>25 | Cash Hands | 1,520 | VPIP | 23.4% | ROI | +16.5% | Streak | 4D | Table Avatar | Not Set | Membership | Lifetime VIP | Never Expires | Unlimited | Rabbit Hunts | Unlimited | 20-Second Time Bank Activations | All | Digital Emoji Packs | All | Digital Player Tag Packs | Unlimited | Throwables | All | Table Skins, Card Backs, And Buttons | VIP | Avatars, Frames, And Auras | Cumulative P/L | Settled Hand Results By Day | Recent Sessions | <date> | 120 | Hands // | 95 | Min // In | 200.00 | Out | 345.50 | +145.50 | Recent Transactions | Chips Added | <date>, <time> | - | 500.75 | Cash Out | <date>, <time> | - | 120.25",
+        "text": "Last Hand 17h Ago | LIFETIME VIP | AlphaAce | Player # | 101 | River Rat Since 2019 | Grinder | Bluffer | Member | <date>26 | Cash Hands | 1,520 | VPIP | 23.4% | ROI | +16.5% | Streak | 4D | Table Avatar | Not Set | Membership | Lifetime VIP | Never Expires | Unlimited | Rabbit Hunts | Unlimited | 20-Second Time Bank Activations | All | Digital Emoji Packs | All | Digital Player Tag Packs | Unlimited | Throwables | All | Table Skins, Card Backs, And Buttons | VIP | Avatars, Frames, And Auras | Cumulative P/L | Settled Hand Results By Day | Recent Sessions | <date> | 120 | Hands // | 95 | Min // In | 200.00 | Out | 345.50 | +145.50 | Recent Transactions | Chips Added | <date>, <time> | - | 500.75 | Cash Out | <date>, <time> | - | 120.25",
       }
     `);
     await openTab('Network');
@@ -522,7 +525,7 @@ describe('the Profile page prints the same surface after its frames move', () =>
             "101",
             "River Rat Since 2019",
             "1,234",
-            "<date>25",
+            "<date>26",
             "1,520",
             "23.4%",
             "+16.5%",
@@ -547,7 +550,7 @@ describe('the Profile page prints the same surface after its frames move', () =>
           "button|tab|",
           "section|tabpanel|",
         ],
-        "text": "Last Hand 17h Ago | LIFETIME VIP | AlphaAce | Player # | 101 | River Rat Since 2019 | Grinder | Bluffer | Member | <date>25 | Cash Hands | 1,520 | VPIP | 23.4% | ROI | +16.5% | Streak | 4D | Table Avatar | Not Set | Membership | Lifetime VIP | Never Expires | Unlimited | Rabbit Hunts | Unlimited | 20-Second Time Bank Activations | All | Digital Emoji Packs | All | Digital Player Tag Packs | Unlimited | Throwables | All | Table Skins, Card Backs, And Buttons | VIP | Avatars, Frames, And Auras",
+        "text": "Last Hand 17h Ago | LIFETIME VIP | AlphaAce | Player # | 101 | River Rat Since 2019 | Grinder | Bluffer | Member | <date>26 | Cash Hands | 1,520 | VPIP | 23.4% | ROI | +16.5% | Streak | 4D | Table Avatar | Not Set | Membership | Lifetime VIP | Never Expires | Unlimited | Rabbit Hunts | Unlimited | 20-Second Time Bank Activations | All | Digital Emoji Packs | All | Digital Player Tag Packs | Unlimited | Throwables | All | Table Skins, Card Backs, And Buttons | VIP | Avatars, Frames, And Auras",
       }
     `);
   });
@@ -581,7 +584,7 @@ describe('the Profile page prints the same surface after its frames move', () =>
           "figures": [
             "101",
             "1,234",
-            "<date>25",
+            "<date>26",
             "4D",
           ],
           "hooks": [
@@ -602,7 +605,7 @@ describe('the Profile page prints the same surface after its frames move', () =>
           "section|tabpanel|",
           "div|status|",
         ],
-        "text": "No Hands Recorded Yet | BetaBluff | Player # | 101 | Member | <date>25 | Cash Hands | - | VPIP | - | ROI | - | Streak | 4D | Table Avatar | Not Set | Membership | Not VIP | Membership Benefits Are Open On The VIP Page | Stats Snapshot Unavailable | No Verified Player Analytics Payload Is Available Yet. Open The Full Workspace To Retry Or Review The Current Coverage Status.",
+        "text": "No Hands Recorded Yet | BetaBluff | Player # | 101 | Member | <date>26 | Cash Hands | - | VPIP | - | ROI | - | Streak | 4D | Table Avatar | Not Set | Membership | Not VIP | Membership Benefits Are Open On The VIP Page | Stats Snapshot Unavailable | No Verified Player Analytics Payload Is Available Yet. Open The Full Workspace To Retry Or Review The Current Coverage Status.",
       }
     `);
     await openTab('Activity');
@@ -632,7 +635,7 @@ describe('the Profile page prints the same surface after its frames move', () =>
           "figures": [
             "101",
             "1,234",
-            "<date>25",
+            "<date>26",
             "4D",
           ],
           "hooks": [
@@ -652,7 +655,7 @@ describe('the Profile page prints the same surface after its frames move', () =>
           "button|tab|",
           "section|tabpanel|",
         ],
-        "text": "No Hands Recorded Yet | BetaBluff | Player # | 101 | Member | <date>25 | Cash Hands | - | VPIP | - | ROI | - | Streak | 4D | Table Avatar | Not Set | Membership | Not VIP | Membership Benefits Are Open On The VIP Page | Cumulative P/L | Settled Hand Results By Day | No Recent Transactions To Display.",
+        "text": "No Hands Recorded Yet | BetaBluff | Player # | 101 | Member | <date>26 | Cash Hands | - | VPIP | - | ROI | - | Streak | 4D | Table Avatar | Not Set | Membership | Not VIP | Membership Benefits Are Open On The VIP Page | Cumulative P/L | Settled Hand Results By Day | No Recent Transactions To Display.",
       }
     `);
   });
