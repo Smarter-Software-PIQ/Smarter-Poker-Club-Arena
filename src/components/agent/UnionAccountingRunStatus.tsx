@@ -7,6 +7,9 @@ import {
   type AccountingScopeKind,
 } from '../../services/AccountingObservationService';
 import styles from './UnionAccountingRunStatus.module.css';
+import '../lobby/ArenaWorkspace.css';
+import '../ops/ArenaOps.css';
+import '../accounting/WeeklyAccountingArena.css';
 
 export function AccountingRunStatus({
   scopeKind,
@@ -59,7 +62,7 @@ export function AccountingRunStatus({
           ? 'alert'
           : 'status'
       }
-      className={styles.status}
+      className={`${styles.status} accounting-run-status arena-ledger-row`}
     >
       <strong
         className={
@@ -104,9 +107,11 @@ export function AccountingRunStatus({
           Separately.
         </p>
       )}
-      <button type="button" className={styles.word} disabled={loading} onClick={refresh}>
-        Refresh Status
-      </button>
+      <div className="arena-switch arena-ops-keys arena-ops-primary">
+        <button type="button" className={styles.word} disabled={loading} onClick={refresh}>
+          Refresh Status
+        </button>
+      </div>
     </section>
   );
 }

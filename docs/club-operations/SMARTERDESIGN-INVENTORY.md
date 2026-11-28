@@ -69,9 +69,7 @@ the body on their painted popup chassis, which is a popup, not a page section.
 | 12  | Table Bomb Settings | `src/pages/club/TableBombSettingsPage.tsx` | Chrome case; the trigger one chrome switch lit by aria-pressed; every number and choice a dark well; rows under chrome hairlines; Back / Save Settings chrome keys with Save lit.                                                                                    |
 | 13  | Disputes (body)     | `src/pages/DisputeManagementPage.tsx`      | Docket moved to the chrome case under the arena integrity mast; status filter a chrome switch lit by aria-selected; fields dark wells; every case a chrome row; Start Review, Resolve, Escalate and Withdraw chrome keys (Resolve green, Escalate and Withdraw red). |
 
-Still old inside on purpose: `WeeklyAccountingWorkspace` (the Settlement body)
-prints its own lit words. It is a money screen shared with the Settlement
-Dashboard and needs its own pass with its figure hooks pinned first.
+The Settlement body (`WeeklyAccountingWorkspace`) was converted in batch 5.
 
 ## Batch 4
 
@@ -113,24 +111,24 @@ painted components first with `tests/helpers/moneyFigures.ts` and is unchanged
 | ---- | ---------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | 10   | Disputes (body) (done, batch 3)    | `src/pages/DisputeManagementPage.tsx`               | Integrity mast already arena; case list still sits in painted `SpadeConsole`.                       |
 | 11   | Blacklist (body) (done, batch 4)   | `src/pages/BlacklistManagerPage.tsx`                | Integrity mast already arena; form and ledger are its own module dress (rounded panels, gradients). |
-| 12   | Anti-Cheat                         | `src/pages/AntiCheatPage.tsx`                       | 1,547 lines, own module dress, 1 e2e spec.                                                          |
-| 13   | Agent Network                      | `src/pages/SuperAgentDashboard.tsx`                 | Rounded stat cards with glyph icons, gradient tabs (10 radius, 13 gradients).                       |
-| 14   | Promo Vault                        | `src/pages/PromoVaultPage.tsx`                      | Own rounded dress (17 radius, 11 gradients), 1,241 lines.                                           |
+| 12   | Anti-Cheat (done, #12312)          | `src/pages/AntiCheatPage.tsx`                       | 1,547 lines, own module dress, 1 e2e spec.                                                          |
+| 13   | Agent Network (done, #12312)       | `src/pages/SuperAgentDashboard.tsx`                 | Rounded stat cards with glyph icons, gradient tabs (10 radius, 13 gradients).                       |
+| 14   | Promo Vault (done, #12312)         | `src/pages/PromoVaultPage.tsx`                      | Own rounded dress (17 radius, 11 gradients), 1,241 lines.                                           |
 | 15   | Financials (done, batch 4b)        | `src/pages/ClubFinancialsPage.tsx`                  | Heavy painted `SpadeConsole` use (21 references), 11 tests.                                         |
 | 16   | Diamond Wheel ops (done, batch 4b) | `src/pages/club/ClubWheelOperationsPage.tsx`        | Painted `SpadeConsole` on the shared `diamondGames.module.css`.                                     |
 | 17   | Diamond Games ops (done, batch 4b) | `src/pages/club/ClubDiamondGamesOperationsPage.tsx` | Same shared sheet as Diamond Wheel ops; convert together.                                           |
-| 18   | Agent Team                         | `src/pages/AgentManagementPage.tsx`                 | 1,839 lines, painted `SpadeConsole` (11), 9 tests.                                                  |
+| 18   | Agent Team (done, #12312)          | `src/pages/AgentManagementPage.tsx`                 | 1,839 lines, painted `SpadeConsole` (11), 9 tests.                                                  |
 
 ### Tier 3: risky (shared or heavily pinned), later batches
 
-| Rank | Surface           | File                                           | Why it waits                                                                                                   |
-| ---- | ----------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| 19   | Table Management  | `src/pages/GameManagementPage.tsx`             | 2,251 lines, 22 tests, shared by club and union routes.                                                        |
-| 20   | Diamond Costs     | `src/pages/club/ClubDiamondCostsPage.tsx`      | 4,130 lines, 35 painted references, shared by club and union routes.                                           |
-| 21   | Club Home / Lobby | `src/pages/ClubHomePage.tsx`                   | 6,880 lines, 127 tests and 10 e2e specs; the lobby cards are their own master (`ArenaGameCard`). Do not sweep. |
-| 22   | Tournament Lobby  | `src/pages/tournament/TournamentLobbyPage.tsx` | 20 tests; tournament console surfaces are pinned.                                                              |
-| 23   | Union Operations  | `src/pages/UnionDashboardPage.tsx`             | 3,394 lines on `AdminDashboardPage.css`, shared with `AgentDashboardPage.tsx`.                                 |
-| 24   | Agent Dashboard   | `src/pages/AgentDashboardPage.tsx`             | Shares `AdminDashboardPage.css` with Union Operations; convert together.                                       |
+| Rank | Surface                         | File                                           | Why it waits                                                                                                   |
+| ---- | ------------------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 19   | Table Management (done, #12312) | `src/pages/GameManagementPage.tsx`             | 2,251 lines, 22 tests, shared by club and union routes.                                                        |
+| 20   | Diamond Costs (done, #12312)    | `src/pages/club/ClubDiamondCostsPage.tsx`      | 4,130 lines, 35 painted references, shared by club and union routes.                                           |
+| 21   | Club Home / Lobby               | `src/pages/ClubHomePage.tsx`                   | 6,880 lines, 127 tests and 10 e2e specs; the lobby cards are their own master (`ArenaGameCard`). Do not sweep. |
+| 22   | Tournament Lobby                | `src/pages/tournament/TournamentLobbyPage.tsx` | 20 tests; tournament console surfaces are pinned.                                                              |
+| 23   | Union Operations                | `src/pages/UnionDashboardPage.tsx`             | 3,394 lines on `AdminDashboardPage.css`, shared with `AgentDashboardPage.tsx`.                                 |
+| 24   | Agent Dashboard (done, #12312)  | `src/pages/AgentDashboardPage.tsx`             | Shares `AdminDashboardPage.css` with Union Operations; convert together.                                       |
 
 ### Player pages (outside Club Operations)
 
@@ -153,8 +151,20 @@ the club-arena-console skill, step 1.5). Platform staff desks (`src/pages/admin/
 Financial Admin, Engine) are internal tools. The front door
 (`InvitePage`, Auth) keeps its own dress.
 
-## Recommended Batch 5
+## Batch 5: the Settlement body
 
-The Settlement body (`WeeklyAccountingWorkspace`), its figures and hooks
-pinned first with `tests/helpers/moneyFigures.ts`. Then Agent Team and Agent
-Network, then Anti-Cheat and Promo Vault, each in its own pass.
+| #   | Surface         | File                                                      | What changed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| --- | --------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 18  | Settlement body | `src/components/accounting/WeeklyAccountingWorkspace.tsx` | The heading is the case's section title; Week Ending Monday a chrome row with a dark well; the automatic run status a chrome row with Refresh Status lit; Club Weekly Summaries under a hairline with Refresh lit and Export steel, its table on a chrome row rim; recorded union periods one chrome row each; the cashier link a chrome key. Dress lives in `WeeklyAccountingArena.css`, scoped under `.arena-workspace`, so the Settlement Dashboard, Union Statements and admin dashboard that share these components keep their look. Every figure, word and region pinned first (`tests/components/weeklyAccountingFiguresArePinned.test.tsx`) and unchanged. |
+
+PR #12312 converted the shells of Anti-Cheat, Agent Network, Promo Vault, Agent
+Team, Table Management, Diamond Costs and Agent Dashboard.
+
+## Recommended Batch 6
+
+Agent Team's tab bodies, which still wear their old dress inside the converted
+shell: the Hierarchy tab (`AgentAssignmentPanel`, `AgentAssignmentHistory`,
+`AgentTree`), the Payouts tab (`AgentCashoutPanel`, shared with the Cashier
+trade page and the player record, so scope it), the Commissions tab
+(`AgentCommissionDashboard`) and the Players tab (`PlayerSearch`, Distribution
+History, Agent Analytics). Pin their figures first.
