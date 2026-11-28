@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { ConsoleSkinProvider } from '../../src/components/console/SpadeConsole';
+import { ConsoleSkinProvider } from '../../src/components/console/consoleSkin';
 import { ConfirmModal } from '../../src/components/common/ConfirmModal';
 import PlayerBlockModal from '../../src/components/social/PlayerBlockModal';
 import { PlayerNoticeModal } from '../../src/components/notices/PlayerNoticeModal';
@@ -20,7 +20,7 @@ describe('consoles off the table wear #SmarterDesign', () => {
   it('the app root provides the smarterdesign skin around every route and root modal', () => {
     const app = read('src/App.tsx');
     expect(app).toMatch(
-      /import \{ ConsoleSkinProvider \} from '\.\/components\/console\/SpadeConsole';/
+      /import \{ ConsoleSkinProvider \} from '\.\/components\/console\/consoleSkin';/
     );
     expect(app).toMatch(
       /<ConsoleSkinProvider value="smarterdesign">\s*<ClubBrandRedirect \/>\s*<FullApp \/>\s*<\/ConsoleSkinProvider>/
@@ -32,9 +32,11 @@ describe('consoles off the table wear #SmarterDesign', () => {
     );
   });
 
-  it('the provider adds no new module to first paint: the skin lives in SpadeConsole', () => {
-    const baseline = read('scripts/ci/entry-chunk-baseline.json');
-    expect(baseline).toContain('src/components/console/SpadeConsole.tsx');
+  it('the skin module is a reviewed first-paint addition and SpadeConsole exports only components', () => {
+    expect(read('scripts/ci/entry-chunk.d/feat-smarterdesign-offtable-consoles.json')).toContain(
+      'src/components/console/consoleSkin.ts'
+    );
+    expect(read('src/components/console/SpadeConsole.tsx')).not.toMatch(/createContext/);
   });
 
   it('a confirm, a block and a notice dialog all render in the workspace dress', () => {

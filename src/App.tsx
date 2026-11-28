@@ -47,7 +47,7 @@ import { useInterfaceThemeHydration } from './hooks/useInterfaceThemeHydration';
 import { useShellUpdateGate } from './hooks/useShellUpdateGate';
 import { startShellTelemetry } from './services/ShellTelemetryService';
 
-import { ConsoleSkinProvider } from './components/console/SpadeConsole';
+import { ConsoleSkinProvider } from './components/console/consoleSkin';
 // Layouts
 import AppLayout from './components/layouts/AppLayout';
 import LegacyClubToolRedirect from './components/navigation/LegacyClubToolRedirect';
@@ -2619,8 +2619,8 @@ export default function App() {
      home, profile, achievements, cashier, tournaments, settings, and the
      root-mounted modals (welcome, terms, push prompt) - in the arena
      workspace language. The table layer already provided it
-     (MultiTableSurface). SpadeConsole is already in the entry chunk, so this
-     import adds nothing to first paint (scripts/ci/entry-chunk-delta.mjs). */
+     (MultiTableSurface). The skin is its own few-line module
+     (consoleSkin.ts), recorded in scripts/ci/entry-chunk.d. */
   return (
     <ConsoleSkinProvider value="smarterdesign">
       <ClubBrandRedirect />

@@ -16,9 +16,12 @@ painted master.
   the DOM.
 - The context default stays `painted`, so a component rendered on its own (a
   unit test, the render harness) still shows the master it was measured on.
-- First paint is unchanged: `SpadeConsole.tsx` is already in the entry chunk
-  (`scripts/ci/entry-chunk-baseline.json`), and the provider is exported from
-  it. `node scripts/ci/entry-chunk-delta.mjs dist` reports nothing new.
+- The skin context moved out of `SpadeConsole.tsx` into
+  `src/components/console/consoleSkin.ts`, so the component file exports only
+  components. Its two `react-refresh/only-export-components` warnings (from
+  #12280) had put Client lint at 1089 against its 1087 cap, failing every open
+  pull request. The new ten-line module is a reviewed first-paint addition
+  (`scripts/ci/entry-chunk.d/feat-smarterdesign-offtable-consoles.json`).
 
 ## Verified
 
