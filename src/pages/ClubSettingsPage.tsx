@@ -1,7 +1,7 @@
 import { useCashRakePolicyVersion } from '../hooks/useCashRakePolicyVersion';
 import { writeClipboard } from '../lib/share';
 /**
- *  CLUB SETTINGS PAGE — Club Configuration
+ *  CLUB SETTINGS PAGE - Club Configuration
  */
 
 import { useState, useEffect, useRef, useMemo, type ChangeEvent } from 'react';
@@ -15,7 +15,8 @@ import { ClubsService } from '../services/ClubsService';
 import { MembershipService } from '../services/MembershipService';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useToast } from '../components/common/Toast';
-import PageBar from '../components/help/PageBar';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import { ArenaReadings } from '../components/ops/ArenaOps';
 import BBJThresholdPanel from '../components/bbj/BBJThresholdPanel';
 import BBJMiniPanel from '../components/bbj/BBJMiniPanel';
 import ClubHandCountPanel from '../components/club/ClubHandCountPanel';
@@ -173,7 +174,7 @@ export default function ClubSettingsPage() {
   const [currentLogoUrl, setCurrentLogoUrl] = useState<string | null>(null);
   const [pendingLogo, setPendingLogo] = useState<{ file: File; preview: string } | null>(null);
 
-  // Live change detection — compute which fields have been modified
+  // Live change detection - compute which fields have been modified
   const changedFields = useMemo(() => {
     if (!originalSettings.current) return [];
     const changes: string[] = [];
@@ -192,18 +193,18 @@ export default function ClubSettingsPage() {
   const changedFieldsDisplay = pendingLogo ? [...changedFields, 'Logo'] : changedFields;
   // The retirement confirmation must quote the club's SAVED name. It read the
   // live form value, so typing a new name without saving made the modal
-  // demand the unsaved text — and the placeholder advertised a name the club
+  // demand the unsaved text - and the placeholder advertised a name the club
   // does not have.
   const savedClubName = originalSettings.current?.name ?? settings.name;
   const hasUnsavedChanges = changedFieldsDisplay.length > 0;
 
   // Buy-in bounds were the one numeric pair with no guard at all. The min/max
   // attributes on a number input are advisory outside a submitting <form>, and
-  // this page never submits one — so "max 10, min 5000" saved happily and every
+  // this page never submits one - so "max 10, min 5000" saved happily and every
   // table in the club then had an impossible buy-in range.
   const buyinError = '';
   // clubs.name is NOT NULL but has no CHECK against '', and this page had no
-  // name validation at all — a blank name saved happily, leaving a nameless
+  // name validation at all - a blank name saved happily, leaving a nameless
   // club whose delete confirmation was armed by an empty box.
   const nameError = validateClubName(settings.name, sanitizeInput(settings.name));
   const taglineError =
@@ -273,7 +274,7 @@ export default function ClubSettingsPage() {
     : null;
 
   // What the Rake Cap setting actually means in money, at two reference
-  // stakes. Derived from getRakeConfig — the same function the engine mirrors —
+  // stakes. Derived from getRakeConfig - the same function the engine mirrors -
   // because a local `capBB * bb` cannot see the published ceiling. Before this,
   // the hint promised "$20.00 per pot at 1/2" for a 10 BB cap while the engine
   // would take $5.
@@ -399,7 +400,7 @@ export default function ClubSettingsPage() {
   // In-app navigation loses edits silently. beforeunload only covers a reload
   // or a tab close; clicking the bottom nav is a React Router <Link>, which
   // never fires it. This app mounts <BrowserRouter>, not a data router, so
-  // useBlocker() is unavailable — intercept the anchor click instead, in the
+  // useBlocker() is unavailable - intercept the anchor click instead, in the
   // capture phase, and only while there is something to lose.
   useEffect(() => {
     if (!hasUnsavedChanges || !isOwner) return;
@@ -424,7 +425,7 @@ export default function ClubSettingsPage() {
       try {
         dest = new URL(anchor.href, window.location.href);
       } catch {
-        return; // unparseable (mailto:, tel:, javascript:) — not our business
+        return; // unparseable (mailto:, tel:, javascript:) - not our business
       }
       // Leaving the origin is already covered by the beforeunload handler.
       if (dest.origin !== window.location.origin) return;
@@ -654,8 +655,8 @@ export default function ClubSettingsPage() {
           },
           (payload: { new?: Record<string, unknown> }) => {
             if (!isMounted) return;
-            // clubs rows are rewritten on hot paths — chip_pool by the rake
-            // waterfall, member_count by the membership sync trigger — so an
+            // clubs rows are rewritten on hot paths - chip_pool by the rake
+            // waterfall, member_count by the membership sync trigger - so an
             // unfiltered UPDATE subscription refetched this page continuously
             // on a busy club. Only react when a column this page shows moved.
             const next = payload?.new;
@@ -701,7 +702,7 @@ export default function ClubSettingsPage() {
     let isMounted = true;
     const handler = (evt?: any) => {
       // Handlers get the BusEvent envelope ({type, payload, timestamp}), not
-      // the bare payload — reading .clubId off the envelope made this filter
+      // the bare payload - reading .clubId off the envelope made this filter
       // a no-op and the page refetched on every club's events.
       const evtClubId = evt?.payload?.clubId ?? evt?.clubId;
       if (evtClubId && evtClubId !== clubId && evtClubId !== clubUUID) return;
@@ -847,8 +848,8 @@ export default function ClubSettingsPage() {
         }
 
         // A background refresh must never overwrite edits the owner has typed
-        // and not saved. Three paths land here without the user asking —
-        // tab-focus, the realtime UPDATE subscription, and four bus events —
+        // and not saved. Three paths land here without the user asking -
+        // tab-focus, the realtime UPDATE subscription, and four bus events -
         // and every one of them used to call setSettings() unconditionally.
         // The page even renders an "N unsaved changes" banner while doing it.
         setClubCode(typeof data.club_id === 'number' ? data.club_id : null);
@@ -938,7 +939,7 @@ export default function ClubSettingsPage() {
     }
     // Sanitize ONCE and use the result for the DB write, the local state and
     // the diff baseline. Sanitizing only inside the update payload meant the
-    // server held the stripped copy while the baseline held the raw one — the
+    // server held the stripped copy while the baseline held the raw one - the
     // next background refresh then flagged your own save as a foreign edit.
     const toSave: ClubSettings = {
       ...settings,
@@ -975,7 +976,7 @@ export default function ClubSettingsPage() {
           supabase.storage.from('club-assets').getPublicUrl(path).data?.publicUrl || null;
       }
       if (!isCurrent()) return;
-      // Phase 13: Optimistic save — emit events instantly, then confirm with server
+      // Phase 13: Optimistic save - emit events instantly, then confirm with server
       /**
        * ROLLBACK, AND EMIT AFTER THE WRITE (Dan 2026-08-25).
        *
@@ -1034,8 +1035,8 @@ export default function ClubSettingsPage() {
             })
             .eq('id', ownerClubUUID)
             // .select() is what makes a rejected write observable. Without it
-            // an UPDATE matching zero rows — RLS denied it, ownership moved,
-            // the club was deleted — returns no error at all, and the page
+            // an UPDATE matching zero rows - RLS denied it, ownership moved,
+            // the club was deleted - returns no error at all, and the page
             // cheerfully reported "Settings saved!" while nothing had been.
             // Verified against production: a non-owner UPDATE returns 0 rows
             // and no error.
@@ -1324,15 +1325,17 @@ export default function ClubSettingsPage() {
   // forever instead of saying what was wrong.
   if (!clubId) {
     return (
-      <div className="club-settings-page">
+      <div className="club-settings-page arena-workspace">
         <div className="settings-empty-state">
           <p className="settings-empty-title">No Club Selected</p>
           <p className="settings-empty-desc">
             Open This Page From A Club So It Knows Which Settings To Show.
           </p>
-          <button className="btn btn-primary" onClick={() => navigate('/clubs')}>
-            Browse Clubs
-          </button>
+          <div className="arena-switch arena-ops-primary settings-empty-keys">
+            <button type="button" onClick={() => navigate('/clubs')}>
+              Browse Clubs
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -1340,7 +1343,7 @@ export default function ClubSettingsPage() {
 
   if (loading) {
     return (
-      <div className="club-settings-page">
+      <div className="club-settings-page arena-workspace">
         <PageSkeleton variant="settings" />
       </div>
     );
@@ -1348,15 +1351,17 @@ export default function ClubSettingsPage() {
 
   if (notFound && !loading) {
     return (
-      <div className="club-settings-page">
+      <div className="club-settings-page arena-workspace">
         <div className="settings-empty-state">
           <p className="settings-empty-title">Club Not Found</p>
           <p className="settings-empty-desc">
             This Club Does Not Exist, Or It Is Private And You Are Not A Member.
           </p>
-          <button className="btn btn-primary" onClick={() => navigate('/clubs')}>
-            Browse Clubs
-          </button>
+          <div className="arena-switch arena-ops-primary settings-empty-keys">
+            <button type="button" onClick={() => navigate('/clubs')}>
+              Browse Clubs
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -1364,186 +1369,105 @@ export default function ClubSettingsPage() {
 
   if (loadError && !loading) {
     return (
-      <div className="club-settings-page">
-        <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-secondary)' }}>
-          <p style={{ fontSize: '1.1rem', marginBottom: '16px' }}>Failed To Load Settings</p>
-          <button
-            onClick={() => loadClubSettings(undefined, { force: true })}
-            style={{
-              padding: '10px 24px',
-              borderRadius: '8px',
-              background: 'var(--accent-blue, #3b82f6)',
-              color: '#fff',
-              border: 'none',
-              cursor: 'pointer',
-              fontSize: '0.95rem',
-              fontWeight: 600,
-            }}
-          >
-            Retry
-          </button>
+      <div className="club-settings-page arena-workspace">
+        <div className="settings-empty-state">
+          <p className="settings-empty-title">Failed To Load Settings</p>
+          <div className="arena-switch arena-ops-primary settings-empty-keys">
+            <button type="button" onClick={() => loadClubSettings(undefined, { force: true })}>
+              Retry
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="club-settings-page">
-      {/* The visible title and its sentence went behind the "?" (Dan
-          2026-10-17). The club's own name is its identity and stays. */}
-      <PageBar
-        className="club-settings-heading"
+    <div className="club-settings-page arena-workspace">
+      {/* #SmarterDesign (Dan 2026-11-27): the arena workspace mast carries the
+          title, the chrome "?" help and the club's saved name, its identity. */}
+      <ArenaWorkspaceHeader
+        area="settings"
         title="Club Settings"
+        context={savedClubName}
         summary="Manage Your Club Identity, Joining Policy And Operating Settings."
-      >
-        <p className="club-settings-name">{savedClubName}</p>
-        <nav aria-label="Settings Sections">
-          <a href="#settings-identity">Identity</a>
-          <a href="#settings-privacy">Joining Policy</a>
-          <a href="#settings-sharing">Invites</a>
-          {canSeeAuditLog && <a href="#settings-history">Activity</a>}
-          {isOwner && <a href="#settings-ownership">Ownership</a>}
-        </nav>
-      </PageBar>
+      />
+      <nav aria-label="Settings Sections" className="arena-switch arena-ops-keys settings-anchors">
+        <a href="#settings-identity">Identity</a>
+        <a href="#settings-privacy">Joining Policy</a>
+        <a href="#settings-sharing">Invites</a>
+        {canSeeAuditLog && <a href="#settings-history">Activity</a>}
+        {isOwner && <a href="#settings-ownership">Ownership</a>}
+      </nav>
       <div className="settings-content">
         {/* Non-owners used to get a page of silently disabled inputs with no
-            explanation — every control looked broken. Say why, once. */}
+            explanation, so every control looked broken. Say why, once. */}
         {!isOwner && (
-          <div
-            role="note"
-            style={{
-              padding: '10px 14px',
-              marginBottom: '16px',
-              borderRadius: '10px',
-              background: 'rgba(0, 212, 255, 0.08)',
-              border: '1px solid rgba(0, 212, 255, 0.25)',
-              color: '#8fb8cc',
-              fontSize: '0.85rem',
-            }}
-          >
+          <p role="note" className="settings-readonly-note">
             Read-Only View. Only The Club Owner Can Change These Settings.
-          </div>
+          </p>
         )}
         {/* Share Club Link */}
-        <section
-          className="settings-section"
-          style={{
-            background: 'linear-gradient(145deg, #1f1f2e 0%, #151522 100%)',
-            border: '1px solid #333',
-          }}
-        >
-          <h3 id="settings-sharing">Share Club</h3>
-          <p className="setting-description" style={{ marginBottom: 16 }}>
+        <section className="settings-section arena-case arena-ops-case">
+          <h3 id="settings-sharing" className="arena-section-title">
+            Share Club
+          </h3>
+          <p className="setting-description">
             Invite Players To Join Your Club By Sharing Your Unique Referral Link.
           </p>
-          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: 16 }}>
-            <div
-              style={{
-                flex: 1,
-                minWidth: '120px',
-                padding: '12px',
-                background: 'rgba(0,0,0,0.4)',
-                borderRadius: '8px',
-                border: '1px solid rgba(255,255,255,0.05)',
-              }}
-            >
-              <div
-                style={{
-                  fontSize: '11px',
-                  textTransform: 'uppercase',
-                  color: 'rgba(255,255,255,0.5)',
-                  marginBottom: '4px',
-                }}
-              >
-                Club Code
-              </div>
-              <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#fff' }}>
-                {clubNumericId || '...'}
-              </div>
-            </div>
-            {playerNumber && (
-              <div
-                style={{
-                  flex: 1,
-                  minWidth: '120px',
-                  padding: '12px',
-                  background: 'rgba(0,0,0,0.4)',
-                  borderRadius: '8px',
-                  border: '1px solid rgba(255,255,255,0.05)',
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: '11px',
-                    textTransform: 'uppercase',
-                    color: 'rgba(255,255,255,0.5)',
-                    marginBottom: '4px',
-                  }}
-                >
-                  Referral Code
-                </div>
-                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#4caf50' }}>
-                  {playerNumber}
-                </div>
-              </div>
-            )}
-          </div>
+          <ArenaReadings
+            className="settings-share-codes"
+            readings={[
+              { id: 'club-code', label: 'Club Code', value: clubNumericId || '...' },
+              ...(playerNumber
+                ? [
+                    {
+                      id: 'referral-code',
+                      label: 'Referral Code',
+                      value: playerNumber,
+                      tone: 'live' as const,
+                    },
+                  ]
+                : []),
+            ]}
+          />
           {playerNumber && (
-            <button
-              type="button"
-              className="btn btn--primary"
-              onClick={async () => {
-                // The canonical invite link, the same one InvitePage and the
-                // agent modal hand out. What was here before was dead three
-                // separate ways and had never carried a single person into a
-                // club:
-                //   1. it omitted the router basename, so `origin + '/clubs'`
-                //      landed outside the SPA entirely;
-                //   2. `/clubs` is `<Navigate to="/" replace />` in App.tsx and
-                //      Navigate carries no search string, so `c` and `ref` were
-                //      destroyed even at the right path (the real list page is
-                //      `/clubs-list`);
-                //   3. `?c=` fed a five-digit code to a form that demanded six.
-                // Corroboration: club_members has 1502 rows and exactly ONE
-                // non-null invited_by.
-                const ownerScope = settingsScope;
-                const url =
-                  shortInvite && shortInvite.scope === ownerScope
-                    ? shortInvite.url
-                    : `${publicOrigin()}/hub/club-arena/invite/${clubId}?ref=${playerNumber}`;
-                try {
-                  await writeClipboard(url);
-                  if (activeSettingsScopeRef.current === ownerScope && isMountedRef.current)
-                    toast.success('Invite Link Copied To Clipboard!');
-                } catch (error) {
-                  reportError(error, 'ClubSettingsPage.copyInviteLink');
-                  if (activeSettingsScopeRef.current === ownerScope && isMountedRef.current)
-                    toast.error('Invite Link Could Not Be Copied. Please Try Again.');
-                }
-              }}
-              style={{
-                width: '100%',
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                gap: '8px',
-              }}
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+            <div className="arena-switch arena-ops-primary">
+              <button
+                type="button"
+                onClick={async () => {
+                  // The canonical invite link, the same one InvitePage and the
+                  // agent modal hand out. What was here before was dead three
+                  // separate ways and had never carried a single person into a
+                  // club:
+                  //   1. it omitted the router basename, so `origin + '/clubs'`
+                  //      landed outside the SPA entirely;
+                  //   2. `/clubs` is `<Navigate to="/" replace />` in App.tsx and
+                  //      Navigate carries no search string, so `c` and `ref` were
+                  //      destroyed even at the right path (the real list page is
+                  //      `/clubs-list`);
+                  //   3. `?c=` fed a five-digit code to a form that demanded six.
+                  // Corroboration: club_members has 1502 rows and exactly ONE
+                  // non-null invited_by.
+                  const ownerScope = settingsScope;
+                  const url =
+                    shortInvite && shortInvite.scope === ownerScope
+                      ? shortInvite.url
+                      : `${publicOrigin()}/hub/club-arena/invite/${clubId}?ref=${playerNumber}`;
+                  try {
+                    await writeClipboard(url);
+                    if (activeSettingsScopeRef.current === ownerScope && isMountedRef.current)
+                      toast.success('Invite Link Copied To Clipboard!');
+                  } catch (error) {
+                    reportError(error, 'ClubSettingsPage.copyInviteLink');
+                    if (activeSettingsScopeRef.current === ownerScope && isMountedRef.current)
+                      toast.error('Invite Link Could Not Be Copied. Please Try Again.');
+                  }
+                }}
               >
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
-              </svg>
-              Copy Invite Link
-            </button>
+                Copy Invite Link
+              </button>
+            </div>
           )}
         </section>
 
@@ -1559,28 +1483,29 @@ export default function ClubSettingsPage() {
         )}
         {/* Role Management (Moved to Profile Tab conceptually as requested) */}
         {canSeeAuditLog && (
-          <section className="settings-section">
-            <h3>Role Management</h3>
-            <p className="setting-description" style={{ marginBottom: 16 }}>
+          <section className="settings-section arena-case arena-ops-case">
+            <h3 className="arena-section-title">Role Management</h3>
+            <p className="setting-description">
               Assign And Manage Roles For Your Club Members. Promote Players To Admin, Manager,
               Agent, Or Sub-Agent To Help Run The Club.
             </p>
-            <button
-              className="btn btn-primary"
-              onClick={() => navigate(`/clubs/${clubId}/members`)}
-              style={{ padding: '0 24px', height: '40px' }}
-            >
-              Assign Roles & Manage Players
-            </button>
+            <div className="arena-switch arena-ops-primary">
+              <button type="button" onClick={() => navigate(`/clubs/${clubId}/members`)}>
+                Assign Roles & Manage Players
+              </button>
+            </div>
           </section>
         )}
 
-        <section className="settings-section">
-          <h3 id="settings-identity">Basic Information</h3>
+        <section className="settings-section arena-case arena-ops-case">
+          <h3 id="settings-identity" className="arena-section-title">
+            Basic Information
+          </h3>
           <div className="form-group">
             <label htmlFor="club-name">Club Name</label>
             <input
               id="club-name"
+              className="arena-ops-well"
               type="text"
               value={settings.name}
               onChange={(e) => updateSetting('name', e.target.value)}
@@ -1591,9 +1516,8 @@ export default function ClubSettingsPage() {
             />
             <small
               id="club-name-hint"
-              className="form-hint"
+              className={nameError ? 'form-hint form-hint--error' : 'form-hint'}
               role={nameError ? 'alert' : undefined}
-              style={nameError ? { color: '#ff6b6b' } : undefined}
             >
               {nameError || `${settings.name.length}/${CLUB_NAME_MAX}`}
             </small>
@@ -1602,6 +1526,7 @@ export default function ClubSettingsPage() {
             <label htmlFor="club-tagline">Club Tag Line</label>
             <input
               id="club-tagline"
+              className="arena-ops-well"
               type="text"
               value={settings.tagline}
               onChange={(e) => updateSetting('tagline', e.target.value)}
@@ -1624,6 +1549,7 @@ export default function ClubSettingsPage() {
             <label htmlFor="club-lobby-message">Club Message</label>
             <textarea
               id="club-lobby-message"
+              className="arena-ops-well"
               value={settings.lobby_message}
               onChange={(e) => updateSetting('lobby_message', e.target.value)}
               rows={2}
@@ -1641,6 +1567,7 @@ export default function ClubSettingsPage() {
             <label htmlFor="club-description">Description</label>
             <textarea
               id="club-description"
+              className="arena-ops-well"
               value={settings.description}
               onChange={(e) => updateSetting('description', e.target.value)}
               rows={3}
@@ -1655,26 +1582,13 @@ export default function ClubSettingsPage() {
           {clubCode != null && (
             <div className="form-group">
               <label>Club Code</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span
-                  style={{
-                    fontFamily: 'monospace',
-                    fontSize: '1.1rem',
-                    letterSpacing: '3px',
-                    color: 'var(--text-primary, #e6edf3)',
-                  }}
-                >
-                  {clubCode}
-                </span>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  style={{ padding: '4px 12px', fontSize: '0.75rem' }}
-                  onClick={copyClubCode}
-                  aria-label="Copy Club Code"
-                >
-                  Copy
-                </button>
+              <div className="settings-inline-row">
+                <span className="settings-code-value">{clubCode}</span>
+                <div className="arena-switch settings-inline-keys">
+                  <button type="button" onClick={copyClubCode} aria-label="Copy Club Code">
+                    Copy
+                  </button>
+                </div>
               </div>
               <small className="form-hint">
                 Players Can Find And Join The Club With This Code.
@@ -1683,35 +1597,15 @@ export default function ClubSettingsPage() {
           )}
           <div className="form-group">
             <label>Club Logo</label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div className="settings-inline-row">
               {pendingLogo?.preview || currentLogoUrl ? (
                 <img
+                  className="settings-logo"
                   src={pendingLogo?.preview || currentLogoUrl || undefined}
                   alt="Club Logo"
-                  style={{
-                    width: 56,
-                    height: 56,
-                    borderRadius: 12,
-                    objectFit: 'cover',
-                    border: '1px solid rgba(255, 255, 255, 0.15)',
-                  }}
                 />
               ) : (
-                <div
-                  style={{
-                    width: 56,
-                    height: 56,
-                    borderRadius: 12,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    border: '1px dashed rgba(255, 255, 255, 0.2)',
-                    color: 'var(--text-secondary, #6a7a8a)',
-                    fontSize: '0.65rem',
-                  }}
-                >
-                  No Logo
-                </div>
+                <div className="settings-logo settings-logo--empty">No Logo</div>
               )}
               {/* A REAL BUTTON (Dan 2026-08-25). This was a <label> wrapping an
                   input with `display: none` - which removes the input from the
@@ -1719,47 +1613,35 @@ export default function ClubSettingsPage() {
                   keyboard or screen-reader path to the file picker AT ALL. The
                   input is now visually hidden but still focusable, and the
                   button drives it. */}
-              {isOwner && (
-                <>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    style={{ padding: '6px 14px', fontSize: '0.8rem' }}
-                    onClick={() => logoInputRef.current?.click()}
-                  >
-                    {pendingLogo ? 'Change' : currentLogoUrl ? 'Replace' : 'Upload'}
-                  </button>
-                  <input
-                    ref={logoInputRef}
-                    id="club-logo-input"
-                    className="visually-hidden-input"
-                    type="file"
-                    aria-label="Choose A Club Logo"
-                    accept="image/png,image/jpeg,image/webp,image/gif"
-                    onChange={onLogoSelect}
-                  />
-                </>
-              )}
-              {pendingLogo && (
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  style={{ padding: '6px 14px', fontSize: '0.8rem' }}
-                  onClick={clearPendingLogo}
-                >
-                  Undo
-                </button>
-              )}
-              {isOwner && !pendingLogo && currentLogoUrl && (
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  style={{ padding: '6px 14px', fontSize: '0.8rem' }}
-                  onClick={removeLogo}
-                  disabled={saving}
-                >
-                  Remove
-                </button>
+              {(isOwner || pendingLogo) && (
+                <div className="arena-switch settings-inline-keys">
+                  {isOwner && (
+                    <>
+                      <button type="button" onClick={() => logoInputRef.current?.click()}>
+                        {pendingLogo ? 'Change' : currentLogoUrl ? 'Replace' : 'Upload'}
+                      </button>
+                      <input
+                        ref={logoInputRef}
+                        id="club-logo-input"
+                        className="visually-hidden-input"
+                        type="file"
+                        aria-label="Choose A Club Logo"
+                        accept="image/png,image/jpeg,image/webp,image/gif"
+                        onChange={onLogoSelect}
+                      />
+                    </>
+                  )}
+                  {pendingLogo && (
+                    <button type="button" onClick={clearPendingLogo}>
+                      Undo
+                    </button>
+                  )}
+                  {isOwner && !pendingLogo && currentLogoUrl && (
+                    <button type="button" onClick={removeLogo} disabled={saving}>
+                      Remove
+                    </button>
+                  )}
+                </div>
               )}
             </div>
             <small className="form-hint">
@@ -1769,33 +1651,37 @@ export default function ClubSettingsPage() {
         </section>
 
         {/* Privacy */}
-        <section className="settings-section">
-          <h3 id="settings-privacy">Privacy</h3>
+        <section className="settings-section arena-case arena-ops-case">
+          <h3 id="settings-privacy" className="arena-section-title">
+            Privacy
+          </h3>
           <div className="toggle-row">
             <div className="toggle-info">
               <span className="toggle-label">Public Club</span>
               <span className="toggle-desc">Anyone Can Find And Request To Join</span>
             </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={settings.is_public}
-              aria-label="Public Club"
-              className={`toggle-btn ${settings.is_public ? 'on' : ''}`}
-              onClick={() => {
-                const nextPublic = !settings.is_public;
-                setSettings((prev) => ({
-                  ...prev,
-                  is_public: nextPublic,
-                }));
-              }}
-              disabled={!isOwner}
-            >
-              {settings.is_public ? 'ON' : 'OFF'}
-            </button>
+            <div className="arena-switch settings-toggle">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={settings.is_public}
+                aria-label="Public Club"
+                className={settings.is_public ? 'toggle-btn active' : 'toggle-btn'}
+                onClick={() => {
+                  const nextPublic = !settings.is_public;
+                  setSettings((prev) => ({
+                    ...prev,
+                    is_public: nextPublic,
+                  }));
+                }}
+                disabled={!isOwner}
+              >
+                {settings.is_public ? 'ON' : 'OFF'}
+              </button>
+            </div>
           </div>
           {privateClubNeedsApproval(settings.is_public, settings.requires_approval) && (
-            <small className="form-hint" role="alert" style={{ color: '#ffb020' }}>
+            <small className="form-hint form-hint--warn" role="alert">
               This Club Is Private But Admits Anyone Instantly. Private Only Hides The Club From
               Search - Joining Is Gated By Require Approval.
             </small>
@@ -1805,25 +1691,29 @@ export default function ClubSettingsPage() {
               <span className="toggle-label">Require Approval</span>
               <span className="toggle-desc">Manually Approve New Members</span>
             </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={settings.requires_approval}
-              aria-label="Require Approval"
-              className={`toggle-btn ${settings.requires_approval ? 'on' : ''}`}
-              onClick={() => updateSetting('requires_approval', !settings.requires_approval)}
-              disabled={!isOwner}
-            >
-              {settings.requires_approval ? 'ON' : 'OFF'}
-            </button>
+            <div className="arena-switch settings-toggle">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={settings.requires_approval}
+                aria-label="Require Approval"
+                className={settings.requires_approval ? 'toggle-btn active' : 'toggle-btn'}
+                onClick={() => updateSetting('requires_approval', !settings.requires_approval)}
+                disabled={!isOwner}
+              >
+                {settings.requires_approval ? 'ON' : 'OFF'}
+              </button>
+            </div>
           </div>
         </section>
 
         {/* Club card activity (Dan 2026-11-26). Only a union member club has a
             choice: union data by default, its own live club data on request. */}
         {inUnion && (
-          <section className="settings-section">
-            <h3 id="settings-card-activity">Club Card Activity</h3>
+          <section className="settings-section arena-case arena-ops-case">
+            <h3 id="settings-card-activity" className="arena-section-title">
+              Club Card Activity
+            </h3>
             <div className="toggle-row">
               <div className="toggle-info">
                 <span className="toggle-label">Show Club Data Instead Of Union Data</span>
@@ -1833,31 +1723,33 @@ export default function ClubSettingsPage() {
                     : 'Your Club Card Shows Players Live In The Union Right Now'}
                 </span>
               </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={cardActiveSource === 'club'}
-                aria-label="Show Club Data Instead Of Union Data"
-                className={`toggle-btn ${cardActiveSource === 'club' ? 'on' : ''}`}
-                onClick={() =>
-                  void saveCardActiveSource(cardActiveSource === 'club' ? 'union' : 'club')
-                }
-                disabled={!canSetActiveSource || savingActiveSource || !clubUUID}
-              >
-                {cardActiveSource === 'club' ? 'ON' : 'OFF'}
-              </button>
+              <div className="arena-switch settings-toggle">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={cardActiveSource === 'club'}
+                  aria-label="Show Club Data Instead Of Union Data"
+                  className={cardActiveSource === 'club' ? 'toggle-btn active' : 'toggle-btn'}
+                  onClick={() =>
+                    void saveCardActiveSource(cardActiveSource === 'club' ? 'union' : 'club')
+                  }
+                  disabled={!canSetActiveSource || savingActiveSource || !clubUUID}
+                >
+                  {cardActiveSource === 'club' ? 'ON' : 'OFF'}
+                </button>
+              </div>
             </div>
           </section>
         )}
 
         {/* Rake & BBJ Settings */}
         {!inUnion && (
-          <section className="settings-section">
-            <h3>Rake & BBJ Settings</h3>
+          <section className="settings-section arena-case arena-ops-case">
+            <h3 className="arena-section-title">Rake & BBJ Settings</h3>
 
             {/* 2026-08-18: these two are real now. They used to persist to
               clubs.default_rake_percent / clubs.rake_cap and be read by
-              nothing — the engine took 10% with a fixed cash cap whatever an
+              nothing - the engine took 10% with a fixed cash cap whatever an
               owner set here.
 
               Empty = "Use the house schedule" and is stored as the -1 sentinel,
@@ -1871,6 +1763,7 @@ export default function ClubSettingsPage() {
               <label htmlFor="club-rake-percent">Default Rake (%)</label>
               <input
                 id="club-rake-percent"
+                className="arena-ops-well"
                 type="number"
                 placeholder="Use House Schedule"
                 /* DECIMALS HAVE TO BE TYPEABLE (Dan 2026-08-25).
@@ -1915,6 +1808,7 @@ export default function ClubSettingsPage() {
               <label htmlFor="club-rake-cap">Rake Cap (BB)</label>
               <input
                 id="club-rake-cap"
+                className="arena-ops-well"
                 type="number"
                 placeholder="Use House Schedule"
                 /* Same shape as the rake field above: raw while typing, clamp on
@@ -1948,7 +1842,7 @@ export default function ClubSettingsPage() {
             </div>
             {/* 2026-08-18: the "Time Bank (seconds)" field was removed. It
               persisted to clubs.time_bank_seconds, which no engine code has
-              ever read — an owner could set it to 15 or to 120 and every table
+              ever read - an owner could set it to 15 or to 120 and every table
               behaved identically. A time bank is a flat 20-second grant, 2 per
               street (Bible V8 s6.2); there is nothing per-club left to set. */}
             {/* 2026-09-05, phase 8: the "BBJ Rake" switch was removed, for the
@@ -1987,7 +1881,7 @@ export default function ClubSettingsPage() {
             leaving. The database decides who may change it. */}
         {clubUUID && <ClubHandCountPanel clubId={clubUUID} />}
 
-        {/* Spins — the owner's switch and the wallet behind it.
+        {/* Spins - the owner's switch and the wallet behind it.
             Placed here, after Buy-In Limits, because it is the only other
             setting on this page that commits the club's own money. */}
         {/* The resolved uuid, never the route segment: the panel's route
@@ -1996,20 +1890,22 @@ export default function ClubSettingsPage() {
             (`kings-club`, `crest-cert-*`, 2026-11-26). */}
         {clubUUID && <SpinActivationPanel clubId={clubUUID} />}
 
-        {/* Audit Log — visible to anyone the audit_trail RLS lets read it:
+        {/* Audit Log - visible to anyone the audit_trail RLS lets read it:
             the owner, plus club admins/agents via is_club_admin(). It was
             owner-only, so a staff member who could read the log never saw it. */}
         {canSeeAuditLog && clubId && (
-          <section className="settings-section audit-section">
-            <h3 id="settings-history">Admin Activity Log</h3>
+          <section className="settings-section audit-section arena-case arena-ops-case">
+            <h3 id="settings-history" className="arena-section-title">
+              Admin Activity Log
+            </h3>
             <AuditLog clubId={clubId} />
           </section>
         )}
 
         {/* Data Export - Owner Only */}
         {isOwner && (
-          <section className="settings-section export-section">
-            <h3>Data Export</h3>
+          <section className="settings-section export-section arena-case arena-ops-case">
+            <h3 className="arena-section-title">Data Export</h3>
             <div className="export-item">
               <div className="export-info">
                 <span className="export-label">Export Club Stats</span>
@@ -2018,17 +1914,21 @@ export default function ClubSettingsPage() {
                   Club, As CSV Or JSON.
                 </span>
               </div>
-              <button className="btn btn-secondary" onClick={() => setShowStatsExport(true)}>
-                Export Stats
-              </button>
+              <div className="arena-switch settings-inline-keys">
+                <button type="button" onClick={() => setShowStatsExport(true)}>
+                  Export Stats
+                </button>
+              </div>
             </div>
           </section>
         )}
 
         {/* Ownership - Owner Only */}
         {isOwner && (
-          <section className="settings-section handover-section">
-            <h3 id="settings-ownership">Ownership</h3>
+          <section className="settings-section handover-section arena-case arena-ops-case">
+            <h3 id="settings-ownership" className="arena-section-title">
+              Ownership
+            </h3>
             <div className="danger-item">
               <div className="danger-info">
                 <span className="danger-label">Hand Over This Club</span>
@@ -2037,27 +1937,29 @@ export default function ClubSettingsPage() {
                   This, And Only The New Owner Can Undo It.
                 </span>
               </div>
-              <button
-                ref={handoverTriggerRef}
-                className="btn btn-secondary"
-                onClick={() => {
-                  setHandoverTarget('');
-                  setHandoverConfirm('');
-                  setHandoverError(null);
-                  setShowHandoverModal(true);
-                  void loadHandoverCandidates();
-                }}
-              >
-                Hand Over Club
-              </button>
+              <div className="arena-switch settings-inline-keys">
+                <button
+                  type="button"
+                  ref={handoverTriggerRef}
+                  onClick={() => {
+                    setHandoverTarget('');
+                    setHandoverConfirm('');
+                    setHandoverError(null);
+                    setShowHandoverModal(true);
+                    void loadHandoverCandidates();
+                  }}
+                >
+                  Hand Over Club
+                </button>
+              </div>
             </div>
           </section>
         )}
 
         {/* Danger Zone - Owner Only */}
         {isOwner && (
-          <section className="settings-section danger-zone">
-            <h3>Danger Zone</h3>
+          <section className="settings-section danger-zone arena-case arena-ops-case">
+            <h3 className="arena-section-title">Danger Zone</h3>
             <div className="danger-item">
               <div className="danger-info">
                 <span className="danger-label">Retire This Club</span>
@@ -2066,39 +1968,44 @@ export default function ClubSettingsPage() {
                   Journals, And Audit History.
                 </span>
               </div>
-              <button
-                ref={retirementTriggerRef}
-                className="btn btn-danger"
-                onClick={() => {
-                  setShowRetirementModal(true);
-                  loadRetirementImpact();
-                }}
-              >
-                Retire Club
-              </button>
+              <div className="arena-switch settings-inline-keys">
+                <button
+                  type="button"
+                  ref={retirementTriggerRef}
+                  className="settings-key--danger"
+                  onClick={() => {
+                    setShowRetirementModal(true);
+                    loadRetirementImpact();
+                  }}
+                >
+                  Retire Club
+                </button>
+              </div>
             </div>
           </section>
         )}
 
         {isOwner && (
-          <button
-            className="btn btn-primary save-btn"
-            onClick={saveSettings}
-            disabled={saving || !hasUnsavedChanges || !!formError}
-            /* formError first: blanking the club name greyed the button out
-               while the tooltip stayed empty, because there ARE changes - so
-               the owner got no explanation at all. The unsaved bar already
-               does it in this order. */
-            title={formError || (hasUnsavedChanges ? undefined : 'No Changes To Save')}
-          >
-            {saving ? (
-              <>
-                <span className="btn-spinner" /> Saving...
-              </>
-            ) : (
-              'Save Changes'
-            )}
-          </button>
+          <div className="arena-switch arena-ops-primary settings-save-keys">
+            <button
+              type="button"
+              onClick={saveSettings}
+              disabled={saving || !hasUnsavedChanges || !!formError}
+              /* formError first: blanking the club name greyed the button out
+                 while the tooltip stayed empty, because there ARE changes - so
+                 the owner got no explanation at all. The unsaved bar already
+                 does it in this order. */
+              title={formError || (hasUnsavedChanges ? undefined : 'No Changes To Save')}
+            >
+              {saving ? (
+                <>
+                  <span className="btn-spinner" /> Saving...
+                </>
+              ) : (
+                'Save Changes'
+              )}
+            </button>
+          </div>
         )}
       </div>
 
@@ -2138,7 +2045,7 @@ export default function ClubSettingsPage() {
                 </label>
                 <select
                   id="handover-target"
-                  className="handover-select"
+                  className="handover-select arena-ops-well"
                   value={handoverTarget}
                   onChange={(e) => setHandoverTarget(e.target.value)}
                   disabled={isHandingOver}
@@ -2159,7 +2066,7 @@ export default function ClubSettingsPage() {
                 </label>
                 <input
                   id="handover-confirm"
-                  className="handover-input"
+                  className="handover-input arena-ops-well"
                   type="text"
                   value={handoverConfirm}
                   onChange={(e) => setHandoverConfirm(e.target.value)}
@@ -2175,16 +2082,17 @@ export default function ClubSettingsPage() {
               </p>
             )}
 
-            <div className="modal-actions">
+            <div className="modal-actions arena-switch">
               <button
-                className="btn btn-secondary"
+                type="button"
                 onClick={() => setShowHandoverModal(false)}
                 disabled={isHandingOver}
               >
                 Cancel
               </button>
               <button
-                className="btn btn-danger"
+                type="button"
+                className="settings-key--danger"
                 onClick={handOverClub}
                 disabled={
                   isHandingOver ||
@@ -2280,6 +2188,7 @@ export default function ClubSettingsPage() {
               <label htmlFor="confirm-club-name">Type The Club Name To Confirm:</label>
               <input
                 id="confirm-club-name"
+                className="arena-ops-well"
                 type="text"
                 placeholder={savedClubName}
                 value={confirmText}
@@ -2288,9 +2197,9 @@ export default function ClubSettingsPage() {
                 autoFocus
               />
             </div>
-            <div className="modal-actions">
+            <div className="modal-actions arena-switch">
               <button
-                className="btn btn-secondary"
+                type="button"
                 onClick={() => {
                   setShowRetirementModal(false);
                   setConfirmText('');
@@ -2301,7 +2210,8 @@ export default function ClubSettingsPage() {
                 Cancel
               </button>
               <button
-                className="btn btn-danger"
+                type="button"
+                className="settings-key--danger"
                 onClick={handleRetireClub}
                 disabled={
                   !savedClubName.trim() ||
@@ -2361,29 +2271,31 @@ export default function ClubSettingsPage() {
           <span className="unsaved-bar__fields" title={changedFieldsDisplay.join(', ')}>
             {changedFieldsDisplay.join(', ')}
           </span>
-          <button
-            type="button"
-            className="unsaved-bar__discard"
-            onClick={() => {
-              if (originalSettings.current) setSettings({ ...originalSettings.current });
-              clearPendingLogo();
-              // Without this the "These Settings Changed Elsewhere / Your Edits
-              // Are Still Here" banner kept warning about edits that had just
-              // been thrown away. The save path already clears it.
-              setServerChanged(false);
-            }}
-          >
-            Discard
-          </button>
-          <button
-            type="button"
-            className="unsaved-bar__save"
-            onClick={saveSettings}
-            disabled={saving || !!formError}
-            title={formError || undefined}
-          >
-            {saving ? 'Saving...' : 'Save'}
-          </button>
+          <div className="unsaved-bar__keys arena-switch">
+            <button
+              type="button"
+              className="unsaved-bar__discard"
+              onClick={() => {
+                if (originalSettings.current) setSettings({ ...originalSettings.current });
+                clearPendingLogo();
+                // Without this the "These Settings Changed Elsewhere / Your Edits
+                // Are Still Here" banner kept warning about edits that had just
+                // been thrown away. The save path already clears it.
+                setServerChanged(false);
+              }}
+            >
+              Discard
+            </button>
+            <button
+              type="button"
+              className="unsaved-bar__save active"
+              onClick={saveSettings}
+              disabled={saving || !!formError}
+              title={formError || undefined}
+            >
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
         </div>
       )}
     </div>

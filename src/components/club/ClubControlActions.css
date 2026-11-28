@@ -1,69 +1,76 @@
-.club-control-actions {
+/* CLUB CONTROL IN #SMARTERDESIGN (Dan 2026-11-27). Each block is a thin
+   chrome case (arena-case arena-ops-case), its buttons sit in the workspace's
+   chrome switch and the message field is a dark well. This sheet only lays
+   the two cases side by side and dresses the label and the counter. */
+.arena-workspace .club-control-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 32px;
-  margin: 24px auto;
-  width: min(100%, 1180px);
-  color: #e4e7ec;
-}
-.club-control-actions h2 {
-  font:
-    700 24px/1.2 'Roboto Condensed',
-    sans-serif;
-  margin: 0 0 12px;
-}
-.club-control-actions p {
-  color: #9aa5b3;
-  font-size: 15px;
-  line-height: 1.5;
-}
-.club-control-actions button,
-.club-control-actions a {
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
-  padding: 10px 12px;
-  border: 0;
-  background: transparent;
-  color: #45adff;
-  font:
-    700 16px/1.2 'Roboto Condensed',
-    sans-serif;
-  cursor: pointer;
-  text-decoration: none;
-}
-.club-control-actions textarea {
+  gap: 0 8px;
   width: 100%;
-  min-width: 0;
-  padding: 12px;
-  background: #0a0b0d;
-  color: #e4e7ec;
-  font:
-    16px/1.5 Inter,
-    sans-serif;
-  border: 1px solid rgb(154 165 179 / 35%);
+  margin: 0;
+  color: #f1f5fc;
 }
-.club-control-actions label {
-  display: block;
-  margin-bottom: 8px;
-}
-.control-message-actions {
+
+.arena-workspace .club-control-actions .control-policy-error {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 4px;
 }
-.club-control-actions button:disabled {
-  opacity: 0.5;
+
+.arena-workspace .club-control-actions .arena-switch {
+  margin: 0;
+}
+
+.arena-workspace .club-control-actions .arena-switch > button {
+  cursor: pointer;
+}
+
+.arena-workspace .club-control-actions .arena-switch > :is(button, a):active {
+  filter: brightness(0.86);
+}
+
+.arena-workspace .club-control-actions .arena-switch > button:disabled {
   cursor: default;
 }
-.club-control-actions :is(button, a, textarea):focus-visible {
-  outline: 2px solid #45adff;
-  outline-offset: 3px;
+
+.arena-workspace .club-control-actions label {
+  display: block;
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
+
+.arena-workspace .club-control-actions textarea {
+  min-width: 0;
+  resize: vertical;
+}
+
+.arena-workspace .control-message-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.arena-workspace .control-message-actions > span {
+  color: #ffd700;
+  font:
+    700 12px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.arena-workspace .control-message-actions > .arena-switch {
+  flex: 0 1 220px;
+}
+
 @media (max-width: 760px) {
-  .club-control-actions {
+  .arena-workspace .club-control-actions {
     grid-template-columns: minmax(0, 1fr);
-    gap: 24px;
   }
 }

@@ -1,42 +1,50 @@
-/**
- * ═══════════════════════════════════════════════════════════════════════════════
- *  CLUB STATS CARDS — Premium Dark Theme CSS
- * ═══════════════════════════════════════════════════════════════════════════════
- */
+/* Club Stats Cards in #SmarterDesign (Dan 2026-11-27): six arena chrome
+   readout tiles (ArenaReadings). The tiles rise in one after another, 60ms
+   apart, every time the readings load; the skeleton shimmers while they read. */
 
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 16px;
+/* Six readings sit three across on a desktop (two rows) and two on a phone. */
+@media (min-width: 721px) {
+  .readings.readings.readings,
+  .loading.loading.loading {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
-.card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 20px 16px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  transition: all 0.2s var(--ease-spring, cubic-bezier(0.175, 0.885, 0.32, 1.275));
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+.readings > div {
+  animation: readingRise 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+}
+.readings > div:nth-child(2) {
+  animation-delay: 60ms;
+}
+.readings > div:nth-child(3) {
+  animation-delay: 120ms;
+}
+.readings > div:nth-child(4) {
+  animation-delay: 180ms;
+}
+.readings > div:nth-child(5) {
+  animation-delay: 240ms;
+}
+.readings > div:nth-child(6) {
+  animation-delay: 300ms;
+}
+@keyframes readingRise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-.card.loading {
-  height: 100px;
-  background: linear-gradient(
-    90deg,
-    rgba(255, 255, 255, 0.03) 0%,
-    rgba(255, 255, 255, 0.06) 50%,
-    rgba(255, 255, 255, 0.03) 100%
-  );
+.loading.loading > div {
+  min-height: 56px;
+  background: linear-gradient(90deg, #07111c 0%, #1e3853 50%, #07111c 100%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
-
 @keyframes shimmer {
   0% {
     background-position: 200% 0;
@@ -47,78 +55,18 @@
   }
 }
 
-.iconWrap {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.icon {
-  font-size: 28px;
-}
-
-.value {
-  font-size: 24px;
-  font-weight: 700;
-  color: white;
-}
-
-.label {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
-  text-align: center;
-}
-
-/* Mobile */
-@media (max-width: 480px) {
-  .grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .card {
-    padding: 16px 12px;
-  }
-
-  .value {
-    font-size: 20px;
-  }
+.spark {
+  display: block;
+  margin-top: 4px;
+  opacity: 0.85;
 }
 
 /* The parent's read failed: one honest line where six cards would be. */
 .unavailable {
-  color: var(--text-secondary, #8a8f98);
-  font-size: 0.85rem;
-  padding: 12px 0;
-}
-
-/* A compact live reading strip on the redesigned club dashboard. */
-.grid {
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 16px;
-}
-.card {
-  align-items: flex-start;
-  background: transparent;
-  border: 0;
-  border-top: 1px solid rgb(154 165 179 / 20%);
-  border-radius: 0;
-  box-shadow: none;
-  backdrop-filter: none;
-  padding: 16px 0;
-}
-.iconWrap {
-  display: none;
-}
-.label {
-  text-align: left;
-  color: #9aa5b3;
-  font-size: 14px;
-}
-.value {
-  color: #e4e7ec;
-  font-size: 28px;
+  margin: 0;
+  padding: 12px 3px;
+  color: #9fbacc;
+  font:
+    13px/1.4 Arial,
+    sans-serif;
 }

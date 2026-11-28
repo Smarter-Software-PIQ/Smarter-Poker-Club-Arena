@@ -1,108 +1,127 @@
-/* THE RAIL RESERVES ROOM FOR THE EDGE IT DRAWS (2026-09-05).
+/* THE CLUB OPERATIONS RAIL IN #SMARTERDESIGN (Dan 2026-11-27).
+   The bar at the top of Player Management and every Club Operations page
+   wears the arena workspace language (src/components/lobby/ArenaWorkspace.css):
+   a chrome-case chassis over the arena panel gradient, chrome-stat keys that
+   light blue on the page you are on, and gold numerals for the queues. The
+   rail mounts in AppLayout, outside any .arena-workspace, so it names the
+   chrome art directly rather than through the workspace's variables.
+
+   THE RAIL RESERVES ROOM FOR THE EDGE IT DRAWS (2026-09-05).
    `overflow: hidden` here plus `padding-bottom: 0` put the chassis's bottom
-   edge exactly on the rail's clipping boundary - measured on production, the
-   chassis bottom and the rail bottom were the same y to the pixel. Everything
-   the chassis paints at or below that line was cut away: its 8px corner bevels
-   (the clip-path's `8px 100%, 0 calc(100% - 8px)` notch), its `0 8px 24px`
-   drop shadow, and the blue `::after` underline with its 10px glow. What
-   reached the player was a three-sided box - top, left and right border, then
-   the bar simply stopping. Dan, 2026-09-05: "FIX THE BROKEN HEADERS".
-   The padding is the fix: it is the room the rail always needed to show its
-   own bottom edge, symmetric with the top for the same reason. */
+   edge exactly on the rail's clipping boundary, and everything the chassis
+   painted at or below that line was cut away, leaving a three-sided box.
+   Dan, 2026-09-05: "FIX THE BROKEN HEADERS". The padding is the fix: it is
+   the room the rail always needs to show its own bottom edge, symmetric with
+   the top for the same reason. */
 .rail {
   position: relative;
   z-index: 13;
   width: 100%;
-  padding: 8px clamp(10px, 2vw, 24px);
+  box-sizing: border-box;
+  padding: 6px clamp(6px, 2vw, 24px);
   overflow: hidden;
-  background: #05080b;
+  background: #050d17;
 }
 
+/* The chrome case is a nine-slice frame on a ::before, exactly as an
+   arena-case draws it, so its four painted corners stay whole. The clip-path
+   is the full rectangle: it keeps the chassis's paint inside its own box and
+   cuts nothing from the frame. */
 .chassis {
   position: relative;
   display: flex;
+  box-sizing: border-box;
   width: min(100%, 1400px);
-  min-height: 54px;
-  align-items: stretch;
-  gap: 16px;
+  align-items: center;
+  gap: 4px;
   margin: 0 auto;
-  padding: 5px;
-  overflow: hidden;
+  padding: 8px;
   background:
-    linear-gradient(90deg, rgba(19, 39, 55, 0.66), transparent 26%),
-    linear-gradient(180deg, #111a22, #070b0f);
-  border: 1px solid rgba(174, 198, 217, 0.38);
-  border-radius: 3px;
-  box-shadow:
-    inset 0 1px rgba(255, 255, 255, 0.06),
-    0 8px 24px rgba(0, 0, 0, 0.28);
-  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+    radial-gradient(ellipse at 90% -40%, #1e3853, transparent 63%),
+    linear-gradient(145deg, #091727, #030b14 74%);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
 }
 
-.chassis::after {
+.chassis::before {
   content: '';
   position: absolute;
-  inset: auto 0 0;
-  height: 1px;
+  inset: 0;
+  z-index: 0;
   pointer-events: none;
-  background: linear-gradient(90deg, #75beff, rgba(117, 190, 255, 0.12) 34%, transparent 72%);
-  box-shadow: 0 0 12px rgba(59, 162, 250, 0.3);
+  border-image: url('../lobby/console-art/chrome-case.webp') 41 / 19px stretch;
 }
 
-/* Now a link, not a label: it needs the affordances of one. */
-.identity {
+/* A chrome key: the identity key and every item share it. */
+.identity,
+.item {
+  position: relative;
+  z-index: 1;
   display: flex;
-  min-width: max-content;
+  box-sizing: border-box;
   min-height: 44px;
   align-items: center;
-  gap: 9px;
+  justify-content: center;
   padding: 0 12px;
-  color: #a8bac8;
+  color: #dce5ef;
+  white-space: nowrap;
   text-decoration: none;
-  transition:
-    color 150ms ease,
-    background 150ms ease;
-  font:
-    700 11px/1 'Rajdhani',
-    'Roboto Condensed',
-    system-ui,
-    sans-serif;
-  letter-spacing: 0.13em;
   text-transform: uppercase;
-  border-right: 1px solid rgba(159, 184, 203, 0.2);
+  background: linear-gradient(#152639, #06111e 65%);
+  border-radius: 6px;
+  font:
+    700 12px/1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+}
+
+.identity::after,
+.item::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-image: url('../lobby/console-art/chrome-stat.webp') 11 / 6px stretch;
+}
+
+/* The Operations Center key leads the strip. */
+.identity {
+  flex: 0 0 auto;
+  gap: 7px;
 }
 
 /* A STATUS LIGHT IS ROUND (Dan, 2026-09-05: "the broken square next to
-     community").
-     This was a 6px box with `border-radius: 1px` and a 1px near-white ring, so
-     at its actual size the ring is a third of the width and it renders as a
-     hard-edged little square sitting next to a word - a broken glyph, not an
-     indicator. A light reads as a light when it is round, when the brightest
-     part is its centre rather than its outline, and when the glow does the
-     work. Same shape in both rails, so it is fixed in both. */
+   community"). The brightest part is its centre and the glow does the work. */
 .statusLight {
   width: 7px;
   height: 7px;
-  background: radial-gradient(circle at 50% 38%, #eaf6ff, #75beff 58%, #2f8fd8);
-  border: 0;
+  flex: 0 0 auto;
+  background: radial-gradient(circle at 50% 38%, #eaf6ff, #74dfff 58%, #087cfa);
   border-radius: 50%;
-  box-shadow:
-    0 0 0 1px rgba(117, 190, 255, 0.38),
-    0 0 10px rgba(76, 170, 250, 0.7);
+  box-shadow: 0 0 10px rgba(69, 173, 255, 0.7);
 }
 
+/* On a phone the strip scrolls sideways; the end padding and scroll padding
+   let the last key come to rest whole against the frame instead of cut off. */
 .items {
+  position: relative;
+  z-index: 1;
   display: flex;
   min-width: 0;
+  flex: 1 1 auto;
   align-items: stretch;
   gap: 4px;
   margin: 0;
-  padding: 0;
+  padding: 0 12px 0 0;
   overflow-x: auto;
   overscroll-behavior-inline: contain;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(117, 190, 255, 0.3) transparent;
+  scroll-padding-inline: 0 12px;
+  scrollbar-width: none;
   list-style: none;
+}
+
+.items::-webkit-scrollbar {
+  display: none;
 }
 
 .items li {
@@ -110,167 +129,74 @@
   flex: 0 0 auto;
 }
 
-.item {
-  position: relative;
-  display: flex;
-  min-height: 44px;
-  align-items: center;
-  padding: 0 14px;
-  color: #8da0af;
-  font:
-    700 12px/1 'Rajdhani',
-    'Roboto Condensed',
-    system-ui,
-    sans-serif;
-  letter-spacing: 0.065em;
-  text-decoration: none;
-  text-transform: uppercase;
-  border: 1px solid transparent;
-  border-radius: 2px;
-  transition:
-    color 150ms ease,
-    background 150ms ease,
-    border-color 150ms ease;
+/* The page you are on: the identity key on the Operations Center, or the
+   item for the current tool. */
+.identityActive,
+.item.active {
+  color: #fff;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
+}
+
+.identityActive::after,
+.item.active::after {
+  border-image-source: url('../lobby/console-art/chrome-active.webp');
 }
 
 /* NO HOVER EFFECTS (Dan 2026-08-29, binding). Club Arena is mobile-first and
-   :hover does not exist on a phone, so a hover-only affordance ships to
-   nobody who matters - and iOS synthesises one on first tap, leaving a sticky
-   highlight behind. Press feedback lives in :active, which fires on touch;
-   :focus-visible stays because removing hover makes it more load-bearing,
-   not less. */
-.identity:active {
-  color: #f0f8ff;
-  background: rgba(42, 111, 164, 0.22);
-}
-
-.identity:focus-visible {
-  color: #f0f8ff;
-  background: rgba(42, 111, 164, 0.16);
-  outline: 2px solid #75beff;
-  outline-offset: -2px;
-}
-
-.identityActive {
-  color: #f3f9ff;
-  background: linear-gradient(180deg, rgba(31, 81, 119, 0.7), rgba(11, 31, 46, 0.85));
-}
-
-/* The rail acknowledged a press nowhere. On a phone that is the only feedback
-   channel there is, so it goes in :active rather than the :hover this
-   originally reached for. */
+   :hover does not exist on a phone, so press feedback lives in :active, which
+   fires on touch, and :focus-visible stays for the keyboard. */
+.identity:active,
 .item:active {
-  color: #dceaf6;
-  background: rgba(42, 111, 164, 0.2);
-  border-color: rgba(142, 200, 245, 0.28);
+  filter: brightness(0.86);
 }
 
+.identity:focus-visible,
 .item:focus-visible {
-  color: #f0f8ff;
-  background: rgba(42, 111, 164, 0.2);
-  border-color: rgba(142, 200, 245, 0.4);
-  outline: 2px solid #75beff;
+  outline: 2px solid #45adff;
   outline-offset: -2px;
 }
 
-.item.active {
-  color: #f3f9ff;
-  background: linear-gradient(180deg, rgba(31, 81, 119, 0.8), rgba(11, 31, 46, 0.88));
-  border-color: rgba(117, 190, 255, 0.48);
-  box-shadow: inset 0 -2px #75beff;
+/* Queue badge (2026-09-03): this many things are waiting for a person behind
+   that tool. A gold numeral, never a box. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  color: #ffd700;
+  font:
+    800 13px/1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 700px) {
   .rail {
-    padding: 6px 8px;
+    padding: 4px 6px;
   }
 
   .chassis {
-    flex-direction: column;
-    gap: 0;
-    padding: 4px;
+    padding: 6px;
   }
 
-  .identity {
-    min-height: 38px;
-    padding: 0 10px;
-    border-right: 0;
-    border-bottom: 1px solid rgba(159, 184, 203, 0.18);
-  }
-
-  .items {
-    width: 100%;
-    padding-top: 3px;
-  }
-
+  .identity,
   .item {
-    padding-inline: 13px;
+    padding: 0 10px;
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .item,
-  .identity {
-    transition: none;
+/* On a desktop every section stays in view: the keys sit in an even grid of
+   five, so nine sections read as two balanced rows instead of running off the
+   right edge. */
+@media (min-width: 900px) {
+  .items {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    overflow-x: visible;
+    padding-right: 0;
   }
-}
 
-/* Queue badge (2026-09-03). A number here always means the same thing: this
-   many things are waiting for a person behind that tool. */
-.badge {
-  display: inline-flex;
-  min-width: 20px;
-  height: 18px;
-  align-items: center;
-  justify-content: center;
-  margin-left: 7px;
-  padding: 0 5px;
-  color: #fff6e8;
-  font:
-    700 11px/1 'Rajdhani',
-    'Roboto Condensed',
-    system-ui,
-    sans-serif;
-  font-variant-numeric: tabular-nums;
-  background: rgba(120, 74, 24, 0.62);
-  border: 1px solid rgba(240, 179, 87, 0.62);
-  border-radius: 2px;
-}
-
-@media (max-width: 700px) {
-  :global(body:has(.arena-workspace)) .rail {
-    padding: 0 6px 8px;
-  }
-  :global(body:has(.arena-workspace)) .chassis {
-    display: flex;
-    flex-flow: row nowrap;
-    align-items: center;
-    gap: 3px;
-    padding: 0;
-    min-height: 0;
-    border: 0;
-    box-shadow: none;
-    background: #060e18;
-    clip-path: none;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  :global(body:has(.arena-workspace)) .identity {
-    min-height: 44px;
-    padding: 0 8px;
-    border: 0;
-  }
-  :global(body:has(.arena-workspace)) .items {
-    flex: 0 0 auto;
-    flex-wrap: nowrap;
-    padding: 0;
-    margin: 0;
-    width: auto;
-    overflow: visible;
-  }
-  :global(body:has(.arena-workspace)) .badge {
-    color: #8bdcff;
-    border-color: #46729d;
-    background: #102436;
+  .items li > .item {
+    width: 100%;
   }
 }

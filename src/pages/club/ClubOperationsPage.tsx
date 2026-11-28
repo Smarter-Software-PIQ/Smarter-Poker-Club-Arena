@@ -16,8 +16,11 @@ import { roleLabel } from '../../types/clubRoles';
 import { formatInt } from '../../utils/clubDashboard';
 import { compactChips } from '../../utils/format';
 import { titleCase } from '../../utils/titleCase';
-import { ClubPageSection as SpadeConsole } from '../../components/club/ClubPageSection';
 import PageBar from '../../components/help/PageBar';
+import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
+import { ArenaReadings, ArenaRow, type ArenaTone } from '../../components/ops/ArenaOps';
+import '../../components/lobby/ArenaWorkspace.css';
+import '../../components/ops/ArenaOps.css';
 import { freshnessLabel } from '../../utils/clubOperationsFreshness';
 import styles from './ClubOperationsPage.module.css';
 
@@ -26,6 +29,16 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FRESHNESS_TICK_MS = 15_000;
 
 export { ago, freshnessLabel } from '../../utils/clubOperationsFreshness';
+
+/* The skeleton reserves the strip as empty chrome meters while the first read
+   is in flight, so the page does not jump when the numbers land. */
+const SKELETON = [0, 1, 2, 3, 4, 5].map((slot) => ({ id: `slot-${slot}`, label: '', value: '' }));
+
+const ALERT_TONE: Record<string, ArenaTone> = {
+  critical: 'danger',
+  warning: 'attention',
+  info: 'live',
+};
 
 interface Tile {
   id: string;
@@ -161,169 +174,119 @@ export default function ClubOperationsPage() {
   const counts = overview?.counts ?? null;
 
   return (
-    <div className={styles.page}>
-      {/* Dan, 2026-10-17: "PAGES DON'T NEED TITLES LIKE THIS". The eyebrow, the
-          visible title and the lede are gone; the viewer's access and the two
-          page doors stay, and the explanation lives behind the painted "?". */}
+    <div className={`arena-workspace ${styles.page}`}>
+      <ArenaWorkspaceHeader
+        area="operations"
+        title="Club Operations"
+        context={overview?.club.name || null}
+      />
       <PageBar
         title="Club Operations"
-        summary="One Controlled Entry Point For The People, Money, Safety, And House Systems You Are Authorized To Operate."
+        titleAs={false}
+        showHelp={false}
         metrics={[{ label: 'Access', value: accessLabel }]}
-      >
-        <button
-          type="button"
-          className="club-page-action sc-ink--blue"
-          onClick={() => navigate(`/clubs/${clubId}`)}
-        >
-          Open Club Lobby
-        </button>
-        <button
-          type="button"
-          className="club-page-action sc-ink--blue"
-          onClick={() => navigate(`/clubs/${clubId}/dashboard-full`)}
-        >
-          View Dashboard
-        </button>
-      </PageBar>
-      <section className={styles.hero} aria-label="Club Readings">
-        <div className={styles.freshness}>
+      />
+      <section className="arena-case arena-ops-case" aria-label="Club Readings">
+        <div className="arena-switch arena-ops-keys">
+          <button type="button" onClick={() => navigate(`/clubs/${clubId}`)}>
+            Open Club Lobby
+          </button>
+          <button type="button" onClick={() => navigate(`/clubs/${clubId}/dashboard-full`)}>
+            View Dashboard
+          </button>
           <button
             type="button"
-            className={styles.refresh}
             onClick={refresh}
             disabled={overviewLoading || readingsDenied || !clubUUID}
             aria-label="Refresh Club Readings"
           >
             {overviewLoading ? 'Reading' : 'Refresh'}
           </button>
-          <span className={styles.freshnessNote} role="status">
-            {freshnessLabel({
-              error: !!overviewError,
-              denied: readingsDenied,
-              loading: overviewLoading,
-              refreshedAt,
-              now: tick,
-            })}
-          </span>
         </div>
+        <p className="arena-ops-live" role="status">
+          {freshnessLabel({
+            error: !!overviewError,
+            denied: readingsDenied,
+            loading: overviewLoading,
+            refreshedAt,
+            now: tick,
+          })}
+        </p>
 
         {tiles.length === 0 && overviewLoading && (
-          <section className={styles.pulse} aria-label="Reading The Club" aria-busy="true">
-            {[0, 1, 2, 3, 4, 5].map((slot) => (
-              <article className={`${styles.pulseTile} ${styles.pulseSkeleton}`} key={slot}>
-                <span className={styles.skeletonLabel} aria-hidden="true" />
-                <span className={styles.skeletonValue} aria-hidden="true" />
-              </article>
-            ))}
-          </section>
+          <ArenaReadings readings={SKELETON} label="Reading The Club" busy />
         )}
 
-        {tiles.length > 0 && (
-          <section className={styles.pulse} aria-label="Live Club Readings">
-            {tiles.map((tile) => (
-              <article className={styles.pulseTile} key={tile.id}>
-                <p className={styles.pulseLabel}>{tile.label}</p>
-                <p className={styles.pulseValue}>{tile.value}</p>
-                {tile.sub && <p className={styles.pulseSub}>{tile.sub}</p>}
-              </article>
-            ))}
-          </section>
-        )}
-
-        {alerts.length > 0 && (
-          <section
-            className={styles.alerts}
-            aria-label="Work Waiting In This Club"
-            aria-live="polite"
-          >
-            <p className={styles.alertsTitle}>Waiting For You</p>
-            <ul className={styles.alertList}>
-              {alerts.map((alert) => {
-                const destination =
-                  alert.tool === 'players' && access.canControlClub
-                    ? toolPath.get('applicants')
-                    : toolPath.get(alert.tool);
-                const body = (
-                  <>
-                    <span
-                      className={`${styles.alertPip} ${styles[alert.severity]}`}
-                      aria-hidden="true"
-                    />
-                    <span className={styles.alertTitle}>{titleCase(alert.title)}</span>
-                    {alert.count > 0 && (
-                      <span className={styles.alertCount}>{formatInt(alert.count)}</span>
-                    )}
-                    {destination && (
-                      <span className={styles.alertArrow} aria-hidden="true">
-                        &rsaquo;
-                      </span>
-                    )}
-                  </>
-                );
-                return (
-                  <li key={alert.id}>
-                    {destination ? (
-                      <Link className={styles.alertRow} to={destination}>
-                        {body}
-                      </Link>
-                    ) : (
-                      <span className={styles.alertRow}>{body}</span>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        )}
+        {tiles.length > 0 && <ArenaReadings readings={tiles} label="Live Club Readings" />}
       </section>
+
+      {alerts.length > 0 && (
+        <section
+          className="arena-case arena-ops-case"
+          aria-label="Work Waiting In This Club"
+          aria-live="polite"
+        >
+          <h2 className="arena-section-title">Waiting For You</h2>
+          <ul className="arena-ops-rows arena-ops-rows--single">
+            {alerts.map((alert) => {
+              const destination =
+                alert.tool === 'players' && access.canControlClub
+                  ? toolPath.get('applicants')
+                  : toolPath.get(alert.tool);
+              return (
+                <li key={alert.id}>
+                  <ArenaRow
+                    to={destination}
+                    title={titleCase(alert.title)}
+                    signal={alert.count > 0 ? formatInt(alert.count) : undefined}
+                    signalTone={ALERT_TONE[alert.severity]}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       <div className={styles.groups}>
         {groups.map((group) => {
           const groupTotal = counts ? getClubOperationQueueTotal(group.items, counts) : 0;
           return (
-            <SpadeConsole
-              className={styles.group}
+            <section
+              className="arena-case arena-ops-case"
               key={group.id}
               aria-labelledby={`ops-${group.id}`}
-              titleId={`ops-${group.id}`}
-              eyebrow={group.eyebrow}
-              title={group.label}
-              crest="flat"
-              foot="foot"
             >
-              <p className={styles.groupDescription}>{group.description}</p>
-              {groupTotal > 0 && (
-                <p className={styles.groupSignal}>{formatInt(groupTotal)} Waiting</p>
-              )}
+              <p className="arena-ops-eyebrow">{group.eyebrow}</p>
+              <h2 id={`ops-${group.id}`} className="arena-section-title">
+                {group.label}
+                {groupTotal > 0 && <small>{formatInt(groupTotal)} Waiting</small>}
+              </h2>
+              <p className="arena-ops-copy">{group.description}</p>
               <ul className={styles.toolGrid}>
                 {group.items.map((item) => {
                   const descriptionId = `ops-${item.id}-description`;
-                  /* A tile shows its OWN queue. The group panel above carries
+                  /* A row shows its OWN queue. The group heading above carries
                      the rollup, so passing no scope here keeps the same number
                      from appearing three times in one group. */
                   const signal = getClubOperationBadge(item, counts);
                   return (
                     <li key={item.id}>
-                      <Link className={styles.tool} to={item.path} aria-describedby={descriptionId}>
-                        <span className={styles.toolLabel}>{item.label}</span>
-                        {signal > 0 ? (
-                          <span className={styles.toolBadge} aria-label={`${signal} Waiting`}>
-                            {formatInt(signal)}
-                          </span>
-                        ) : (
-                          <span className={styles.toolArrow} aria-hidden="true">
-                            &rsaquo;
-                          </span>
-                        )}
-                        <span className={styles.toolDescription} id={descriptionId}>
-                          {item.description}
-                        </span>
-                      </Link>
+                      <ArenaRow
+                        to={item.path}
+                        aria-describedby={descriptionId}
+                        title={item.label}
+                        line={item.description}
+                        lineId={descriptionId}
+                        signal={signal > 0 ? formatInt(signal) : undefined}
+                        signalTone="attention"
+                        signalLabel={`${signal} Waiting`}
+                      />
                     </li>
                   );
                 })}
               </ul>
-            </SpadeConsole>
+            </section>
           );
         })}
       </div>

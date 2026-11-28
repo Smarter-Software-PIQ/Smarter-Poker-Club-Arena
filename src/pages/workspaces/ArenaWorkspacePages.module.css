@@ -78,7 +78,7 @@
   font-size: 1.45rem;
 }
 
-/* Work waiting, and live readings, for the two club sub-workspaces
+/* Work waiting, and live readings, for the Community workspace
    (mobile first). Only the queues this group's own tools own appear here. */
 .alerts {
   margin: 14px 0 0;
@@ -168,7 +168,8 @@
   border-radius: 2px;
 }
 
-/* Live readings for the two club sub-workspaces (mobile first). */
+/* Live readings for the Community workspace (mobile first). Finance and
+   Control print theirs on the arena workspace chrome (ArenaOps). */
 .readings {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -229,48 +230,27 @@
   }
 }
 
-.readingsRefresh {
-  min-height: 44px;
-  margin-top: 12px;
-  padding: 8px 12px;
-  color: #45adff;
-  background: none;
-  border: 0;
-  font:
-    700 14px/1.3 'Roboto Condensed',
-    sans-serif;
-  cursor: pointer;
-}
-.readingsRefresh:disabled {
-  color: #9aa5b3;
-  cursor: default;
-}
-.readingsRefresh:focus-visible {
-  outline: 2px solid #45adff;
-  outline-offset: 3px;
-}
-
 /* The Rewards overview is a directory, with no second decorative showcase. */
 .page[data-workspace='rewards'] {
   background: #000;
 }
 
-.page:is([data-workspace='club-control'], [data-workspace='play-records']) {
+.page[data-workspace='play-records'] {
   max-width: 1200px;
   margin-inline: auto;
   background: #000;
 }
 
-.page:is([data-workspace='club-control'], [data-workspace='play-records']) .card {
+.page[data-workspace='play-records'] .card {
   background: transparent;
   border: 0;
   border-top: 1px solid rgb(154 165 179 / 20%);
   box-shadow: none;
   padding-inline: 0;
 }
-.page:is([data-workspace='club-control'], [data-workspace='play-records']) .index {
+.page[data-workspace='play-records'] .index {
   display: none;
 }
-.page:is([data-workspace='club-control'], [data-workspace='play-records']) .card {
+.page[data-workspace='play-records'] .card {
   grid-template-columns: minmax(0, 1fr) auto auto;
 }

@@ -1,297 +1,404 @@
 /**
- * ═══════════════════════════════════════════════════════════════════════════════
- *  CLUB SETTINGS PAGE - #SMARTERCASINOREALISM
- * ═══════════════════════════════════════════════════════════════════════════════
+ * CLUB SETTINGS PAGE IN #SMARTERDESIGN (Dan 2026-11-27)
  *
- *  /hub/club-arena/clubs/:club/settings - the owner's control panel: club
- *  identity and logo, join rules, table defaults, the stats export, handing the
- *  club over, and deleting it.
+ * /hub/club-arena/clubs/:club/settings: the owner's control panel for club
+ * identity and logo, join rules, rake, the stats export, handing the club over
+ * and retiring it.
  *
- *  Vocabulary: src/styles/club-engine.css, the block titled
- *  "#SMARTERCASINOREALISM - THE MATERIAL LAYER". Panels are a lit top edge over
- *  a cavity; inputs are the cavity itself; controls press on :active. There is
- *  no :hover rule in this file and none may be added
- *  (tests/no-hover-effects.law.test.ts).
+ * The page wears the arena workspace language (src/components/lobby/
+ * ArenaWorkspace.css and src/components/ops/ArenaOps.css): the mast header,
+ * thin chrome cases with chrome section titles, chrome switch keys that light
+ * blue, and dark wells for every field. This sheet only lays those out for this
+ * page and dresses the few pieces that have no shared rule. The painted console
+ * plates are the old style and are never used here.
  *
- *  THIS IS A GLOBAL STYLESHEET, NOT A MODULE. Seven of the names below are also
- *  declared bare by other sheets - .settings-section (table/SettingsPanel.css),
- *  .toggle-btn (security/TwoFactorSetup.css), .toggle-label (forms/FormToggle,
- *  quickactions/AutoRebuyToggle), .form-group, .btn-danger, .btn-secondary,
- *  .modal-overlay - so a broadened selector here lands on components this page
- *  has never rendered. Colour and shadow were therefore changed WITHIN the rules
- *  that already existed, and every rule needing a NEW property is scoped under
- *  .club-settings-page at the end of the file so it cannot travel.
+ * THIS IS A GLOBAL STYLESHEET, NOT A MODULE. .settings-section, .toggle-btn,
+ * .toggle-label, .form-group, .btn-secondary and .modal-overlay are also
+ * declared bare by other sheets, so every rule here is scoped under
+ * .club-settings-page and cannot travel to a page that never rendered it.
  *
- *  Red stays red and amber stays amber. The delete zone, the conflict bar, the
- *  degraded-state notice and the handover section are verdicts, not decoration,
- *  and none of them was retoned.
+ * The panels this page hosts (BBJMiniPanel, ClubHandCountPanel) still print the
+ * shared .settings-section / .form-group / .toggle-btn / .btn-secondary names,
+ * so those keep a rule here, drawn in the same chrome inks as the rest of the
+ * page. There is no :hover rule in this file and none may be added
+ * (tests/no-hover-effects.law.test.ts).
  */
 
-.club-settings-page {
+.club-settings-page.arena-workspace.arena-workspace {
   min-height: 100vh;
   min-height: 100dvh; /* the visible viewport on a phone; vh above is the toolbar-hidden one */
-  width: 100%;
-  max-width: 100vw;
-  /* clip, not hidden — see src/styles/design-system.css on body. `hidden` on
+  /* clip, not hidden: see src/styles/design-system.css on body. `hidden` on
      one axis computes the other to `auto`, which makes this a scroll container,
      and WebKit then resolves the fixed ClubBottomNav against IT instead of the
      viewport. The bar leaves the bottom of the screen and rides up the page. */
   overflow-x: hidden;
   overflow-x: clip;
-  background: linear-gradient(
-    180deg,
-    var(--realism-obsidian) 0%,
-    var(--realism-carbon) 50%,
-    var(--realism-obsidian) 100%
-  );
   /* Reserve the fixed bottom nav this page renders (2026-08-23). The bar is
-     out of flow, so whatever it covers is simply unreachable — the token
-     is the bar's height PLUS the home-indicator inset it adds on iOS. */
-  padding-bottom: var(--bottom-nav-clearance, 74px);
+     out of flow, so whatever it covers is simply unreachable; the token is
+     the bar's height PLUS the home-indicator inset it adds on iOS. */
+  padding-bottom: calc(var(--bottom-nav-clearance, 74px) + 8px);
 }
 
-.settings-content {
-  padding: 1rem;
-  max-width: 600px;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   SECTIONS — Brushed Metal Panels
-   ───────────────────────────────────────────────────────────────────────────── */
-
-/* A panel sits IN its frame, not on the page: lit top edge, cavity under it,
-   gunmetal edge. The 2px border and the 14px radius are unchanged - the 480px
-   block below already steps the radius to 12px, and both are geometry rather
-   than material. */
-.settings-section {
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  border: 2px solid var(--realism-gunmetal);
-  border-radius: 14px;
-  padding: 1.5rem;
-  margin-bottom: 1rem;
-  box-shadow: var(--realism-bevel), var(--realism-cavity), var(--realism-lift);
-  backdrop-filter: blur(16px) saturate(1.2);
-  -webkit-backdrop-filter: blur(16px) saturate(1.2);
-}
-
-.settings-section h3 {
-  margin: 0 0 1rem;
-  font-size: 0.9rem;
-  color: var(--realism-cyan);
-  font-family: 'Rajdhani', 'Rajdhani', sans-serif;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid rgba(0, 212, 255, 0.2);
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   FORM ELEMENTS
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.form-group {
-  margin-bottom: 1rem;
-}
-
-.form-group label {
-  display: block;
-  font-size: 0.85rem;
-  color: var(--realism-muted);
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-}
-
-.form-group input,
-.form-group textarea {
+.club-settings-page .settings-anchors,
+.club-settings-page .settings-content {
+  box-sizing: border-box;
   width: 100%;
-  padding: 0.75rem 1rem;
-  /* The inverse of a panel: a cavity cut into it. Dark at the top where the
-     panel's own bevel casts, and an inset shade so the field reads as recessed
-     rather than printed on. */
-  background: linear-gradient(180deg, var(--realism-obsidian) 0%, var(--realism-panel) 100%);
-  border: 2px solid var(--realism-gunmetal);
-  border-radius: 8px;
-  color: var(--realism-chrome-hot);
-  font-size: 16px; /* was 0.9rem; under 16px makes iOS zoom the page on focus */
-  box-shadow: inset 0 1px 8px rgba(0, 0, 0, 0.5);
-  transition: all 0.25s var(--ease-spring, cubic-bezier(0.175, 0.885, 0.32, 1.275));
+  max-width: 1120px;
+  margin-inline: auto;
 }
 
-.form-group input:focus,
-.form-group textarea:focus {
-  outline: none;
-  border-color: var(--realism-cyan);
-  box-shadow:
-    0 0 20px rgba(0, 212, 255, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+.club-settings-page .settings-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 0 10px;
+}
+.club-settings-page .settings-content > :not(.settings-section) {
+  grid-column: 1/-1;
+}
+@media (max-width: 760px) {
+  .club-settings-page .settings-content {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
-.form-group input:disabled,
-.form-group textarea:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+/* ── Sections ──────────────────────────────────────────────────────── */
+.club-settings-page .settings-section {
+  min-width: 0;
+}
+.club-settings-page .settings-section > .arena-section-title {
+  scroll-margin-top: 150px;
+}
+.club-settings-page .danger-zone > .arena-section-title {
+  color: #ff5a6a;
+}
+.club-settings-page .handover-section > .arena-section-title {
+  color: #ffd700;
 }
 
-.form-row {
+/* The panels this page hosts print a bare .settings-section with no chrome
+   case of their own; they sit in the same thin case as the rest of the page. */
+.club-settings-page .settings-section:not(.arena-case) {
+  box-sizing: border-box;
+  margin: 7px 0;
+  padding: 14px;
+  background: var(--arena-panel);
+  border: 1px solid #253e57;
+  border-radius: 0;
+}
+.club-settings-page .settings-section:not(.arena-case) h3 {
+  margin: 0 0 8px;
+  padding: 0 3px 5px;
+  border-bottom: 1px solid #253e57;
+  color: #f1f5fc;
+  font:
+    800 20px/1.05 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: -0.35px;
+}
+
+.club-settings-page .setting-description {
+  margin: 0;
+  color: #b6c8d6;
+  font:
+    12px/1.45 Arial,
+    sans-serif;
+}
+
+.club-settings-page .settings-share-codes {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* ── Fields ────────────────────────────────────────────────────────── */
+.club-settings-page .form-group {
+  margin: 0 0 4px;
+}
+.club-settings-page .form-group label,
+.club-settings-page .handover-label {
+  display: block;
+  margin: 0 0 5px;
+  color: #9fbacc;
+  font:
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.club-settings-page .handover-label {
+  margin-top: 12px;
+}
+/* 16px, not the well's 13px: under 16px makes iOS zoom the page on focus. */
+.club-settings-page .arena-ops-well {
+  font-size: 16px;
+}
+.club-settings-page .arena-ops-well:disabled {
+  opacity: 0.55;
+}
+/* The hosted panels' own fields, which carry no well class. */
+.club-settings-page .form-group :is(input, textarea, select):not(.arena-ops-well) {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  color: #f1f5fc;
+  background: #030b14;
+  border: 1px solid #253e57;
+  border-radius: 0;
+  font:
+    16px/1.4 Arial,
+    sans-serif;
+}
+.club-settings-page .form-group :is(input, textarea, select):focus-visible {
+  outline: 2px solid #45adff;
+  outline-offset: 1px;
+}
+.club-settings-page .form-row {
   display: flex;
-  gap: 1rem;
+  gap: 10px;
 }
-
-.form-row .form-group {
+.club-settings-page .form-row .form-group {
   flex: 1;
 }
+@media (max-width: 480px) {
+  .club-settings-page .form-row {
+    flex-direction: column;
+    gap: 0;
+  }
+}
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   TOGGLE ROWS — Cyan Glow Switches
-   ───────────────────────────────────────────────────────────────────────────── */
+.club-settings-page .form-hint {
+  display: block;
+  margin-top: 5px;
+  color: #9aabba;
+  font:
+    11px/1.4 Arial,
+    sans-serif;
+}
+.club-settings-page .form-hint--error {
+  color: #ff5a6a;
+}
+.club-settings-page .form-hint--warn {
+  color: #ffd700;
+}
 
-.toggle-row {
+/* Club code and logo: a value or a picture beside its own keys. */
+.club-settings-page .settings-inline-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.club-settings-page .settings-code-value {
+  color: #ffd700;
+  font:
+    800 20px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.club-settings-page .settings-logo {
+  box-sizing: border-box;
+  display: grid;
+  place-content: center;
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  border: 1px solid #253e57;
+  border-radius: 0;
+  object-fit: cover;
+}
+.club-settings-page .settings-logo--empty {
+  border-style: dashed;
+  color: #9aabba;
+  font:
+    10px Arial,
+    sans-serif;
+}
+
+/* ── Keys ──────────────────────────────────────────────────────────── */
+.club-settings-page .arena-ops-case > .arena-switch,
+.club-settings-page .settings-inline-keys,
+.club-settings-page .settings-toggle,
+.club-settings-page .modal-actions,
+.club-settings-page .unsaved-bar__keys {
+  margin: 0;
+}
+.club-settings-page .settings-inline-keys {
+  flex: 0 1 auto;
+  min-width: 128px;
+}
+.club-settings-page .settings-inline-keys > button {
+  padding-inline: 12px;
+}
+.club-settings-page .settings-anchors {
+  margin-block: 7px;
+}
+.club-settings-page .settings-save-keys {
+  margin: 7px 0 0;
+}
+.club-settings-page .settings-empty-keys {
+  justify-content: center;
+  max-width: 240px;
+  margin: 0 auto;
+}
+.club-settings-page .arena-switch > .settings-key--danger {
+  color: #ff5a6a;
+}
+.club-settings-page .arena-switch > :is(button, a):active:not(:disabled) {
+  transform: translateY(1px);
+  filter: brightness(0.92);
+}
+
+/* The hosted panels' own controls (outside any chrome switch), in the same inks. */
+.club-settings-page :not(.arena-switch) > :is(.btn-secondary, .toggle-btn) {
+  min-height: 44px;
+  padding: 6px 12px;
+  color: #dce5ef;
+  background: #0b1a2a;
+  border: 1px solid #253e57;
+  border-radius: 0;
+  font:
+    700 12px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.club-settings-page :not(.arena-switch) > .toggle-btn {
+  min-width: 64px;
+  text-transform: uppercase;
+}
+.club-settings-page :not(.arena-switch) > .toggle-btn:is(.on, .active) {
+  color: white;
+  background: #0044ac;
+  border-color: #45adff;
+}
+.club-settings-page :not(.arena-switch) > :is(.btn-secondary, .toggle-btn):disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.club-settings-page :not(.arena-switch) > :is(.btn-secondary, .toggle-btn):focus-visible {
+  outline: 2px solid #45adff;
+  outline-offset: 2px;
+}
+.club-settings-page :not(.arena-switch) > :is(.btn-secondary, .toggle-btn):active:not(:disabled) {
+  transform: translateY(1px);
+  filter: brightness(0.92);
+}
+
+/* ── Switch rows ───────────────────────────────────────────────────── */
+.club-settings-page .toggle-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid #16293d;
 }
-
-.toggle-row:last-child {
+.club-settings-page .toggle-row:last-child {
   border-bottom: none;
 }
-
-.toggle-info {
+.club-settings-page .toggle-info {
   flex: 1;
+  min-width: 0;
 }
-
-.toggle-label {
+.club-settings-page .toggle-label,
+.club-settings-page .danger-label,
+.club-settings-page .export-label {
   display: block;
-  font-weight: 500;
-  color: var(--realism-chrome-hot);
-  font-size: 0.9rem;
+  color: #f1f5fc;
+  font:
+    700 14px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.club-settings-page .toggle-desc,
+.club-settings-page .danger-desc,
+.club-settings-page .export-desc {
+  display: block;
+  margin-top: 3px;
+  color: #9fbacc;
+  font:
+    11px/1.35 Arial,
+    sans-serif;
+}
+.club-settings-page .settings-toggle {
+  flex: 0 0 76px;
 }
 
-.toggle-desc {
-  font-size: 0.75rem;
-  color: var(--realism-muted);
-  margin-top: 0.25rem;
-}
-
-.toggle-btn {
-  padding: 0.4rem 1rem;
-  border-radius: 20px;
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  border: 2px solid var(--realism-gunmetal-lit);
-  color: var(--realism-muted);
-  font-size: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
-  min-width: 55px;
-  transition: all 0.25s var(--ease-spring, cubic-bezier(0.175, 0.885, 0.32, 1.275));
-  text-transform: uppercase;
-}
-
-.toggle-btn.on {
-  background: linear-gradient(135deg, var(--realism-cyan) 0%, #0099cc 100%);
-  border-color: var(--realism-cyan);
-  color: #fff;
-  box-shadow:
-    0 0 10px rgba(0, 212, 255, 0.6),
-    var(--realism-bevel);
-}
-
-.toggle-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   SAVE BUTTON — Primary Metal
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.save-btn {
-  width: 100%;
-  margin-top: 1rem;
-  padding: 1rem 2rem;
-  background: linear-gradient(135deg, var(--realism-cyan) 0%, #0099cc 100%);
-  border: none;
-  border-radius: 10px;
-  color: #fff;
-  font-weight: 700;
-  font-size: 1rem;
-  cursor: pointer;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  box-shadow:
-    0 0 20px rgba(0, 212, 255, 0.4),
-    var(--realism-bevel),
-    var(--realism-lift);
-  transition: all 0.25s var(--ease-spring, cubic-bezier(0.175, 0.885, 0.32, 1.275));
-  position: relative;
-  overflow: hidden;
-}
-.save-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   DANGER ZONE — Red Glow
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.danger-zone {
-  border-color: rgba(255, 107, 107, 0.4);
-  background: linear-gradient(145deg, rgba(255, 68, 68, 0.08) 0%, rgba(255, 68, 68, 0.03) 100%);
-}
-
-.danger-zone h3 {
-  color: #ff6b6b;
-  border-bottom-color: rgba(255, 107, 107, 0.2);
-}
-
-.danger-item {
+.club-settings-page .danger-item,
+.club-settings-page .export-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.club-settings-page .danger-info,
+.club-settings-page .export-info {
+  flex: 1 1 200px;
+  min-width: 0;
 }
 
-.danger-info {
-  flex: 1;
+/* ── Notices ───────────────────────────────────────────────────────── */
+.club-settings-page .settings-readonly-note,
+.club-settings-page .settings-notice {
+  margin: 7px 0 0;
+  padding: 8px 12px;
+  border: 1px solid #253e57;
+  border-radius: 0;
+  background: #071423;
+  color: #9fbacc;
+  font:
+    12px/1.4 Arial,
+    sans-serif;
+}
+/* A degraded-but-usable page state (the role lookup failed, so staff tools
+   may be missing). Dan 2026-08-25. */
+.club-settings-page .settings-notice {
+  border-color: #6b5a00;
+  color: #ffd700;
 }
 
-.danger-label {
-  display: block;
-  font-weight: 500;
-  color: var(--realism-chrome-hot);
+.club-settings-page .settings-empty-state {
+  padding: 60px 20px;
+  text-align: center;
+  color: #9fbacc;
+}
+.club-settings-page .settings-empty-title {
+  margin: 0 0 8px;
+  color: #f1f5fc;
+  font:
+    800 20px 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.club-settings-page .settings-empty-desc {
+  margin: 0 0 20px;
+  font:
+    13px/1.4 Arial,
+    sans-serif;
 }
 
-.danger-desc {
-  font-size: 0.75rem;
-  color: var(--realism-muted);
-  margin-top: 0.25rem;
+/* Visually hidden but FOCUSABLE. `display: none` on a file input removes it
+   from the tab order entirely, which is how the logo picker ended up with no
+   keyboard path. Dan 2026-08-25. */
+.club-settings-page .visually-hidden-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
-.btn-danger {
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  border: 2px solid #ef4444;
-  color: white;
-  padding: 0.6rem 1.25rem;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.25s var(--ease-spring, cubic-bezier(0.175, 0.885, 0.32, 1.275));
-  box-shadow:
-    0 0 10px rgba(239, 68, 68, 0.3),
-    var(--realism-bevel),
-    var(--realism-lift);
-}
-.btn-danger:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   MODAL — Metal Frame
-   ───────────────────────────────────────────────────────────────────────────── */
-
+/* ── Dialogs ───────────────────────────────────────────────────────── */
 @keyframes slideUpSpring {
   0% {
     opacity: 0;
@@ -303,201 +410,121 @@
   }
 }
 
-.modal-overlay {
+.club-settings-page .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.85);
+  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 1rem;
-  z-index: 1000;
-  backdrop-filter: blur(16px) saturate(1.2);
-  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  background: rgba(2, 7, 13, 0.88);
 }
-
-/* The red frame is the verdict and is untouched; only the face inside it
-   changed from glass to a machined panel. */
-.modal-content {
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  border: 2px solid rgba(255, 107, 107, 0.4);
-  border-radius: 16px;
-  padding: 1.5rem;
-  max-width: 400px;
+.club-settings-page .modal-content {
+  box-sizing: border-box;
   width: 100%;
-  box-shadow:
-    0 0 30px rgba(255, 68, 68, 0.2),
-    var(--realism-bevel),
-    var(--realism-cavity),
-    var(--realism-lift);
-  backdrop-filter: blur(16px) saturate(1.2);
-  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  max-width: 420px;
+  padding: 16px;
+  background: var(--arena-panel);
+  border: 1px solid #253e57;
+  border-radius: 0;
   animation: slideUpSpring 0.4s var(--ease-spring, cubic-bezier(0.175, 0.885, 0.32, 1.275));
 }
-
-.modal-content h3 {
-  margin: 0 0 1rem;
-  color: #ff6b6b;
-  font-family: 'Rajdhani', 'Rajdhani', sans-serif;
-  text-transform: uppercase;
+.club-settings-page .modal-content h3 {
+  margin: 0 0 10px;
+  padding: 0 0 5px;
+  border-bottom: 1px solid #253e57;
+  color: #f1f5fc;
+  font:
+    800 20px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.club-settings-page .delete-modal {
+  max-width: 440px;
+  width: calc(100vw - 32px);
+  border-color: #ff5a6a;
+}
+.club-settings-page .delete-modal h3 {
+  color: #ff5a6a;
+}
+.club-settings-page .handover-modal {
+  border-color: #ffd700;
+}
+.club-settings-page .handover-modal h3 {
+  color: #ffd700;
+}
+.club-settings-page .modal-content p {
+  margin: 0 0 10px;
+  color: #b6c8d6;
+  font:
+    13px/1.55 Arial,
+    sans-serif;
+}
+.club-settings-page .modal-content strong {
+  color: #f1f5fc;
+}
+.club-settings-page .modal-actions {
+  margin-top: 16px;
 }
 
-.modal-content p {
-  margin: 0 0 1rem;
-  color: var(--realism-muted);
-  font-size: 0.9rem;
-  line-height: 1.6;
+/* What retirement would touch, stated before it arms. */
+.club-settings-page .delete-impact {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: #b6c8d6;
+  font:
+    12px/1.55 Arial,
+    sans-serif;
+}
+.club-settings-page .delete-impact--blocked {
+  list-style: none;
+  padding-left: 0;
+  color: #ffd700;
+  font-weight: 700;
 }
 
-.modal-content strong {
-  color: var(--realism-chrome-hot);
+.club-settings-page .handover-error {
+  margin-top: 12px;
+  padding: 8px 10px;
+  border: 1px solid #ff5a6a;
+  border-radius: 0;
+  background: #1a0a10;
+  color: #ff5a6a;
+  font:
+    12px/1.4 Arial,
+    sans-serif;
 }
 
-.modal-actions {
-  display: flex;
-  gap: 0.75rem;
-  justify-content: flex-end;
-  margin-top: 1.5rem;
-}
-
-.btn-secondary {
-  background: linear-gradient(180deg, var(--realism-panel-raised) 0%, var(--realism-panel) 100%);
-  border: 2px solid var(--realism-gunmetal-lit);
-  color: var(--realism-chrome);
-  padding: 0.5rem 1.25rem;
-  border-radius: 8px;
-  font-weight: 500;
+/* Small inline action inside a panel (the delete-impact "Check Again" retry). */
+.club-settings-page .settings-inline-link {
+  min-height: 44px;
+  padding: 6px 12px;
+  border: 1px solid #253e57;
+  border-radius: 0;
+  background: #0b1a2a;
+  color: #74dfff;
+  font:
+    700 12px 'Arial Narrow',
+    Arial,
+    sans-serif;
   cursor: pointer;
-  transition: all 0.25s var(--ease-spring, cubic-bezier(0.175, 0.885, 0.32, 1.275));
+}
+.club-settings-page .settings-inline-link:focus-visible {
+  outline: 2px solid #45adff;
+  outline-offset: 2px;
+}
+.club-settings-page .settings-inline-link:active {
+  transform: translateY(1px);
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   MOBILE RESPONSIVE
-   ───────────────────────────────────────────────────────────────────────────── */
-
-@media (max-width: 768px) {
-  .toggle-btn {
-    min-height: 44px;
-    touch-action: manipulation;
-  }
-  .save-btn,
-  .btn-danger,
-  .btn-secondary {
-    min-height: 44px;
-    touch-action: manipulation;
-  }
-}
-
-@media (max-width: 480px) {
-  .settings-content {
-    padding: 0.75rem;
-  }
-  .settings-section {
-    padding: 1rem;
-    border-radius: 12px;
-  }
-  .settings-section h3 {
-    font-size: 0.8rem;
-  }
-  .form-group input,
-  .form-group textarea {
-    padding: 0.625rem 0.75rem;
-    font-size: 16px; /* was 0.85rem; under 16px makes iOS zoom the page on focus */
-  }
-  .form-row {
-    flex-direction: column;
-    gap: 0;
-  }
-  .toggle-label {
-    font-size: 0.85rem;
-  }
-  .save-btn {
-    padding: 0.875rem;
-    font-size: 0.9rem;
-  }
-  .danger-item {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.75rem;
-  }
-  .btn-danger {
-    width: 100%;
-    text-align: center;
-  }
-  .modal-content {
-    padding: 1rem;
-    border-radius: 12px;
-  }
-  .modal-actions {
-    flex-direction: column;
-  }
-}
-
-@media (max-width: 380px) {
-  .settings-section {
-    padding: 0.75rem;
-  }
-  .toggle-row {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.5rem;
-  }
-}
-
-/* ═══════ PREMIUM ANIMATIONS ═══════ */
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.fadeInUp {
-  animation: fadeInUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-}
-
-/* Hints under the rake / buy-in inputs. This class was referenced by the
-   page but never defined, so hints rendered at full body size and color. */
-.form-hint {
-  display: block;
-  margin-top: 6px;
-  font-size: 0.78rem;
-  line-height: 1.4;
-  color: var(--realism-muted);
-}
-
-/* Empty/error states: no club selected, club not found. */
-.settings-empty-state {
-  text-align: center;
-  padding: 60px 20px;
-  color: var(--realism-muted);
-}
-.settings-empty-title {
-  font-size: 1.15rem;
-  font-weight: 600;
-  color: var(--realism-chrome-hot);
-  margin: 0 0 8px;
-}
-.settings-empty-desc {
-  font-size: 0.88rem;
-  margin: 0 0 20px;
-}
-
-/* ── Unsaved-changes bar ───────────────────────────────────────────────────
-   Was a fixed row of four inline-styled children with no wrapping: at 375px
-   the field list alone reserved 200px and the bar overflowed the viewport.
-   Mobile-first (Working Rule 7): stack and wrap by default, single row from
-   480px up. */
+/* ── Unsaved-changes bar ──────────────────────────────────────────────
+   Mobile-first: the count and its two keys wrap by default and sit on one
+   row where there is room. It rides ABOVE the bottom nav, not under it (Dan
+   2026-08-25): on a home-indicator iPhone the nav is ~108px tall with z-index
+   1000, and the whole Save/Discard row used to disappear behind it. */
 .unsaved-bar {
   position: fixed;
-  /* ABOVE the bottom nav, not under it (Dan 2026-08-25). 72px was below the
-     bar's 74px min-height, and on a home-indicator iPhone the nav is ~108px
-     tall with z-index 1000 - so the entire Save/Discard row disappeared behind
-     it and the owner had no way to save at all. */
   bottom: calc(var(--bottom-nav-stack-base, 74px) + 8px);
   left: 50%;
   transform: translateX(-50%);
@@ -506,85 +533,58 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem 0.75rem;
+  gap: 8px 12px;
   width: max-content;
   max-width: calc(100vw - 24px);
-  padding: 0.65rem 1rem;
-  border-radius: 16px;
-  background: linear-gradient(135deg, rgba(0, 212, 255, 0.15), rgba(139, 92, 246, 0.1));
-  border: 1px solid rgba(0, 212, 255, 0.3);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.5),
-    0 0 15px rgba(0, 212, 255, 0.2);
+  padding: 8px 12px;
+  background: #071423;
+  border: 1px solid #253e57;
+  border-radius: 0;
   animation: slideUpFade 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 .unsaved-bar__count {
-  color: var(--realism-cyan);
-  font-size: 0.8rem;
-  font-weight: 600;
+  color: #74dfff;
+  font:
+    700 13px 'Arial Narrow',
+    Arial,
+    sans-serif;
   white-space: nowrap;
 }
 .unsaved-bar__fields {
-  color: var(--realism-muted);
-  font-size: 0.7rem;
+  max-width: 190px;
   overflow: hidden;
+  color: #9aabba;
+  font:
+    11px Arial,
+    sans-serif;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 190px;
 }
+.club-settings-page .unsaved-bar__keys {
+  flex: 0 0 auto;
+  min-width: 172px;
+}
+/* 44px (Dan 2026-08-25): the two most consequential controls on the page. */
 .unsaved-bar__discard,
 .unsaved-bar__save {
   flex-shrink: 0;
-  border-radius: 8px;
-  font-size: 0.75rem;
-  cursor: pointer;
-  /* 44px, not 32 (Dan 2026-08-25). These are the Save and Discard buttons on
-     the Profile page - the two most consequential controls on it - and they
-     were the only sub-44px targets left after the audit. The bar wraps, so the
-     extra 12px costs nothing at 375px. */
   min-height: 44px;
-  padding: 0.4rem 0.9rem;
-}
-.unsaved-bar__discard {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: var(--realism-chrome);
-}
-.unsaved-bar__save {
-  background: linear-gradient(135deg, var(--realism-cyan), #0099cc);
-  border: none;
-  color: #000;
-  font-weight: 700;
-}
-.unsaved-bar__save:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 
-/* 520px, not 420 (Dan 2026-08-25). Between 421px and ~480px the field list
-   came back, the four children totalled ~505px against a ~400-455px max-width,
-   and the bar wrapped to TWO rows - about 91px tall. .conflict-bar sits at
-   clearance + 74px, so it budgeted 74 for a bar that needed 91 and the two
-   banners overlapped. 430px is an iPhone 14/15 Pro Max. The comment that used
-   to say "single row from 480px up" described a media query that did not
-   exist. */
+/* 520px, not 420 (Dan 2026-08-25): between 421px and ~480px the field list
+   wrapped the bar to two rows and the conflict bar above it overlapped. The
+   field list is the first thing to go when space is tight. */
 @media (max-width: 520px) {
-  /* Field list is the first thing to go when space is tight — the count and
-     the two actions matter more than the names of the changed fields. */
   .unsaved-bar__fields {
     display: none;
   }
   .unsaved-bar {
-    gap: 0.5rem;
-    padding: 0.6rem 0.8rem;
+    gap: 8px;
+    padding: 8px 10px;
   }
 }
 
-/* The bar has always animated with `slideUpFade`, but the keyframes were
-   never defined anywhere in the codebase — the animation silently did
-   nothing. Defined here, and disabled for reduced-motion users. */
+/* The bar's entrance. Defined here, and collapsed for reduced-motion users. */
 @keyframes slideUpFade {
   from {
     opacity: 0;
@@ -602,34 +602,12 @@
   }
 }
 
-/* Delete-impact disclosure. tables and club_wallets CASCADE from clubs, so
-   the modal states exactly what would be destroyed before it arms. */
-.delete-impact {
-  margin: 12px 0 0;
-  padding-left: 18px;
-  font-size: 0.82rem;
-  line-height: 1.55;
-  color: var(--realism-muted);
-}
-.delete-impact--blocked {
-  list-style: none;
-  padding-left: 0;
-  color: #ffb020;
-  font-weight: 600;
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   CONFLICT BAR — "these settings changed elsewhere"
-   Was ~20 inline style properties on a fixed flex row with no flex-wrap, which
-   at 375px held ~90 characters plus a button in ~338px. It is the same
-   component as .unsaved-bar and now shares its geometry, including sitting
-   ABOVE the bottom nav rather than behind it. Dan 2026-08-25.
-   ═══════════════════════════════════════════════════════════════════════════ */
+/* ── Conflict bar: "these settings changed elsewhere" ─────────────────
+   The same component as .unsaved-bar and sharing its geometry, stacked above
+   it: 8px (the unsaved bar's own offset) + its single-row height (~62px) + air.
+   Gold, because it is a verdict, not decoration. Dan 2026-08-25. */
 .conflict-bar {
   position: fixed;
-  /* 8px (the unsaved bar's own offset) + its single-row height (44px button +
-     19.2px padding + 2px border, ~66px) + 8px of air. Derived rather than
-     guessed, because the two bars stack. */
   bottom: calc(var(--bottom-nav-stack-base, 74px) + 82px);
   left: 50%;
   transform: translateX(-50%);
@@ -638,382 +616,76 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem 0.75rem;
+  gap: 8px 12px;
   width: max-content;
   max-width: calc(100vw - 24px);
-  padding: 0.6rem 1.2rem;
-  border-radius: 14px;
-  background: rgba(255, 176, 32, 0.14);
-  border: 1px solid rgba(255, 176, 32, 0.35);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  padding: 8px 14px;
+  background: #0d0f08;
+  border: 1px solid #6b5a00;
+  border-radius: 0;
 }
-
 .conflict-bar__title {
-  color: #ffb020;
-  font-size: 0.75rem;
-  font-weight: 600;
+  color: #ffd700;
+  font:
+    700 12px 'Arial Narrow',
+    Arial,
+    sans-serif;
 }
-
 .conflict-bar__body {
-  color: var(--realism-muted);
-  font-size: 0.7rem;
+  color: #9aabba;
+  font:
+    11px Arial,
+    sans-serif;
 }
-
 .conflict-bar__action {
   flex-shrink: 0;
   min-height: 44px;
-  padding: 0.35rem 0.75rem;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 8px;
-  color: var(--realism-chrome);
-  font-size: 0.7rem;
+  padding: 6px 12px;
+  background: #0b1a2a;
+  border: 1px solid #253e57;
+  border-radius: 0;
+  color: #dce5ef;
+  font:
+    700 12px 'Arial Narrow',
+    Arial,
+    sans-serif;
   cursor: pointer;
 }
-
 .conflict-bar__action:focus-visible {
-  outline: 2px solid #ffb020;
+  outline: 2px solid #ffd700;
   outline-offset: 2px;
 }
-
-/* Inline notice for a degraded-but-usable page state (e.g. the role lookup
-   failed, so staff tools may be missing). Dan 2026-08-25. */
-.settings-notice {
-  margin: 0 0 1rem;
-  padding: 0.75rem 1rem;
-  border-radius: 10px;
-  background: rgba(255, 176, 32, 0.1);
-  border: 1px solid rgba(255, 176, 32, 0.3);
-  color: #ffb020;
-  font-size: 0.8rem;
-  line-height: 1.4;
-}
-
-/* Visually hidden but FOCUSABLE. `display: none` on a file input removes it
-   from the tab order entirely, which is how the logo picker ended up with no
-   keyboard path. Dan 2026-08-25. */
-.visually-hidden-input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   RULES THAT WERE MISSING ENTIRELY (Dan 2026-08-25)
-   ---------------------------------------------------------------------------
-   audit-section, export-section, export-item, export-info, export-label,
-   export-desc, setting-description and delete-modal were all referenced by
-   ClubSettingsPage.tsx and defined NOWHERE in this file. Two of them
-   (setting-description, delete-modal) happened to exist in SettingsPage.css
-   and TableConfigPage.css - different pages' stylesheets - so whether they
-   applied depended on whether the user had visited another page first. A
-   cross-chunk CSS leak is worse than a missing rule, because it works in
-   testing and fails for a first-time visitor.
-
-   export-label and export-desc are spans, so with no rule they were
-   display: inline and "Export Club Stats" ran into its own description on
-   one line. check-css-modules does not cover plain .css files, which is why
-   none of this was caught.
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-.audit-section,
-.export-section {
-  margin-top: 1.5rem;
-}
-
-.export-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-  padding: 0.875rem 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.export-info {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  min-width: 0;
-  flex: 1 1 220px;
-}
-
-.export-label {
-  display: block;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--realism-chrome-hot);
-}
-
-.export-desc {
-  display: block;
-  font-size: 0.78rem;
-  line-height: 1.4;
-  color: var(--realism-muted);
-}
-
-/* Was inherited from SettingsPage.css, a different page. */
-.setting-description {
-  font-size: 0.82rem;
-  line-height: 1.45;
-  color: var(--realism-muted);
-}
-
-/* Was inherited from TableConfigPage.css, a different page. */
-.delete-modal {
-  max-width: 440px;
-  width: calc(100vw - 32px);
-}
-
-/* Small inline action inside a panel (the delete-impact "Check Again" retry).
-   It was `btn-link`, which matches no rule in the entire src tree, so it
-   rendered as a UA-default grey system button inside a dark glass modal. */
-.settings-inline-link {
-  min-height: 44px;
-  padding: 0.35rem 0.75rem;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--realism-chrome);
-  font-size: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.settings-inline-link:focus-visible {
-  outline: 2px solid var(--realism-cyan);
-  outline-offset: 2px;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   HANDING THE CLUB OVER
-
-   Amber, not red. Handing a club to somebody is a deliberate act, not a
-   destructive one, and giving it the Danger Zone's colour would say the two
-   are the same kind of thing. It sits directly above the red section, so the
-   difference has to be visible at a glance.
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.handover-section {
-  border-color: rgba(251, 191, 36, 0.35);
-  background: linear-gradient(145deg, rgba(251, 191, 36, 0.07) 0%, rgba(251, 191, 36, 0.03) 100%);
-}
-
-.handover-section h3 {
-  color: #fbbf24;
-  border-bottom-color: rgba(251, 191, 36, 0.2);
-}
-
-.handover-label {
-  display: block;
-  margin-top: 1rem;
-  margin-bottom: 0.35rem;
-  font-size: 0.8rem;
-  color: var(--realism-muted);
-}
-
-/* Same cavity as the identity fields above, cut into the amber panel. */
-.handover-select,
-.handover-input {
-  width: 100%;
-  padding: 0.6rem 0.75rem;
-  border-radius: 8px;
-  border: 1px solid var(--realism-gunmetal);
-  background: linear-gradient(180deg, var(--realism-obsidian) 0%, var(--realism-panel) 100%);
-  color: var(--realism-chrome-hot);
-  font-size: 0.9rem;
-  box-shadow: inset 0 1px 8px rgba(0, 0, 0, 0.5);
-}
-
-.handover-select:focus-visible,
-.handover-input:focus-visible {
-  outline: 2px solid #fbbf24;
-  outline-offset: 2px;
-}
-
-.handover-error {
-  margin-top: 0.85rem;
-  padding: 0.6rem 0.75rem;
-  border-radius: 8px;
-  border: 1px solid rgba(239, 68, 68, 0.4);
-  background: rgba(239, 68, 68, 0.1);
-  color: #fca5a5;
-  font-size: 0.8rem;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   THE MILLED FACE AND THE PRESS - SCOPED, DELIBERATELY
-
-   Everything from here down needed a property the rule above it did not
-   already declare, and .toggle-btn / .btn-secondary / .btn-danger are names
-   four other stylesheets also own. A new declaration on the bare class would
-   have put a bevel on the two-factor setup buttons and on every ErrorBoundary
-   in the app. Scoping to .club-settings-page keeps it on this page without
-   changing what any existing rule matches.
-
-   On a phone there is no hover, so :active is the whole of the feedback -
-   the control drops into its own cavity and the top light goes out.
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.club-settings-page .toggle-btn:not(.on),
-.club-settings-page .btn-secondary {
-  box-shadow:
-    var(--realism-bevel),
-    0 1px 2px rgba(0, 0, 0, 0.55);
-}
-
-.club-settings-page .toggle-btn:active:not(:disabled),
-.club-settings-page .btn-secondary:active:not(:disabled),
-.club-settings-page .btn-danger:active:not(:disabled),
-.club-settings-page .save-btn:active:not(:disabled),
-.club-settings-page .settings-inline-link:active,
-.club-settings-page .conflict-bar__action:active,
-.club-settings-page .unsaved-bar__discard:active,
-.club-settings-page .unsaved-bar__save:active:not(:disabled) {
+.conflict-bar__action:active {
   transform: translateY(1px);
-  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.7);
-  filter: brightness(0.94);
 }
 
-.club-settings-page .toggle-btn:focus-visible,
-.club-settings-page .save-btn:focus-visible,
-.club-settings-page .btn-secondary:focus-visible,
-.club-settings-page .btn-danger:focus-visible,
-.club-settings-page .form-group input:focus-visible,
-.club-settings-page .form-group textarea:focus-visible,
-.club-settings-page .unsaved-bar__discard:focus-visible,
-.club-settings-page .unsaved-bar__save:focus-visible {
-  outline: 2px solid var(--realism-cyan);
-  outline-offset: 2px;
+/* Spacing between the activity and export cases and what precedes them. */
+.club-settings-page .audit-section,
+.club-settings-page .export-section {
+  margin-top: 7px;
 }
 
-/* Motion collapses, meaning does not (CLAUDE.md 10.6). The panel keeps its
-   bevel, its cavity and its gunmetal edge; only the travel stops. Scoped to
-   this sheet's own selectors so it cannot reach an animation another
-   stylesheet owns. The .unsaved-bar block further up covers that bar. */
-@media (prefers-reduced-motion: reduce) {
-  .club-settings-page .settings-section,
-  .club-settings-page .form-group input,
-  .club-settings-page .form-group textarea,
-  .club-settings-page .toggle-btn,
-  .club-settings-page .save-btn,
-  .club-settings-page .btn-danger,
-  .club-settings-page .btn-secondary {
-    transition: none;
+/* ═══════ PREMIUM ANIMATIONS ═══════
+   Other pages print `fadeInUp` and arrive in the same chunk; kept bare. */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
   }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 
+.fadeInUp {
+  animation: fadeInUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+/* Motion collapses, meaning does not (CLAUDE.md 10.6). */
+@media (prefers-reduced-motion: reduce) {
   .club-settings-page .modal-content,
   .club-settings-page .fadeInUp {
     animation: none;
   }
-}
-
-/* October 12 owner direction: readable club administration, no bulky panels. */
-.club-settings-page {
-  background: #000;
-  color: #e4e7ec;
-  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
-}
-/* Doubled with the bar's own class so it outranks PageHelp.css in any load order. */
-.ca-page-bar.club-settings-heading {
-  width: min(100%, 1120px);
-  margin: 0 auto;
-  padding: 0 20px;
-}
-/* The club's own name, its identity, leads the page bar. */
-.club-settings-name {
-  flex: 1 0 100%;
-  margin: 0;
-  color: #e4e7ec;
-  font:
-    700 clamp(20px, 3vw, 26px)/1.2 'Roboto Condensed',
-    sans-serif;
-  overflow-wrap: anywhere;
-}
-.club-settings-heading nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 20px;
-}
-.club-settings-heading a {
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
-  color: #45adff;
-  text-decoration: none;
-}
-.club-settings-page .settings-content {
-  max-width: 1120px;
-  margin-inline: auto;
-  padding: 20px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  align-items: start;
-  gap: 24px 40px;
-}
-.club-settings-page .settings-section {
-  min-width: 0;
-  background: transparent !important;
-  border: 0 !important;
-  border-top: 1px solid rgb(154 165 179 / 20%) !important;
-  border-radius: 0;
-  box-shadow: none;
-  backdrop-filter: none;
-  padding: 20px 0;
-  margin: 0;
-}
-.club-settings-page .settings-section h3 {
-  font-size: 22px;
-  color: #e4e7ec;
-  border: 0;
-  letter-spacing: 0;
-  text-transform: none;
-  scroll-margin-top: 150px;
-}
-.club-settings-page .settings-content > :not(.settings-section) {
-  grid-column: 1/-1;
-}
-.club-settings-page .form-group input,
-.club-settings-page .form-group textarea {
-  border-width: 1px;
-  border-radius: 0;
-  background: #0a0b0d;
-  box-shadow: none;
-}
-.club-settings-page .setting-description {
-  line-height: 1.5;
-}
-.club-settings-page .settings-save-bar {
-  grid-column: 1/-1;
-}
-@media (max-width: 760px) {
-  .club-settings-page .settings-content {
-    grid-template-columns: minmax(0, 1fr);
-    padding: 16px;
-    gap: 20px;
-  }
-  .ca-page-bar.club-settings-heading {
-    padding-inline: 16px;
-  }
-}
-
-.club-settings-page .settings-section > button {
-  background: transparent !important;
-  border: 0 !important;
-  box-shadow: none !important;
-  color: #45adff !important;
-  font-size: 16px;
-  min-height: 44px;
-  padding-inline: 0 !important;
-}
-.club-settings-page .danger-zone button {
-  color: #ff5b6e !important;
 }
