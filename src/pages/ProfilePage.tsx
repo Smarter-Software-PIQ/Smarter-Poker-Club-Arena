@@ -19,6 +19,8 @@ import { supabase, getAuthUser } from '../lib/supabase';
 import { ownProfile } from '../lib/ownProfile';
 import { LoadingState } from '../components/common/EmptyState';
 import PageBar from '../components/help/PageBar';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import '../components/ops/ArenaOps.css';
 import FriendListPanel from '../components/social/FriendListPanel';
 import UserProfileEdit, { UserProfileData } from '../components/social/UserProfileEdit';
 import { AvatarGallery } from '../components/customization/AvatarGallery';
@@ -222,7 +224,7 @@ const StatCard = ({
   positive?: boolean | null;
   isVisible?: boolean;
 }) => (
-  <div className={`${styles.statCard} ${isVisible ? styles.visible : styles.hidden}`}>
+  <div className={`${styles.statCard} arena-meter ${isVisible ? styles.visible : styles.hidden}`}>
     <span
       className={`${styles.statValue} ${positive === true ? styles.positive : positive === false ? styles.negative : ''}`}
     >
@@ -240,7 +242,9 @@ const AchievementCard = ({ achievement }: { achievement: Achievement }) => {
     achievement.progress >= achievement.maxProgress;
 
   return (
-    <div className={`${styles.achievementCard} ${isUnlocked ? styles.unlocked : styles.locked}`}>
+    <div
+      className={`${styles.achievementCard} arena-ledger-row ${isUnlocked ? styles.unlocked : styles.locked}`}
+    >
       <span className={styles.achievementIcon} aria-hidden="true">
         {achievement.icon || '★'}
       </span>
@@ -914,8 +918,13 @@ export default function ProfilePage() {
 
   if (!user) {
     return (
-      <StandardContentLayout className={styles.page}>
-        <div className={styles.emptyProfile}>
+      <StandardContentLayout className={`${styles.page} arena-workspace`}>
+        <ArenaWorkspaceHeader
+          area="settings"
+          title="Your Profile"
+          summary="Your Player Credential: Your Portrait, Arena Name, Player Number And Live Telemetry, With The Doors Into Your Wallet, Stats And Settings."
+        />
+        <div className={`${styles.emptyProfile} arena-case arena-ops-case`}>
           <p>Profile Not Found</p>
         </div>
       </StandardContentLayout>
@@ -936,20 +945,28 @@ export default function ProfilePage() {
   const memberSinceLabel = formatMemberSince(user.memberSince);
 
   return (
-    <StandardContentLayout className={styles.page}>
-      {/* The eyebrow and the hero artwork are gone (Dan 2026-10-17: "PAGES
-          DON'T NEED TITLES LIKE THIS"). The player's own name stays the page's
-          heading, on the credential below, so the bar prints no second one:
-          only the live last-hand line and the "?". */}
+    <StandardContentLayout className={`${styles.page} arena-workspace`}>
+      {/* #SmarterDesign (Dan 2026-11-27): the chrome mast carries the page
+          title and the chrome "?" (the description behind it); the live
+          last-hand line rides under it. The player's own name stays the
+          credential's heading below. */}
+      <ArenaWorkspaceHeader
+        area="settings"
+        title="Your Profile"
+        summary="Your Player Credential: Your Portrait, Arena Name, Player Number And Live Telemetry, With The Doors Into Your Wallet, Stats And Settings."
+      />
       <PageBar
         title="Your Profile"
         titleAs={false}
-        summary="Your Player Credential: Your Portrait, Arena Name, Player Number And Live Telemetry, With The Doors Into Your Wallet, Stats And Settings."
+        showHelp={false}
         status={lastHandLabel ? `Last Hand ${lastHandLabel}` : 'No Hands Recorded Yet'}
       />
 
       {/* Profile Header - the credential plate */}
-      <section className={styles.profileHeader} aria-labelledby="profile-heading">
+      <section
+        className={`${styles.profileHeader} arena-case arena-ops-case`}
+        aria-labelledby="profile-heading"
+      >
         <div className={styles.avatarContainer}>
           {user.avatarUrl ? (
             <img
@@ -1004,7 +1021,7 @@ export default function ProfilePage() {
           )}
         </div>
 
-        <div className={styles.headerActions}>
+        <div className={`${styles.headerActions} arena-switch`}>
           <button
             type="button"
             className={styles.editButton}
@@ -1014,7 +1031,7 @@ export default function ProfilePage() {
           </button>
           <button
             type="button"
-            className={styles.editButton}
+            className={`${styles.editButton} ${styles.profilePrimary}`}
             onClick={() => setShowProfileEdit(true)}
           >
             Edit Profile
@@ -1033,27 +1050,27 @@ export default function ProfilePage() {
         {/* Telemetry rail. Real figures or a hyphen, never a fabricated zero
             while the Stats contract has not answered. */}
         <dl className={styles.telemetry} aria-label="Player Telemetry">
-          <div className={styles.telemetryCell}>
+          <div className={`${styles.telemetryCell} arena-meter`}>
             <dt>Member</dt>
             <dd>{memberSinceLabel}</dd>
           </div>
-          <div className={styles.telemetryCell}>
+          <div className={`${styles.telemetryCell} arena-meter`}>
             <dt>Cash Hands</dt>
             <dd>{statsAvailable ? stats.lifetimeHands.toLocaleString() : NO_DATA}</dd>
           </div>
-          <div className={styles.telemetryCell}>
+          <div className={`${styles.telemetryCell} arena-meter`}>
             <dt>VPIP</dt>
             <dd>{statsAvailable ? `${fixedTrunc(stats.vpip, 1)}%` : NO_DATA}</dd>
           </div>
-          <div className={styles.telemetryCell}>
+          <div className={`${styles.telemetryCell} arena-meter`}>
             <dt>ROI</dt>
             <dd>{statsAvailable ? formatSignedPct(stats.roi) : NO_DATA}</dd>
           </div>
-          <div className={styles.telemetryCell}>
+          <div className={`${styles.telemetryCell} arena-meter`}>
             <dt>Streak</dt>
             <dd>{dailyStreak > 0 ? `${dailyStreak}D` : NO_DATA}</dd>
           </div>
-          <div className={styles.telemetryCell}>
+          <div className={`${styles.telemetryCell} arena-meter`}>
             <dt>Table Avatar</dt>
             <dd className={styles.telemetryAvatar}>
               {user.arenaAvatarUrl ? (
@@ -1069,7 +1086,10 @@ export default function ProfilePage() {
       {/* VIP ledger plate. Reads the same constants the VIP page quotes for
           ordinary VIP and branches only on the exact resolved Lifetime status
           for the newer unlimited digital entitlements. */}
-      <section className={`${styles.contentSection} ${styles.vipSection}`} aria-label="VIP Status">
+      <section
+        className={`${styles.contentSection} ${styles.vipSection} arena-case arena-ops-case`}
+        aria-label="VIP Status"
+      >
         <div className={styles.vipRow}>
           <div className={styles.vipIdentity}>
             <span className={styles.vipEyebrow}>Membership</span>
@@ -1166,16 +1186,18 @@ export default function ProfilePage() {
               )}
             </ul>
           )}
-          <button
-            type="button"
-            className={`${styles.editButton} ${styles.vipCta}`}
-            onClick={() =>
-              navigate(user.vipStatus === 'none' ? VIP_MEMBERSHIP_PURCHASE_PATH : '/vip')
-            }
-          >
-            {user.vipStatus === 'none' ? 'Get VIP Membership' : 'Open VIP Ledger'}{' '}
-            <span aria-hidden="true">→</span>
-          </button>
+          <div className={`${styles.vipKeys} arena-switch arena-ops-primary`}>
+            <button
+              type="button"
+              className={`${styles.editButton} ${styles.vipCta}`}
+              onClick={() =>
+                navigate(user.vipStatus === 'none' ? VIP_MEMBERSHIP_PURCHASE_PATH : '/vip')
+              }
+            >
+              {user.vipStatus === 'none' ? 'Get VIP Membership' : 'Open VIP Ledger'}{' '}
+              <span aria-hidden="true">→</span>
+            </button>
+          </div>
         </div>
       </section>
 
@@ -1197,7 +1219,7 @@ export default function ProfilePage() {
           <button
             type="button"
             key={destination.path}
-            className={styles.destination}
+            className={`${styles.destination} arena-ledger-row`}
             onClick={() => navigate(destination.path)}
           >
             <span>{destination.label}</span>
@@ -1209,23 +1231,25 @@ export default function ProfilePage() {
 
       {/* Achievement Showcase — always visible */}
       {unlockedAchievements.length > 0 && (
-        <section className={styles.contentSection}>
+        <section className={`${styles.contentSection} arena-case arena-ops-case`}>
           <div className={styles.sectionHeading}>
-            <h3>Recent Distinctions</h3>
-            <button
-              type="button"
-              onClick={() => selectTab('achievements')}
-              className={styles.textAction}
-            >
-              Inspect All
-            </button>
+            <h3 className="arena-section-title">Recent Distinctions</h3>
+            <div className={`${styles.ctaKeys} arena-switch`}>
+              <button
+                type="button"
+                onClick={() => selectTab('achievements')}
+                className={styles.textAction}
+              >
+                Inspect All
+              </button>
+            </div>
           </div>
           <div className={styles.achievementStrip}>
             {[...unlockedAchievements]
               .sort((a, b) => new Date(b.unlockedAt!).getTime() - new Date(a.unlockedAt!).getTime())
               .slice(0, 5)
               .map((a) => (
-                <div key={a.id} className={styles.achievementChip}>
+                <div key={a.id} className={`${styles.achievementChip} arena-ledger-row`}>
                   <span aria-hidden="true">{a.icon || '★'}</span>
                   <span>{a.name}</span>
                 </div>
@@ -1235,7 +1259,7 @@ export default function ProfilePage() {
       )}
 
       {/* Tab Navigation */}
-      <nav className={styles.tabNav} role="tablist" aria-label="Profile Details">
+      <nav className={`${styles.tabNav} arena-switch`} role="tablist" aria-label="Profile Details">
         {PROFILE_TABS.map((tab, index) => (
           <button
             type="button"
@@ -1263,7 +1287,7 @@ export default function ProfilePage() {
       {/* Tab Content */}
       <section
         id="profile-tabpanel"
-        className={styles.tabContent}
+        className={`${styles.tabContent} arena-case arena-ops-case`}
         role="tabpanel"
         aria-labelledby={`profile-tab-${activeTab}`}
         tabIndex={0}
@@ -1274,7 +1298,7 @@ export default function ProfilePage() {
             {statsAvailable ? (
               <>
                 <div className={styles.statsGroup}>
-                  <h3>Core Stats</h3>
+                  <h3 className="arena-section-title">Core Stats</h3>
                   <div className={styles.circularStatsGrid}>
                     <div
                       className={`${styles.circularGaugeWrapper} ${visibleStats.has(0) ? styles.visible : styles.hidden}`}
@@ -1384,7 +1408,7 @@ export default function ProfilePage() {
                 </div>
 
                 <div className={styles.statsGroup}>
-                  <h3>Financial</h3>
+                  <h3 className="arena-section-title">Financial</h3>
                   <div className={styles.statsGrid}>
                     <StatCard
                       value={
@@ -1417,7 +1441,7 @@ export default function ProfilePage() {
                 </div>
 
                 <div className={styles.statsGroup}>
-                  <h3>Tournaments</h3>
+                  <h3 className="arena-section-title">Tournaments</h3>
                   <div className={styles.statsGrid}>
                     <StatCard
                       value={stats.tournamentsPlayed}
@@ -1467,7 +1491,7 @@ export default function ProfilePage() {
 
                 {stats.variants.length > 0 && (
                   <div className={styles.statsGroup}>
-                    <h3>By Variant</h3>
+                    <h3 className="arena-section-title">By Variant</h3>
                     <ul className={styles.variantList}>
                       {[...stats.variants]
                         .sort((a, b) => b.hands - a.hands)
@@ -1492,20 +1516,22 @@ export default function ProfilePage() {
               </>
             ) : (
               <div className={styles.statsGroup} role="status">
-                <h3>Stats Snapshot Unavailable</h3>
+                <h3 className="arena-section-title">Stats Snapshot Unavailable</h3>
                 <p>
                   No Verified Player Analytics Payload Is Available Yet. Open The Full Workspace To
                   Retry Or Review The Current Coverage Status.
                 </p>
               </div>
             )}
-            <button
-              type="button"
-              className={styles.workspaceCta}
-              onClick={() => navigate('/stats')}
-            >
-              Open Full Player Analytics <span aria-hidden="true">→</span>
-            </button>
+            <div className={`${styles.ctaKeys} arena-switch arena-ops-primary`}>
+              <button
+                type="button"
+                className={styles.workspaceCta}
+                onClick={() => navigate('/stats')}
+              >
+                Open Full Player Analytics <span aria-hidden="true">→</span>
+              </button>
+            </div>
           </div>
         )}
 
@@ -1529,13 +1555,15 @@ export default function ProfilePage() {
               </div>
             )}
 
-            <button
-              type="button"
-              className={styles.workspaceCta}
-              onClick={() => navigate('/achievements')}
-            >
-              Open Achievement Vault <span aria-hidden="true">→</span>
-            </button>
+            <div className={`${styles.ctaKeys} arena-switch arena-ops-primary`}>
+              <button
+                type="button"
+                className={styles.workspaceCta}
+                onClick={() => navigate('/achievements')}
+              >
+                Open Achievement Vault <span aria-hidden="true">→</span>
+              </button>
+            </div>
           </div>
         )}
 
@@ -1546,7 +1574,7 @@ export default function ProfilePage() {
                 and a diamond purchase is not a session. */}
             <div className={styles.statsGroup}>
               <div className={styles.groupHeading}>
-                <h3>Cumulative P/L</h3>
+                <h3 className="arena-section-title">Cumulative P/L</h3>
                 <small>Settled Hand Results By Day</small>
               </div>
               <Suspense fallback={<div className={styles.chartLoading}>Loading Chart...</div>}>
@@ -1557,7 +1585,7 @@ export default function ProfilePage() {
             {stats.sessions.length > 0 && (
               <div className={styles.statsGroup}>
                 <div className={styles.groupHeading}>
-                  <h3>Recent Sessions</h3>
+                  <h3 className="arena-section-title">Recent Sessions</h3>
                 </div>
                 <ul className={styles.sessionList}>
                   {stats.sessions.slice(0, 5).map((session) => (
@@ -1595,13 +1623,15 @@ export default function ProfilePage() {
             {transactions.length > 0 ? (
               <>
                 {/* Transaction List */}
-                <h3 className={styles.historyHeading}>Recent Transactions</h3>
+                <h3 className={`${styles.historyHeading} arena-section-title`}>
+                  Recent Transactions
+                </h3>
                 <div className={styles.transactionList}>
                   {[...transactions]
                     .reverse()
                     .slice(0, 10)
                     .map((tx) => (
-                      <div key={tx.id} className={styles.transactionRow}>
+                      <div key={tx.id} className={`${styles.transactionRow} arena-ledger-row`}>
                         <div>
                           <span>{formatPopupText(tx.description || tx.type)}</span>
                           <small>{new Date(tx.created_at).toLocaleString()}</small>
@@ -1619,21 +1649,25 @@ export default function ProfilePage() {
                       </div>
                     ))}
                 </div>
-                <button
-                  type="button"
-                  className={styles.workspaceCta}
-                  onClick={() => navigate('/transactions')}
-                >
-                  Open Complete Transaction History <span aria-hidden="true">→</span>
-                </button>
+                <div className={`${styles.ctaKeys} arena-switch arena-ops-primary`}>
+                  <button
+                    type="button"
+                    className={styles.workspaceCta}
+                    onClick={() => navigate('/transactions')}
+                  >
+                    Open Complete Transaction History <span aria-hidden="true">→</span>
+                  </button>
+                </div>
               </>
             ) : (
               <div className={styles.emptyHistory}>
                 <span className={styles.emptyIcon} aria-hidden="true" />
                 <p>No Recent Transactions To Display.</p>
-                <button type="button" className={styles.playButton} onClick={() => navigate('/')}>
-                  Start Playing
-                </button>
+                <div className={`${styles.ctaKeys} arena-switch arena-ops-primary`}>
+                  <button type="button" className={styles.playButton} onClick={() => navigate('/')}>
+                    Start Playing
+                  </button>
+                </div>
               </div>
             )}
           </div>

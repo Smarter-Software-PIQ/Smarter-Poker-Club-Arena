@@ -160,11 +160,7 @@ describe('cinematic retained route families', () => {
     // The Daily Challenges artwork prints from its dashboard units.
     const missions = readDailyChallengesSurface();
     expect(missions).toContain('mediaUrl(');
-    for (const path of [
-      'src/components/account/AccountSurfaceHeader.tsx',
-      'src/components/community/CommunitySurfaceHeader.tsx',
-      'src/pages/workspaces/ArenaWorkspacePages.tsx',
-    ]) {
+    for (const path of ['src/pages/workspaces/ArenaWorkspacePages.tsx']) {
       const source = readFileSync(path, 'utf8');
       expect(source, path).toMatch(/import PageBar from '[./]+(?:components\/)?help\/PageBar';/);
       expect(source, path).not.toContain('mediaUrl(');

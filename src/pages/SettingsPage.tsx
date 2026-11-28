@@ -60,7 +60,9 @@ import ConfirmModal from '../components/common/ConfirmModal';
 import { useToast } from '../components/common/Toast';
 import { reportError } from '../utils/errorReporter';
 import { ThemeSettingsModal } from '../components/table/ThemeSettingsModal';
-import AccountSurfaceHeader from '../components/account/AccountSurfaceHeader';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import PageBar from '../components/help/PageBar';
+import '../components/ops/ArenaOps.css';
 import { IS_NATIVE_BUILD, isNativePlatform } from '../lib/appBase';
 import { getAnalyticsConsent, setAnalyticsConsent } from '../lib/consent';
 import { persistAccountSettings } from '../lib/persistAccountSettings';
@@ -1213,14 +1215,23 @@ export default function SettingsPage() {
   };
 
   return (
-    <StandardContentLayout className={styles.page}>
-      <AccountSurfaceHeader
+    <StandardContentLayout className={`${styles.page} arena-workspace`}>
+      {/* #SmarterDesign (Dan 2026-11-27): the chrome mast carries the title and
+          the chrome "?", whose panel holds the page description; the live
+          sync line rides under it. */}
+      <ArenaWorkspaceHeader
+        area="control"
         title="Control Room"
-        description="Sound, Table Display, Alerts, Device Access, Identity Security And Account Data. Preferences Apply And Save Automatically When Selected."
+        summary="Sound, Table Display, Alerts, Device Access, Identity Security And Account Data. Preferences Apply And Save Automatically When Selected."
+      />
+      <PageBar
+        titleAs={false}
+        showHelp={false}
+        title="Control Room"
         status={hasChanges ? 'Changes Pending' : 'Systems Synced'}
       />
 
-      <nav className={styles.controlIndex} aria-label="Settings Sections">
+      <nav className={`${styles.controlIndex} arena-switch`} aria-label="Settings Sections">
         {[
           { id: 'audio' as const, label: 'Audio', ref: audioRef },
           { id: 'display' as const, label: 'Table & Display', ref: appearanceRef },
@@ -1231,7 +1242,9 @@ export default function SettingsPage() {
           <button
             type="button"
             key={item.id}
-            className={activeSettingsSection === item.id ? styles.controlIndexActive : ''}
+            className={
+              activeSettingsSection === item.id ? `${styles.controlIndexActive} active` : ''
+            }
             onClick={() => jumpToSection(item.id, item.ref)}
           >
             {item.label}
@@ -1239,13 +1252,15 @@ export default function SettingsPage() {
         ))}
       </nav>
 
-      <div className={styles.headerActions} aria-live="polite">
+      <div className={`${styles.headerActions} arena-case arena-ops-case`} aria-live="polite">
         <span className={styles.changeState}>
           {hasChanges
             ? 'Choices Are Saved On This Device. Account Sync Is Pending.'
             : 'All Visible Controls Are Saved.'}
         </span>
-        <div>
+        <div
+          className={`${styles.syncKeys} arena-switch${hasChanges && syncFailed ? ' arena-ops-primary' : ''}`}
+        >
           {hasChanges && syncFailed && (
             <button
               className={styles.saveButton}
@@ -1263,10 +1278,14 @@ export default function SettingsPage() {
 
       <div className={styles.content}>
         {/* Audio Settings */}
-        <section ref={audioRef} className={styles.section} style={settingsSectionAnimationStyle(0)}>
-          <h2>Audio</h2>
+        <section
+          ref={audioRef}
+          className={`${styles.section} arena-case arena-ops-case`}
+          style={settingsSectionAnimationStyle(0)}
+        >
+          <h2 className="arena-section-title">Audio</h2>
 
-          <div className={styles.settingRow}>
+          <div className={`${styles.settingRow} arena-ledger-row`}>
             <div className={styles.settingInfo}>
               <span className={styles.settingLabel}>Sound Effects</span>
               <span className={styles.settingDesc}>Play Sounds For Actions And Events</span>
@@ -1278,7 +1297,7 @@ export default function SettingsPage() {
             />
           </div>
 
-          <div className={styles.settingRow}>
+          <div className={`${styles.settingRow} arena-ledger-row`}>
             <div className={styles.settingInfo}>
               <span className={styles.settingLabel}>Sound Volume</span>
             </div>
@@ -1294,18 +1313,18 @@ export default function SettingsPage() {
         {/* Display Settings */}
         <section
           ref={appearanceRef}
-          className={styles.section}
+          className={`${styles.section} arena-case arena-ops-case`}
           style={settingsSectionAnimationStyle(1)}
         >
-          <h2>Table &amp; Display</h2>
+          <h2 className="arena-section-title">Table &amp; Display</h2>
           <ActionControllerSettings />
 
-          <div className={styles.settingRow}>
+          <div className={`${styles.settingRow} arena-ledger-row`}>
             <div className={styles.settingInfo}>
               <span className={styles.settingLabel}>Theme</span>
             </div>
             <select
-              className={styles.select}
+              className={`${styles.select} arena-ops-well`}
               value={settings.theme}
               aria-label="Theme"
               onChange={(e) => updateSetting('theme', e.target.value as UserSettings['theme'])}
@@ -1316,7 +1335,7 @@ export default function SettingsPage() {
             </select>
           </div>
 
-          <div className={`${styles.settingRow} ${styles.studioRow}`}>
+          <div className={`${styles.settingRow} ${styles.studioRow} arena-ledger-row`}>
             <div className={styles.settingInfo}>
               <span className={styles.settingEyebrow}>Appearance Suite</span>
               <span className={styles.settingLabel}>Table Studio</span>
@@ -1324,16 +1343,18 @@ export default function SettingsPage() {
                 Tables, Backgrounds, Buttons And Card Backs In One Live Studio
               </span>
             </div>
-            <button
-              type="button"
-              className={styles.studioButton}
-              onClick={() => setShowThemeSettings(true)}
-            >
-              Open Studio
-            </button>
+            <div className={`${styles.rowKeys} arena-switch arena-ops-primary`}>
+              <button
+                type="button"
+                className={styles.studioButton}
+                onClick={() => setShowThemeSettings(true)}
+              >
+                Open Studio
+              </button>
+            </div>
           </div>
 
-          <div className={styles.settingRow}>
+          <div className={`${styles.settingRow} arena-ledger-row`}>
             <div className={styles.settingInfo}>
               <span className={styles.settingLabel}>Four-Color Deck</span>
               <span className={styles.settingDesc}>
@@ -1350,7 +1371,7 @@ export default function SettingsPage() {
           {/* Dan 2026-08-28: "add a toggle... in the Club Arena settings to
               turn the ticker on or off." Same stored setting the in-table
               panel writes, so either surface flips the live bar. */}
-          <div className={styles.settingRow}>
+          <div className={`${styles.settingRow} arena-ledger-row`}>
             <div className={styles.settingInfo}>
               <span className={styles.settingLabel}>Announcement Ticker</span>
               <span className={styles.settingDesc}>
@@ -1364,12 +1385,12 @@ export default function SettingsPage() {
             />
           </div>
 
-          <div className={styles.settingRow}>
+          <div className={`${styles.settingRow} arena-ledger-row`}>
             <div className={styles.settingInfo}>
               <span className={styles.settingLabel}>Animation Speed</span>
             </div>
             <select
-              className={styles.select}
+              className={`${styles.select} arena-ops-well`}
               value={settings.animationSpeed}
               aria-label="Animation Speed"
               onChange={(e) =>
@@ -1382,7 +1403,7 @@ export default function SettingsPage() {
             </select>
           </div>
 
-          <div className={styles.settingRow}>
+          <div className={`${styles.settingRow} arena-ledger-row`}>
             <div className={styles.settingInfo}>
               <span className={styles.settingLabel}>Show Pot Odds</span>
               <span className={styles.settingDesc}>Display Pot Odds During Your Action</span>
@@ -1398,12 +1419,12 @@ export default function SettingsPage() {
         {/* Notifications */}
         <section
           ref={notificationsRef}
-          className={styles.section}
+          className={`${styles.section} arena-case arena-ops-case`}
           style={settingsSectionAnimationStyle(4)}
         >
-          <h2>Notifications</h2>
+          <h2 className="arena-section-title">Notifications</h2>
 
-          <div className={styles.settingRow}>
+          <div className={`${styles.settingRow} arena-ledger-row`}>
             <div className={styles.settingInfo}>
               <span className={styles.settingLabel}>Tournament Reminders</span>
               <span className={styles.settingDesc}>Notify Before Registered Tournaments Start</span>
@@ -1415,7 +1436,7 @@ export default function SettingsPage() {
             />
           </div>
 
-          <div className={styles.settingRow}>
+          <div className={`${styles.settingRow} arena-ledger-row`}>
             <div className={styles.settingInfo}>
               <span className={styles.settingLabel}>Club Activity</span>
               <span className={styles.settingDesc}>New Tables, Tournaments, And Announcements</span>
@@ -1427,7 +1448,7 @@ export default function SettingsPage() {
             />
           </div>
 
-          <div className={styles.settingRow}>
+          <div className={`${styles.settingRow} arena-ledger-row`}>
             <div className={styles.settingInfo}>
               <span className={styles.settingLabel}>Achievement Unlocked</span>
             </div>
@@ -1438,7 +1459,7 @@ export default function SettingsPage() {
             />
           </div>
 
-          <div className={styles.settingRow}>
+          <div className={`${styles.settingRow} arena-ledger-row`}>
             <div className={styles.settingInfo}>
               <span className={styles.settingLabel}>Friend Alerts</span>
               <span className={styles.settingDesc}>Friend Requests, Status Changes</span>
@@ -1450,7 +1471,7 @@ export default function SettingsPage() {
             />
           </div>
 
-          <div className={styles.settingRow}>
+          <div className={`${styles.settingRow} arena-ledger-row`}>
             <div className={styles.settingInfo}>
               <span className={styles.settingLabel}>Settlement Alerts</span>
               <span className={styles.settingDesc}>Chip Settlement And Transfer Notifications</span>
@@ -1469,7 +1490,7 @@ export default function SettingsPage() {
             subscribed device can turn it back off. The previous version had
             no off switch at all, so a player who enabled push had no way to
             change their mind from inside the app. */}
-          <div className={styles.settingRow}>
+          <div className={`${styles.settingRow} arena-ledger-row`}>
             <div className={styles.settingInfo}>
               <span className={styles.settingLabel}>Push Notifications</span>
               <span className={styles.settingDesc}>
@@ -1485,21 +1506,25 @@ export default function SettingsPage() {
               </span>
             </div>
             {pushEnabled ? (
-              <button
-                className={styles.actionButton}
-                onClick={handleDisablePush}
-                disabled={pushLoading || pushTesting}
-              >
-                {pushLoading ? 'Turning Off...' : 'Turn Off'}
-              </button>
+              <div className={`${styles.rowKeys} arena-switch`}>
+                <button
+                  className={styles.actionButton}
+                  onClick={handleDisablePush}
+                  disabled={pushLoading || pushTesting}
+                >
+                  {pushLoading ? 'Turning Off...' : 'Turn Off'}
+                </button>
+              </div>
             ) : (
-              <button
-                className={styles.actionButton}
-                onClick={handleEnablePush}
-                disabled={pushLoading || !isWebPushSupported()}
-              >
-                {pushLoading ? 'Enabling...' : 'Enable'}
-              </button>
+              <div className={`${styles.rowKeys} arena-switch`}>
+                <button
+                  className={styles.actionButton}
+                  onClick={handleEnablePush}
+                  disabled={pushLoading || !isWebPushSupported()}
+                >
+                  {pushLoading ? 'Enabling...' : 'Enable'}
+                </button>
+              </div>
             )}
           </div>
 
@@ -1508,20 +1533,22 @@ export default function SettingsPage() {
             device that never enrolled, a test that fails would say nothing the
             row above has not already said. */}
           {pushEnabled && (
-            <div className={styles.settingRow}>
+            <div className={`${styles.settingRow} arena-ledger-row`}>
               <div className={styles.settingInfo}>
                 <span className={styles.settingLabel}>Send A Test Notification</span>
                 <span className={styles.settingDesc}>
                   Check That Alerts Actually Reach This Device
                 </span>
               </div>
-              <button
-                className={styles.actionButton}
-                onClick={handleTestPush}
-                disabled={pushTesting || pushLoading}
-              >
-                {pushTesting ? 'Sending...' : 'Send Test'}
-              </button>
+              <div className={`${styles.rowKeys} arena-switch`}>
+                <button
+                  className={styles.actionButton}
+                  onClick={handleTestPush}
+                  disabled={pushTesting || pushLoading}
+                >
+                  {pushTesting ? 'Sending...' : 'Send Test'}
+                </button>
+              </div>
             </div>
           )}
         </section>
@@ -1529,31 +1556,35 @@ export default function SettingsPage() {
         {/* Account */}
         <section
           ref={securityRef}
-          className={styles.section}
+          className={`${styles.section} arena-case arena-ops-case`}
           style={settingsSectionAnimationStyle(6)}
         >
-          <h2>Identity Security</h2>
+          <h2 className="arena-section-title">Identity Security</h2>
 
-          <div className={styles.settingRow}>
+          <div className={`${styles.settingRow} arena-ledger-row`}>
             <div className={styles.settingInfo}>
               <span className={styles.settingLabel}>Email</span>
               <span className={styles.settingDesc}>{userEmail || 'Loading...'}</span>
             </div>
-            <button className={styles.actionButton} onClick={() => setShowEmailModal(true)}>
-              Change
-            </button>
+            <div className={`${styles.rowKeys} arena-switch`}>
+              <button className={styles.actionButton} onClick={() => setShowEmailModal(true)}>
+                Change
+              </button>
+            </div>
           </div>
 
-          <div className={styles.settingRow}>
+          <div className={`${styles.settingRow} arena-ledger-row`}>
             <div className={styles.settingInfo}>
               <span className={styles.settingLabel}>Password</span>
             </div>
-            <button className={styles.actionButton} onClick={() => setShowPasswordModal(true)}>
-              Change
-            </button>
+            <div className={`${styles.rowKeys} arena-switch`}>
+              <button className={styles.actionButton} onClick={() => setShowPasswordModal(true)}>
+                Change
+              </button>
+            </div>
           </div>
 
-          <div className={styles.settingRow}>
+          <div className={`${styles.settingRow} arena-ledger-row`}>
             <div className={styles.settingInfo}>
               <span className={styles.settingLabel}>Two-Factor Authentication</span>
               <span className={styles.settingDesc}>
@@ -1563,50 +1594,59 @@ export default function SettingsPage() {
               </span>
             </div>
             {twoFactorEnabled ? (
-              <button
-                className={styles.dangerButton}
-                onClick={handleDisable2FA}
-                disabled={actionLoading}
-              >
-                {actionLoading ? 'Disabling...' : 'Disable'}
-              </button>
+              <div className={`${styles.rowKeys} arena-switch`}>
+                <button
+                  className={styles.dangerButton}
+                  onClick={handleDisable2FA}
+                  disabled={actionLoading}
+                >
+                  {actionLoading ? 'Disabling...' : 'Disable'}
+                </button>
+              </div>
             ) : (
-              <button
-                className={styles.actionButton}
-                onClick={handleEnable2FA}
-                disabled={actionLoading}
-              >
-                {actionLoading ? 'Setting Up...' : 'Enable'}
-              </button>
+              <div className={`${styles.rowKeys} arena-switch`}>
+                <button
+                  className={styles.actionButton}
+                  onClick={handleEnable2FA}
+                  disabled={actionLoading}
+                >
+                  {actionLoading ? 'Setting Up...' : 'Enable'}
+                </button>
+              </div>
             )}
           </div>
 
           {/* The one door out. It was only in the hamburger; a security
               section without a sign-out control sends a player hunting. */}
-          <div className={styles.settingRow}>
+          <div className={`${styles.settingRow} arena-ledger-row`}>
             <div className={styles.settingInfo}>
               <span className={styles.settingLabel}>Sign Out</span>
               <span className={styles.settingDesc}>End This Session On This Device</span>
             </div>
-            <button
-              type="button"
-              className={styles.actionButtonSecondary}
-              onClick={handleSignOut}
-              disabled={actionLoading}
-            >
-              Sign Out
-            </button>
+            <div className={`${styles.rowKeys} arena-switch`}>
+              <button
+                type="button"
+                className={styles.actionButtonSecondary}
+                onClick={handleSignOut}
+                disabled={actionLoading}
+              >
+                Sign Out
+              </button>
+            </div>
           </div>
         </section>
 
         {/* Danger Zone */}
-        <section ref={dangerRef} className={`${styles.section} ${styles.dangerZone}`}>
-          <h2>Account Data &amp; Closure</h2>
+        <section
+          ref={dangerRef}
+          className={`${styles.section} ${styles.dangerZone} arena-case arena-ops-case`}
+        >
+          <h2 className="arena-section-title">Account Data &amp; Closure</h2>
 
           {/* THE APP: product analytics is opt-in (src/lib/consent.ts). The
               web's analytics are unchanged, so the switch only exists here. */}
           {IS_NATIVE_BUILD && (
-            <div className={styles.settingRow}>
+            <div className={`${styles.settingRow} arena-ledger-row`}>
               <div className={styles.settingInfo}>
                 <span className={styles.settingLabel}>Share Usage Analytics</span>
                 <span className={styles.settingDesc}>
@@ -1624,34 +1664,38 @@ export default function SettingsPage() {
             </div>
           )}
 
-          <div className={styles.settingRow}>
+          <div className={`${styles.settingRow} arena-ledger-row`}>
             <div className={styles.settingInfo}>
               <span className={styles.settingLabel}>Export Data</span>
               <span className={styles.settingDesc}>Download All Your Data And Hand Histories</span>
             </div>
-            <button
-              className={styles.actionButtonSecondary}
-              onClick={handleExportData}
-              disabled={actionLoading}
-            >
-              {actionLoading ? 'Exporting...' : 'Export'}
-            </button>
+            <div className={`${styles.rowKeys} arena-switch`}>
+              <button
+                className={styles.actionButtonSecondary}
+                onClick={handleExportData}
+                disabled={actionLoading}
+              >
+                {actionLoading ? 'Exporting...' : 'Export'}
+              </button>
+            </div>
           </div>
 
-          <div className={styles.settingRow}>
+          <div className={`${styles.settingRow} arena-ledger-row`}>
             <div className={styles.settingInfo}>
               <span className={styles.settingLabel}>Close Account</span>
               <span className={styles.settingDesc}>
                 Permanently Delete Your Account. Settle Every Club Balance First
               </span>
             </div>
-            <button
-              className={styles.dangerButton}
-              onClick={handleDeleteAccount}
-              disabled={actionLoading}
-            >
-              {actionLoading ? 'Working...' : 'Close Account'}
-            </button>
+            <div className={`${styles.rowKeys} arena-switch`}>
+              <button
+                className={styles.dangerButton}
+                onClick={handleDeleteAccount}
+                disabled={actionLoading}
+              >
+                {actionLoading ? 'Working...' : 'Close Account'}
+              </button>
+            </div>
           </div>
         </section>
       </div>

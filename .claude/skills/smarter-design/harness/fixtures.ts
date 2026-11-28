@@ -205,6 +205,29 @@ const rakeSnapshot = {
   generated_at: now,
 };
 export const rpcFixtures: Record<string, unknown> = {
+  /* The player's own profile (Profile page, batch P5). */
+  get_my_full_profile: [
+    {
+      id: ownerId,
+      username: 'KingDan',
+      alias: 'KingDan',
+      display_name: 'Dan',
+      display_name_preference: 'alias',
+      use_real_name: false,
+      player_number: 1001,
+      avatar_url: '',
+      arena_avatar_url: '/avatars/table/free_samurai@2x.webp',
+      use_avatar_as_profile_pic: false,
+      created_at: '2025-10-01T00:00:00Z',
+      diamonds: 1234,
+      is_vip: true,
+      vip_tier: 'lifetime',
+      vip_expires_at: null,
+      login_streak: 6,
+      bio: 'River Rat Since 2019',
+      player_tags: ['Grinder', 'Bluffer'],
+    },
+  ],
   ca_club_operations_overview: overview,
   ca_club_dashboard_stats: {
     total_members: 174,
@@ -646,6 +669,12 @@ export const fixtures = {
       { id: 'x3', amount: 40, clawed_back: false, to_user_id: 'member-03' },
     ],
     player_stats: [{ user_id: 'member-01' }, { user_id: 'member-03' }],
+    /* Connections (Friends page, batch P5): every read of the table answers
+       with these rows, so each also reads as a pending request. */
+    friendships: [
+      { id: 'fr-1', user_id: 'member-02', friend_id: 'member-01', status: 'accepted' },
+      { id: 'fr-2', user_id: 'member-03', friend_id: 'member-04', status: 'accepted' },
+    ],
     profiles: [
       {
         id: ownerId,
@@ -656,9 +685,40 @@ export const fixtures = {
         club_arena_tos_accepted_at: '2026-11-20T00:00:00Z',
         club_arena_tos_revision: '2026-11-16-87a8e57589a09136',
       },
-      /* Credit Admin names its agents from these. */
-      { id: 'member-02', display_name: 'RiverRat', username: 'RiverRat' },
-      { id: 'member-03', display_name: 'Queen Of Hearts Long Name Player', username: 'NutFlush' },
+      /* Connections' players (Friends page, batch P5) and Credit Admin agent
+         names (batch O2), after the owner: a single-row read takes the first row. */
+      {
+        id: 'member-01',
+        username: 'AceHigh',
+        alias: 'AceHigh',
+        display_name: 'AceHigh',
+        display_name_preference: 'alias',
+        avatar_url: null,
+      },
+      {
+        id: 'member-02',
+        username: 'RiverRat',
+        alias: 'RiverRat',
+        display_name: 'RiverRat',
+        display_name_preference: 'alias',
+        avatar_url: null,
+      },
+      {
+        id: 'member-03',
+        username: 'NutFlush',
+        alias: 'NutFlush',
+        display_name: 'Queen Of Hearts Long Name Player',
+        display_name_preference: 'alias',
+        avatar_url: null,
+      },
+      {
+        id: 'member-04',
+        username: 'SetMiner',
+        alias: 'SetMiner',
+        display_name: 'SetMiner',
+        display_name_preference: 'alias',
+        avatar_url: null,
+      },
     ],
   } as Record<string, unknown>,
 };

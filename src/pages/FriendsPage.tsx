@@ -1,7 +1,9 @@
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import CommunitySurfaceHeader from '../components/community/CommunitySurfaceHeader';
+import PageBar from '../components/help/PageBar';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import '../components/ops/ArenaOps.css';
 import ConfirmModal from '../components/common/ConfirmModal';
 import { useToast } from '../components/common/Toast';
 import FriendActivityFeed from '../components/social/FriendActivityFeed';
@@ -573,10 +575,19 @@ export default function FriendsPage() {
   };
 
   return (
-    <main className="friends-page">
-      <CommunitySurfaceHeader
+    <main className="friends-page arena-workspace">
+      {/* #SmarterDesign (Dan 2026-11-27): the chrome mast carries the title and
+          the chrome "?" (the description behind it); the live counts ride
+          under it as chrome readouts with the page's two keys. */}
+      <ArenaWorkspaceHeader
+        area="members"
         title="Your Poker Circle"
-        description="Manage Relationships, Respond To Players, Track Shared Activity, And Launch Friendly Competitions Without Losing The Game."
+        summary="Manage Relationships, Respond To Players, Track Shared Activity, And Launch Friendly Competitions Without Losing The Game."
+      />
+      <PageBar
+        titleAs={false}
+        showHelp={false}
+        title="Your Poker Circle"
         metrics={[
           { label: 'Friends', value: friends.length },
           { label: 'Online', value: onlineCount, tone: 'live' },
@@ -586,31 +597,35 @@ export default function FriendsPage() {
             tone: pendingRequests.length ? 'attention' : 'default',
           },
         ]}
-        actions={
-          <>
-            <button
-              className="friends-hero-action"
-              type="button"
-              onClick={() => navigate('/search?type=players')}
-            >
-              Find Players
-            </button>
-            <button
-              className="friends-hero-action is-primary"
-              type="button"
-              onClick={() => navigate('/messages')}
-            >
-              Open Messenger
-            </button>
-          </>
-        }
-      />
+      >
+        <div className="friends-hero-keys arena-switch">
+          <button
+            className="friends-hero-action"
+            type="button"
+            onClick={() => navigate('/search?type=players')}
+          >
+            Find Players
+          </button>
+          <button
+            className="friends-hero-action is-primary"
+            type="button"
+            onClick={() => navigate('/messages')}
+          >
+            Open Messenger
+          </button>
+        </div>
+      </PageBar>
 
-      <section className="friends-command" aria-labelledby="friends-command-title">
+      <section
+        className="friends-command arena-case arena-ops-case"
+        aria-labelledby="friends-command-title"
+      >
         <div className="friends-command-heading">
           <div>
-            <p>Relationship Command</p>
-            <h2 id="friends-command-title">Connections</h2>
+            <p className="arena-ops-eyebrow">Relationship Command</p>
+            <h2 id="friends-command-title" className="arena-section-title">
+              Connections
+            </h2>
           </div>
           {isRefreshing && (
             <span className="friends-refreshing" role="status">
@@ -619,7 +634,7 @@ export default function FriendsPage() {
           )}
         </div>
 
-        <div className="friends-tab-rail" role="tablist" aria-label="Connection Views">
+        <div className="friends-tab-rail arena-switch" role="tablist" aria-label="Connection Views">
           {FRIEND_TABS.map((tab) => {
             const count =
               tab.id === 'friends'
@@ -656,6 +671,7 @@ export default function FriendsPage() {
               <label htmlFor="friends-search">Filter Your Friends</label>
               <div>
                 <input
+                  className="arena-ops-well"
                   id="friends-search"
                   type="search"
                   value={searchQuery}
@@ -663,15 +679,17 @@ export default function FriendsPage() {
                   placeholder="Search By Player Name"
                 />
                 {filteredFriends.length > 0 && (
-                  <button type="button" onClick={exportFriends}>
-                    Export CSV
-                  </button>
+                  <span className="friends-keys arena-switch">
+                    <button type="button" onClick={exportFriends}>
+                      Export CSV
+                    </button>
+                  </span>
                 )}
               </div>
             </div>
 
             {connectionDiagnostics.unavailableProfiles > 0 && (
-              <div className="friends-integrity-notice" role="status">
+              <div className="friends-integrity-notice arena-ledger-row" role="status">
                 {/* Each branch is a WHOLE phrase. Splitting the word across
                     the ternary ("Relationship" + "s Need") produced a browser
                     -painted fragment starting lower-case, which check-title-case
@@ -693,7 +711,7 @@ export default function FriendsPage() {
             {loading ? (
               <div className="friends-skeleton-list" role="status" aria-label="Loading Friends">
                 {Array.from({ length: 5 }).map((_, index) => (
-                  <div className="friends-skeleton-row" key={index}>
+                  <div className="friends-skeleton-row arena-ledger-row" key={index}>
                     <span />
                     <div>
                       <i />
@@ -711,9 +729,11 @@ export default function FriendsPage() {
                 <span aria-hidden="true">!</span>
                 <h3>{loadError}</h3>
                 <p>Your Connections Are Safe. This Is A Problem Reaching Them, Not Losing Them.</p>
-                <button type="button" onClick={() => void loadFriends()}>
-                  Try Again
-                </button>
+                <div className="friends-keys arena-switch arena-ops-primary">
+                  <button type="button" onClick={() => void loadFriends()}>
+                    Try Again
+                  </button>
+                </div>
               </div>
             ) : filteredFriends.length === 0 ? (
               <div className="friends-empty">
@@ -724,9 +744,11 @@ export default function FriendsPage() {
                     ? 'Clear The Filter Or Search The Wider Community.'
                     : 'Find Players You Trust, Then Message, Challenge, And Follow Their Activity Here.'}
                 </p>
-                <button type="button" onClick={() => navigate('/search?type=players')}>
-                  Find Players
-                </button>
+                <div className="friends-keys arena-switch arena-ops-primary">
+                  <button type="button" onClick={() => navigate('/search?type=players')}>
+                    Find Players
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="friends-groups">
@@ -761,16 +783,21 @@ export default function FriendsPage() {
                     <span aria-live="polite">
                       Showing {visibleFriends.length} Of {filteredFriends.length} Friends
                     </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setVisibleFriendCount((current) => current + FRIENDS_PAGE_SIZE)
-                      }
-                    >
-                      Load{' '}
-                      {Math.min(FRIENDS_PAGE_SIZE, filteredFriends.length - visibleFriends.length)}{' '}
-                      More
-                    </button>
+                    <span className="friends-keys arena-switch">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setVisibleFriendCount((current) => current + FRIENDS_PAGE_SIZE)
+                        }
+                      >
+                        Load{' '}
+                        {Math.min(
+                          FRIENDS_PAGE_SIZE,
+                          filteredFriends.length - visibleFriends.length
+                        )}{' '}
+                        More
+                      </button>
+                    </span>
                   </div>
                 )}
               </div>
@@ -790,14 +817,16 @@ export default function FriendsPage() {
                 <span aria-hidden="true">⌁</span>
                 <h3>No Pending Requests</h3>
                 <p>Incoming Connection Requests Will Appear Here With Clear Review Controls.</p>
-                <button type="button" onClick={() => navigate('/search?type=players')}>
-                  Discover Players
-                </button>
+                <div className="friends-keys arena-switch arena-ops-primary">
+                  <button type="button" onClick={() => navigate('/search?type=players')}>
+                    Discover Players
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="friends-request-list">
                 {requestsWithStatus.map((request) => (
-                  <article className="friends-request-row" key={request.id}>
+                  <article className="friends-request-row arena-ledger-row" key={request.id}>
                     <button
                       className="friends-request-profile"
                       type="button"
@@ -812,7 +841,7 @@ export default function FriendsPage() {
                         <small>Wants To Connect</small>
                       </span>
                     </button>
-                    <div className="friends-request-actions">
+                    <div className="friends-request-actions arena-switch">
                       <button
                         className="is-accept"
                         type="button"
@@ -841,12 +870,14 @@ export default function FriendsPage() {
           >
             <div className="friends-panel-intro">
               <div>
-                <p>Network Pulse</p>
-                <h3>Activity & Discovery</h3>
+                <p className="arena-ops-eyebrow">Network Pulse</p>
+                <h3 className="arena-section-title">Activity & Discovery</h3>
               </div>
-              <button type="button" onClick={() => navigate('/search?type=players')}>
-                Search All Players
-              </button>
+              <div className="friends-keys arena-switch arena-ops-primary">
+                <button type="button" onClick={() => navigate('/search?type=players')}>
+                  Search All Players
+                </button>
+              </div>
             </div>
             <FriendActivityFeed friends={friends} />
             <FriendSuggestions />
@@ -919,13 +950,16 @@ function FriendGroup({
       className="friend-group"
       aria-labelledby={`friend-group-${label.replace(/\s/g, '-').toLowerCase()}`}
     >
-      <h3 id={`friend-group-${label.replace(/\s/g, '-').toLowerCase()}`}>
+      <h3
+        id={`friend-group-${label.replace(/\s/g, '-').toLowerCase()}`}
+        className="arena-section-title"
+      >
         {label}
         <span>{totalCount}</span>
       </h3>
       <div className="friend-group-list">
         {friends.map((friend) => (
-          <article className="friend-row" key={friend.id}>
+          <article className="friend-row arena-ledger-row" key={friend.id}>
             <button
               className="friend-profile"
               type="button"
@@ -945,7 +979,7 @@ function FriendGroup({
               </span>
             </button>
             <div
-              className={`friend-actions ${friend.profile_available ? '' : 'is-unavailable'}`}
+              className={`friend-actions arena-switch ${friend.profile_available ? '' : 'is-unavailable'}`}
               aria-label={`Actions For ${friend.username}`}
             >
               {friend.profile_available && (

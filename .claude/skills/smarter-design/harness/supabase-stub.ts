@@ -109,7 +109,7 @@ export async function requestAccessToken() {
   return 'h';
 }
 export async function getAuthUser() {
-  return user;
+  return { data: { user }, error: null };
 }
 export type SupabaseClient = typeof supabase;
 export default supabase;

@@ -1,371 +1,298 @@
-.friends-page {
-  width: min(1180px, calc(100% - 32px));
+/* ═══════════════════════════════════════════════════════════════════════════
+   CONNECTIONS (Friends) in #SmarterDesign (Dan 2026-11-27)
+
+   The page wears the arena workspace (src/components/lobby/ArenaWorkspace.css
+   and src/components/ops/ArenaOps.css): the chrome mast, the live counts on
+   chrome readout tiles with Find Players and the lit Open Messenger, the
+   Connections command a thin chrome case under a section title, its four
+   views one chrome switch lit by the selected tab, the filter a dark well,
+   every friend and request a chrome ledger row with its own chrome keys
+   (Message and Accept lit, Remove in error ink), and the empty and failed
+   states in a dark well with their key lit. This sheet lays those pieces out
+   and dresses their insides with the workspace's own inks; it draws no frame.
+   The portraits keep their round frame and size.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.friends-page.arena-workspace {
+  width: min(1180px, 100%);
   min-width: 0;
+  box-sizing: border-box;
   margin: 0 auto;
-  padding: 26px 0 80px;
-  color: #edf5fa;
+  padding-bottom: 80px;
 }
 
-.friends-hero-action {
-  min-height: 42px;
-  padding: 0 15px;
-  border: 1px solid #43535e;
-  border-radius: 3px;
-  color: #c7d5de;
-  background: #0b1116;
-  font:
-    700 0.68rem/1 Inter,
-    sans-serif;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
+/* ── The live counts and keys under the mast ───────────────────────── */
+/* One even row of chrome meters, then the two keys across the width, as
+   under every Club Operations mast. */
+.friends-page.arena-workspace > .ca-page-bar {
+  display: block;
+  width: 100%;
 }
 
-.friends-hero-action.is-primary {
-  border-color: #337cad;
-  color: #d8efff;
-  background: linear-gradient(135deg, #0b2435, #0b1821);
-  box-shadow:
-    inset 0 1px 0 rgba(155, 215, 255, 0.13),
-    0 0 16px rgba(58, 168, 255, 0.08);
-}
-
-.friends-command {
-  margin-top: 18px;
-  overflow: hidden;
-  border: 1px solid #26333d;
-  border-radius: 5px;
-  background: #080d12;
-  box-shadow: inset 0 1px 0 rgba(215, 231, 243, 0.08);
-}
-
-.friends-command-heading,
-.friends-panel-intro {
+.friends-page.arena-workspace .ca-page-bar__live {
   display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: 100%;
+}
+
+.friends-page.arena-workspace .ca-page-bar__metrics {
+  display: grid;
+  flex: 1 1 100%;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  min-width: 0;
+  margin: 7px 0 0;
+}
+
+.friends-page.arena-workspace .ca-page-bar__metric {
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.friends-command-heading {
-  padding: 22px 24px 15px;
-}
-
-.friends-command-heading p,
-.friends-panel-intro p {
-  margin: 0 0 5px;
-  color: #5daeff;
-  font:
-    700 0.64rem/1 Inter,
-    sans-serif;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.friends-command-heading h2,
-.friends-panel-intro h3,
-.friend-group h3,
-.friends-empty h3 {
   margin: 0;
-  color: #eef5fa;
-  font-family: Rajdhani, Inter, sans-serif;
-  text-transform: uppercase;
 }
 
-.friends-command-heading h2 {
-  font-size: clamp(1.35rem, 2vw, 1.85rem);
-  letter-spacing: 0.025em;
+.friends-page.arena-workspace .ca-page-bar__metric dt {
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #9fbacc;
 }
 
-.friends-refreshing {
+.friends-page.arena-workspace .ca-page-bar__metric[data-tone='attention'] dd {
+  color: #ffe98a;
+}
+
+.friends-page.arena-workspace .friends-hero-keys {
+  min-width: 0;
+}
+
+.friends-page.arena-workspace .friends-hero-action {
+  cursor: pointer;
+}
+
+.friends-page.arena-workspace .friends-hero-keys > .friends-hero-action.is-primary,
+.friends-page.arena-workspace .friend-actions > button.is-primary,
+.friends-page.arena-workspace .friends-request-actions > button.is-accept {
+  color: white;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
+}
+
+.friends-page.arena-workspace .friends-hero-keys > .friends-hero-action.is-primary::after,
+.friends-page.arena-workspace .friend-actions > button.is-primary::after,
+.friends-page.arena-workspace .friends-request-actions > button.is-accept::after {
+  border-image-source: var(--arena-active);
+}
+
+.friends-page.arena-workspace .friend-actions > button.is-danger {
+  color: #ff5b6e;
+}
+
+/* ── The Connections case ────────────────────────────────────────────── */
+.friends-page.arena-workspace .friends-command {
+  margin-top: 7px;
+}
+
+.friends-page.arena-workspace .friends-command-heading,
+.friends-page.arena-workspace .friends-panel-intro {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.friends-page.arena-workspace .friends-command-heading > div,
+.friends-page.arena-workspace .friends-panel-intro > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.friends-page.arena-workspace .friends-command-heading h2,
+.friends-page.arena-workspace .friends-panel-intro h3 {
+  margin: 3px 0 0;
+}
+
+.friends-page.arena-workspace .friends-refreshing {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  color: #73c2ff;
+  gap: 6px;
+  color: #74dfff;
   font:
-    700 0.62rem/1 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
 }
 
-.friends-refreshing::before {
+.friends-page.arena-workspace .friends-refreshing::before {
   content: '';
   width: 6px;
   height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  box-shadow: 0 0 11px currentColor;
+  background: #74dfff;
 }
 
-.friends-tab-rail {
-  display: flex;
-  min-width: 0;
-  overflow-x: auto;
-  padding: 0 24px;
-  border-top: 1px solid #1b252d;
-  border-bottom: 1px solid #26333d;
-  scrollbar-width: none;
+/* The four views: a chrome switch, lit by aria-selected. */
+.friends-page.arena-workspace .friends-tab-rail {
+  margin: 0;
 }
 
-.friends-tab-rail::-webkit-scrollbar {
-  display: none;
-}
-
-.friends-tab-rail button {
-  position: relative;
-  flex: 0 0 auto;
-  min-height: 50px;
+.friends-page.arena-workspace .friends-tab-rail button {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.friends-page.arena-workspace .friends-tab-rail button span {
+  min-width: 20px;
+  padding: 2px 5px;
+  box-sizing: border-box;
+  background: #040d17;
+  border: 1px solid #476079;
+  color: #74dfff;
+  font:
+    800 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.friends-page.arena-workspace .friends-tabpanel {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  padding: 0 18px;
-  border: 0;
-  color: #81919c;
-  background: transparent;
-  font:
-    700 0.72rem/1 Inter,
-    sans-serif;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-
-.friends-tab-rail button::after {
-  content: '';
-  position: absolute;
-  right: 18px;
-  bottom: 0;
-  left: 18px;
-  height: 2px;
-  background: transparent;
-}
-
-.friends-tab-rail button.is-active {
-  color: #e2f3ff;
-}
-
-.friends-tab-rail button.is-active::after {
-  background: #3aa8ff;
-  box-shadow: 0 0 12px rgba(58, 168, 255, 0.72);
-}
-
-.friends-tab-rail button span {
-  min-width: 22px;
-  padding: 4px 6px;
-  border: 1px solid #344650;
-  border-radius: 2px;
-  color: #aabac4;
-  background: #0e151b;
-  font:
-    700 0.6rem/1 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
-  text-align: center;
-}
-
-/* NOT `.friends-panel` (2026-09-05). That name is claimed by
-   src/styles/metallic-popups.css, which is imported globally and paints every
-   name in its inventory as a floating dialog with `!important`: 16px radius, a
-   2px bright top border, an inset blue rail and a `0 34px 80px` drop shadow.
-   These are the page's four inline tab panels, so the friends list rendered as
-   a 1114 x 3835 pixel "popup" nested inside a panel that already had its own
-   border. The inventory entry is correct for the FriendsList drawer it was
-   written for; this page simply must not answer to that name. */
-.friends-tabpanel {
   min-width: 0;
-  min-height: 320px;
-  padding: 24px;
 }
 
-.friends-toolbar {
-  padding: 16px;
-  border: 1px solid #2a3943;
-  border-left: 2px solid #3aa8ff;
-  border-radius: 3px;
-  background: #05090d;
+/* ── The filter: a dark well ─────────────────────────────────────────── */
+.friends-page.arena-workspace .friends-toolbar {
+  display: grid;
+  gap: 6px;
 }
 
-.friends-toolbar > label {
-  display: block;
-  margin-bottom: 8px;
-  color: #81919c;
+.friends-page.arena-workspace .friends-toolbar > label {
+  color: #9fbacc;
   font:
-    600 0.67rem/1 Inter,
+    700 11px/1.2 'Arial Narrow',
+    Arial,
     sans-serif;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
-.friends-toolbar > div {
+.friends-page.arena-workspace .friends-toolbar > div {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-}
-
-.friends-toolbar input {
-  min-width: 0;
-  min-height: 46px;
-  padding: 0 14px;
-  border: 1px solid #34444f;
-  border-radius: 3px;
-  outline: 0;
-  color: #f0f7fb;
-  background: #0a1015;
-  font:
-    500 0.92rem/1 Inter,
-    sans-serif;
-}
-
-.friends-toolbar input:focus {
-  border-color: #5ab6f9;
-  box-shadow: 0 0 0 2px rgba(58, 168, 255, 0.13);
-}
-
-.friends-toolbar input::placeholder {
-  color: #657580;
-}
-
-.friends-toolbar button,
-.friends-empty button,
-.friends-panel-intro button,
-.friend-actions button,
-.friends-request-actions button {
-  min-height: 42px;
-  padding: 0 14px;
-  border: 1px solid #40515d;
-  border-radius: 3px;
-  color: #c7d7e1;
-  background: #0c1319;
-  font:
-    700 0.68rem/1 Inter,
-    sans-serif;
-  letter-spacing: 0.045em;
-  text-transform: uppercase;
-}
-
-.friends-integrity-notice {
-  display: grid;
-  gap: 5px;
-  margin-top: 12px;
-  padding: 12px 14px;
-  border: 1px solid rgba(255, 169, 77, 0.34);
-  border-left: 2px solid #f2a14e;
-  border-radius: 3px;
-  color: #aebbc4;
-  background: linear-gradient(100deg, rgba(42, 28, 15, 0.72), rgba(10, 12, 14, 0.94));
-  font-size: 0.76rem;
-  line-height: 1.45;
-}
-
-.friends-integrity-notice strong {
-  color: #ffd0a0;
-  font:
-    700 0.72rem/1.25 Inter,
-    sans-serif;
-  letter-spacing: 0.055em;
-  text-transform: uppercase;
-}
-
-.friends-groups {
-  display: grid;
-  gap: 25px;
-  margin-top: 24px;
-}
-
-.friend-group h3 {
-  display: flex;
   align-items: center;
-  gap: 9px;
-  margin-bottom: 9px;
-  padding-left: 2px;
-  color: #aebec8;
-  font-size: 0.82rem;
-  letter-spacing: 0.12em;
+  gap: 6px;
 }
 
-.friend-group h3 span {
-  color: #5aaee8;
-  font:
-    700 0.68rem/1 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
+.friends-page.arena-workspace .friends-toolbar input.arena-ops-well {
+  color-scheme: dark;
+  font-size: 16px;
 }
 
-.friend-group-list,
-.friends-request-list {
+.friends-page.arena-workspace .friends-toolbar input::placeholder {
+  color: #6f8597;
+}
+
+.friends-page.arena-workspace .friends-keys {
+  margin: 0;
+}
+
+.friends-page.arena-workspace .friends-keys > button {
+  min-width: 112px;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+
+/* ── Integrity notice: a chrome row in the pending ink ───────────────── */
+.friends-page.arena-workspace .friends-integrity-notice {
   display: grid;
-  gap: 7px;
+  gap: 4px;
+  padding: 8px 12px;
 }
 
-.friends-load-more {
-  min-height: 62px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 10px 12px 10px 16px;
-  border: 1px solid #2b3b46;
-  border-left: 2px solid #3aa8ff;
-  border-radius: 3px;
-  color: #8397a4;
-  background: linear-gradient(100deg, #071018, #060a0e);
+.friends-page.arena-workspace .friends-integrity-notice strong {
+  color: #ffe98a;
   font:
-    600 0.72rem/1.35 Inter,
+    700 13px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
     sans-serif;
-  letter-spacing: 0.035em;
 }
 
-.friends-load-more button {
-  min-height: 42px;
-  flex: 0 0 auto;
-  padding: 0 16px;
-  border: 1px solid #2f729f;
-  border-radius: 3px;
-  color: #d2efff;
-  background: #082033;
+.friends-page.arena-workspace .friends-integrity-notice span {
+  color: #9fbacc;
   font:
-    700 0.67rem/1 Inter,
+    12px/1.4 Arial,
     sans-serif;
-  letter-spacing: 0.055em;
-  text-transform: uppercase;
 }
 
-.friend-row,
-.friends-request-row {
+/* ── Friend groups and rows ──────────────────────────────────────────── */
+.friends-page.arena-workspace .friends-groups {
+  display: grid;
+  gap: 12px;
+}
+
+.friends-page.arena-workspace .friend-group {
+  display: grid;
+  gap: 6px;
+}
+
+.friends-page.arena-workspace .friend-group h3 {
+  margin: 0;
+}
+
+.friends-page.arena-workspace .friend-group h3 span {
+  color: #9fbacc;
+  font:
+    11px/1.2 Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.friends-page.arena-workspace .friend-group-list,
+.friends-page.arena-workspace .friends-request-list {
+  display: grid;
+  gap: 4px;
+}
+
+.friends-page.arena-workspace .friend-row,
+.friends-page.arena-workspace .friends-request-row {
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  border: 1px solid #25323b;
-  border-radius: 3px;
-  background: linear-gradient(100deg, #090f14, #070b0f);
-  box-shadow: inset 0 1px 0 rgba(223, 239, 250, 0.035);
 }
 
-.friend-profile,
-.friends-request-profile {
+.friends-page.arena-workspace .friend-profile,
+.friends-page.arena-workspace .friends-request-profile {
   min-width: 0;
-  min-height: 78px;
+  min-height: 72px;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 11px 14px;
+  gap: 12px;
+  padding: 8px 12px;
   border: 0;
   color: inherit;
   background: transparent;
   text-align: left;
+  cursor: pointer;
 }
 
-.friend-profile:disabled,
-.friends-request-profile:disabled {
+.friends-page.arena-workspace .friend-profile:disabled,
+.friends-page.arena-workspace .friends-request-profile:disabled {
   cursor: default;
   opacity: 0.78;
 }
 
-.friend-avatar {
+.friends-page.arena-workspace .friend-profile:focus-visible,
+.friends-page.arena-workspace .friends-request-profile:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: -2px;
+}
+
+.friends-page.arena-workspace .friend-avatar {
   position: relative;
   flex: 0 0 auto;
   width: 50px;
@@ -401,14 +328,14 @@
    identical to `cover` (nothing to letterbox), and for a wide one it prefers a
    gap over slicing a face. SeatSlot keeps its own `cover`/`50% 100%`: at a
    seat the bust is meant to fill the frame and sit low. */
-.friend-avatar img {
+.friends-page.arena-workspace .friend-avatar img {
   width: 100%;
   height: 100%;
   border-radius: inherit;
   object-fit: contain;
 }
 
-.friend-avatar i {
+.friends-page.arena-workspace .friend-avatar i {
   position: absolute;
   right: -1px;
   bottom: 2px;
@@ -420,113 +347,104 @@
   box-shadow: 0 0 10px rgba(53, 212, 138, 0.72);
 }
 
-.friend-copy,
-.friends-request-profile > span:last-child {
+.friends-page.arena-workspace .friend-copy,
+.friends-page.arena-workspace .friends-request-profile > span:last-child {
   min-width: 0;
   display: grid;
-  gap: 5px;
+  gap: 4px;
 }
 
-.friend-copy strong,
-.friend-copy small,
-.friends-request-profile strong,
-.friends-request-profile small {
+.friends-page.arena-workspace .friend-copy strong,
+.friends-page.arena-workspace .friend-copy small,
+.friends-page.arena-workspace .friends-request-profile strong,
+.friends-page.arena-workspace .friends-request-profile small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.friend-copy strong,
-.friends-request-profile strong {
-  color: #eef5f9;
+.friends-page.arena-workspace .friend-copy strong,
+.friends-page.arena-workspace .friends-request-profile strong {
+  color: #f1f5fc;
   font:
-    700 0.94rem/1.15 Inter,
+    700 14px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
     sans-serif;
 }
 
-.friend-copy small,
-.friends-request-profile small {
-  color: #778893;
+.friends-page.arena-workspace .friend-copy small,
+.friends-page.arena-workspace .friends-request-profile small {
+  color: #9fbacc;
   font:
-    500 0.72rem/1.2 Inter,
+    12px/1.3 Arial,
     sans-serif;
 }
 
-.friend-row:has(.friend-avatar i) .friend-copy small {
-  color: #61dca1;
+.friends-page.arena-workspace .friend-row:has(.friend-avatar i) .friend-copy small {
+  color: #74dfff;
 }
 
-.friend-actions,
-.friends-request-actions {
-  display: flex;
-  gap: 6px;
-  padding: 0 14px 0 6px;
+/* A row's keys: a chrome switch beside the player. */
+.friends-page.arena-workspace .friend-actions,
+.friends-page.arena-workspace .friends-request-actions {
+  margin: 0;
+  padding: 0 10px 0 4px;
 }
 
-.friend-actions button.is-primary,
-.friends-request-actions button.is-accept {
-  border-color: #2f729f;
-  color: #c8e9ff;
-  background: #081d2b;
+.friends-page.arena-workspace .friend-actions > button,
+.friends-page.arena-workspace .friends-request-actions > button {
+  min-width: 92px;
+  padding: 6px 12px;
+  cursor: pointer;
 }
 
-.friend-actions button.is-danger {
-  border-color: rgb(255 71 87 / 55%);
-  color: #e997a2;
-  background: #11090b;
-}
-
-.friend-actions.is-unavailable {
+.friends-page.arena-workspace .friend-actions.is-unavailable {
   justify-content: flex-end;
 }
 
-.friends-request-actions button:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
+.friends-page.arena-workspace .friends-request-actions > button:disabled {
+  cursor: default;
 }
 
-.friends-skeleton-list {
+/* ── Loading: chrome rows that scan ──────────────────────────────────── */
+.friends-page.arena-workspace .friends-skeleton-list {
   display: grid;
-  gap: 7px;
-  margin-top: 24px;
+  gap: 4px;
 }
 
-.friends-skeleton-row {
-  min-height: 78px;
+.friends-page.arena-workspace .friends-skeleton-row {
+  min-height: 72px;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 12px 14px;
-  border: 1px solid #1e2a32;
-  border-radius: 3px;
-  background: #060a0e;
+  gap: 12px;
+  padding: 8px 12px;
 }
 
-.friends-skeleton-row > span {
+.friends-page.arena-workspace .friends-skeleton-row > span {
   width: 48px;
   height: 48px;
-  border: 1px solid #263640;
+  border: 1px solid #476079;
   border-radius: 50%;
-  background: #111820;
+  background: #040d17;
 }
 
-.friends-skeleton-row div {
+.friends-page.arena-workspace .friends-skeleton-row div {
   flex: 1;
   display: grid;
   gap: 8px;
 }
 
-.friends-skeleton-row i {
+.friends-page.arena-workspace .friends-skeleton-row i {
   display: block;
   width: min(240px, 45%);
   height: 9px;
-  border-radius: 2px;
-  background: linear-gradient(90deg, #111820, #1a2730, #111820);
+  background: linear-gradient(90deg, #12263a, #1e3853, #12263a);
   background-size: 220% 100%;
   animation: friends-scan 1.4s linear infinite;
 }
 
-.friends-skeleton-row i + i {
+.friends-page.arena-workspace .friends-skeleton-row i + i {
   width: min(140px, 28%);
   height: 7px;
 }
@@ -537,203 +455,126 @@
   }
 }
 
-.friends-empty {
-  min-height: 270px;
+/* ── Empty and failed: a dark well with the page's own words ────────── */
+.friends-page.arena-workspace .friends-empty {
   display: grid;
-  place-content: center;
   justify-items: center;
-  margin-top: 20px;
-  padding: 28px;
-  border: 1px dashed #2b3943;
-  border-radius: 3px;
-  color: #82939e;
+  gap: 8px;
+  padding: 24px 16px;
+  border: 1px solid #253e57;
+  background: #040d17;
+  color: #9fbacc;
   text-align: center;
 }
 
-.friends-empty > span {
-  color: #4f7187;
-  font-size: 2rem;
+.friends-page.arena-workspace .friends-empty > span {
+  color: #74dfff;
+  font-size: 1.6rem;
 }
 
-.friends-empty h3 {
-  margin-top: 11px;
-  font-size: 1.3rem;
+.friends-page.arena-workspace .friends-empty[role='alert'] > span,
+.friends-page.arena-workspace .friends-empty[role='alert'] h3 {
+  color: #ff5b6e;
 }
 
-.friends-empty p {
-  max-width: 480px;
-  margin: 7px 0 18px;
-  font-size: 0.84rem;
-  line-height: 1.55;
+.friends-page.arena-workspace .friends-empty h3 {
+  margin: 0;
+  color: #f1f5fc;
+  font:
+    800 20px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
 }
 
-.friends-empty button,
-.friends-panel-intro button {
-  border-color: #2f729f;
-  color: #c9eaff;
-  background: #081d2b;
+.friends-page.arena-workspace .friends-empty p {
+  max-width: 34rem;
+  margin: 0;
+  font:
+    13px/1.5 Arial,
+    sans-serif;
 }
 
-.friends-request-list {
-  margin-top: 0;
+.friends-page.arena-workspace .friends-empty .friends-keys {
+  min-width: 200px;
+  margin-top: 4px;
 }
 
-.friends-panel-intro {
-  padding: 14px 16px;
-  border: 1px solid #2a3943;
-  border-left: 2px solid #3aa8ff;
-  border-radius: 3px;
-  background: #05090d;
+/* ── Load more ───────────────────────────────────────────────────────── */
+.friends-page.arena-workspace .friends-load-more {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #9fbacc;
+  font:
+    12px/1.3 Arial,
+    sans-serif;
 }
 
-.friends-panel-intro h3 {
-  font-size: 1.15rem;
-  letter-spacing: 0.04em;
+.friends-page.arena-workspace .friends-activity {
+  gap: 12px;
 }
 
-.friends-activity {
-  display: grid;
-  gap: 22px;
-}
-
-.friends-page button:focus-visible,
-.friends-page input:focus-visible {
-  outline: 2px solid #7bc7ff;
+.friends-page.arena-workspace input:focus-visible {
+  outline: 2px solid #9ae5ff;
   outline-offset: 2px;
 }
 
-.friends-page button:active {
-  transform: translateY(1px);
-}
-
 @media (max-width: 820px) {
-  .friend-row,
-  .friends-request-row {
+  .friends-page.arena-workspace .friend-row,
+  .friends-page.arena-workspace .friends-request-row {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .friend-actions,
-  .friends-request-actions {
-    justify-content: flex-end;
-    padding: 0 12px 12px 76px;
-  }
-}
-
-@media (max-width: 760px) {
-  .friends-page {
-    width: min(100%, 680px);
-    padding-top: 0;
+  .friends-page.arena-workspace .friend-actions,
+  .friends-page.arena-workspace .friends-request-actions {
+    padding: 0 10px 10px;
   }
 
-  .friends-command {
-    margin-top: 10px;
-    border-right: 0;
-    border-left: 0;
-    border-radius: 0;
-  }
-
-  .friends-command-heading,
-  .friends-tabpanel {
-    padding-right: 16px;
-    padding-left: 16px;
-  }
-
-  .friends-tab-rail {
-    padding: 0 8px;
-  }
-
-  .friends-tab-rail button {
-    padding: 0 13px;
+  .friends-page.arena-workspace .friend-actions > button,
+  .friends-page.arena-workspace .friends-request-actions > button {
+    min-width: 0;
   }
 }
 
 @media (max-width: 500px) {
-  .friends-tab-rail {
+  .friends-page.arena-workspace .friends-tab-rail {
     overflow-x: clip;
   }
 
-  .friends-tab-rail button {
+  .friends-page.arena-workspace .friends-tab-rail button {
     flex: 1 1 0;
     min-width: 0;
-    justify-content: center;
-    gap: 4px;
-    padding: 0 5px;
-    font-size: clamp(0.5rem, 2.5vw, 0.63rem);
-    letter-spacing: 0.03em;
+    gap: 3px;
+    padding: 6px 6px;
+    font-size: 11px;
   }
 
-  .friends-tab-rail button span {
-    min-width: 18px;
-    padding: 3px 4px;
+  .friends-page.arena-workspace .friends-tab-rail button span {
+    min-width: 15px;
+    padding: 1px 2px;
+    font-size: 10px;
   }
 
-  .friends-tabpanel {
-    padding: 14px 12px 22px;
-  }
-
-  .friends-toolbar {
-    padding: 12px;
-  }
-
-  .friends-toolbar > div {
+  .friends-page.arena-workspace .friends-toolbar > div {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .friends-toolbar input,
-  .friends-toolbar button {
-    min-height: 46px;
-  }
-
-  .friend-profile,
-  .friends-request-profile {
-    min-height: 72px;
-    gap: 11px;
-    padding: 10px 11px;
-  }
-
-  .friend-avatar {
+  .friends-page.arena-workspace .friend-avatar {
     width: 46px;
     height: 46px;
   }
 
-  .friend-actions,
-  .friends-request-actions {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    padding: 0 10px 10px;
-  }
-
-  .friends-request-actions {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .friends-load-more {
+  .friends-page.arena-workspace .friends-load-more,
+  .friends-page.arena-workspace .friends-panel-intro {
     align-items: stretch;
     flex-direction: column;
-    padding: 13px;
     text-align: center;
-  }
-
-  .friend-actions button,
-  .friends-request-actions button {
-    min-width: 0;
-    min-height: 44px;
-    padding: 0 7px;
-    font-size: 0.61rem;
-  }
-
-  .friends-panel-intro {
-    align-items: flex-start;
-    flex-direction: column;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .friends-skeleton-row i {
+  .friends-page.arena-workspace .friends-skeleton-row i {
     animation: none;
-  }
-
-  .friends-page button:active {
-    transform: none;
   }
 }
