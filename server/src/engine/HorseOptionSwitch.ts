@@ -1223,7 +1223,7 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
   holdemTurnFacingBetAfterCheckedFlopIsPeoplePriced: [
     HOLDEM,
     "NLH cash (table and Lightning), heads-up, flop checked through, facing the turn's first bet and that bettor's river bet after the call",
-    "a fold becomes a call when the call is worth more than the fold with the river played to a plan on his own stabs and river bets, then people's; the plan's river calls are made",
+    "a fold becomes a call when it beats the fold with the river played to a plan on his own stabs and river bets, then people's; the plan's river calls are made",
   ],
   holdemTurnBluffIsPricedOnPeople: [
     HOLDEM,
