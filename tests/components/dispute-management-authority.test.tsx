@@ -63,6 +63,24 @@ vi.mock('../../src/components/console/SpadeConsole', () => ({
     </section>
   ),
 }));
+// #SmarterDesign (2026-11-27): the docket prints through ClubPageSection's arena
+// case; the same stand-in keeps this test about authority, not the chrome.
+vi.mock('../../src/components/club/ClubPageSection', () => ({
+  ClubPageSection: ({
+    title,
+    titleId,
+    children,
+  }: {
+    title: string;
+    titleId?: string;
+    children: ReactNode;
+  }) => (
+    <section>
+      <h2 id={titleId}>{title}</h2>
+      {children}
+    </section>
+  ),
+}));
 
 vi.mock('../../src/core/MasterBus', () => ({
   masterBus: {
