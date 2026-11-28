@@ -8,7 +8,7 @@
  * Broadcast to all players via RoomService.
  */
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useCallback, useRef } from 'react';
 import { roomService } from '../../services/RoomService';
 import { haptic } from '../../services/SoundService';
 import type { ReactionEvent } from '../../hooks/useTableChat';

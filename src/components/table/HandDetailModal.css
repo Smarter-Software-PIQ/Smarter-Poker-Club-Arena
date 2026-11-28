@@ -446,15 +446,15 @@
   background: transparent !important;
   background-image: none !important;
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%) !important;
-  color: #ffd700;
-  -webkit-text-fill-color: #ffd700;
+  color: #86daff;
+  -webkit-text-fill-color: #86daff;
   font-family: inherit;
   font-size: 3.1cqw;
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   text-shadow:
-    0 0 1cqw rgb(255 215 0 / 70%),
+    0 0 1cqw rgb(134 218 255 / 70%),
     0 0.25cqw 0 rgb(0 0 0 / 70%);
   cursor: pointer;
   touch-action: manipulation;
@@ -550,10 +550,10 @@
 }
 
 .hdm-tag--private {
-  color: #ffd700;
-  -webkit-text-fill-color: #ffd700;
+  color: #86daff;
+  -webkit-text-fill-color: #86daff;
   text-shadow:
-    0 0 1cqw rgb(255 215 0 / 70%),
+    0 0 1cqw rgb(134 218 255 / 70%),
     0 0.25cqw 0 rgb(0 0 0 / 70%);
 }
 
@@ -572,11 +572,11 @@
 }
 
 .hdm-plays {
-  filter: drop-shadow(0 0 0.7cqw rgb(255 215 0 / 45%));
+  filter: drop-shadow(0 0 0.7cqw rgb(134 218 255 / 45%));
 }
 
 .hdm-sd__cards .card-image.hdm-private {
-  outline: 1px solid rgb(255 215 0 / 45%);
+  outline: 1px solid rgb(134 218 255 / 45%);
   outline-offset: 1px;
 }
 
@@ -591,10 +591,10 @@
 }
 
 .hdm-sd.is-winner .hdm-sd__handname {
-  color: #ffd700;
-  -webkit-text-fill-color: #ffd700;
+  color: #86daff;
+  -webkit-text-fill-color: #86daff;
   text-shadow:
-    0 0 1cqw rgb(255 215 0 / 70%),
+    0 0 1cqw rgb(134 218 255 / 70%),
     0 0.25cqw 0 rgb(0 0 0 / 70%);
 }
 
@@ -729,10 +729,10 @@
 }
 
 .hdm-rake-share__row.is-primary strong {
-  color: #ffd700;
-  -webkit-text-fill-color: #ffd700;
+  color: #86daff;
+  -webkit-text-fill-color: #86daff;
   text-shadow:
-    0 0 1cqw rgb(255 215 0 / 70%),
+    0 0 1cqw rgb(134 218 255 / 70%),
     0 0.25cqw 0 rgb(0 0 0 / 70%);
 }
 
@@ -1251,4 +1251,53 @@
 [role='dialog'] .hdm-panel .hdm-actions > button.hdm-actions__analyze:focus-visible {
   outline: 2px solid #56d8ff;
   outline-offset: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   #SMARTERDESIGN follow-up (2026-11-27). On the table this sheet is a
+   #SmarterDesign console (ConsoleSkinProvider). The sheet is full screen and
+   the table's tab strip stands over its top edge, so the head started under
+   it and "Hand Detail" was cut off: the console now starts below the strip.
+   The lone Close is a chrome key in Title Case, and the winning hand, the
+   private tag, the primary rake share and the playing-card glow print ice
+   blue (they were gold; Dan 2026-10-17: yellow is not a schema colour).
+   ═══════════════════════════════════════════════════════════════════════════ */
+.hdm-console.sc--sd {
+  margin-top: var(--sp-tabbar-h, 0px);
+}
+.hdm-console.sc--sd .hdm-empty {
+  padding: 18px 4px;
+  border-top: 0;
+  box-shadow: none;
+  color: #d7e3f0;
+  -webkit-text-fill-color: #d7e3f0;
+  font:
+    500 14px/1.45 Inter,
+    system-ui,
+    sans-serif;
+  text-shadow: none;
+}
+.hdm-console.sc--sd .hdm-word-btn.hdm-word-btn {
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 4px 10px;
+  border: 5px solid transparent !important;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') 11 / 6px
+    stretch !important;
+  border-radius: 0 !important;
+  background: linear-gradient(155deg, #12273b, #07111c 70%) !important;
+  box-shadow: none !important;
+  color: #f1f5fc;
+  -webkit-text-fill-color: #f1f5fc;
+  font:
+    700 16px/1.1 'Rajdhani',
+    'Roboto Condensed',
+    Inter,
+    sans-serif;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  text-shadow: none;
+}
+.hdm-yours .hdm-word-btn.hdm-word-btn {
+  width: auto;
 }

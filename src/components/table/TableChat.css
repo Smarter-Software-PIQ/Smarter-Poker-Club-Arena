@@ -815,6 +815,212 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   #SMARTERDESIGN (Dan 2026-11-27): the arena workspace material
+   (ArenaWorkspace.css). Solid ink-navy glass with one thin chrome rim, a
+   white title, chrome close and send keys, own bubbles lit cobalt, quick
+   lines as chrome keys; the dealer line and the mention highlight were
+   amber and gold and are ice-blue. Nothing here touches header padding (see
+   the two safe-area blocks below) or moves the sheet off screen.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Chat sheet ───────────────────────────────────────────────────────── */
+
+.table-chat.table-chat {
+  box-sizing: border-box;
+  border: 9px solid transparent !important;
+  border-bottom: 0 !important;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-case.webp') 41 41 0 / 15px
+    15px 0 stretch !important;
+  border-radius: 0 !important;
+  background:
+    radial-gradient(ellipse at 90% -20%, #1e3853, transparent 60%),
+    linear-gradient(160deg, #091727, #030b14 74%) !important;
+  background-color: #050d17 !important;
+  box-shadow: 0 -12px 36px rgb(0 0 0 / 62%) !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.table-chat .table-chat__grab span {
+  border-radius: 0;
+  background: #3b5878;
+}
+
+.table-chat > .table-chat__header.table-chat__header {
+  border-bottom: 1px solid #253e57 !important;
+  background: none !important;
+  box-shadow: none !important;
+}
+
+.table-chat .table-chat__title {
+  color: #fff;
+  font:
+    800 18px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: -0.2px;
+  text-shadow: none;
+}
+
+.table-chat .table-chat__close.table-chat__close {
+  box-sizing: border-box;
+  width: 44px;
+  height: 44px;
+  border: 5px solid transparent !important;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') 11 / 6px
+    stretch !important;
+  border-radius: 0 !important;
+  background: linear-gradient(#152639, #06111e 65%) !important;
+  box-shadow: none !important;
+  color: #dce5ef !important;
+  font:
+    400 20px/1 Arial,
+    sans-serif;
+}
+
+.table-chat .table-chat__close:focus-visible,
+.table-chat .table-chat__send:focus-visible,
+.table-chat .qc-preset-btn:focus-visible {
+  outline: 2px solid #8fd4ff;
+  outline-offset: 2px;
+}
+
+.table-chat .table-chat__empty {
+  color: #9aabba;
+  font-size: 14px;
+}
+
+.table-chat .chat-message__system-text {
+  color: #9aabba;
+}
+
+/* The dealer's line was amber on an amber wash; it is ice-blue on glass. */
+.table-chat .chat-message--dealer {
+  border: 1px solid #253e57;
+  border-radius: 0;
+  background: #071421;
+}
+
+.table-chat .chat-message__dealer-text {
+  color: #9ad8fb;
+}
+
+.table-chat .chat-message__avatar {
+  background: #0d2236;
+  border: 1px solid #253e57;
+}
+
+.table-chat .chat-message__avatar span {
+  color: #74dfff;
+}
+
+.table-chat .chat-message__bubble {
+  border: 1px solid #1f3449;
+  border-radius: 0;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+}
+
+.table-chat .chat-message--own .chat-message__bubble {
+  border-color: #1e5cb3;
+  border-radius: 0;
+  background: linear-gradient(#0a4fb0, #032f73);
+}
+
+/* A highlighted line (your name was mentioned) was gold; it is lit cyan. */
+.table-chat .chat-message--highlighted .chat-message__bubble {
+  border-color: #74dfff;
+  background: linear-gradient(108deg, #0f3550, #061a2a 72%);
+}
+
+.table-chat .chat-message__name {
+  color: #74dfff;
+}
+
+.table-chat .chat-message__content {
+  color: #f1f5fc;
+  font-size: 14px;
+}
+
+.table-chat .chat-message__time {
+  color: #9aabba;
+}
+
+.table-chat .table-chat__input-container {
+  border-top: 1px solid #253e57;
+  background: none;
+}
+
+.table-chat .table-chat__input.table-chat__input {
+  min-height: 44px;
+  border: 1px solid #253e57 !important;
+  border-radius: 0 !important;
+  background: #030a12 !important;
+  box-shadow: inset 0 2px 6px rgb(0 0 0 / 60%) !important;
+  color: #f1f5fc !important;
+  font-size: 16px;
+}
+
+.table-chat .table-chat__input:focus {
+  border-color: #74dfff !important;
+}
+
+.table-chat .table-chat__input::placeholder {
+  color: #7f93a6;
+}
+
+.table-chat .table-chat__send.table-chat__send {
+  box-sizing: border-box;
+  width: 44px;
+  height: 44px;
+  border: 5px solid transparent !important;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-active.webp') 11 / 6px
+    stretch !important;
+  border-radius: 0 !important;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
+  box-shadow: none !important;
+  color: #fff !important;
+}
+
+.table-chat .table-chat__send.table-chat__send:disabled {
+  border-image-source: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') !important;
+  background: linear-gradient(#152639, #06111e 65%) !important;
+  color: #7f93a6 !important;
+}
+
+.table-chat .table-chat__scroll-fab {
+  border: 1px solid #74dfff;
+  background: #0044ac;
+}
+
+/* ── Quick chat lines: chrome keys ────────────────────────────────────── */
+
+.table-chat .qc-preset-btn.qc-preset-btn {
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 4px 12px;
+  border: 4px solid transparent !important;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') 11 / 6px
+    stretch !important;
+  border-radius: 0 !important;
+  background: linear-gradient(#152639, #06111e 65%) !important;
+  box-shadow: none !important;
+  color: #dce5ef !important;
+  font:
+    600 13px/1.1 Arial,
+    sans-serif;
+}
+
+.table-chat .qc-preset-btn::after {
+  content: none;
+}
+
+.table-chat .qc-preset-btn:active:not(:disabled) {
+  border-image-source: url('/assets/club-buttons/console/smarterdesign-v1/chrome-active.webp') !important;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
+  color: #fff !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    SHEET HEADER SAFE-AREA PADDING — THE LAST TWO BLOCKS IN THIS FILE
    ═══════════════════════════════════════════════════════════════════════════
 
