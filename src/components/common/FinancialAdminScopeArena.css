@@ -1,0 +1,30 @@
+/* THE FINANCE SCOPE STATES INSIDE THE ARENA WORKSPACE (#SmarterDesign batch
+   S1, 2026-11-28). Only for a host that passes `arena` (the Settlement
+   Center); the mast, case, keys and status line come from ArenaWorkspace.css
+   and ArenaOps.css. Every rule is scoped under .arena-workspace. Nothing reacts
+   to a resting pointer. */
+
+.arena-workspace.financial-scope-state {
+  min-height: 100dvh;
+  padding-bottom: max(var(--bottom-nav-clearance, 74px), env(safe-area-inset-bottom));
+  overflow-x: clip;
+}
+
+.arena-workspace .financial-scope-state__message {
+  margin: 0;
+  padding: 18px 12px 12px;
+  color: #9fbacc;
+  text-align: center;
+  font:
+    13px/1.45 Arial,
+    sans-serif;
+}
+
+.arena-workspace .financial-scope-state__message[role='alert'] {
+  color: #ff5b6e;
+}
+
+.arena-workspace .financial-scope-state__case > .arena-switch {
+  width: min(100%, 320px);
+  margin: 4px auto 6px;
+}

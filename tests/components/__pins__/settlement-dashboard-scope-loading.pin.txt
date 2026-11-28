@@ -1,0 +1,12 @@
+body 0: p
+money: {
+  "figures": [],
+  "hooks": []
+}
+text: Checking Your Club Finance Access.
+regions: [
+  "p|status|||"
+]
+controls: []
+Club Transaction Records: 0
+Your Account Transactions: 0
