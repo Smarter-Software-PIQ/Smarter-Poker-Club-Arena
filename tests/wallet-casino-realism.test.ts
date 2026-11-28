@@ -48,6 +48,11 @@ describe('the wallet opens on the Cashier desk (Dan 2026-10-16)', () => {
   });
 
   it('is printed on the Cashier desk: its inks, its dock art, no drawn chrome', () => {
+    // 2026-11-28 (#SmarterDesign, Dan 2026-11-27): the page root wears the
+    // arena workspace, and PlayerWalletArena.css (scoped under it, see
+    // tests/unit/walletArenaDressIsScoped.test.ts) outranks this base desk
+    // sheet on the page. The base sheet below keeps its own rules.
+    expect(PAGE).toContain("import './PlayerWalletArena.css';");
     expect(CSS).toContain('THE CASHIER DESK');
     expect(CSS).toContain('--ink-muted: #9aa5b3');
     expect(CSS).toContain('--ink-blue: #45adff');
