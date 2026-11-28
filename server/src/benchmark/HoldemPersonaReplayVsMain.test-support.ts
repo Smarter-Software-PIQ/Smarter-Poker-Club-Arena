@@ -21,6 +21,9 @@
  * change to the league itself is recorded the same way.
  */
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { playHand, leaguePairHandClock, type LeagueGameContext } from './HorseLeague.js';
 import { HORSE_HYBRID_PROFILES } from '../engine/HorseHybridProfile.js';
 import { saveFastRandom } from '../engine/HorseEval.js';
@@ -213,4 +216,88 @@ export function replayFingerprints(
     out[cell.name] = hands;
   });
   return out;
+}
+
+export interface RecordedReplay {
+  recordedFrom: string;
+  cells: Record<string, string[]>;
+}
+
+export const HOLDEM_REPLAY_FIXTURE_PATH = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  'fixtures/holdem-persona-replay-vs-main.json'
+);
+
+export const HOLDEM_REPLAY_CHANGED = /^holdem_persona_.*_changed_seen$/;
+/** holdemPersonaPreflop also moves bars: a shifted bar may change a hand. */
+export const HOLDEM_REPLAY_CHANGED_OR_SHIFTED =
+  /^holdem_persona_(.*_changed|open_shift|continue_shift)_seen$/;
+export const HOLDEM_REPLAY_TIMEOUT_MS = 600_000;
+
+export function loadRecordedReplay(): RecordedReplay {
+  return JSON.parse(readFileSync(HOLDEM_REPLAY_FIXTURE_PATH, 'utf8')) as RecordedReplay;
+}
+
+export function verifyReplayOptionOff(
+  recorded: RecordedReplay,
+  label: string,
+  extra: HorseDecideOpts,
+  assertCellLength: (actual: number, expected: number, cellName: string) => void
+): { hands: number; decisions: number } {
+  const print = process.env.HOLDEM_REPLAY_PRINT === '1';
+  const run = replayFingerprints(extra);
+  let hands = 0;
+  let decisions = 0;
+  for (const cell of REPLAY_CELLS) {
+    const main = recorded.cells[cell.name];
+    assertCellLength(main.length, cell.hands, cell.name);
+    run[cell.name].forEach((h, i) => {
+      if (h.fingerprint !== main[i]) throw new Error(`${cell.name} hand ${i}: differs from main`);
+      decisions += h.decisions;
+    });
+    hands += cell.hands;
+  }
+  if (print) console.log(`option ${label}: ${hands} hands, ${decisions} decisions, all equal main`);
+  return { hands, decisions };
+}
+
+export function verifyReplayOptionOn(
+  recorded: RecordedReplay,
+  option: 'holdemPersonaReRaiseMix' | 'holdemPersonaPreflop',
+  mark: RegExp,
+  assertOmahaNoPersonaFires: (fires: string[], context: string) => void
+): { holdemChanged: number; holdemDiffer: number } {
+  const print = process.env.HOLDEM_REPLAY_PRINT === '1';
+  const run = replayFingerprints({ [option]: true }, true);
+  let holdemChanged = 0;
+  let holdemDiffer = 0;
+  for (const cell of REPLAY_CELLS) {
+    const main = recorded.cells[cell.name];
+    let changedHands = 0;
+    let differ = 0;
+    run[cell.name].forEach((h, i) => {
+      const changed = h.fires.some((f) => mark.test(f));
+      if (cell.family === 'omaha') {
+        assertOmahaNoPersonaFires(
+          h.fires.filter((f) => f.startsWith('holdem_persona_')),
+          `${cell.name} ${i}`
+        );
+        if (h.fingerprint !== main[i])
+          throw new Error(`${cell.name} hand ${i}: Omaha differs from main`);
+        return;
+      }
+      if (changed) changedHands++;
+      if (h.fingerprint !== main[i]) {
+        differ++;
+        if (!changed) throw new Error(`${cell.name} hand ${i}: differs with no persona change`);
+      }
+    });
+    if (print)
+      console.log(
+        `${option} on: ${cell.name}: ${cell.hands} hands, persona changed an answer or moved a bar in ${changedHands}, differ from main ${differ}`
+      );
+    holdemChanged += changedHands;
+    holdemDiffer += differ;
+  }
+  return { holdemChanged, holdemDiffer };
 }
