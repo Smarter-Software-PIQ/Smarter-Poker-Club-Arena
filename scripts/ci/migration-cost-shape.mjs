@@ -414,6 +414,31 @@ function extractInstallExecutable(sql) {
           continue;
         }
       }
+      const doSingle = /^do\b(?:\s+language\s+[a-z_0-9"']+)?\s*'/i.exec(rest);
+      if (doSingle) {
+        let j = i + doSingle[0].length;
+        let rawBody = '';
+        while (j < text.length) {
+          if (text[j] === "'") {
+            if (text[j + 1] === "'") {
+              rawBody += "'";
+              j += 2;
+              continue;
+            }
+            j += 1;
+            break;
+          }
+          rawBody += text[j++];
+        }
+        const cleaned = stripComments(rawBody);
+        const beforeLine = String(sql).slice(Math.max(0, i - 240), i);
+        const probeHeader =
+          /--[ \t]*@probe-for:[ \t]*([^\n]+)\n[ \t]*$/i.exec(beforeLine)?.[1]?.trim() ?? null;
+        doBlocks.push({ body: cleaned, probeFor: probeHeader });
+        out += ' DO ' + cleaned + ' ';
+        i = j;
+        continue;
+      }
     }
     // Non-DO dollar-quoted literal at top level (e.g. a string argument): blank it.
     if (text[i] === '$') {
@@ -1002,10 +1027,7 @@ const WATCHER_SWEEP_NAME_RE =
   /(?:^|_)(?:watch|watcher|scan|scanner|sweep|sweeper|prune|pruner|reconcile|reconciler|digest|backfill)(?:$|_)/i;
 
 const LIVE_CLOCK_EXPR_RE =
-  /\b(?:now|clock_timestamp|transaction_timestamp|statement_timestamp)\s*\(\s*\)|\b(?:current_timestamp|current_date)\b/i;
-
-const FUTURE_CLOCK_SHIFT_RE =
-  /\b(?:(?:now|clock_timestamp|transaction_timestamp|statement_timestamp)\s*\(\s*\)|current_timestamp|current_date)\s*\+/i;
+  /\b(?:now|clock_timestamp|transaction_timestamp|statement_timestamp)\s*\(\s*\)|\b(?:current_timestamp|current_date|localtimestamp|localtime)\b/i;
 
 /** Read balanced `(...)` starting at `openIdx` (skipping single-quoted strings). */
 function readBalancedParens(text, openIdx) {
@@ -1206,18 +1228,72 @@ function isDdlSignatureContext(text, matchIndex) {
 }
 
 /**
+ * True only when a live clock expression is shifted strictly into the future
+ * (e.g. `clock_timestamp() + interval '1 day'`, `current_date + 7`), never a
+ * negative lookback (`+ interval '-14 days'`, `+ (-1)`) or zero shift
+ * (`+ interval '0 seconds'`, `+ 0`).
+ */
+function isPositiveFutureClockShift(arg, strings) {
+  const m =
+    /\b(?:(?:now|clock_timestamp|transaction_timestamp|statement_timestamp)\s*\(\s*\)|current_timestamp|current_date|localtimestamp|localtime)\s*\+\s*([\s\S]+)/i.exec(
+      arg
+    );
+  if (!m) return false;
+  const rhs = m[1].trim();
+  // Reject any trailing subtraction or negative factor (e.g. `+ interval '1 day' * -14` or `- interval '30 days'`).
+  if (/(?:^|[\s(*])-\s*(?:\d|\(|interval\b|make_interval\b)/i.test(rhs)) return false;
+  const intervalTok =
+    /^(?:interval\s+)?__STR_(\d+)__(?:\s*::\s*[a-z0-9_.\s"]+)*(?:\s*\*\s*\(?\s*([+]?\d+(?:\.\d+)?)\s*\)?)?(?:\s*::\s*[a-z0-9_.\s"]+)*\s*$/i.exec(
+      rhs
+    );
+  if (intervalTok) {
+    if (intervalTok[2] !== undefined && Number(intervalTok[2]) <= 0) return false;
+    const val = (strings[Number(intervalTok[1])] ?? '').trim();
+    if (!val || /(?:^|[\s,])-\s*\d|\bago\b/i.test(val)) return false;
+    const nums = [...val.matchAll(/\d+(?:\.\d+)?/g)].map((n) => Number(n[0]));
+    return nums.length > 0 && nums.some((n) => n > 0);
+  }
+  const numMatch = /^\(?\s*([+-]?\d+(?:\.\d+)?)\s*\)?(?:\s*::\s*[a-z0-9_.\s"]+)*\s*$/i.exec(rhs);
+  if (numMatch) {
+    return Number(numMatch[1]) > 0;
+  }
+  const numInterval =
+    /^\(?\s*([+-]?\d+(?:\.\d+)?)\s*\)?\s*\*\s*(?:interval\s+)?__STR_(\d+)__(?:\s*::\s*[a-z0-9_.\s"]+)*\s*$/i.exec(
+      rhs
+    );
+  if (numInterval) {
+    if (Number(numInterval[1]) <= 0) return false;
+    const val = (strings[Number(numInterval[2])] ?? '').trim();
+    if (!val || /(?:^|[\s,])-\s*\d|\bago\b/i.test(val)) return false;
+    const nums = [...val.matchAll(/\d+(?:\.\d+)?/g)].map((n) => Number(n[0]));
+    return nums.length > 0 && nums.some((n) => n > 0);
+  }
+  const makeInterval = /^make_interval\s*\(([^)]+)\)(?:\s*::\s*[a-z0-9_.\s"]+)*\s*$/i.exec(rhs);
+  if (makeInterval) {
+    const body = makeInterval[1];
+    if (/-\s*\d/.test(body)) return false;
+    const nums = [...body.matchAll(/\d+(?:\.\d+)?/g)].map((n) => Number(n[0]));
+    return nums.length > 0 && nums.some((n) => n > 0);
+  }
+  return false;
+}
+
+const NULL_OR_DEFAULT_ARG_RE =
+  /^(?:[a-z_][a-z0-9_]*\s*(?:=>|:=)\s*)?(?:null|default)(?:\s*::\s*[a-z0-9_.\s[\]"]+)*$/i;
+
+/**
  * Describe why an install-time call's arguments are unbounded against live
  * production data, or return null when the call passes a bounded/empty fixture.
  */
-function unboundedCallReason(rawArgs) {
+function unboundedCallReason(rawArgs, strings = []) {
   const trimmed = rawArgs.trim();
   if (trimmed === '') return 'zero arguments () (runs full live default scope)';
   const args = splitTopLevelArgs(trimmed);
-  if (args.length > 0 && args.every((a) => /^null(?:\s*::\s*[a-z0-9_.\s[\]"]+)*$/i.test(a))) {
-    return 'NULL-only arguments (falls back to full live default scope)';
+  if (args.length > 0 && args.every((a) => NULL_OR_DEFAULT_ARG_RE.test(a))) {
+    return 'NULL/DEFAULT-only arguments (falls back to full live default scope)';
   }
   for (const arg of args) {
-    if (LIVE_CLOCK_EXPR_RE.test(arg) && !FUTURE_CLOCK_SHIFT_RE.test(arg)) {
+    if (LIVE_CLOCK_EXPR_RE.test(arg) && !isPositiveFutureClockShift(arg, strings)) {
       return 'a live current/lookback clock argument (reads live production window)';
     }
   }
@@ -1249,9 +1325,18 @@ export function unboundedInstallTimeFunctionCalls(file, sql, alreadyReported = n
   }
 
   const highTimeouts = routineDeclaredTimeouts(sql, budgetMs);
-  const exec = installExecutedText(sql);
+  const { withStrings } = extractInstallExecutable(sql);
+  // Preserve single-quoted literal values in placeholders so negative/zero
+  // interval shifts (`now() + interval '-14 days'`) are caught without
+  // matching SQL inside string literals like `cron.schedule('...', '...')`.
+  const strings = [];
+  const exec = withStrings.replace(/'((?:[^']|'')*)'/g, (_m, inner) => {
+    const idx = strings.length;
+    strings.push(inner.replace(/''/g, "'"));
+    return `__STR_${idx}__`;
+  });
   const callRe =
-    /(?:(?:\b(public|smarter_private)\s*\.\s*)|(?<![.\w"]))"?([a-z_][a-z0-9_]*)"?\s*\(/gi;
+    /(?:(?:"?([a-z_][a-z0-9_]*)"?\s*\.\s*)|(?<![.\w"]))"?([a-z_][a-z0-9_]*)"?\s*\(/gi;
   const findings = [];
   const seen = new Set(alreadyReported);
   let m;
@@ -1267,12 +1352,14 @@ export function unboundedInstallTimeFunctionCalls(file, sql, alreadyReported = n
     const qn = `${schema}.${name}`;
 
     const timeoutSpec = highTimeouts.get(qn) ?? null;
-    const isWatcherName =
-      WATCHER_SWEEP_NAME_RE.test(name) &&
-      (explicitSchema !== null || name.startsWith('fn_') || name.startsWith('ca_'));
+    const isWatcherSchema =
+      explicitSchema === 'public' ||
+      explicitSchema === 'smarter_private' ||
+      (explicitSchema === null && (name.startsWith('fn_') || name.startsWith('ca_')));
+    const isWatcherName = WATCHER_SWEEP_NAME_RE.test(name) && isWatcherSchema;
     if (!timeoutSpec && !isWatcherName) continue;
 
-    const whyUnbounded = unboundedCallReason(balanced.inner);
+    const whyUnbounded = unboundedCallReason(balanced.inner, strings);
     if (!whyUnbounded) continue;
     if (seen.has(qn)) continue;
     seen.add(qn);

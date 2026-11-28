@@ -5,8 +5,9 @@ import {
   type ClubIntegrityPageId,
 } from '../../config/clubIntegrityNavigation';
 import { useClubNavigationAccess } from '../../hooks/useClubNavigationAccess';
-import styles from './ClubIntegrityHeader.module.css';
+import ArenaWorkspaceHeader, { type ArenaWorkspaceArea } from '../lobby/ArenaWorkspaceHeader';
 import PageBar from '../help/PageBar';
+import '../ops/ArenaOps.css';
 
 interface IntegrityMetric {
   label: string;
@@ -15,7 +16,6 @@ interface IntegrityMetric {
 }
 
 interface ClubIntegrityHeaderProps {
-  compact?: boolean;
   clubId?: string;
   active: ClubIntegrityPageId;
   title: string;
@@ -23,6 +23,8 @@ interface ClubIntegrityHeaderProps {
   description: string;
   metrics: IntegrityMetric[];
   action?: ReactNode;
+  /** Which mast art the page wears. Reports and Hand Review have their own. */
+  area?: Extract<ArenaWorkspaceArea, 'reports' | 'handreview' | 'integrity'>;
 }
 
 const TONE: Record<NonNullable<IntegrityMetric['tone']>, 'default' | 'live' | 'attention'> = {
@@ -31,32 +33,48 @@ const TONE: Record<NonNullable<IntegrityMetric['tone']>, 'default' | 'live' | 'a
   risk: 'attention',
 };
 
+const AREA_FOR: Partial<Record<ClubIntegrityPageId, 'reports' | 'handreview'>> = {
+  reports: 'reports',
+  'hand-review': 'handreview',
+};
+
+/** The club's name as the route spells it; a raw UUID names nothing. */
+function clubContext(clubId?: string): string | undefined {
+  if (!clubId || /^[0-9a-f]{8}-/i.test(clubId)) return undefined;
+  return clubId.replace(/[-_]/g, ' ');
+}
+
 /**
- * The top of the integrity and casework pages.
- *
- * Dan, 2026-10-17: "PAGES DON'T NEED TITLES LIKE THIS... REMOVE ALL
- * DESCRIPTIONS". The signal line, the eyebrow, the giant title, the paragraph
- * and the artwork are gone. The live case counts, the page action and the
- * casework rail stay; each rail stop is its name alone, and the explanation of
- * the page lives behind the painted "?".
+ * The top of the integrity and casework pages, in #SmarterDesign (Dan
+ * 2026-11-27): the chrome mast with the club's name and the "?" help, the live
+ * case counts as chrome meters, and the casework stops as one chrome switch
+ * that lights the page you are on. The header carries its own arena
+ * workspace so Disputes and Blacklist keep the dark mast on their own roots.
  */
 export default function ClubIntegrityHeader({
-  compact = false,
   clubId,
   active,
   title,
   description,
   metrics,
   action,
+  area,
 }: ClubIntegrityHeaderProps) {
   const access = useClubNavigationAccess(clubId);
   const navigation = clubId ? getClubIntegrityNavigation(clubId, access) : [];
 
   return (
-    <div className={styles.header} data-compact={compact || undefined}>
+    <div className="arena-workspace arena-ops-embedded">
+      <ArenaWorkspaceHeader
+        area={area ?? AREA_FOR[active] ?? 'integrity'}
+        title={title}
+        context={clubContext(clubId)}
+        summary={description}
+      />
       <PageBar
         title={title}
-        summary={description}
+        titleAs={false}
+        showHelp={false}
         metrics={metrics.map((metric) => ({
           label: metric.label,
           value: metric.value,
@@ -67,23 +85,19 @@ export default function ClubIntegrityHeader({
       </PageBar>
 
       {navigation.length > 0 && (
-        <nav className={styles.caseRail} aria-label="Integrity And Casework">
-          <ol>
-            {navigation.map((item, index) => (
-              <li key={item.id}>
-                <Link
-                  to={item.path}
-                  aria-current={item.id === active ? 'page' : undefined}
-                  data-active={item.id === active ? 'true' : undefined}
-                >
-                  <span className={styles.sequence}>{String(index + 1).padStart(2, '0')}</span>
-                  <span>
-                    <strong>{item.label}</strong>
-                  </span>
-                </Link>
-              </li>
+        <nav aria-label="Integrity And Casework">
+          <div className="arena-switch arena-ops-keys">
+            {navigation.map((item) => (
+              <Link
+                key={item.id}
+                to={item.path}
+                aria-current={item.id === active ? 'page' : undefined}
+                className={item.id === active ? 'active' : undefined}
+              >
+                {item.label}
+              </Link>
             ))}
-          </ol>
+          </div>
         </nav>
       )}
     </div>

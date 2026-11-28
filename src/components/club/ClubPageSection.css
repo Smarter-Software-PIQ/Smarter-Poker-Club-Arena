@@ -98,3 +98,34 @@
     flex: 1;
   }
 }
+
+/* #SmarterDesign case (the `arena` prop). The case, title and switch come
+   from ArenaWorkspace.css and ArenaOps.css; this only seats the Close key
+   beside the title and lights the primary key wherever it sits. */
+.arena-workspace .club-page-arena-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.arena-workspace .club-page-arena-head > .arena-section-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+.arena-workspace .club-page-arena-head > .arena-switch {
+  flex: 0 0 auto;
+  margin: 0;
+}
+.arena-workspace .club-page-arena-head > .arena-switch > button {
+  min-width: 64px;
+}
+.arena-workspace .arena-switch.club-page-keys {
+  margin-top: 4px;
+}
+.arena-workspace .arena-switch > .club-page-key--primary {
+  color: white;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
+}
+.arena-workspace .arena-switch > .club-page-key--primary::after {
+  border-image-source: var(--arena-active);
+}

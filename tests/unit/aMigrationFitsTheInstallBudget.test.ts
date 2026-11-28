@@ -572,6 +572,109 @@ COMMIT;`;
     ).toBe(true);
   });
 
+  it('refuses quoted/custom schema calls, single-quoted DO blocks, DEFAULT/named NULL, localtimestamp, and negative/zero future clock shifts', () => {
+    const refusedCases: Array<[string, string, string]> = [
+      [
+        'quoted schema call',
+        `BEGIN;
+DO $p$ BEGIN
+  PERFORM "public"."fn_ca_new_drift_watch"();
+END $p$;
+COMMIT;`,
+        'public.fn_ca_new_drift_watch',
+      ],
+      [
+        'single-quoted DO block with escaped quote',
+        `BEGIN;
+DO 'BEGIN PERFORM public.fn_ca_new_drift_watch(); RAISE NOTICE ''done''; END';
+COMMIT;`,
+        'public.fn_ca_new_drift_watch',
+      ],
+      [
+        'non-public/smarter_private schema routine with over-budget SET statement_timeout',
+        `BEGIN;
+CREATE OR REPLACE FUNCTION ops.fn_heavy_rollup()
+ RETURNS void LANGUAGE plpgsql SET statement_timeout TO '60s'
+AS $f$ BEGIN NULL; END $f$;
+SELECT ops.fn_heavy_rollup();
+COMMIT;`,
+        'ops.fn_heavy_rollup',
+      ],
+      [
+        'DEFAULT argument',
+        `BEGIN;
+DO $p$ BEGIN PERFORM public.fn_ca_new_drift_watch(DEFAULT); END $p$;
+COMMIT;`,
+        'NULL/DEFAULT-only arguments',
+      ],
+      [
+        'named parameter => NULL',
+        `BEGIN;
+DO $p$ BEGIN PERFORM public.fn_ca_new_drift_watch(p_since => NULL::timestamptz); END $p$;
+COMMIT;`,
+        'NULL/DEFAULT-only arguments',
+      ],
+      [
+        'localtimestamp live clock argument',
+        `BEGIN;
+DO $p$ BEGIN PERFORM public.fn_ca_new_drift_watch(localtimestamp); END $p$;
+COMMIT;`,
+        'live current/lookback clock argument',
+      ],
+      [
+        'negative interval shift',
+        `BEGIN;
+DO $p$ BEGIN PERFORM public.fn_ca_new_drift_watch(now() + interval '-14 days'); END $p$;
+COMMIT;`,
+        'live current/lookback clock argument',
+      ],
+      [
+        'zero interval shift',
+        `BEGIN;
+DO $p$ BEGIN PERFORM public.fn_ca_new_drift_watch(clock_timestamp() + interval '0 seconds'); END $p$;
+COMMIT;`,
+        'live current/lookback clock argument',
+      ],
+      [
+        'negative multiplier * interval',
+        `BEGIN;
+DO $p$ BEGIN PERFORM public.fn_ca_new_drift_watch(now() + (-14) * interval '1 day'); END $p$;
+COMMIT;`,
+        'live current/lookback clock argument',
+      ],
+      [
+        'interval * negative multiplier',
+        `BEGIN;
+DO $p$ BEGIN PERFORM public.fn_ca_new_drift_watch(now() + interval '1 day' * -14); END $p$;
+COMMIT;`,
+        'live current/lookback clock argument',
+      ],
+      [
+        'make_interval with negative days',
+        `BEGIN;
+DO $p$ BEGIN PERFORM public.fn_ca_new_drift_watch(now() + make_interval(days => -14)); END $p$;
+COMMIT;`,
+        'live current/lookback clock argument',
+      ],
+    ];
+    for (const [label, sql, needle] of refusedCases) {
+      const risks = migrationCostRisks('20261127210000_hardened_guard.sql', sql);
+      expect(
+        risks.some((r) => r.includes(needle)),
+        `${label}: got ${JSON.stringify(risks)}`
+      ).toBe(true);
+    }
+
+    const allowedFutureCases = [
+      `BEGIN; DO $p$ BEGIN PERFORM public.fn_ca_new_drift_watch(clock_timestamp() + interval '1 day'); END $p$; COMMIT;`,
+      `BEGIN; DO $p$ BEGIN PERFORM public.fn_ca_new_drift_watch(current_date + 7); END $p$; COMMIT;`,
+      `BEGIN; DO $p$ BEGIN PERFORM public.fn_ca_new_drift_watch(now() + make_interval(days => 1)); END $p$; COMMIT;`,
+    ];
+    for (const sql of allowedFutureCases) {
+      expect(migrationCostRisks('20261127210000_pos_shift.sql', sql), sql).toEqual([]);
+    }
+  });
+
   it('judges only from the cut-over on, so merged history is not re-judged', () => {
     expect(isCostChecked(`${COST_CHECKED_FROM}_x.sql`)).toBe(true);
     expect(isCostChecked('20261107133350_the_weekly_close_is_evidence_not_cache.sql')).toBe(false);

@@ -404,18 +404,27 @@ describe('enlarged mobile frame never buries or detaches the neon countdown box 
     expect(afterZ).toBeGreaterThan(ringZ);
 
     // Inspect EVERY ::before rule attached to .seat__info (including attribute selectors
-    // such as .seat__info[style*='--sp-frame-w']::before). A z-index >= ringZ buries the
-    // left, right, and bottom edges of the neon countdown box behind the enlarged plate.
+    // such as .seat__info[style*='--sp-frame-w']::before). Any rule creating ::before
+    // (content:) must explicitly declare z-index < ringZ, and any modifier rule that
+    // specifies z-index must also stay strictly below ringZ so the left, right, and
+    // bottom edges of the neon countdown box can never be buried behind the plate.
     const beforeRules = [...CODE.matchAll(/\.seat__info[^,{]*::before\s*\{[^}]*\}/g)].map(
       (m) => m[0]
     );
     expect(beforeRules.length).toBeGreaterThan(0);
+    let contentRules = 0;
     for (const rule of beforeRules) {
-      expect(
-        zIndexOf(rule),
-        `rule must stay below .seat__timer-ring (${ringZ}): ${rule}`
-      ).toBeLessThan(ringZ);
+      const createsBox = /\bcontent\s*:/.test(rule);
+      const setsZ = /\bz-index\s*:/.test(rule);
+      if (createsBox) contentRules += 1;
+      if (createsBox || setsZ) {
+        expect(
+          zIndexOf(rule),
+          `rule must stay below .seat__timer-ring (${ringZ}): ${rule}`
+        ).toBeLessThan(ringZ);
+      }
     }
+    expect(contentRules).toBeGreaterThan(0);
   });
 
   it('enlarged mobile timer ring and inner cutout track --sp-frame-* and theme background', () => {
@@ -576,5 +585,62 @@ describe('enlarged mobile frame never buries or detaches the neon countdown box 
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('hardens active cutout against away/winner collisions, keeps enlarged plates unclipped, forwards glows, and keeps backgrounded flash running', () => {
+    const TABLE_CSS = readFileSync(
+      resolve(__dirname, '../src/pages/TablePage.css'),
+      'utf8'
+    ).replace(/\/\*[\s\S]*?\*\//g, '');
+
+    // Dead .seat__info-box stub must stay gone.
+    expect(TABLE_CSS).not.toMatch(/\.seat__info-box\b/);
+
+    // Backgrounded multi-table tabs keep spTimerFlash (.seat__timer-ring) running alongside wipe/ink.
+    const bgBlock = block('.table-page--backgrounded .seat__timer-ring,');
+    expect(bgBlock).toMatch(/\.table-page--backgrounded \.seat__timer-ring,/);
+    expect(bgBlock).toMatch(/\.table-page--backgrounded \.seat__timer-wipe,/);
+    expect(bgBlock).toMatch(/\.table-page--backgrounded \.seat__timer-ink\s*\{/);
+    expect(bgBlock).toMatch(/animation-play-state:\s*running !important/);
+
+    // Active seats out-specify .seat--away and .seat--winner on both .seat__info and ::after.
+    expect(block('.seat.seat--active .seat__info {')).toMatch(/overflow:\s*visible/);
+    const activeAfterOverride = block('.seat.seat--active .seat__info::after {');
+    expect(activeAfterOverride).toMatch(/content:\s*''/);
+    expect(activeAfterOverride).toMatch(/transform:\s*none/);
+    expect(activeAfterOverride).toMatch(/padding:\s*0/);
+    expect(activeAfterOverride).toMatch(/animation:\s*none/);
+    expect(zIndexOf(activeAfterOverride)).toBe(-1);
+
+    // Enlarged mobile plates stay overflow: visible, clear inner backdrop-filter,
+    // guard active ::after, suppress overflowing winner ::after, and forward state glows to ::before.
+    const enlargedInfo = block(".table-page .seat .seat__info[style*='--sp-frame-w'] {");
+    expect(enlargedInfo).toMatch(/overflow:\s*visible/);
+    expect(enlargedInfo).toMatch(/backdrop-filter:\s*none/);
+    expect(enlargedInfo).toMatch(/-webkit-backdrop-filter:\s*none/);
+
+    const enlargedActiveAfter = block(
+      ".table-page .seat--active .seat__info[style*='--sp-frame-w']::after {"
+    );
+    expect(enlargedActiveAfter).toMatch(/content:\s*''/);
+    expect(enlargedActiveAfter).toMatch(/transform:\s*none/);
+    expect(enlargedActiveAfter).toMatch(/padding:\s*0/);
+    expect(enlargedActiveAfter).toMatch(/animation:\s*none/);
+    expect(zIndexOf(enlargedActiveAfter)).toBe(-1);
+
+    expect(
+      block(
+        ".table-page .seat--winner:not(.seat--active) .seat__info[style*='--sp-frame-w']::after {"
+      )
+    ).toMatch(/display:\s*none/);
+    expect(
+      block(".table-page .seat--tb-armed .seat__info[style*='--sp-frame-w']::before {")
+    ).toMatch(/24,\s*119,\s*242/);
+    expect(block(".table-page .seat--winner .seat__info[style*='--sp-frame-w']::before {")).toMatch(
+      /255,\s*215,\s*0/
+    );
+    expect(
+      block(".table-page .seat--winner-glow .seat__info[style*='--sp-frame-w']::before {")
+    ).toMatch(/255,\s*215,\s*0/);
   });
 });

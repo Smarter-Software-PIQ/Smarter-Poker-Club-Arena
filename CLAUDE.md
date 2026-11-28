@@ -44,6 +44,8 @@ Phases 1-3 of 8 are merged (squash `c22a3bb00`) and live; phase 4 is the club
 dashboard, and it starts on a fresh branch off `main`. The plan is
 [`docs/club-operations/OPERATIONS-UPGRADE-PLAN.md`](./docs/club-operations/OPERATIONS-UPGRADE-PLAN.md).
 
+**#SmarterDesign means the arena workspace language (`src/components/lobby/ArenaWorkspace.css`), not the painted SpadeConsole: for a routed page section read [`.claude/skills/smarter-design/SKILL.md`](./.claude/skills/smarter-design/SKILL.md) first.**
+
 ## ↗ REDESIGNING A PAGE, POPUP, CARD OR BUTTON? READ `.claude/skills/club-arena-console/SKILL.md`
 
 Every visual surface in Club Arena is rebuilt on Dan's approved master art -

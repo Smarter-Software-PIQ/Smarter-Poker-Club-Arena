@@ -331,9 +331,8 @@ export default function ReportReviewPage() {
   const actionedCount = visibleReports.filter((report) => report.status === 'actioned').length;
 
   return (
-    <div className="report-review-page">
+    <div className="report-review-page arena-workspace">
       <ClubIntegrityHeader
-        compact
         clubId={clubId}
         active="reports"
         title="Player Report Review"
@@ -347,18 +346,19 @@ export default function ReportReviewPage() {
 
       <section className="report-workspace">
         <SpadeConsole
+          arena
           className="report-console"
-          family="spade"
-          crest="spade"
           eyebrow="Integrity Casework"
           title="Conduct Reports"
           pill={titleCase(filter)}
-          pillInk={loadError ? 'red' : pendingCount > 0 ? 'gold' : 'blue'}
-          foot="foot"
         >
           <div className="case-toolbar">
-            <p className="case-kicker">Moderation Queue</p>
-            <div className="filter-tabs" role="tablist" aria-label="Filter Reports By Status">
+            <p className="arena-ops-eyebrow">Moderation Queue</p>
+            <div
+              className="filter-tabs arena-switch"
+              role="tablist"
+              aria-label="Filter Reports By Status"
+            >
               {REPORT_FILTERS.map((item) => (
                 <button
                   key={item}
@@ -368,7 +368,6 @@ export default function ReportReviewPage() {
                   aria-selected={filter === item}
                   aria-controls="report-case-panel"
                   tabIndex={filter === item ? 0 : -1}
-                  className={`filter-tab ${filter === item ? 'active' : ''}`}
                   onClick={() => setFilter(item)}
                   onKeyDown={(event) => handleFilterKeyDown(event, item)}
                 >
@@ -380,27 +379,25 @@ export default function ReportReviewPage() {
 
           <div id="report-case-panel" role="tabpanel" aria-labelledby={`report-filter-${filter}`}>
             {!viewIsCurrent || loading ? (
-              <div
-                className="report-state sc-copy sc-copy--center"
-                role="status"
-                aria-live="polite"
-              >
-                <strong className="sc-label sc-ink--blue">Loading Report Queue</strong>
+              <div className="report-state" role="status" aria-live="polite">
+                <strong className="report-state__title">Loading Report Queue</strong>
                 <p>Confirming The Current Club And Moderation Scope.</p>
               </div>
             ) : loadError ? (
-              <div className="report-state report-error sc-copy sc-copy--center" role="alert">
-                <strong className="sc-label sc-ink--red">Report Queue Unavailable</strong>
+              <div className="report-state report-error" role="alert">
+                <strong className="report-state__title is-danger">Report Queue Unavailable</strong>
                 <p>
                   The Live Moderation Feed Could Not Be Loaded. Existing Case Data Was Not Changed.
                 </p>
-                <button type="button" onClick={() => void loadReports()}>
-                  Retry Report Feed
-                </button>
+                <div className="arena-switch arena-ops-primary">
+                  <button type="button" onClick={() => void loadReports()}>
+                    Retry Report Feed
+                  </button>
+                </div>
               </div>
             ) : visibleReports.length === 0 ? (
-              <div className="report-state sc-copy sc-copy--center">
-                <strong className="sc-label sc-ink--blue">Queue Clear</strong>
+              <div className="report-state">
+                <strong className="report-state__title">Queue Clear</strong>
                 <p>No {filter === 'pending' ? 'Pending ' : ''}Reports Match This View.</p>
               </div>
             ) : (
@@ -418,14 +415,12 @@ export default function ReportReviewPage() {
                   <button
                     key={report.id}
                     type="button"
-                    className="report-card"
+                    className="report-card arena-ledger-row"
                     aria-haspopup="dialog"
                     onClick={() => openReport(report)}
                   >
                     <span className="report-header">
-                      <span className="reason-label sc-ink--silver">
-                        {titleCase(report.reason)}
-                      </span>
+                      <span className="reason-label">{titleCase(report.reason)}</span>
                       <span className={`status-badge status-${report.status}`}>
                         {titleCase(report.status)}
                       </span>
@@ -461,19 +456,16 @@ export default function ReportReviewPage() {
         >
           <div className="report-dialog-shell" ref={dialogShellRef}>
             <SpadeConsole
+              arena
               className="report-dialog-console"
-              family="riveted"
-              crest="flat"
               eyebrow="Conduct Case"
               title="Report Details"
               titleId="report-dialog-title"
               pill={titleCase(selectedReport.report.status)}
-              pillInk={selectedReport.report.status === 'pending' ? 'gold' : 'blue'}
               role="dialog"
               aria-modal="true"
               aria-labelledby="report-dialog-title"
               onClose={closeReport}
-              foot={selectedReport.report.status === 'pending' ? 'plates' : 'foot'}
               plates={
                 selectedReport.report.status === 'pending'
                   ? {
@@ -484,7 +476,6 @@ export default function ReportReviewPage() {
                       },
                       primary: {
                         label: 'Take Action',
-                        ink: 'red',
                         disabled: processing,
                         onClick: () => handleAction(selectedReport.report.id, 'actioned'),
                       },
@@ -525,6 +516,7 @@ export default function ReportReviewPage() {
                       <label htmlFor="report-admin-notes">Decision Notes</label>
                       <textarea
                         id="report-admin-notes"
+                        className="arena-ops-well"
                         value={adminNotes}
                         onChange={(event) => setAdminNotes(event.target.value)}
                         placeholder="Record The Evidence And Decision Rationale"

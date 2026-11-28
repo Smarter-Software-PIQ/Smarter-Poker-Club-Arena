@@ -60,6 +60,19 @@
   --mast-ink: #152c78;
   --mast-light: #82b3ff;
 }
+.arena-workspace-mast[data-mast='finance'] {
+  --mast-ink: #1d3974;
+  --mast-light: #89bcff;
+}
+.arena-workspace-mast[data-mast='dashboard'],
+.arena-workspace-mast[data-mast='control'] {
+  --mast-ink: #063e61;
+  --mast-light: #47d5f2;
+}
+.arena-workspace-mast:is([data-mast='reports'], [data-mast='integrity'], [data-mast='handreview']) {
+  --mast-ink: #152c78;
+  --mast-light: #82b3ff;
+}
 
 .arena-workspace-mast::before {
   content: '';

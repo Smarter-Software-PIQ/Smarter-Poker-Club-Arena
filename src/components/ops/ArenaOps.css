@@ -1,0 +1,302 @@
+/* CLUB OPERATIONS IN #SMARTERDESIGN (Dan 2026-11-27). The case, tiles, switch
+   and rows come from ArenaWorkspace.css; this sheet only lays them out for the
+   Club Operations pages and dresses their insides with the same chrome inks. */
+
+/* A page nested inside another arena workspace does not pad twice. */
+.arena-workspace .arena-ops-embedded.arena-workspace {
+  padding: 0;
+  background: none;
+}
+
+/* Everything inside a case paints above its chrome frame. */
+.arena-workspace .arena-ops-case {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+}
+.arena-workspace .arena-ops-case > * {
+  position: relative;
+  z-index: 2;
+}
+.arena-workspace .arena-ops-case > .arena-section-title {
+  margin: 0;
+}
+.arena-workspace .arena-ops-case > .arena-section-title small {
+  color: #9fbacc;
+  font:
+    11px/1.2 Arial,
+    sans-serif;
+  white-space: nowrap;
+}
+
+.arena-workspace .arena-ops-eyebrow {
+  margin: 0;
+  color: #74dfff;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.arena-workspace .arena-ops-copy {
+  margin: 0;
+  color: #b6c8d6;
+  font:
+    12px/1.4 Arial,
+    sans-serif;
+}
+.arena-workspace .arena-ops-live {
+  margin: 0;
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+}
+
+/* ── Readouts ───────────────────────────────────────────────────────── */
+.arena-workspace .arena-ops-readings {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+}
+.arena-workspace .arena-ops-readings dt {
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.arena-workspace .arena-ops-readings dd {
+  margin: 2px 0 0;
+  color: #f1f5fc;
+  font:
+    800 18px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.arena-workspace .arena-ops-readings dd.arena-ops-reading-sub {
+  color: #9aabba;
+  font:
+    10px/1.3 Arial,
+    sans-serif;
+}
+.arena-workspace .arena-ops-readings [data-tone='live'] dd:first-of-type {
+  color: #74dfff;
+}
+.arena-workspace .arena-ops-readings [data-tone='attention'] dd:first-of-type {
+  color: #ffd700;
+}
+.arena-workspace .arena-ops-readings [data-tone='danger'] dd:first-of-type {
+  color: #ff5a6a;
+}
+.arena-workspace .arena-ops-readings[aria-busy='true'] dd:first-of-type {
+  min-height: 20px;
+  color: transparent;
+}
+@media (max-width: 720px) {
+  .arena-workspace .arena-ops-readings {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ── Rows ───────────────────────────────────────────────────────────── */
+.arena-workspace .arena-ops-rows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.arena-workspace .arena-ops-rows--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+.arena-workspace .arena-ops-rows > li {
+  display: flex;
+  min-width: 0;
+}
+@media (max-width: 720px) {
+  .arena-workspace .arena-ops-rows {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.arena-workspace .arena-ops-row {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 52px;
+  padding: 6px 8px;
+  color: #f1f5fc;
+  text-decoration: none;
+}
+.arena-workspace .arena-ops-row__index {
+  color: #74dfff;
+  font:
+    800 13px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.arena-workspace .arena-ops-row__copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+.arena-workspace .arena-ops-row__copy strong {
+  font:
+    700 14px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+  color: #f1f5fc;
+}
+.arena-workspace .arena-ops-row__copy small {
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+}
+.arena-workspace .arena-ops-row__signal {
+  color: #74dfff;
+  font:
+    800 16px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.arena-workspace .arena-ops-row__signal[data-tone='attention'] {
+  color: #ffd700;
+}
+.arena-workspace .arena-ops-row__signal[data-tone='danger'] {
+  color: #ff5a6a;
+}
+.arena-workspace .arena-ops-row__chevron {
+  color: #74dfff;
+  font:
+    700 20px/1 Arial,
+    sans-serif;
+}
+.arena-workspace .arena-ops-row:focus-visible {
+  outline: 2px solid #45adff;
+  outline-offset: 2px;
+}
+
+/* ── Keys: a switch that wraps instead of squeezing ─────────────────── */
+.arena-workspace .arena-switch.arena-ops-keys {
+  flex-wrap: wrap;
+  margin: 0;
+}
+.arena-workspace .arena-switch.arena-ops-keys > :is(button, a) {
+  flex: 1 1 calc(50% - 4px);
+}
+@media (min-width: 721px) {
+  .arena-workspace .arena-switch.arena-ops-keys > :is(button, a) {
+    flex: 1 1 0;
+  }
+}
+.arena-workspace .arena-switch > a {
+  display: grid;
+  place-content: center;
+  text-decoration: none;
+}
+.arena-workspace .arena-switch > :is(button, a):disabled {
+  opacity: 0.55;
+}
+.arena-workspace .arena-switch > :is(button, a):focus-visible {
+  outline: 2px solid #45adff;
+  outline-offset: 2px;
+}
+.arena-workspace .arena-switch.arena-ops-primary > :is(button, a):first-child {
+  color: white;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
+}
+.arena-workspace .arena-switch.arena-ops-primary > :is(button, a):first-child::after {
+  border-image-source: var(--arena-active);
+}
+
+/* A dark well for a text field or select inside a case. */
+.arena-workspace .arena-ops-well {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  color: #f1f5fc;
+  background: #030b14;
+  border: 1px solid #253e57;
+  border-radius: 4px;
+  font:
+    13px/1.4 Arial,
+    sans-serif;
+}
+.arena-workspace .arena-ops-well:focus-visible {
+  outline: 2px solid #45adff;
+  outline-offset: 1px;
+}
+
+/* The live metrics under a Club Operations mast sit in one even row of
+   chrome meters, however many a page has (Reports has three, Overview one). */
+.arena-workspace:has(
+    .arena-workspace-mast:is(
+      [data-mast='operations'],
+      [data-mast='dashboard'],
+      [data-mast='reports'],
+      [data-mast='integrity'],
+      [data-mast='handreview'],
+      [data-mast='finance'],
+      [data-mast='control'],
+      [data-mast='settings']
+    )
+  )
+  .ca-page-bar__metrics {
+  display: grid;
+  flex: 1 1 100%;
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: 4px;
+  margin: 7px 0 0;
+}
+.arena-workspace:has(
+    .arena-workspace-mast:is(
+      [data-mast='operations'],
+      [data-mast='dashboard'],
+      [data-mast='reports'],
+      [data-mast='integrity'],
+      [data-mast='handreview'],
+      [data-mast='finance'],
+      [data-mast='control'],
+      [data-mast='settings']
+    )
+  )
+  .ca-page-bar__metric {
+  align-items: center;
+  margin: 0;
+}
+.arena-workspace:has(
+    .arena-workspace-mast:is(
+      [data-mast='operations'],
+      [data-mast='dashboard'],
+      [data-mast='reports'],
+      [data-mast='integrity'],
+      [data-mast='handreview'],
+      [data-mast='finance'],
+      [data-mast='control'],
+      [data-mast='settings']
+    )
+  )
+  .ca-page-bar__live {
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  width: 100%;
+}
