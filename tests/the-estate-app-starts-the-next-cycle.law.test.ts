@@ -191,7 +191,9 @@ describe('both dispatches are sent as the estate App from a github-app-main job'
       for (const line of run.split('\n').filter((l) => l.includes('JOB TOKEN FALLBACK::'))) {
         expect(line).toContain('with the job token exactly as before 2026-11-27');
         expect(line).toContain('starts no election');
-        expect(line).toContain('The operator fallback on the Mac covers the next cycle.');
+        expect(line).toContain(
+          'The operator fallback on the Mac is the cover for the next cycle while that Mac is on.'
+        );
       }
       expect(run).not.toMatch(/::error[^\n]*ESTATE APP/);
       // The job token can still make the same POST.

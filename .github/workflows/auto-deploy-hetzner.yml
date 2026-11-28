@@ -1564,12 +1564,12 @@ jobs:
                 SENDER='the estate App'
                 echo '::warning title=ESTATE APP DISPATCH ANSWER LOST::GitHub answered the estate App dispatch with an error and started the receiver anyway; nothing is sent again.'
               else
-                echo '::warning title=ESTATE APP DISPATCH FAILED, JOB TOKEN FALLBACK::GitHub did not accept the estate App dispatch. Sending the certification with the job token exactly as before 2026-11-27: both receivers still run, but the completion of the post-seal Backup starts no election. The operator fallback on the Mac covers the next cycle.'
+                echo '::warning title=ESTATE APP DISPATCH FAILED, JOB TOKEN FALLBACK::GitHub did not accept the estate App dispatch. Sending the certification with the job token exactly as before 2026-11-27: both receivers still run, but the completion of the post-seal Backup starts no election. The operator fallback on the Mac is the cover for the next cycle while that Mac is on.'
                 send "$GH_TOKEN"
               fi
             fi
           else
-            echo '::warning title=NO ESTATE APP TOKEN, JOB TOKEN FALLBACK::No estate App token could be minted (see the step above). Sending the certification with the job token exactly as before 2026-11-27: both receivers still run, but the completion of the post-seal Backup starts no election. The operator fallback on the Mac covers the next cycle.'
+            echo '::warning title=NO ESTATE APP TOKEN, JOB TOKEN FALLBACK::No estate App token could be minted (see the step above). Sending the certification with the job token exactly as before 2026-11-27: both receivers still run, but the completion of the post-seal Backup starts no election. The operator fallback on the Mac is the cover for the next cycle while that Mac is on.'
             send "$GH_TOKEN"
           fi
           echo "Production E2E dispatch accepted for exact engine component $ENGINE_SHA (sent by $SENDER)."
