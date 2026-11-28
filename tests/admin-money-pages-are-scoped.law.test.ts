@@ -79,7 +79,7 @@ describe('LAW: an admin money page names its club before it reads a number', () 
       expect(source).toMatch(/useFinancialAdminScope\(\)/);
       expect(source).toMatch(/from '\.\.\/hooks\/useFinancialAdminScope'/);
       expect(source).toMatch(
-        /<FinancialAdminScopeState scope=\{scope\} \/>|scope\.message \|\| 'Verifying Your Financial Access'/
+        /<FinancialAdminScopeState scope=\{scope\}(?: arena)? \/>|scope\.message \|\| 'Verifying Your Financial Access'/
       );
       expect(source).toMatch(/scope\.status !== 'ready'/);
     });

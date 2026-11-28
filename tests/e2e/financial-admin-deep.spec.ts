@@ -66,11 +66,15 @@ const LINKED_CONSOLES: readonly LinkedConsole[] = [
     relativeUrl: `settlement-dashboard?club=${encodeURIComponent(CLUB_ID)}`,
     heading: 'Weekly Accounting',
     root: 'main',
+    chassis: 'arena',
   },
   {
     label: 'CSV Exports',
     relativeUrl: `clubs/${encodeURIComponent(CLUB_ID)}/financials`,
-    heading: 'Financials',
+    // The page's mast h1 is "Club Financials" (ArenaWorkspaceHeader title). The
+    // loop stops at its first failing console, so this entry only ran once the
+    // Disputes heading was fixed (#12353), in post-deploy run 46145685859.
+    heading: 'Club Financials',
     root: '.financials-page',
     chassis: 'arena',
   },

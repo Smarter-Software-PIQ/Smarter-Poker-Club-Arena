@@ -478,8 +478,9 @@ describe('the record: what his called river bets were shown to be, public only',
     act(A, 'river', 'bet', riverBet),
     act(B, 'river', 'call', riverBet),
   ];
+  let nextHandKey = 0;
   const hand = (over: Record<string, unknown> = {}) => ({
-    handKey: `k-${Math.random()}`,
+    handKey: `k-${++nextHandKey}`,
     variant: 'nlh',
     mode: 'cash' as const,
     actions: headsUp(3),

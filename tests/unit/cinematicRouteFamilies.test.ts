@@ -7,9 +7,7 @@ import {
 } from '../helpers/dailyChallengesSources';
 
 const REWARD_PAGES = [
-  'src/pages/VIPPage.tsx',
   'src/pages/RakebackPage.tsx',
-  'src/pages/DailyBonusPage.tsx',
   'src/pages/AchievementsPage.tsx',
   'src/pages/MarketplacePage.tsx',
 ];
@@ -21,8 +19,6 @@ const PLAY_PAGES = [
 ];
 
 const UNION_PAGES = [
-  'src/pages/CreateUnionPage.tsx',
-  'src/pages/UnionDetailPage.tsx',
   'src/pages/UnionGamesPage.tsx',
   'src/pages/UnionStatementsPage.tsx',
   'src/pages/UnionDashboardPage.tsx',
@@ -48,6 +44,24 @@ describe('cinematic retained route families', () => {
     // the arena case, never the painted console (player pages batch P4).
     const source = readFileSync('src/pages/TransactionHistoryPage.tsx', 'utf8');
     expect(source).toContain('className="transaction-history-page arena-workspace"');
+    expect(source).toContain('<ArenaWorkspaceHeader');
+    expect(source).not.toContain('RewardsSurfaceHeader');
+  });
+
+  it('VIP wears the arena workspace (#SmarterDesign, Dan 2026-11-27)', () => {
+    // Player pages batch P6: the chrome mast and arena cases, never the
+    // Rewards Circuit page bar.
+    const source = readFileSync('src/pages/VIPPage.tsx', 'utf8');
+    expect(source).toContain('className="vip-page arena-workspace"');
+    expect(source).toContain('<ArenaWorkspaceHeader');
+    expect(source).not.toContain('RewardsSurfaceHeader');
+  });
+
+  it('Daily Bonus wears the arena workspace (#SmarterDesign, Dan 2026-11-27)', () => {
+    // Player pages batch P6: the chrome mast and one arena case around the
+    // sheet's glass, never the Rewards Circuit header's painted console.
+    const source = readFileSync('src/pages/DailyBonusPage.tsx', 'utf8');
+    expect(source).toContain('className="daily-bonus-page arena-workspace"');
     expect(source).toContain('<ArenaWorkspaceHeader');
     expect(source).not.toContain('RewardsSurfaceHeader');
   });
@@ -172,6 +186,23 @@ describe('cinematic retained route families', () => {
     const results = readFileSync('src/pages/tournament/TournamentResultsPage.tsx', 'utf8');
     expect(results).toContain('className="tournament-results-page"');
     expect(results).not.toContain('className="tournament-details"');
+  });
+
+  it('Union Command wears the arena workspace (#SmarterDesign batch U1, 2026-11-28)', () => {
+    // "THE SAME #SMARTERDESIGN UPGRADE TO EVERY SINGLE PAGE" (Dan, 2026-11-27)
+    // supersedes the shared page bar header for this page: the chrome mast,
+    // the live figures under it and the arena cases.
+    const source = readFileSync('src/pages/UnionDetailPage.tsx', 'utf8');
+    expect(source).toContain('className="union-detail arena-workspace"');
+    expect(source).toContain('<ArenaWorkspaceHeader');
+    expect(source).not.toContain('CasinoSurfaceHeader');
+  });
+
+  it('Forge A Union wears the arena workspace (#SmarterDesign batch U1, 2026-11-28)', () => {
+    const source = readFileSync('src/pages/CreateUnionPage.tsx', 'utf8');
+    expect(source).toContain('className="create-union arena-workspace"');
+    expect(source).toContain('<ArenaWorkspaceHeader');
+    expect(source).not.toContain('CasinoSurfaceHeader');
   });
 
   it('renders a union avatar image instead of exposing its URL as text', () => {

@@ -1,337 +1,188 @@
 /**
- * UNION COMMAND — #SmarterCasinoRealism
- * One black-first operations deck, cold machined edges and a restrained blue
- * energy seam. No glass cards, ornamental plaques or arcade glow fields.
+ * UNION COMMAND, #SmarterDesign (batch U1, 2026-11-28)
+ *
+ * The arena workspace language of Player Management, the Cashier and Club
+ * Data (src/components/lobby/ArenaWorkspace.css, src/components/ops/ArenaOps.css):
+ * each union is a thin chrome case, its figures sit on chrome readout tiles
+ * and Open Union is the case's one lit key. Every rule is scoped under the
+ * page's arena root. No hover state; focus rings only.
  */
 
-.unions-page {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  width: 100%;
-  min-height: 100vh;
+.unions-page.arena-workspace {
   min-height: 100dvh;
-  padding: clamp(12px, 2vw, 28px);
   padding-bottom: max(92px, env(safe-area-inset-bottom));
   overflow-x: clip;
-  color: #e7eef5;
-  background:
-    linear-gradient(90deg, rgba(5, 9, 13, 0.96), rgba(5, 9, 13, 0.7) 58%, rgba(5, 9, 13, 0.94)),
-    var(--union-network-art, none) right -120px top 20px / min(700px, 68vw) auto no-repeat,
-    #05090d;
 }
 
-.union-create-button,
-.union-secondary-button {
-  min-height: 44px;
-  padding: 10px 18px;
-  color: #eff7ff;
-  font:
-    700 13px/1 'Rajdhani',
-    'Roboto Condensed',
-    system-ui,
-    sans-serif;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  cursor: pointer;
-  background: linear-gradient(180deg, #1b527f, #0d2e49);
-  border: 1px solid #6fb9f8;
-  border-radius: 3px;
-  box-shadow:
-    inset 0 1px rgba(255, 255, 255, 0.14),
-    0 0 18px rgba(46, 155, 255, 0.16);
-}
-
-.union-create-button:focus-visible,
-.union-secondary-button:focus-visible,
-.union-card:focus-visible {
-  outline: 2px solid #75beff;
-  outline-offset: 3px;
-}
-
-.unions-grid {
+.unions-page.arena-workspace .unions-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr));
+  gap: 0 10px;
 }
 
-.unions-state {
+.unions-page.arena-workspace .unions-state {
   grid-column: 1 / -1;
 }
 
-.union-card-shell {
+.unions-page.arena-workspace .union-card-shell {
   min-width: 0;
 }
 
-.union-card {
-  position: relative;
-  display: flex;
-  height: 100%;
-  min-height: 350px;
-  flex-direction: column;
-  gap: 18px;
-  padding: 22px;
-  overflow: hidden;
-  color: inherit;
+/* The card is one link: the whole case opens the union. */
+.unions-page.arena-workspace .union-card {
+  box-sizing: border-box;
+  height: calc(100% - 14px);
+  color: #f1f5fc;
   text-decoration: none;
-  background:
-    linear-gradient(135deg, rgba(139, 168, 191, 0.07), transparent 38%),
-    linear-gradient(180deg, #0c1319, #070b0f 78%);
-  border: 1px solid rgba(147, 174, 196, 0.3);
-  border-radius: 4px;
-  box-shadow:
-    inset 0 1px rgba(255, 255, 255, 0.055),
-    inset 0 -1px rgba(0, 0, 0, 0.9),
-    0 18px 38px rgba(0, 0, 0, 0.28);
-  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
-  transition:
-    border-color 160ms ease,
-    transform 160ms ease,
-    box-shadow 160ms ease;
+}
+.unions-page.arena-workspace .union-card:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
 }
 
-.union-card::after {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 2px;
-  background: linear-gradient(180deg, transparent, #4fa8f2 24% 76%, transparent);
-  opacity: 0.36;
-}
-
-.union-header {
+.unions-page.arena-workspace .union-header {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
+  min-width: 0;
 }
-
-.union-icon {
+.unions-page.arena-workspace .union-header .arena-section-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.unions-page.arena-workspace .union-icon {
   display: grid;
-  width: 58px;
-  height: 58px;
-  flex: 0 0 58px;
+  flex: 0 0 auto;
   place-items: center;
+  width: 44px;
+  height: 44px;
+  box-sizing: border-box;
   overflow: hidden;
-  color: #cfe9ff;
+  color: #74dfff;
+  background: var(--arena-tile);
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
   font:
-    600 26px/1 'Rajdhani',
+    800 20px/1 'Arial Narrow',
+    Arial,
     sans-serif;
-  background: radial-gradient(circle at 36% 28%, #254969, #0a1722 68%);
-  border: 1px solid rgba(169, 198, 222, 0.5);
-  border-radius: 3px;
-  box-shadow:
-    inset 0 0 0 2px #071019,
-    0 0 16px rgba(62, 152, 229, 0.14);
 }
-
-.union-icon img {
+.unions-page.arena-workspace .union-icon img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.union-header h2 {
-  margin: 3px 0 0;
-  color: #edf4fa;
-  font-family: 'Rajdhani', 'Roboto Condensed', system-ui, sans-serif;
-  font-size: 24px;
-  font-weight: 600;
-  line-height: 1.05;
-}
-
-.union-description {
-  min-height: 44px;
+.unions-page.arena-workspace .union-description {
   margin: 0;
-  color: #9babb9;
-  font-size: 13px;
-  line-height: 1.62;
+  color: #b6c8d6;
+  font:
+    12px/1.4 Arial,
+    sans-serif;
 }
 
-.union-stats {
+/* Four readout tiles; the value prints first in the DOM, the label rides on top. */
+.unions-page.arena-workspace .union-stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  padding: 14px 0;
-  border-top: 1px solid rgba(162, 185, 204, 0.16);
-  border-bottom: 1px solid rgba(162, 185, 204, 0.16);
+  gap: 4px;
 }
-
-.union-stat {
+.unions-page.arena-workspace .union-stat {
   display: flex;
-  min-width: 0;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  padding: 0 6px;
-  border-right: 1px solid rgba(162, 185, 204, 0.1);
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+  gap: 2px;
 }
-
-.union-stat:last-child {
-  border-right: 0;
-}
-
-.union-stat .stat-value {
-  max-width: 100%;
-  overflow: hidden;
-  color: #dfeaf3;
+.unions-page.arena-workspace .union-stat .stat-label {
+  color: #9fbacc;
   font:
-    700 17px/1 'Rajdhani',
-    'Roboto Condensed',
-    system-ui,
+    700 10px/1.2 'Arial Narrow',
+    Arial,
     sans-serif;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
 }
-
-.union-stat .stat-value.online {
-  color: #65d7a1;
-}
-
-.union-stat .stat-label {
-  max-width: 100%;
-  overflow: hidden;
-  color: #748696;
+.unions-page.arena-workspace .union-stat .stat-value {
+  color: #f1f5fc;
   font:
-    700 9px/1.2 'Rajdhani',
-    'Roboto Condensed',
-    system-ui,
+    800 18px/1.1 'Arial Narrow',
+    Arial,
     sans-serif;
-  letter-spacing: 0.08em;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.unions-page.arena-workspace .union-stat .stat-value.online {
+  color: #74dfff;
 }
 
-.union-progress {
+.unions-page.arena-workspace .union-progress {
+  position: relative;
   height: 4px;
   overflow: hidden;
-  background: #030609;
-  border: 1px solid rgba(149, 175, 196, 0.22);
-  border-radius: 2px;
+  background: #040d17;
+  border: 1px solid #253e57;
 }
-
-.union-progress > span {
+.unions-page.arena-workspace .union-progress > span {
   display: block;
   height: 100%;
-  transition: width 500ms ease-out;
 }
-
-.union-progress-copy {
+.unions-page.arena-workspace .union-progress-copy {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  margin-top: -12px;
-  color: #738697;
+  gap: 8px;
+  color: #9fbacc;
   font:
-    700 10px/1.2 'Rajdhani',
-    'Roboto Condensed',
-    system-ui,
+    700 10px/1.2 'Arial Narrow',
+    Arial,
     sans-serif;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
-.union-card-action {
+/* Open Union: the case's one chrome key, on the lit rim. The card is a link,
+   so the key is a span and takes the kit's glass and active rim directly. */
+.unions-page.arena-workspace .union-card-key {
   display: flex;
-  min-height: 44px;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: auto;
-  padding: 0 14px;
-  color: #dceeff;
-  font:
-    700 12px/1 'Rajdhani',
-    'Roboto Condensed',
-    system-ui,
-    sans-serif;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  background: linear-gradient(180deg, rgba(32, 55, 73, 0.82), rgba(13, 24, 33, 0.9));
-  border: 1px solid rgba(116, 157, 190, 0.4);
-  border-radius: 3px;
 }
-
-.union-card-action span {
-  color: #75beff;
-  font-size: 24px;
-  font-weight: 400;
-}
-
-.create-union-cta {
+.unions-page.arena-workspace .union-card-action {
   position: relative;
-  padding: clamp(24px, 4vw, 44px);
-  overflow: hidden;
-  text-align: left;
-  background: linear-gradient(105deg, #0d151c, #070b0f 70%);
-  border: 1px solid rgba(149, 175, 196, 0.27);
-  border-radius: 4px;
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.045);
-}
-
-.create-union-cta h2 {
-  margin: 0 0 8px;
-  color: #e4edf5;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 6px 5px;
+  color: white;
+  background: var(--arena-tile);
   font:
-    600 clamp(24px, 3vw, 36px)/1 'Rajdhani',
-    'Roboto Condensed',
-    system-ui,
+    700 12px 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
     sans-serif;
-  letter-spacing: 0.03em;
+}
+.unions-page.arena-workspace .union-card-action::after {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: '';
+  border-image: var(--arena-active) 11 / 6px stretch;
+}
+.unions-page.arena-workspace .union-card:active .union-card-action {
+  filter: brightness(0.86);
 }
 
-.create-union-cta p {
-  max-width: 620px;
-  margin: 0 0 22px;
-  color: #91a3b2;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.union-secondary-button {
-  background: linear-gradient(180deg, #1a2731, #0d141a);
-  border-color: rgba(158, 185, 207, 0.5);
-}
-
-@media (max-width: 640px) {
-  .unions-page {
-    gap: 14px;
-    padding: 10px;
-    padding-bottom: 92px;
-    background:
-      linear-gradient(180deg, rgba(5, 9, 13, 0.88), #05090d 460px),
-      url('/assets/club-buttons/wallets/desktop/wallet-union-bank-v1.webp') center top / 520px auto
-        no-repeat,
-      #05090d;
-  }
-
-  .union-create-button {
-    width: 100%;
-  }
-
-  .union-card {
-    min-height: 330px;
-    padding: 18px;
-  }
-
-  .union-stat {
-    padding-inline: 3px;
-  }
-
-  .create-union-cta {
-    padding: 24px 18px;
+@media (max-width: 380px) {
+  .unions-page.arena-workspace .union-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .union-card-shell {
+  .unions-page.arena-workspace .union-card-shell {
+    animation: none !important;
     opacity: 1 !important;
     transform: none !important;
-    animation: none !important;
-  }
-
-  .union-card,
-  .union-progress > span,
-  .union-create-button,
-  .union-secondary-button {
-    transition: none;
   }
 }
