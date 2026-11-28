@@ -13,10 +13,10 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-BUILDER = "club-arena-engine-bounded-v4"
+BUILDER = "club-arena-engine-bounded-v5"
 CONTAINER = f"buildx_buildkit_{BUILDER}0"
 NODE = "mirror.gcr.io/library/node:22-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5"
-LIMIT = 2147483648
+LIMIT = 4294967296
 
 
 def run(args, *, timeout=60, check=True, env=None):
@@ -377,7 +377,7 @@ def main():
             fault.mkdir()
             (fault / "Dockerfile").write_text(
                 f"FROM {NODE}\n"
-                "RUN node --max-old-space-size=4096 -e \"const held=[];"
+                "RUN node --max-old-space-size=8192 -e \"const held=[];"
                 "for(;;)held.push(Buffer.alloc(16*1024*1024,1))\"\n")
             result = run(["docker", "buildx", "build", "--builder", BUILDER,
                           "--load", "--progress", "plain", "-t", failed_tag, str(fault)],

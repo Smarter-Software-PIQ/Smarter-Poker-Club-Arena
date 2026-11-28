@@ -23,10 +23,14 @@ BUILD_CONTRACT='clean-server-archive-v1'
 # 512 and 544 MiB and peaks near 830 MiB RSS; a real bounded Linux build with
 # a 1024 MiB heap peaked at 1261 MiB of cgroup memory including page cache.
 # v4 is 2048 MiB with no swap, 62% above that kernel peak.
-BUILDER='club-arena-engine-bounded-v4'
+# 2026-11-24: the emit grew to need about 1001 MiB of v4's 1024 MiB heap and
+# about 100 KB of new engine source pushed it over. v5 doubles the builder to
+# 4096 MiB with no swap and the compiler heap (server/Dockerfile) to 2048 MiB
+# together, keeping the heap at half the cgroup. v4 is never resized.
+BUILDER='club-arena-engine-bounded-v5'
 BUILDER_CONTAINER="buildx_buildkit_${BUILDER}0"
 BUILDKIT_IMAGE='moby/buildkit@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8'
-BUILD_MEMORY_BYTES=2147483648
+BUILD_MEMORY_BYTES=4294967296
 BUILD_RESERVE_KIB=262144
 
 die() {
