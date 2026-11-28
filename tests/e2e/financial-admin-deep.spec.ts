@@ -48,6 +48,7 @@ const LINKED_CONSOLES: readonly LinkedConsole[] = [
     relativeUrl: 'agent-portal',
     heading: 'Agent Command Center',
     root: 'main',
+    chassis: 'arena',
   },
   {
     label: 'Credit Admin',

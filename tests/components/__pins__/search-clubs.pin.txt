@@ -44,7 +44,7 @@
       "data-tone=open"
     ]
   },
-  "text": "Results | 9 | Network Scanner | Community Search | LIVE DATA | Search The Smarter Poker Network | ⌕ | 9 | Matches | · Showing 4 | Filtered To Clubs | · Fuzzy On | Clubs | 9",
+  "text": "Results | 9 | Network Scanner | Community Search | Live Data | Search The Smarter Poker Network | ⌕ | 9 | Matches | · Showing 4 | Filtered To Clubs | · Fuzzy On | Clubs | 9",
   "regions": [
     "dl||Find Your Next Game Live Summary",
     "form|search|",

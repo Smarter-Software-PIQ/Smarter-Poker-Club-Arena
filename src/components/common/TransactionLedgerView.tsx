@@ -234,9 +234,9 @@ interface Props {
    * #SmarterDesign (2026-11-28, opt-in). Inside an arena workspace page the
    * ledger prints on the workspace's dress: each movement a chrome ledger row,
    * Try Again a lit chrome key, inks from the workspace. Every word, figure,
-   * role, name and handler is the same; only class names change. Hosts that do
-   * not pass it (Union Operations, Agent Dashboard, Agent Portal, Financials)
-   * keep the painted-console look.
+   * role, name and handler is the same; only class names change. The
+   * Settlement Center and the Agent Portal pass it; hosts that do not (Union
+   * Operations, Agent Dashboard, Financials) keep the painted-console look.
    */
   arena?: boolean;
 }

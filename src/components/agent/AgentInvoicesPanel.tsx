@@ -5,6 +5,12 @@
  *  Lists the agent's credit_invoices (CreditService.getAgentInvoices) and lets them
  *  pay an outstanding balance from their player wallet in that club (CreditService.processPayment).
  *  Invoices are generated weekly by fn_generate_all_credit_invoices on the server weekly close. Mobile-first, no emoji.
+ *
+ *  #SmarterDesign (batch A2, 2026-11-28): the Agent Portal is this panel's only
+ *  host, and it is an arena workspace page, so the panel is one thin chrome
+ *  case: its title over the hairline, the weekly line and status where the
+ *  console pill stood, every invoice a chrome ledger row, Pay Now and Retry lit
+ *  chrome keys. Words, figures, handlers and guards are unchanged.
  */
 
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
@@ -19,15 +25,18 @@ import { reportError } from '../../utils/errorReporter';
 import { uuid } from '../../utils/uuid';
 import { compactChips } from '../../utils/format';
 import { titleCase } from '../../utils/titleCase';
-import { SpadeConsole, type ConsoleInk } from '../console/SpadeConsole';
-import styles from './AgentInvoicesPanel.module.css';
+import '../ops/ArenaOps.css';
+import './AgentInvoicesArena.css';
 
 interface Props {
   /** agents.id PK (NOT auth.uid) */
   agentId: string | null;
 }
 
-const STATUS_INKS: Record<string, ConsoleInk> = {
+/** The workspace ink a status reads in (AgentInvoicesArena.css). */
+type Ink = 'gold' | 'red' | 'green' | 'muted' | 'blue';
+
+const STATUS_INKS: Record<string, Ink> = {
   pending: 'gold',
   partial: 'gold',
   overdue: 'red',
@@ -157,7 +166,7 @@ export default function AgentInvoicesPanel({ agentId }: Props) {
       : outstanding.length > 0
         ? `${outstanding.length} Due`
         : 'Clear';
-  const pillInk: ConsoleInk = unavailable
+  const pillInk: Ink = unavailable
     ? 'red'
     : loading
       ? 'blue'
@@ -166,43 +175,40 @@ export default function AgentInvoicesPanel({ agentId }: Props) {
         : 'green';
 
   return (
-    <SpadeConsole
-      className={styles.panel}
-      family="spade"
-      crest="spade"
-      eyebrow="Weekly Credit"
-      title="Credit Invoices"
-      titleId="agent-credit-invoices-title"
-      pill={pill}
-      pillInk={pillInk}
-      foot="foot"
+    <section
+      className="arena-case arena-ops-case agent-invoices-arena"
       aria-labelledby="agent-credit-invoices-title"
       aria-busy={loading || Boolean(payingId)}
     >
+      <h2 id="agent-credit-invoices-title" className="arena-section-title">
+        Credit Invoices
+      </h2>
+      <p className="agent-invoices-arena__status">
+        Weekly Credit
+        <span className={`agent-invoices-arena__ink--${pillInk}`}>{pill}</span>
+      </p>
       {loading ? (
-        <div className={styles.state} role="status" aria-live="polite">
-          <p className="sc-copy sc-copy--center sc-ink--muted">Loading Invoices...</p>
+        <div className="agent-invoices-arena__state" role="status" aria-live="polite">
+          <p>Loading Invoices...</p>
         </div>
       ) : unavailable ? (
-        <div className={styles.state} role="alert">
-          <p className="sc-copy sc-copy--center sc-ink--red">
+        <div className="agent-invoices-arena__state" role="alert">
+          <p className="agent-invoices-arena__ink--red">
             Invoices Unavailable. Try Again To Check Your Balance.
           </p>
-          <button
-            type="button"
-            className={`${styles.litAction} sc-ink--blue`}
-            onClick={() => void load()}
-          >
-            Retry
-          </button>
+          <div className="arena-switch arena-ops-keys arena-ops-primary">
+            <button type="button" onClick={() => void load()}>
+              Retry
+            </button>
+          </div>
         </div>
       ) : invoices.length === 0 ? (
-        <p className="sc-copy sc-copy--center sc-ink--muted">
+        <p className="agent-invoices-arena__empty">
           No Invoices. Weekly Top-Up Invoices Use Your Credit Line Minus Your Agent Wallet Before
           Rakeback.
         </p>
       ) : (
-        <ol className={styles.invoiceList} aria-label="Credit Invoice History">
+        <ol className="agent-invoices-arena__list" aria-label="Credit Invoice History">
           {invoices.map((inv) => {
             const ink = STATUS_INKS[inv.status] ?? 'muted';
             // A number alone was not enough. Ask the STATUS as well, so a
@@ -210,16 +216,18 @@ export default function AgentInvoicesPanel({ agentId }: Props) {
             // is going to refuse.
             const canPay = OWED_INVOICE_STATUSES.has(inv.status) && inv.amountRemaining > 0;
             return (
-              <li className={styles.invoiceRow} key={inv.id}>
-                <div className={styles.invoiceIdentity}>
-                  <strong className={styles.period}>Week Of {fmtDate(inv.periodStart)}</strong>
-                  <span className={styles.meta}>
+              <li className="agent-invoices-arena__row arena-ledger-row" key={inv.id}>
+                <div className="agent-invoices-arena__identity">
+                  <strong>Week Of {fmtDate(inv.periodStart)}</strong>
+                  <span className="agent-invoices-arena__meta">
                     <span>Due {fmtDate(inv.dueDate)}</span>
-                    <span className={`sc-ink--${ink}`}>{invoiceStatus(inv.status)}</span>
+                    <span className={`agent-invoices-arena__ink--${ink}`}>
+                      {invoiceStatus(inv.status)}
+                    </span>
                   </span>
                 </div>
-                <div className={styles.invoiceAmount}>
-                  <strong className="sc-ink--silver">
+                <div className="agent-invoices-arena__amount">
+                  <strong>
                     {compactChips(inv.amountRemaining)} <span>Due</span>
                   </strong>
                   {inv.amountPaid > 0 && (
@@ -229,21 +237,22 @@ export default function AgentInvoicesPanel({ agentId }: Props) {
                   )}
                 </div>
                 {canPay && (
-                  <button
-                    type="button"
-                    title="Pay From Your Player Wallet In This Club"
-                    onClick={() => handlePay(inv)}
-                    disabled={payingId === inv.id}
-                    className={`${styles.litAction} sc-ink--blue`}
-                  >
-                    {payingId === inv.id ? 'Paying...' : 'Pay Now'}
-                  </button>
+                  <div className="arena-switch arena-ops-keys arena-ops-primary agent-invoices-arena__pay">
+                    <button
+                      type="button"
+                      title="Pay From Your Player Wallet In This Club"
+                      onClick={() => handlePay(inv)}
+                      disabled={payingId === inv.id}
+                    >
+                      {payingId === inv.id ? 'Paying...' : 'Pay Now'}
+                    </button>
+                  </div>
                 )}
               </li>
             );
           })}
         </ol>
       )}
-    </SpadeConsole>
+    </section>
   );
 }

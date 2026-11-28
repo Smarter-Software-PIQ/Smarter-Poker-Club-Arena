@@ -3,9 +3,9 @@
  * (batch S1, 2026-11-28)
  *
  * TransactionLedgerView and FinancialAdminScopeState are shared: Union
- * Operations, the Agent Dashboard, the Agent Portal, Financials, Settlement
- * History and Credit Admin mount them on their own looks. The Settlement Center
- * opts in with `arena`. Every rule of the three new sheets must apply only
+ * Operations, the Agent Dashboard, Financials, Settlement History and Credit
+ * Admin mount them on their own looks. The Settlement Center (and, since batch
+ * A2, the Agent Portal's ledger) opts in with `arena`. Every rule of the three new sheets must apply only
  * inside .arena-workspace, the ledger's arena rules must key on arena-only
  * classes, no sheet may draw its own gradient, shadow, radius or hover, and no
  * other host may be switched to the arena dress by accident.
@@ -60,18 +60,28 @@ describe('the Settlement Center arena dress', () => {
     expect(state).toContain("family={failed ? 'riveted' : denied ? 'shark' : 'spade'}");
   });
 
-  it('switches only the Settlement Center to the arena dress', () => {
+  it('switches only the arena workspace pages to the arena dress', () => {
     for (const host of [
       'src/pages/UnionDashboardPage.tsx',
       'src/pages/AgentDashboardPage.tsx',
-      'src/pages/AgentPortalPage.tsx',
       'src/pages/ClubFinancialsPage.tsx',
     ])
       expect(read(host), host).not.toMatch(/<TransactionLedgerView[^>]*\barena\b/);
-    for (const host of ['src/pages/SettlementHistoryPage.tsx', 'src/pages/CreditAdminPanel.tsx'])
-      expect(read(host), host).not.toMatch(/<FinancialAdminScopeState[^>]*\barena\b/);
+    // Settlement History and Credit Admin (batch O2) pass it since batch A2,
+    // so their access-loading and denied screens wear the arena too.
+    expect(read('src/pages/SettlementHistoryPage.tsx')).toContain(
+      '<FinancialAdminScopeState scope={scope} arena />'
+    );
+    const credit = read('src/pages/CreditAdminPanel.tsx');
+    expect(credit).toContain('<FinancialAdminScopeState scope={scope} arena />');
+    expect(credit.match(/<FinancialAdminScopeState\b/g)?.length).toBe(2);
+    expect(credit.match(/<FinancialAdminScopeState[^>]*\barena\b/g)?.length).toBe(2);
     const page = read('src/pages/SettlementDashboardPage.tsx');
     expect(page).toContain('<FinancialAdminScopeState scope={scope} arena />');
     expect(page.match(/<TransactionLedgerView[^>]*\barena\b/g)?.length).toBe(2);
+    // The Agent Portal joined the workspace in batch A2 (2026-11-28).
+    const portal = read('src/pages/AgentPortalPage.tsx');
+    expect(portal).toContain('className="agent-portal arena-workspace"');
+    expect(portal.match(/<TransactionLedgerView[^>]*\barena\b/g)?.length).toBe(1);
   });
 });

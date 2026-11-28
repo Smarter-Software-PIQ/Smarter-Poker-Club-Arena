@@ -235,7 +235,7 @@ export default function SettlementHistoryPage() {
   const maxRake = Math.max(...cycles.map((c) => c.totalRake), 1);
 
   if (scope.status !== 'ready' || scope.userId !== user?.id) {
-    return <FinancialAdminScopeState scope={scope} />;
+    return <FinancialAdminScopeState scope={scope} arena />;
   }
 
   if (!scopeClubId || scopePlatformWide) {

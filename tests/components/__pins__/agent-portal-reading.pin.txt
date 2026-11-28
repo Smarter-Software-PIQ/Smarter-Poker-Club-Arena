@@ -1,0 +1,13 @@
+money: {
+  "figures": [],
+  "hooks": []
+}
+text: Reading The Selected Club Wallets And Commissions
+regions: [
+  "p|status||"
+]
+controls: [
+  "button|Back",
+  "button|Reading (disabled)"
+]
+named: Agent Wallets=0, Credit Line=0, Agent Invoices=0, My Transactions=0

@@ -1,0 +1,53 @@
+money: {
+  "figures": [
+    "1,250.50",
+    "456.00",
+    "40.00",
+    "20,000.00",
+    "75.23",
+    "75.23",
+    "1,299.99",
+    "300",
+    "1,599.99",
+    "1,599.99",
+    "25.50",
+    "0",
+    "1,599.99",
+    "1,599.99",
+    "0",
+    "0",
+    "1,262.75",
+    "400,000",
+    "0",
+    "0",
+    "0",
+    "0",
+    "401,262.75",
+    "1",
+    "75.25"
+  ],
+  "hooks": [
+    "data-visible=true",
+    "data-visible=true",
+    "data-visible=true",
+    "data-category=Transfer"
+  ]
+}
+text: Business Wallet | Commissions And Settlements | 1,250.50 | Play Wallet | Selected Club Balance | 456.00 | Promo Wallet | Non-Cashable Giveaways | 40.00 | Tracking Amount | 20,000.00 | Wallet Shortfall | 75.23 | Top-Up Before Rakeback | 75.23 | Chips Needed To Restore The Agent Wallet. Weekly Invoices Exclude Rakeback And Appear Below. | Week Of | Oct 5 | Due | Oct 14 | Pending | 1,299.99 | Due | 300 | Of | 1,599.99 | Paid | Week Of | Oct 5 | Due | Oct 14 | Overdue | 1,599.99 | Due | Week Of | Oct 5 | Due | Oct 14 | Disputed | 25.50 | Due | Week Of | Oct 5 | Due | Oct 14 | Paid | 0 | Due | 1,599.99 | Of | 1,599.99 | Paid | Week Of | Oct 5 | Due | Oct 14 | Void | 0 | Due | Mon | 0 | Chips | Tue | 1,262.75 | Chips | Wed | 400,000 | Chips | Thu | 0 | Chips | Fri | 0 | Chips | Sat | 0 | Chips | Sun | 0 | Chips | Total: | 401,262.75 | Chips | 1 | Transaction | Shown | Transfer | Agent Wallet To Player Wallet | Agent Self Transfer | 75.25 | <date>, <time>
+regions: [
+  "section||Agent Wallets|",
+  "section||Credit Line|",
+  "div|status||",
+  "section||Agent Invoices|",
+  "ol||Credit Invoice History|",
+  "section||My Transactions|",
+  "section||Transaction History|",
+  "ol||Ledger Rows|"
+]
+controls: [
+  "button|Back",
+  "button|Pay Now title=Pay From Your Player Wallet In This Club",
+  "button|Pay Now title=Pay From Your Player Wallet In This Club",
+  "button|Transfer To Play"
+]
+named: Agent Wallets=1, Credit Line=1, Agent Invoices=1, My Transactions=1

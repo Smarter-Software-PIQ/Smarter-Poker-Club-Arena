@@ -1,8 +1,9 @@
 /* THE LEDGER INSIDE THE ARENA WORKSPACE (#SmarterDesign batch S1, 2026-11-28)
 
    TransactionLedgerView prints on painted console glass on Union Operations,
-   the Agent Dashboard, the Agent Portal and Financials. A host that passes
-   `arena` (the Settlement Center) gets this dress instead: each movement a
+   the Agent Dashboard and Financials. A host that passes `arena` (the
+   Settlement Center, and the Agent Portal since batch A2) gets this dress
+   instead: each movement a
    chrome ledger row (its rim comes from .arena-ledger-row in
    ArenaWorkspace.css), Try Again a lit chrome key (ArenaOps.css), and the
    workspace's inks. Every rule is scoped under .arena-workspace and keyed to

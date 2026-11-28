@@ -20,7 +20,7 @@
       "data-active=false"
     ]
   },
-  "text": "Results | 0 | Network Scanner | Community Search | LIVE DATA | Search The Smarter Poker Network | ⌕ | Local History | Recent Searches | ◇ | Your Submitted Searches Will Appear Here.",
+  "text": "Results | 0 | Network Scanner | Community Search | Live Data | Search The Smarter Poker Network | ⌕ | Local History | Recent Searches | ◇ | Your Submitted Searches Will Appear Here.",
   "regions": [
     "dl||Find Your Next Game Live Summary",
     "form|search|",

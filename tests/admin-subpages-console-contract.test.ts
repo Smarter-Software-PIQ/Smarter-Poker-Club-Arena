@@ -56,7 +56,9 @@ describe('financial admin subpages keep the Club Arena console contract', () => 
     expect(scopeState).toContain("family={failed ? 'riveted' : denied ? 'shark' : 'spade'}");
     expect(scopeState).toContain("foot={failed || denied ? 'plates' : 'foot'}");
     expect(credit).toContain("if (scope.status !== 'ready') {");
-    expect(credit).toContain('return <FinancialAdminScopeState scope={scope} />;');
+    // Credit Admin is an arena workspace page (batch O2); since batch A2 its
+    // scope states take the opt-in arena dress too.
+    expect(credit).toContain('return <FinancialAdminScopeState scope={scope} arena />;');
     expect(credit).not.toMatch(/<SpadeConsole[\s\S]{0,900}<FinancialAdminScopeState/);
     // The Settlement Center is an arena workspace page (#SmarterDesign batch
     // S1, 2026-11-28): its scope states take the opt-in arena dress.

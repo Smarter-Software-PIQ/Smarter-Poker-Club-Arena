@@ -589,6 +589,9 @@ export const fixtures = {
         agent_wallet_balance: '1250.75',
         credit_limit: '5000.00',
         status: 'active',
+        /* The Agent Portal (route /agent-portal, batch A2) reads these too. */
+        promo_wallet_balance: '40.00',
+        is_prepaid: false,
       },
       {
         id: 'agent-2',
@@ -605,6 +608,70 @@ export const fixtures = {
         agent_wallet_balance: '403.38',
         credit_limit: '500.00',
         status: 'active',
+      },
+    ],
+    /* The Agent Portal (batch A2): a week of commissions inside its seven
+       day window (the stub ignores the date filters, so they are relative),
+       five weekly credit invoices and two of the agent's own ledger rows. */
+    agent_commissions: [1, 1, 2, 4].map((daysAgo, i) => ({
+      amount: [12.5, 1250.25, 403.38, 400000][i],
+      created_at: new Date(Date.now() - daysAgo * 86400000 - i * 60000).toISOString(),
+    })),
+    credit_invoices: [
+      ['partial', 1299.99, 300, 1599.99, '2026-11-16'],
+      ['overdue', 1599.99, 0, 1599.99, '2026-11-09'],
+      ['disputed', 25.5, 0, 25.5, '2026-11-02'],
+      ['paid', 0, 3749.25, 3749.25, '2026-10-26'],
+      ['void', 0, 0, 120, '2026-10-19'],
+    ].map(([status, remaining, paid, owed, week], i) => {
+      const day = (offset: number) =>
+        new Date(Date.parse(`${week}T17:00:00Z`) + offset * 86400000).toISOString();
+      return {
+        id: `c4ed1700-0000-4000-8000-00000000000${i + 1}`,
+        agent_id: 'agent-1',
+        period_start: day(0),
+        period_end: day(6),
+        debt_owed: owed,
+        amount_paid: paid,
+        amount_remaining: remaining,
+        status,
+        due_date: day(9),
+        created_at: day(7),
+        paid_at: null,
+      };
+    }),
+    chip_ledger: [
+      {
+        id: 'ledger-a2-1',
+        performed_by: ownerId,
+        from_type: 'agent_wallet',
+        from_entity_id: ownerId,
+        from_label: null,
+        to_type: 'player_wallet',
+        to_entity_id: ownerId,
+        to_label: null,
+        amount: 75.25,
+        category: 'transfer',
+        description: 'Agent Self Transfer',
+        created_at: '2026-11-26T18:00:00Z',
+        club_id: CLUB_UUID,
+        union_id: null,
+      },
+      {
+        id: 'ledger-a2-2',
+        performed_by: ownerId,
+        from_type: 'club_treasury',
+        from_entity_id: null,
+        from_label: null,
+        to_type: 'agent_wallet',
+        to_entity_id: ownerId,
+        to_label: null,
+        amount: 2500,
+        category: 'settlement',
+        description: 'Weekly Settlement',
+        created_at: '2026-11-23T18:00:00Z',
+        club_id: CLUB_UUID,
+        union_id: null,
       },
     ],
     credit_assignments: [
