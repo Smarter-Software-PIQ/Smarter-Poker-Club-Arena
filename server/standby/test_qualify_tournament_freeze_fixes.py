@@ -242,14 +242,57 @@ class QualificationBuildCachingAndParallelProbes(unittest.TestCase):
         self.assertIn('except BaseException as error:', src)
         self.assertIn('shutil.rmtree(scratch, ignore_errors=True)', src)
         self.assertIn(".dockerignore').write_text(", src)
+        self.assertIn("Qualification.node.dockerignore').write_text(", src)
         # Every .dockerignore entry MUST be root-anchored ('/...') so '/src' never
         # excludes 'server/src' inside Docker BuildKit.
-        for excluded in ('/docs', '/src', '/.github', '/scripts/qualification'):
+        for excluded in (
+            '/docs',
+            '/src',
+            '/.github',
+            '/scripts/qualification',
+            '/public',
+            '/art-source',
+            '/design',
+            '/android',
+            '/ios',
+            '/dist',
+            '/dist-prerender',
+            '/dist-native',
+            '/graphify-out',
+            '/server/release-evidence',
+        ):
             self.assertIn(excluded, qualification.DOCKERIGNORE_EXCLUDES)
-        for entry in qualification.DOCKERIGNORE_EXCLUDES:
+        for entry in qualification.DOCKERIGNORE_EXCLUDES + qualification.NODE_DOCKERIGNORE_EXTRA_EXCLUDES:
             self.assertTrue(entry.startswith('/'), f'must be root-anchored: {entry}')
-        for required in ('/server', '/server/src', '/scripts/ci', '/supabase', '/tests'):
-            self.assertNotIn(required, qualification.DOCKERIGNORE_EXCLUDES)
+            self.assertFalse(entry.endswith('/'), f'no trailing slash: {entry}')
+        required_pg_paths = (
+            '/server',
+            '/server/src',
+            '/server/package.json',
+            '/scripts/ci',
+            '/scripts/dev/fixtures/mtt-blind-contract',
+            '/supabase',
+            '/supabase/migrations',
+            '/tests',
+            '/tests/unit/fixtureNativeCi.test.ts',
+            '/tests/fixtures/satellite-value-awards',
+            '/tests/fixtures/satellite-single-value-awards',
+            '/tests/fixtures/legacy-engine-checkpoint',
+        )
+        for required in required_pg_paths:
+            for excluded in qualification.DOCKERIGNORE_EXCLUDES:
+                self.assertFalse(
+                    required == excluded or required.startswith(excluded + '/'),
+                    f'required path {required} excluded by {excluded}',
+                )
+        for extra in ('/scripts', '/supabase', '/tests'):
+            self.assertIn(extra, qualification.NODE_DOCKERIGNORE_EXTRA_EXCLUDES)
+        for required_node in ('/server', '/server/src', '/server/package.json', '/server/native'):
+            for excluded in qualification.DOCKERIGNORE_EXCLUDES + qualification.NODE_DOCKERIGNORE_EXTRA_EXCLUDES:
+                self.assertFalse(
+                    required_node == excluded or required_node.startswith(excluded + '/'),
+                    f'Qualification.node path {required_node} excluded by {excluded}',
+                )
 
 if __name__ == '__main__':
     unittest.main()

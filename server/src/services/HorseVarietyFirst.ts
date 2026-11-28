@@ -93,6 +93,26 @@ export const NO_VARIETY_PLAN: VarietyFirstPlan = { owedStarts: new Map(), heldSt
 const open = (t: VarietyTable): boolean => t.lifecycle !== 'closed' && t.lifecycle !== 'breaking';
 
 /** PURE. Which starts are owed this cycle and which wait behind them. */
+/**
+ * The games being played now: every game with a table that has a player on
+ * it. PURE. One rule for the plan (such a game is owed no start) and for the
+ * first-owed memory (such a game is not waiting, whatever else is remembered
+ * about it: varietyOwedSince).
+ */
+export function varietyOccupiedGames<T extends VarietyTable>(
+  tables: ReadonlyArray<T>,
+  seatedAt: (tableId: string) => number
+): Set<string> {
+  const occupied = new Set<string>();
+  for (const t of tables) {
+    if (typeof t.id !== 'string' || typeof t.cluster_id !== 'string' || !t.cluster_id) continue;
+    const n = seatedAt(String(t.id));
+    /* A breaking table with players on it is still that game being played. */
+    if (Number.isFinite(n) && n > 0 && t.lifecycle !== 'closed') occupied.add(t.cluster_id);
+  }
+  return occupied;
+}
+
 export function varietyFirstPlan<T extends VarietyTable>(
   input: VarietyFirstInput<T>
 ): VarietyFirstPlan {
@@ -100,15 +120,11 @@ export function varietyFirstPlan<T extends VarietyTable>(
     const n = input.seatedAt(String(t.id));
     return Number.isFinite(n) && n > 0 ? n : 0;
   };
-  const occupiedGames = new Set<string>();
+  const occupiedGames = varietyOccupiedGames(input.tables, input.seatedAt);
   const emptyByGame = new Map<string, T[]>();
   for (const t of input.tables) {
     if (typeof t.id !== 'string' || typeof t.cluster_id !== 'string' || !t.cluster_id) continue;
-    /* A breaking table with players on it is still that game being played. */
-    if (seated(t) > 0) {
-      if (t.lifecycle !== 'closed') occupiedGames.add(t.cluster_id);
-      continue;
-    }
+    if (seated(t) > 0) continue;
     if (!open(t)) continue;
     const list = emptyByGame.get(t.cluster_id);
     if (list) list.push(t);
@@ -666,18 +682,116 @@ export function drainCycleOutcome(input: {
  * start instead of labelling it a minimum. The memory survives across cycles.
  * A seating (not withheld) cycle keeps the first-seen time of every game it
  * publishes as owed, stamps `nowIso` on a game newly owed, and forgets a game
- * it no longer publishes. A withheld cycle publishes no owed games and
+ * that is no longer waiting. A withheld cycle publishes no owed games and
  * forgets nothing (the same rule as drainCycleOutcome).
+ *
+ * A RESTING GAME IS STILL WAITING (2026-11-28). Why it broke: "owed" here was
+ * the published list, and a game whose start failed for a reason of its own
+ * leaves that list for its rest (VARIETY_START_REST_MS, so depth may
+ * proceed). The memory forgot it, and when the rest ended it was stamped as
+ * newly owed: the two 5/10 fixed-limit games no Horse can fund, waiting since
+ * the process began, never read more than a few minutes. Leaving the
+ * published list is not a start. The clock is now kept for a game that is
+ * owed, OR resting, OR carries the cannot-start mark (`stillWaiting`: the set
+ * VarietyStartMemory.forgetAllBut keeps), and cleared when the game is none
+ * of those or is being played (`occupiedGames`: a table with a player on it,
+ * whoever started it). A game in `stillWaiting` never gets a NEW time here;
+ * it only keeps one it has. The mark is dropped by forgetAllBut, so nothing
+ * is kept for ever.
  */
 export function varietyOwedSince(input: {
   withheld: boolean;
   owedGames: ReadonlyArray<string>;
   previous: Readonly<Record<string, string>>;
+  /** Times carried over a restart (carriedOwedSince). The process's own
+   *  memory wins; a game no longer owed keeps nothing. */
+  carried?: Readonly<Record<string, string>>;
+  /** Games not published as owed this cycle that still wait for a start:
+   *  resting after a failed start, or carrying the cannot-start mark. */
+  stillWaiting?: Iterable<string>;
+  /** Games with a player at a table now (varietyOccupiedGames). */
+  occupiedGames?: ReadonlySet<string>;
   nowIso: string;
 }): Record<string, string> {
   if (input.withheld) return { ...input.previous };
   const out: Record<string, string> = {};
-  for (const game of input.owedGames) out[game] = input.previous[game] ?? input.nowIso;
+  for (const game of input.owedGames) {
+    out[game] = input.previous[game] ?? input.carried?.[game] ?? input.nowIso;
+  }
+  for (const game of input.stillWaiting ?? []) {
+    if (out[game] !== undefined || input.occupiedGames?.has(game)) continue;
+    const since = input.previous[game] ?? input.carried?.[game];
+    if (since !== undefined) out[game] = since;
+  }
+  return out;
+}
+
+/**
+ * A WAITING GAME KEEPS ITS CLOCK THROUGH A RELEASE (2026-11-28). PURE.
+ *
+ * Why it broke: the first-owed memory lived only in the fleet process, and
+ * the fleet restarts at every release (every 3 hours). A clock kept in memory
+ * cannot measure a wait that spans the restart of that memory: on the 1 AM
+ * CST release of 2026-11-28 all nine waiting games read 1:05:15 AM, the first
+ * cycle after boot, and their true waits were lost exactly when the live
+ * check reads them.
+ *
+ * The heartbeat already carries the memory (detail.variety_owed_since), so
+ * the newest beat written before this boot IS the memory of the process that
+ * stopped. The fleet reads that one row once at boot and hands it here; the
+ * times that pass go to varietyOwedSince as `carried`, which keeps one only
+ * for a game owed on the first seating cycle (a game with no occupied table
+ * then, as it had none on the stopped process's last beat).
+ *
+ * Guards. Everything that fails one is ignored, and the game then gets the
+ * first-cycle time, which is what every game got before this:
+ *   - the beat is at most VARIETY_OWED_CARRY_MAX_AGE_MS old when the first
+ *     seating cycle runs, and not from the future;
+ *   - the value is a map of game id to a full ISO time;
+ *   - a time is not after `nowMs` and not older than
+ *     VARIETY_OWED_CARRY_CEILING_MS.
+ * This feeds the heartbeat only. No decision reads a first-owed time.
+ */
+/**
+ * The longest stop a wait is believed to have run through. Measured on the
+ * ten restarts from 2026-11-26 10 PM to 2026-11-28 1 AM CST: the last beat
+ * before the stop to the first beat after it was 431 to 460 seconds. Twenty
+ * minutes is 2.6 times the longest, so a slow release still carries, and a
+ * stop longer than that (a failed release, an outage) is long enough for the
+ * floor to have changed while nothing was watching, so nothing is carried.
+ */
+export const VARIETY_OWED_CARRY_MAX_AGE_MS = 20 * 60_000;
+/**
+ * The oldest first-owed time believed. It exists to refuse a nonsense date,
+ * not to end real waits: a game owed for longer than this starts its clock
+ * again at the release that crosses it.
+ */
+export const VARIETY_OWED_CARRY_CEILING_MS = 90 * 24 * 60 * 60_000;
+
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:?\d{2})$/;
+
+export function carriedOwedSince(input: {
+  /** The newest heartbeat written before this process booted: its beat_at and
+   *  its detail.variety_owed_since, as read. Null: no beat, or the read failed. */
+  heartbeat: { beatAt: unknown; owedSince: unknown } | null;
+  nowMs: number;
+}): Record<string, string> {
+  const out: Record<string, string> = {};
+  const hb = input.heartbeat;
+  if (!hb || typeof hb.beatAt !== 'string' || !ISO_TIME.test(hb.beatAt)) return out;
+  const beatMs = Date.parse(hb.beatAt);
+  if (!Number.isFinite(beatMs)) return out;
+  const age = input.nowMs - beatMs;
+  if (!(age >= 0 && age <= VARIETY_OWED_CARRY_MAX_AGE_MS)) return out;
+  const map = hb.owedSince;
+  if (map === null || typeof map !== 'object' || Array.isArray(map)) return out;
+  for (const [game, value] of Object.entries(map as Record<string, unknown>)) {
+    if (!game || typeof value !== 'string' || !ISO_TIME.test(value)) continue;
+    const ms = Date.parse(value);
+    if (!Number.isFinite(ms)) continue;
+    if (ms > input.nowMs || ms < input.nowMs - VARIETY_OWED_CARRY_CEILING_MS) continue;
+    out[game] = new Date(ms).toISOString();
+  }
   return out;
 }
 

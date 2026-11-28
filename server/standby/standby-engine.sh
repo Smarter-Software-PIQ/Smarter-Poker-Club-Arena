@@ -17,6 +17,8 @@
 # Commands (run as root on the standby host):
 #   standby-engine.sh restore <schema.dump>   load the production structure
 #   standby-engine.sh seed    <seed_dir>      load the horse-only platform seed
+#   standby-engine.sh snapshot-copy [dir]     save opt-in CoW snapshot of validated copy
+#   standby-engine.sh restore-snapshot [dump] [seed_dir] [dir]  fast CoW reset (fail-closed fallback)
 #   standby-engine.sh build   <sha>           build the exact engine image
 #   standby-engine.sh run     <sha>           (re)start the Backup Engine
 #   standby-engine.sh certify <sha> [soak_s]  build, boot, crash, soak (900 s), verdict
@@ -341,6 +343,272 @@ PY_VALID
     "$(date -u +%FT%TZ)" "$loaded" "$failed" "$tables" "$horses" "$seats" | tee "$STATE_DIR/seed.json"
 }
 
+# Opt-in Copy-on-Write (CoW) local snapshot & fast-reset helpers (2026-11-28).
+# Binds the snapshotted PGDATA directory to exact schemaEvidenceSha256,
+# dumpSha256, ownersSha256 and seed receipt. On ANY mismatch, missing artifact,
+# or post-restore verification failure, cmd_restore_snapshot fails closed and
+# falls back to full cmd_restore + cmd_seed when dump/seed_dir are supplied.
+snapshot_pgdata_dir() {
+  if [ -n "${PGDATA_HOST_DIR:-}" ]; then
+    printf '%s\n' "$PGDATA_HOST_DIR"
+    return 0
+  fi
+  docker inspect -f '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Source}}{{end}}{{end}}' "$DB_CONTAINER" 2>/dev/null
+}
+
+wait_db_ready() {
+  local deadline=$(( $(date +%s) + ${1:-60} ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    if psql_db -Atc 'SELECT 1' >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+copy_tree_cow() {
+  local src="$1" dst="$2"
+  mkdir -p "$dst" || return 1
+  cp -a --reflink=auto "$src/." "$dst/" 2>/dev/null || cp -a "$src/." "$dst/"
+}
+
+cmd_snapshot_copy() {
+  local snap_dir="${1:-${SNAPSHOT_DIR:-$STATE_DIR/copy-snapshot}}"
+  local pgdata staging db_stopped=0
+  assert_isolated || return 1
+  assert_valid_copy || return 1
+  stop_for_restore || return 1
+  pgdata=$(snapshot_pgdata_dir)
+  [ -n "$pgdata" ] && [ -d "$pgdata" ] || { log "snapshot: PostgreSQL data directory unavailable"; return 1; }
+  staging="${snap_dir}.staging.$$"
+  rm -rf -- "$staging" || return 1
+  mkdir -p "$staging" || return 1
+  psql_db -qc 'CHECKPOINT' >/dev/null 2>&1 || true
+  if ! docker stop -t 60 "$DB_CONTAINER" >/dev/null 2>&1 \
+     || [ "$(docker inspect -f '{{.State.Running}}' "$DB_CONTAINER" 2>/dev/null)" != false ]; then
+    rm -rf -- "$staging"
+    docker start "$DB_CONTAINER" >/dev/null 2>&1 || true
+    log "snapshot: failed to stop $DB_CONTAINER cleanly"
+    return 1
+  fi
+  db_stopped=1
+  if ! copy_tree_cow "$pgdata" "$staging/pgdata" \
+     || ! cp -p "$STATE_DIR/database.json" "$staging/database.json" \
+     || ! cp -p "$STATE_DIR/seed.json" "$staging/seed.json" \
+     || ! cp -p "$STATE_DIR/schema-evidence.json" "$staging/schema-evidence.json"; then
+    rm -rf -- "$staging"
+    docker start "$DB_CONTAINER" >/dev/null 2>&1 || true
+    log "snapshot: failed to copy PGDATA or receipts"
+    return 1
+  fi
+  if ! python3 - "$staging" "$(owners_file)" <<'PY_SNAP_MANIFEST'
+import hashlib, json, os, sys, time
+staging, owners_path = sys.argv[1:3]
+def sha256(path):
+    return hashlib.sha256(open(path, 'rb').read()).hexdigest()
+db = json.load(open(os.path.join(staging, 'database.json')))
+seed = json.load(open(os.path.join(staging, 'seed.json')))
+evidence_sha = sha256(os.path.join(staging, 'schema-evidence.json'))
+owners_sha = sha256(owners_path)
+assert db.get('restoreValidated') is True and db.get('restoreErrors') == 0
+assert db.get('schemaEvidenceValidated') is True
+assert db.get('schemaEvidenceSha256') == evidence_sha
+assert db.get('ownersSha256') == owners_sha
+assert isinstance(db.get('dumpSha256'), str) and len(db['dumpSha256']) == 64
+assert seed.get('tablesFailed') == 0 and seed.get('authFixtureVersion') == 2
+assert seed.get('cashClusterParentsValidated') is True
+manifest = {
+    'schema': 'club-arena-standby-copy-snapshot/v1',
+    'createdAt': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+    'dumpSha256': db['dumpSha256'],
+    'schemaEvidenceSha256': evidence_sha,
+    'ownersSha256': owners_sha,
+    'databaseJsonSha256': sha256(os.path.join(staging, 'database.json')),
+    'seedJsonSha256': sha256(os.path.join(staging, 'seed.json')),
+    'schemaEvidenceJsonSha256': evidence_sha,
+    'seedReceipt': {
+        'seededAt': seed.get('seededAt'),
+        'tablesLoaded': seed.get('tablesLoaded'),
+        'tablesFailed': seed.get('tablesFailed'),
+        'authFixtureVersion': seed.get('authFixtureVersion'),
+        'cashClusterParentsValidated': seed.get('cashClusterParentsValidated'),
+    },
+    'pgdataRelative': 'pgdata',
+}
+with open(os.path.join(staging, 'manifest.json'), 'w') as out:
+    json.dump(manifest, out, indent=2)
+    out.write('\n')
+PY_SNAP_MANIFEST
+  then
+    rm -rf -- "$staging"
+    docker start "$DB_CONTAINER" >/dev/null 2>&1 || true
+    log "snapshot: failed to write validated manifest"
+    return 1
+  fi
+  rm -rf -- "$snap_dir" || { rm -rf -- "$staging"; docker start "$DB_CONTAINER" >/dev/null 2>&1 || true; return 1; }
+  mv "$staging" "$snap_dir" || { rm -rf -- "$staging"; docker start "$DB_CONTAINER" >/dev/null 2>&1 || true; return 1; }
+  if [ "$db_stopped" -eq 1 ]; then
+    docker start "$DB_CONTAINER" >/dev/null || return 1
+    wait_db_ready 60 || { log "snapshot: database did not become ready after restart"; return 1; }
+    docker restart supabase_rest_standby >/dev/null 2>&1 || true
+  fi
+  log "snapshot: saved validated copy snapshot at $snap_dir"
+  cat "$snap_dir/manifest.json"
+}
+
+validate_copy_snapshot() {
+  local snap_dir="${1:-${SNAPSHOT_DIR:-$STATE_DIR/copy-snapshot}}" dump="${2:-$STATE_DIR/schema.dump}"
+  python3 - "$snap_dir" "$STATE_DIR/schema-evidence.json" "$dump" "$(owners_file)" <<'PY_SNAP_VALIDATE'
+import hashlib, json, os, sys
+
+snap_dir, evidence_path, dump_path, owners_path = sys.argv[1:5]
+def sha256(path):
+    return hashlib.sha256(open(path, 'rb').read()).hexdigest()
+
+def reject(reason):
+    print(f'snapshot_rejected:{reason}', file=sys.stderr)
+    sys.exit(1)
+
+manifest_path = os.path.join(snap_dir, 'manifest.json')
+if not os.path.isfile(manifest_path):
+    reject('manifest_missing')
+try:
+    manifest = json.load(open(manifest_path))
+except (OSError, ValueError):
+    reject('manifest_unreadable')
+if manifest.get('schema') != 'club-arena-standby-copy-snapshot/v1':
+    reject('manifest_schema_mismatch')
+pgdata_rel = manifest.get('pgdataRelative')
+if pgdata_rel != 'pgdata' or not os.path.isdir(os.path.join(snap_dir, pgdata_rel)):
+    reject('pgdata_missing')
+for name, key in (('database.json', 'databaseJsonSha256'),
+                  ('seed.json', 'seedJsonSha256'),
+                  ('schema-evidence.json', 'schemaEvidenceJsonSha256')):
+    p = os.path.join(snap_dir, name)
+    if not os.path.isfile(p):
+        reject(f'missing_{name}')
+    if sha256(p) != manifest.get(key):
+        reject(f'digest_mismatch_{name}')
+if not os.path.isfile(evidence_path):
+    reject('current_schema_evidence_missing')
+current_evidence_sha = sha256(evidence_path)
+if current_evidence_sha != manifest.get('schemaEvidenceSha256'):
+    reject('schema_evidence_sha_mismatch')
+if not os.path.isfile(owners_path):
+    reject('owners_sql_missing')
+current_owners_sha = sha256(owners_path)
+if current_owners_sha != manifest.get('ownersSha256'):
+    reject('owners_sha_mismatch')
+if not dump_path or not os.path.isfile(dump_path):
+    reject('dump_missing')
+current_dump_sha = sha256(dump_path)
+if current_dump_sha != manifest.get('dumpSha256'):
+    reject('dump_sha_mismatch')
+try:
+    db = json.load(open(os.path.join(snap_dir, 'database.json')))
+    seed = json.load(open(os.path.join(snap_dir, 'seed.json')))
+except (OSError, ValueError):
+    reject('receipt_unreadable')
+if (db.get('restoreValidated') is not True or db.get('restoreErrors') != 0
+        or db.get('schemaEvidenceValidated') is not True
+        or db.get('schemaEvidenceSha256') != current_evidence_sha
+        or db.get('dumpSha256') != current_dump_sha
+        or db.get('ownersSha256') != current_owners_sha):
+    reject('database_receipt_invalid')
+receipt = manifest.get('seedReceipt')
+if (not isinstance(receipt, dict)
+        or seed.get('tablesFailed') != 0
+        or seed.get('authFixtureVersion') != 2
+        or seed.get('cashClusterParentsValidated') is not True
+        or seed.get('seededAt', '') < db.get('restoredAt', '')
+        or receipt.get('seededAt') != seed.get('seededAt')
+        or receipt.get('tablesLoaded') != seed.get('tablesLoaded')
+        or receipt.get('tablesFailed') != 0
+        or receipt.get('authFixtureVersion') != 2
+        or receipt.get('cashClusterParentsValidated') is not True):
+    reject('seed_receipt_invalid')
+print(json.dumps({
+    'valid': True,
+    'dumpSha256': current_dump_sha,
+    'schemaEvidenceSha256': current_evidence_sha,
+    'seededAt': seed.get('seededAt'),
+}))
+PY_SNAP_VALIDATE
+}
+
+cmd_restore_snapshot() {
+  local dump="${1:-$STATE_DIR/schema.dump}" seed_dir="${2:-}" snap_dir="${3:-${SNAPSHOT_DIR:-$STATE_DIR/copy-snapshot}}"
+  local validation pgdata tmp_pgdata old_pgdata
+  assert_isolated || return 1
+  fallback_full_restore() {
+    local why="$1"
+    log "snapshot: $why; falling back to full restore + seed"
+    if [ -n "$dump" ] && [ -s "$dump" ] && [ -n "$seed_dir" ] && [ -f "$seed_dir/manifest.json" ]; then
+      cmd_restore "$dump" && cmd_seed "$seed_dir"
+      return $?
+    fi
+    return 1
+  }
+  if ! validation=$(validate_copy_snapshot "$snap_dir" "$dump" 2>&1); then
+    fallback_full_restore "rejected ($validation)"
+    return $?
+  fi
+  pgdata=$(snapshot_pgdata_dir)
+  if [ -z "$pgdata" ] || [ ! -d "$pgdata" ]; then
+    fallback_full_restore "pgdata_unavailable"
+    return $?
+  fi
+  stop_for_restore || return 1
+  rm -f "$STATE_DIR/database.json" "$STATE_DIR/seed.json" || return 1
+  if ! docker stop -t 60 "$DB_CONTAINER" >/dev/null 2>&1 \
+     || [ "$(docker inspect -f '{{.State.Running}}' "$DB_CONTAINER" 2>/dev/null)" != false ]; then
+    docker start "$DB_CONTAINER" >/dev/null 2>&1 || true
+    fallback_full_restore "db_stop_failed"
+    return $?
+  fi
+  tmp_pgdata="${pgdata}.restore.$$"
+  old_pgdata="${pgdata}.prev.$$"
+  rm -rf -- "$tmp_pgdata" "$old_pgdata" 2>/dev/null || true
+  if ! copy_tree_cow "$snap_dir/pgdata" "$tmp_pgdata"; then
+    rm -rf -- "$tmp_pgdata" 2>/dev/null || true
+    docker start "$DB_CONTAINER" >/dev/null 2>&1 || true
+    fallback_full_restore "cow_copy_failed"
+    return $?
+  fi
+  if ! mv "$pgdata" "$old_pgdata" || ! mv "$tmp_pgdata" "$pgdata"; then
+    [ -d "$pgdata" ] || mv "$old_pgdata" "$pgdata" 2>/dev/null || true
+    rm -rf -- "$tmp_pgdata" 2>/dev/null || true
+    docker start "$DB_CONTAINER" >/dev/null 2>&1 || true
+    fallback_full_restore "pgdata_swap_failed"
+    return $?
+  fi
+  rm -rf -- "$old_pgdata" 2>/dev/null || true
+  if ! docker start "$DB_CONTAINER" >/dev/null 2>&1 || ! wait_db_ready 60; then
+    fallback_full_restore "db_start_failed"
+    return $?
+  fi
+  docker restart supabase_rest_standby >/dev/null 2>&1 || true
+  cp -p "$snap_dir/database.json" "$STATE_DIR/database.json" || { rm -f "$STATE_DIR/database.json" "$STATE_DIR/seed.json"; fallback_full_restore "receipt_copy_failed"; return $?; }
+  cp -p "$snap_dir/seed.json" "$STATE_DIR/seed.json" || { rm -f "$STATE_DIR/database.json" "$STATE_DIR/seed.json"; fallback_full_restore "receipt_copy_failed"; return $?; }
+  if ! assert_valid_copy >/dev/null 2>&1; then
+    rm -f "$STATE_DIR/database.json" "$STATE_DIR/seed.json"
+    fallback_full_restore "post_restore_schema_evidence_failed"
+    return $?
+  fi
+  log "snapshot: fast CoW restore verified from $snap_dir"
+  python3 - "$validation" <<'PY_SNAP_DONE'
+import json, sys
+v = json.loads(sys.argv[1])
+print(json.dumps({
+    'restoredFromSnapshot': True,
+    'dumpSha256': v['dumpSha256'],
+    'schemaEvidenceSha256': v['schemaEvidenceSha256'],
+    'seededAt': v['seededAt'],
+}))
+PY_SNAP_DONE
+}
+
 cmd_build() {
   local sha="$1"; valid_sha "$sha"
   if docker image inspect "$IMAGE_REPO:$sha" >/dev/null 2>&1; then echo "$IMAGE_REPO:$sha"; return; fi
@@ -357,9 +625,10 @@ cmd_build() {
 }
 
 write_env() {
-  local anon service
-  anon=$(cd "$DB_DIR" && supabase status -o env 2>/dev/null | sed -n 's/^ANON_KEY="\(.*\)"/\1/p')
-  service=$(cd "$DB_DIR" && supabase status -o env 2>/dev/null | sed -n 's/^SERVICE_ROLE_KEY="\(.*\)"/\1/p')
+  local status_env anon service
+  status_env=$(cd "$DB_DIR" && supabase status -o env 2>/dev/null) || status_env=''
+  anon=$(printf '%s\n' "$status_env" | sed -n 's/^ANON_KEY="\(.*\)"/\1/p')
+  service=$(printf '%s\n' "$status_env" | sed -n 's/^SERVICE_ROLE_KEY="\(.*\)"/\1/p')
   [ -n "$anon" ] && [ -n "$service" ] || die 'standby database keys unavailable'
   umask 077
   cat > "$STATE_DIR/engine.env" <<EOF
@@ -449,7 +718,7 @@ wait_live() {
     h=$(health); l=$(printf '%s' "$h" | health_field liveness)
     if [ "$l" = ok ] || [ "$l" = standby ]; then echo "$l"; return 0; fi
     [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null)" = true ] || return 2
-    sleep 3
+    sleep 1
   done
   return 1
 }
@@ -1106,7 +1375,7 @@ wait_auto_recovery() {
        && [ "$(printf '%s' "$h" | health_field releaseSha)" = "$sha" ]; then
       echo "$count"; return 0
     fi
-    sleep 3
+    sleep 1
   done
   return 1
 }
@@ -1191,9 +1460,91 @@ PY_SPENT
 # refuses those), and then refuses at once, by name, if space is still short.
 BACKUP_DISK_KEEP_HOURS=${BACKUP_DISK_KEEP_HOURS:-24}
 BACKUP_DISK_MIN_FREE_GIB=${BACKUP_DISK_MIN_FREE_GIB:-12}
+BACKUP_QUALIFICATIONS_KEEP_COUNT=${BACKUP_QUALIFICATIONS_KEEP_COUNT:-20}
+BACKUP_QUALIFICATIONS_KEEP_HOURS=${BACKUP_QUALIFICATIONS_KEEP_HOURS:-48}
+BACKUP_BUILDER_KEEP_STORAGE=${BACKUP_BUILDER_KEEP_STORAGE:-10GB}
+BACKUP_CLOCK_SKEW_WARN_MS=${BACKUP_CLOCK_SKEW_WARN_MS:-250}
 
-reclaim_backup_disk() {  # candidate sha, serving sha (may be empty)
-  local keep="$1" serving="${2:-}" now cutoff tag created_epoch removed=0 kept_serving=''
+# Discover the cycle's newest passing certified fallback SHA (excluding the
+# candidate and serving SHAs) so a burst of late failed certifications can
+# never evict the selectable fallback image during disk reclaim.
+newest_certified_fallback_sha() { # candidate sha, serving sha (may be empty)
+  local candidate="$1" serving="${2:-}"
+  if [[ "${BACKUP_FALLBACK_SHA:-}" =~ ^[0-9a-f]{40}$ ]] \
+     && [ "$BACKUP_FALLBACK_SHA" != "$candidate" ] \
+     && [ "$BACKUP_FALLBACK_SHA" != "$serving" ]; then
+    printf '%s\n' "$BACKUP_FALLBACK_SHA"
+    return 0
+  fi
+  [ -d "$CERT_DIR" ] || return 0
+  python3 - "$CERT_DIR" "$candidate" "$serving" <<'PY_FALLBACK_SHA' 2>/dev/null || true
+import json, os, re, sys
+cert_dir, candidate, serving = sys.argv[1:4]
+sha_re = re.compile(r'^[0-9a-f]{40}$')
+entries = []
+try:
+    for name in os.listdir(cert_dir):
+        if not name.endswith('.json'):
+            continue
+        path = os.path.join(cert_dir, name)
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue
+        entries.append((st.st_mtime, path))
+except OSError:
+    sys.exit(0)
+for _, path in sorted(entries, reverse=True):
+    try:
+        doc = json.load(open(path))
+    except (OSError, ValueError):
+        continue
+    if not isinstance(doc, dict) or doc.get('verdict') != 'pass':
+        continue
+    sha = doc.get('sha')
+    if isinstance(sha, str) and sha_re.fullmatch(sha) and sha not in (candidate, serving):
+        print(sha)
+        sys.exit(0)
+PY_FALLBACK_SHA
+}
+
+# Bounded retention for $STATE_DIR/qualifications/: prune directories older than
+# BACKUP_QUALIFICATIONS_KEEP_HOURS (default 48h) AND keep at most the newest
+# BACKUP_QUALIFICATIONS_KEEP_COUNT (default 20) runs, NEVER deleting the active
+# candidate's qualification directory.
+prune_backup_qualifications() { # candidate sha
+  local keep="$1" qdir="$STATE_DIR/qualifications"
+  [ -d "$qdir" ] || return 0
+  python3 - "$qdir" "$keep" "$BACKUP_QUALIFICATIONS_KEEP_COUNT" "$BACKUP_QUALIFICATIONS_KEEP_HOURS" "${BACKUP_ACTIVE_QUALIFICATION_DIR:-}" <<'PY_PRUNE_QUAL' 2>/dev/null || true
+import os, shutil, sys, time
+qdir, keep_sha, max_count, max_hours, active_name = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), sys.argv[5]
+cutoff = time.time() - max_hours * 3600
+active_prefix = f'{keep_sha}-' if keep_sha else ''
+dirs = []
+try:
+    for name in os.listdir(qdir):
+        full = os.path.join(qdir, name)
+        if not os.path.isdir(full) or os.path.islink(full):
+            continue
+        if (active_prefix and name.startswith(active_prefix)) or (active_name and name == active_name):
+            continue
+        try:
+            mtime = os.stat(full).st_mtime
+        except OSError:
+            continue
+        dirs.append((mtime, full))
+except OSError:
+    sys.exit(0)
+dirs.sort(key=lambda item: item[0], reverse=True)
+for idx, (mtime, full) in enumerate(dirs):
+    if mtime < cutoff or idx >= max_count:
+        shutil.rmtree(full, ignore_errors=True)
+PY_PRUNE_QUAL
+}
+
+reclaim_backup_disk() {  # candidate sha, serving sha (may be empty), fallback sha (may be empty)
+  local keep="$1" serving="${2:-}" fallback="${3:-}" now cutoff tag created_epoch removed=0 kept_serving='' kept_fallback=''
+  [[ "$fallback" =~ ^[0-9a-f]{40}$ ]] || fallback=''
   now=$(date +%s); cutoff=$((now - BACKUP_DISK_KEEP_HOURS * 3600))
   # AN UNKNOWN SERVING RELEASE REMOVES NO ENGINE IMAGE BY AGE (2026-11-27,
   # release custody). The serving sha comes from production's /health. When
@@ -1212,6 +1563,9 @@ reclaim_backup_disk() {  # candidate sha, serving sha (may be empty)
       # BACKUP_DISK_KEEP_HOURS its image is older than the cutoff, and deleting
       # it made the rehearsal run a rebuild instead of the bytes production runs.
       if [ "$tag" = "$IMAGE_REPO:$serving" ]; then kept_serving="${serving:0:12}"; continue; fi
+      # Also keep the cycle's newest certified selectable fallback image so a
+      # burst of late failed certifications can never evict it.
+      if [ -n "$fallback" ] && [ "$tag" = "$IMAGE_REPO:$fallback" ]; then kept_fallback="${fallback:0:12}"; continue; fi
       created_epoch=$(date -d "$(docker image inspect -f '{{.Created}}' "$tag" 2>/dev/null)" +%s 2>/dev/null) || continue
       [ "$created_epoch" -lt "$cutoff" ] || continue
       # No -f: an image a container still uses is refused and kept.
@@ -1229,20 +1583,132 @@ reclaim_backup_disk() {  # candidate sha, serving sha (may be empty)
     --format '{{.Repository}}:{{.Tag}}' 2>/dev/null || true)
   docker image prune -f >/dev/null 2>&1 || true
   docker builder prune -f --filter "until=${BACKUP_DISK_KEEP_HOURS}h" >/dev/null 2>&1 || true
-  if [ -d "$STATE_DIR/qualifications" ]; then
-    find "$STATE_DIR/qualifications" -mindepth 1 -maxdepth 1 -type d -mmin +$((BACKUP_DISK_KEEP_HOURS * 60)) \
-      -exec rm -rf -- {} + 2>/dev/null || true
-  fi
+  docker builder prune -f --keep-storage "$BACKUP_BUILDER_KEEP_STORAGE" >/dev/null 2>&1 || true
+  prune_backup_qualifications "$keep"
   find "$STATE_DIR" -maxdepth 1 -type d -name 'player-proof.*' -mmin +120 -exec rm -rf -- {} + 2>/dev/null || true
   find /tmp -maxdepth 1 -type d -name 'standby-ctx.*' -mmin +120 -exec rm -rf -- {} + 2>/dev/null || true
   [ -d "$LOG_DIR" ] && find "$LOG_DIR" -maxdepth 1 -type f -name 'build-*.log' -mtime +7 -delete 2>/dev/null || true
+  local fallback_note=''
+  [ -z "$kept_fallback" ] || fallback_note="; kept fallback $kept_fallback"
   if [ -z "$serving" ]; then
-    log "disk: serving release unknown, no engine image removed by age; free $(backup_disk_free_gib) GiB"
+    log "disk: serving release unknown, no engine image removed by age; free $(backup_disk_free_gib) GiB${fallback_note}"
   elif [ -n "$kept_serving" ]; then
-    log "disk: removed $removed engine image(s) older than ${BACKUP_DISK_KEEP_HOURS}h; free $(backup_disk_free_gib) GiB; kept serving $kept_serving"
+    log "disk: removed $removed engine image(s) older than ${BACKUP_DISK_KEEP_HOURS}h; free $(backup_disk_free_gib) GiB; kept serving $kept_serving${fallback_note}"
   else
-    log "disk: removed $removed engine image(s) older than ${BACKUP_DISK_KEEP_HOURS}h; free $(backup_disk_free_gib) GiB; serving ${serving:0:12} has no image here"
+    log "disk: removed $removed engine image(s) older than ${BACKUP_DISK_KEEP_HOURS}h; free $(backup_disk_free_gib) GiB; serving ${serving:0:12} has no image here${fallback_note}"
   fi
+}
+
+# Best-effort host NTP/chrony clock-skew telemetry for certification receipts.
+# Non-fatal when chronyc and timedatectl are unavailable on the host.
+check_host_clock_skew() {
+  local chrony_out='' timedate_out='' source=''
+  if command -v chronyc >/dev/null 2>&1; then
+    if chrony_out=$(chronyc tracking 2>/dev/null) && [ -n "$chrony_out" ]; then
+      source='chronyc'
+    fi
+  fi
+  if [ -z "$source" ] && command -v timedatectl >/dev/null 2>&1; then
+    if timedate_out=$(timedatectl timesync-status 2>/dev/null) && [ -n "$timedate_out" ]; then
+      source='timedatectl-timesync'
+    elif timedate_out=$(timedatectl show 2>/dev/null) && [ -n "$timedate_out" ]; then
+      source='timedatectl-show'
+    fi
+  fi
+  python3 - "$source" "$chrony_out" "$timedate_out" "$BACKUP_CLOCK_SKEW_WARN_MS" <<'PY_CLOCK_SKEW'
+import json, re, sys
+
+source, chrony_out, timedate_out, warn_ms_raw = sys.argv[1:5]
+warn_ms = float(warn_ms_raw)
+out = {
+    'status': 'unavailable',
+    'source': None,
+    'offsetMs': None,
+    'absOffsetMs': None,
+    'synchronized': None,
+    'warnThresholdMs': warn_ms,
+}
+
+if source == 'chronyc':
+    out['source'] = 'chronyc'
+    m = re.search(r'System time\s*:\s*([0-9]+(?:\.[0-9]+)?)\s+seconds\s+(fast|slow)', chrony_out)
+    leap = re.search(r'Leap status\s*:\s*(.+)', chrony_out)
+    stratum = re.search(r'Stratum\s*:\s*(\d+)', chrony_out)
+    if stratum:
+        out['stratum'] = int(stratum.group(1))
+    if leap:
+        leap_val = leap.group(1).strip()
+        out['leapStatus'] = leap_val
+        out['synchronized'] = leap_val.lower() != 'not synchronised'
+    if m:
+        secs = float(m.group(1))
+        signed_ms = round((secs if m.group(2) == 'fast' else -secs) * 1000.0, 3)
+        out['offsetMs'] = signed_ms
+        out['absOffsetMs'] = round(abs(signed_ms), 3)
+        if out['synchronized'] is None:
+            out['synchronized'] = True
+        out['status'] = 'warn' if (not out['synchronized'] or out['absOffsetMs'] > warn_ms) else 'ok'
+elif source == 'timedatectl-timesync':
+    out['source'] = 'timedatectl'
+    out['synchronized'] = True
+    m = re.search(r'Offset:\s*([+-]?[0-9]+(?:\.[0-9]+)?)(us|ms|s)\b', timedate_out)
+    if m:
+        val, unit = float(m.group(1)), m.group(2)
+        mult = 0.001 if unit == 'us' else (1.0 if unit == 'ms' else 1000.0)
+        signed_ms = round(val * mult, 3)
+        out['offsetMs'] = signed_ms
+        out['absOffsetMs'] = round(abs(signed_ms), 3)
+        out['status'] = 'warn' if out['absOffsetMs'] > warn_ms else 'ok'
+    else:
+        out['status'] = 'ok'
+elif source == 'timedatectl-show':
+    out['source'] = 'timedatectl'
+    synced = re.search(r'^NTPSynchronized=(yes|no)$', timedate_out, re.M)
+    if synced:
+        out['synchronized'] = synced.group(1) == 'yes'
+        out['status'] = 'ok' if out['synchronized'] else 'warn'
+
+print(json.dumps(out))
+if out['status'] == 'warn':
+    print(f"standby-engine: WARNING host clock skew: source={out['source']} offsetMs={out['offsetMs']} synchronized={out['synchronized']} warnThresholdMs={warn_ms}", file=sys.stderr)
+PY_CLOCK_SKEW
+}
+
+merge_swap_db_connections() { # rollback_json forward_json
+  python3 - "${1:-null}" "${2:-null}" <<'PY_MERGE_DB_CONNS'
+import json, sys
+
+def load_obj(raw):
+    try:
+        val = json.loads(raw)
+        return val if isinstance(val, dict) else None
+    except ValueError:
+        return None
+
+rb, fw = load_obj(sys.argv[1]), load_obj(sys.argv[2])
+present = [x for x in (rb, fw) if x is not None]
+if not present:
+    print('null')
+    sys.exit(0)
+peaks_total = [x['peakTotal'] for x in present if isinstance(x.get('peakTotal'), int)]
+peaks_active = [x['peakActive'] for x in present if isinstance(x.get('peakActive'), int)]
+statuses = [x.get('status') for x in present]
+if 'fail' in statuses:
+    status = 'fail'
+elif 'warn' in statuses:
+    status = 'warn'
+elif 'pass' in statuses:
+    status = 'pass'
+else:
+    status = 'unreadable'
+print(json.dumps({
+    'status': status,
+    'peakTotal': max(peaks_total) if peaks_total else None,
+    'peakActive': max(peaks_active) if peaks_active else None,
+    'rollback': rb,
+    'forward': fw,
+}))
+PY_MERGE_DB_CONNS
 }
 
 # The smallest free space, in whole GiB, of the filesystems a certification
@@ -1267,16 +1733,19 @@ cmd_certify() {
   local result="$CERT_DIR/$sha.json"
   record() { reasons+=("$1"); verdict=fail; log "certify $sha: FAIL $1"; }
 
-  local reclaim_serving=''
+  local reclaim_serving='' reclaim_fallback=''
   reclaim_serving=$(curl -fsS -m 10 https://engine.smarter.poker/health | health_field releaseSha 2>/dev/null) || reclaim_serving=''
   [[ "$reclaim_serving" =~ ^[0-9a-f]{40}$ ]] || reclaim_serving=''
-  reclaim_backup_disk "$sha" "$reclaim_serving"
+  reclaim_fallback=$(newest_certified_fallback_sha "$sha" "$reclaim_serving" 2>/dev/null) || reclaim_fallback=''
+  reclaim_backup_disk "$sha" "$reclaim_serving" "$reclaim_fallback"
   local free_gib; free_gib=$(backup_disk_free_gib)
   if ! [[ "$free_gib" =~ ^[0-9]+$ ]]; then
     record 'backup_disk_unreadable'
   elif [ "$free_gib" -lt "$BACKUP_DISK_MIN_FREE_GIB" ]; then
     record "backup_disk_low:${free_gib}GiB"
   fi
+  local clock_skew_check='null'
+  clock_skew_check=$(check_host_clock_skew) || clock_skew_check='{"status":"unavailable"}'
   assert_valid_copy || return 1
   # TODAY'S INCIDENTS NEVER COME BACK (2026-11-19): replayed on the restored
   # copy before the engine boots; a regression withholds the certificate.
@@ -1295,6 +1764,7 @@ cmd_certify() {
   # The 4 AM cutover rehearsed: the live serving release swaps to this one.
   local serving="" rollback_seconds=null forward_seconds=null SWAP_ADOPTION_SECONDS
   local player_reconnect=false rehearsal_failure=null
+  local SWAP_PEAK_DB_CONNECTIONS=null rollback_db_conns=null forward_db_conns=null swap_peak_db_connections=null
   if [ "$verdict" = pass ]; then
     if ! serving=$(curl -fsS -m 10 https://engine.smarter.poker/health | health_field releaseSha) \
        || ! [[ "$serving" =~ ^[0-9a-f]{40}$ ]]; then
@@ -1314,20 +1784,28 @@ cmd_certify() {
         # A file, not $(...): the swap sets SWAP_ADOPTION_SECONDS in this shell.
         local swap_out; swap_out=$(mktemp) || return 1
         if certified_player_swap "$sha" "$serving" >"$swap_out"; then
+          rollback_db_conns=${SWAP_PEAK_DB_CONNECTIONS:-null}
           rollback_seconds=$SWAP_ADOPTION_SECONDS
           if [ "$rollback_seconds" -gt 135 ]; then
             record 'rollback_rehearsal_exceeded_reserve'
           fi
           if certified_player_swap "$serving" "$sha" >"$swap_out"; then
+            forward_db_conns=${SWAP_PEAK_DB_CONNECTIONS:-null}
             forward_seconds=$SWAP_ADOPTION_SECONDS
             player_reconnect=true
           else
+            forward_db_conns=${SWAP_PEAK_DB_CONNECTIONS:-null}
             record "swap_rehearsal_failed_from_${serving:0:12}"
             rehearsal_failure=$(rehearsal_failure_detail forward "$(cat "$swap_out")")
           fi
         else
+          rollback_db_conns=${SWAP_PEAK_DB_CONNECTIONS:-null}
           record "rollback_rehearsal_failed_to_${serving:0:12}"
           rehearsal_failure=$(rehearsal_failure_detail rollback "$(cat "$swap_out")")
+        fi
+        swap_peak_db_connections=$(merge_swap_db_connections "$rollback_db_conns" "$forward_db_conns")
+        if printf '%s' "$swap_peak_db_connections" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if isinstance(d,dict) and d.get("status")=="fail" else 1)' 2>/dev/null; then
+          record 'swap_db_connections_exceeded'
         fi
         rm -f "$swap_out"
         if [ "$rehearsal_failure" != null ]; then
@@ -1438,7 +1916,7 @@ cmd_certify() {
 
   local reasons_json="[]"
   [ ${#reasons[@]} -eq 0 ] || reasons_json=$(printf '%s\n' "${reasons[@]}" | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))')
-  python3 - "$result" "$serving" "$rollback_seconds" "$forward_seconds" "$player_reconnect" "$lifecycle_check" "$hand_gap_check" "$memory_growth_check" "$rehearsal_failure" <<PY
+  python3 - "$result" "$serving" "$rollback_seconds" "$forward_seconds" "$player_reconnect" "$lifecycle_check" "$hand_gap_check" "$memory_growth_check" "$rehearsal_failure" "$swap_peak_db_connections" "$clock_skew_check" <<PY
 import json, sys, time
 doc = {"schema": "club-arena-standby-certificate/v1", "sha": "$sha", "verdict": "$verdict",
        "reasons": $reasons_json, "certifiedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -1449,6 +1927,8 @@ doc = {"schema": "club-arena-standby-certificate/v1", "sha": "$sha", "verdict": 
        "lifecycleLogCheck": json.loads(sys.argv[6]), "handGapCheck": json.loads(sys.argv[7]),
        "memoryGrowthCheck": json.loads(sys.argv[8]),
        "rehearsalFailure": json.loads(sys.argv[9]),
+       "swapPeakDbConnections": json.loads(sys.argv[10]),
+       "clockSkewCheck": json.loads(sys.argv[11]),
        "seed": json.load(open("$STATE_DIR/seed.json")) if __import__("os").path.exists("$STATE_DIR/seed.json") else None,
        "database": json.load(open("$STATE_DIR/database.json")) if __import__("os").path.exists("$STATE_DIR/database.json") else None}
 open(sys.argv[1], "w").write(json.dumps(doc, indent=2) + "\n")
@@ -1474,11 +1954,13 @@ mkdir -p "$CERT_DIR" "$LOG_DIR" "$STATE_DIR/engine-alerts" "$STATE_DIR/horse-jou
 case "${1:-}" in
   restore) cmd_restore "${2:?dump}" ;;
   seed)    cmd_seed "${2:?seed_dir}" ;;
+  snapshot-copy) cmd_snapshot_copy "${2:-}" ;;
+  restore-snapshot) cmd_restore_snapshot "${2:-}" "${3:-}" "${4:-}" ;;
   build)   cmd_build "${2:?sha}" ;;
   run)     cmd_run "${2:?sha}" ;;
   certify) cmd_certify "${2:?sha}" "${3:-900}" ;;
   trial)   shift; cmd_trial "$@" ;;
   status)  cmd_status ;;
-  *) sed -n 2,22p "$0"; exit 64 ;;
+  *) sed -n 2,24p "$0"; exit 64 ;;
 esac
 fi

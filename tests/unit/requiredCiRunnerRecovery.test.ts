@@ -20,7 +20,7 @@ const jobs = [
 const retainedWrapper = 'src/engine/RetainedHistoricalCheckpointQualification.test.ts';
 const retainedStep = {
   name: 'Exact retained historical owners qualify before competing workloads',
-  if: 'matrix.shard == 1',
+  if: 'matrix.shard == 2',
   run: `npm test -- ${retainedWrapper}`,
 };
 const normalizeRetainedOwnerScheduling = (job: { steps: Array<Record<string, unknown>> }) => {
@@ -38,33 +38,55 @@ const normalizeRetainedOwnerScheduling = (job: { steps: Array<Record<string, unk
 
 const hourlyCashStep = {
   name: 'Hourly cash caps preserve humans and pace starts and closures',
-  if: 'matrix.shard == 1',
+  if: 'matrix.shard == 2',
   'working-directory': '.',
   run: 'python3 -B scripts/ci/test-hourly-cash-caps-postgres.py',
 };
 const calledNameStep = {
   name: 'A called name keeps its place under the hourly cap',
-  if: 'matrix.shard == 1',
+  if: 'matrix.shard == 2',
   'working-directory': '.',
   run: 'python3 -B scripts/ci/test-a-called-name-keeps-its-place-postgres.py',
 };
 const owedMainStep = {
   name: 'An owed Main starts before an extra table',
-  if: 'matrix.shard == 1',
+  if: 'matrix.shard == 2',
   'working-directory': '.',
   run: 'python3 -B scripts/ci/test-an-owed-main-starts-before-an-extra-table-postgres.py',
 };
 const promoLightningStep = {
   name: "A promo player's Lightning hand settles",
-  if: 'matrix.shard == 1',
+  if: 'matrix.shard == 2',
   'working-directory': '.',
   run: 'python3 -B scripts/ci/test-a-promo-player-lightning-hand-settles-postgres.py',
 };
 const exactServerBuildStep = {
   name: 'Build the exact server tree (as engine prequalification does)',
-  if: 'matrix.shard == 1',
+  if: 'matrix.shard == 2',
   env: { NODE_OPTIONS: '--max-old-space-size=6144' },
   run: 'npm run build',
+};
+const SHARD2_REBALANCED_STEPS = [
+  { name: 'TypeScript Check (server)', restoreIf: undefined },
+  { name: 'TypeScript Check (server scripts)', restoreIf: undefined },
+  { name: 'Freeze + watchdog + restart-gate regression suite', restoreIf: undefined },
+  {
+    name: 'V31 public feature and final model-index controller contracts',
+    restoreIf: 'matrix.shard == 1',
+  },
+] as const;
+const normalizeShard2Rebalance = (job: { steps: Array<Record<string, unknown>> }) => {
+  // 2026-11-28: deterministic single-run server gates ride lightweight shard 2
+  // instead of overloading shard 1 (~22.7m Vitest) or running redundantly 4x.
+  for (const { name, restoreIf } of SHARD2_REBALANCED_STEPS) {
+    const matches = job.steps.filter((step) => step.name === name);
+    expect(matches, name).toHaveLength(1);
+    const step = matches[0];
+    expect(step.if, name).toBe('matrix.shard == 2');
+    expect(step['continue-on-error'], name).toBeUndefined();
+    if (restoreIf === undefined) delete step.if;
+    else step.if = restoreIf;
+  }
 };
 const normalizeHourlyCashAddition = (job: { steps: Array<Record<string, unknown>> }) => {
   const index = job.steps.findIndex((step) => step.name === hourlyCashStep.name);
@@ -1281,6 +1303,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     normalized.jobs.server_shards['timeout-minutes'] = 25;
     normalizeHourlyCashAddition(normalized.jobs.server_shards);
     normalizeRetainedOwnerScheduling(normalized.jobs.server_shards);
+    normalizeShard2Rebalance(normalized.jobs.server_shards);
     normalizeSpinNetOfRefundsAddition(normalized.jobs.accounting_postgres);
     normalizeUndrawnSpinAddition(normalized.jobs.accounting_postgres);
     normalizeFinishUnionAddition(normalized.jobs.accounting_postgres);
@@ -1860,7 +1883,7 @@ it('refuses missing, duplicated, moved or broadened retained-owner scheduling', 
     (job: any, index: number) => job.steps.splice(index, 1),
     (job: any, index: number) => job.steps.push(structuredClone(job.steps[index])),
     (job: any, index: number) => {
-      job.steps[index].if = 'matrix.shard == 2';
+      job.steps[index].if = 'matrix.shard == 1';
     },
     (job: any, index: number) => {
       job.steps[index + 1].run += '--exclude src/other.test.ts';
@@ -1875,6 +1898,29 @@ it('refuses missing, duplicated, moved or broadened retained-owner scheduling', 
       job.steps.findIndex((step: any) => step.name === retainedStep.name)
     );
     expect(() => normalizeRetainedOwnerScheduling(job)).toThrow();
+  }
+});
+
+it('refuses missing, skipped, weakened or off-shard single-run server gates', () => {
+  for (const { name } of SHARD2_REBALANCED_STEPS) {
+    for (const mutate of [
+      (job: any, index: number) => job.steps.splice(index, 1),
+      (job: any, index: number) => {
+        job.steps[index].if = 'false';
+      },
+      (job: any, index: number) => {
+        job.steps[index].if = 'matrix.shard == 1';
+      },
+      (job: any, index: number) => {
+        job.steps[index]['continue-on-error'] = true;
+      },
+    ]) {
+      const job = structuredClone(ci.jobs.server_shards);
+      const idx = job.steps.findIndex((step: any) => step.name === name);
+      expect(idx, name).toBeGreaterThan(-1);
+      mutate(job, idx);
+      expect(() => normalizeShard2Rebalance(job), name).toThrow();
+    }
   }
 });
 
