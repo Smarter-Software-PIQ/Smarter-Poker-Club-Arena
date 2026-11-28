@@ -30,7 +30,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ServerTableEngine } from './ServerTableEngine.js';
 import { DeadlineScheduler } from './DeadlineScheduler.js';
 import { InsuranceEngine } from './InsuranceEngine.js';
@@ -45,16 +45,24 @@ const PLAYER = '08e6ca56-5cdf-4fda-9443-a01b2f7a158b';
 const OPPONENT = '2610f833-88cd-4a55-b255-75b75070b5da';
 const SEAT = 3;
 
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(Date.UTC(2026, 10, 28, 9, 37, 0));
+});
+
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
-function buildEngine(opts: {
-  actionTimeSeconds?: number;
-  currentSeat?: number;
-  stage?: string;
-  playerFlags?: Record<string, unknown>;
-} = {}) {
+function buildEngine(
+  opts: {
+    actionTimeSeconds?: number;
+    currentSeat?: number;
+    stage?: string;
+    playerFlags?: Record<string, unknown>;
+  } = {}
+) {
   const engine = new ServerTableEngine(TABLE) as any;
   engine.running = true;
   engine.isCurrentEngine = () => true;
@@ -194,7 +202,11 @@ describe('all six server-owned mid-hand decision clocks are live while bounded a
   });
 
   it('shields Pineapple simultaneous discard (seat < 0) while sweep + bounded deadline are live and fails closed without sweep', () => {
-    const { engine } = buildEngine({ currentSeat: -1, stage: 'pineapple_discard', actionTimeSeconds: 30 });
+    const { engine } = buildEngine({
+      currentSeat: -1,
+      stage: 'pineapple_discard',
+      actionTimeSeconds: 30,
+    });
     try {
       const deadline = Date.now() + 25_000;
       engine.pineappleDiscardTimer = setTimeout(() => {}, 25_000);
@@ -415,7 +427,9 @@ describe('source-contract hardening across GameServer, Turns, and Runout', () =>
 
   it('pins runTableWatchdog to check hasLiveDecisionClock before both seat < 0 and seat >= 0 branches', () => {
     const turns = here('./ServerTableEngineTurns.ts');
-    const stallGuardIdx = turns.indexOf('if (idleMs <= ServerTableEngineBase.WATCHDOG_STALL_MS) return;');
+    const stallGuardIdx = turns.indexOf(
+      'if (idleMs <= ServerTableEngineBase.WATCHDOG_STALL_MS) return;'
+    );
     const liveClockIdx = turns.indexOf('if (this.hasLiveDecisionClock()) return;', stallGuardIdx);
     const noSeatIdx = turns.indexOf('if (seat < 0) {', stallGuardIdx);
     expect(stallGuardIdx).toBeGreaterThan(-1);
