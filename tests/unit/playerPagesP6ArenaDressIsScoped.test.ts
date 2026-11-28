@@ -2,10 +2,13 @@
  * THE P6 PLAYER PAGES' ARENA DRESS IS SCOPED TO EACH PAGE
  * (#SmarterDesign player pages batch P6, 2026-11-28)
  *
- * /bonuses wears the arena workspace. Its sheet is shared with the modal the
- * shell raises on entry, so the sheet's own stylesheet is untouched and every
- * rule that dresses it sits under the page's arena root; the modal keeps its
- * painted console. Each rule here is the shape of a regression that would
+ * /bonuses and /vip wear the arena workspace. The Daily Bonus sheet is shared
+ * with the modal the shell raises on entry, so the sheet's own stylesheet is
+ * untouched and every rule that dresses it sits under the page's arena root;
+ * the modal keeps its painted console. VIP's membership plate and Diamond
+ * Activity take an opt-in `arena` prop that only /vip passes, and VIP's own
+ * painted sheet stays as the marketplace contract pins it, overridden only
+ * under the page root. Each rule here is the shape of a regression that would
  * leak the arena onto another host or bring the painted header back.
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -62,5 +65,45 @@ describe('Daily Bonus wears the arena workspace, scoped to its page', () => {
       .filter((path) => /<DailyBonusSheet\b[^>]*chassis="glass"/.test(read(path)))
       .sort();
     expect(hosts).toEqual([join('src', 'pages', 'DailyBonusPage.tsx')]);
+  });
+});
+
+describe('VIP wears the arena workspace, scoped to its page', () => {
+  const page = read('src/pages/VIPPage.tsx');
+  const css = read('src/pages/VIPPageArena.css');
+
+  it('the page root carries the arena workspace and the chrome mast, never the page bar header', () => {
+    expect(page.match(/className="vip-page arena-workspace"/g)).toHaveLength(2);
+    expect(page.match(/<ArenaWorkspaceHeader/g)).toHaveLength(2);
+    expect(page).not.toContain('RewardsSurfaceHeader');
+    expect(page).toContain("import './VIPPageArena.css';");
+    expect(page).toContain('className="diamond-balance__actions arena-switch arena-ops-primary"');
+    expect(page).toContain('className="purchase-card arena-ledger-row"');
+  });
+
+  it('every rule in the arena sheet sits under the page arena root', () => {
+    const all = selectors(css);
+    expect(all.length).toBeGreaterThan(60);
+    for (const s of all) expect(s.startsWith('.vip-page.arena-workspace')).toBe(true);
+  });
+
+  it('leaves the painted sheets themselves free of the arena', () => {
+    for (const path of [
+      'src/pages/VIPPage.css',
+      'src/components/vip/VIPMembershipPlate.css',
+      'src/components/vip/VIPActivityHistory.css',
+      'src/components/vip/VIPPerksGrid.css',
+    ])
+      expect(read(path)).not.toContain('arena');
+  });
+
+  it('only /vip opts the plate and the activity into the arena', () => {
+    const optIns = sources('src')
+      .filter((path) => /<(VIPMembershipPlate|VIPActivityHistory)\b[^>]*\barena\b/.test(read(path)))
+      .sort();
+    expect(optIns).toEqual([join('src', 'pages', 'VIPPage.tsx')]);
+    // The components stay off by default.
+    expect(read('src/components/vip/VIPMembershipPlate.tsx')).toContain('arena = false');
+    expect(read('src/components/vip/VIPActivityHistory.tsx')).toContain('arena = false');
   });
 });

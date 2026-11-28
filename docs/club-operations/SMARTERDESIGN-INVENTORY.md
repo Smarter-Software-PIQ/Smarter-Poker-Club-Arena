@@ -21,16 +21,16 @@ The batch history (what each PR converted, and why) is in [SMARTERDESIGN-HISTORY
 
 ## Summary
 
-- Not converted: 40
+- Not converted: 39
 - Partial: 4
 - UNKNOWN: 2
-- Converted: 51
+- Converted: 52
 - Excluded on purpose: 29
 - Renders no page of its own: 3
 
 `src/App.tsx` provides `<ConsoleSkinProvider value="smarterdesign">`, so every `SpadeConsole` renders as a thin chrome case instead of the painted master. That is a skin, not a conversion: a page built from console sections still has no arena-workspace root, mast, readouts or chrome keys, and is graded on what its own source carries.
 
-## Not converted (40)
+## Not converted (39)
 
 - **AgentPortalPage**, `src/pages/AgentPortalPage.tsx`: painted console sections in `src/pages/AgentPortalPage.tsx` (3), `src/components/agent/AgentInvoicesPanel.tsx` (1); the root smarterdesign skin dresses them, but there is no arena shell. Routes: `/agent-portal`.
 - **ClubAdvertisePage**, `src/pages/ClubAdvertisePage.tsx`: painted console sections in `src/pages/ClubAdvertisePage.tsx` (8); the root smarterdesign skin dresses them, but there is no arena shell. Routes: `/advertise`, `/clubs/:clubId/advertise`.
@@ -70,7 +70,6 @@ The batch history (what each PR converted, and why) is in [SMARTERDESIGN-HISTORY
 - **UnionDetailPage**, `src/pages/UnionDetailPage.tsx`: its own module dress (33 painted radii, 12 gradients). Routes: `/unions/:unionId`.
 - **UnionGamesPage**, `src/pages/UnionGamesPage.tsx`: its own module dress (13 painted radii, 4 gradients). Routes: `/unions/:unionId/games`.
 - **UnionsPage**, `src/pages/UnionsPage.tsx`: its own module dress (6 painted radii, 10 gradients). Routes: `/unions`.
-- **VIPPage**, `src/pages/VIPPage.tsx`: a plain flat sheet, no frames. Routes: `/vip`.
 - **XMTTPage**, `src/pages/XMTTPage.tsx`: painted console sections in `src/pages/XMTTPage.tsx` (5); the root smarterdesign skin dresses them, but there is no arena shell. Routes: `/xmtt`.
 
 ## Partial (4)
@@ -85,7 +84,7 @@ The batch history (what each PR converted, and why) is in [SMARTERDESIGN-HISTORY
 - **MarketplaceRoute**, `src/pages/MarketplaceRoute.tsx`: no markup of its own and nothing this scan could follow; read the source. Routes: `/marketplace`.
 - **NotFoundPage**, `src/pages/NotFoundPage.tsx`: no markup of its own and nothing this scan could follow; read the source. Routes: `/*`.
 
-## Converted (51)
+## Converted (52)
 
 - **CashierEntrance**, `src/components/navigation/CashierEntrance.tsx`: arena-workspace root and mast. Routes: `/cashier`, `/clubs/:clubId/cashier-classic`.
 - **AgentDashboardPage**, `src/pages/AgentDashboardPage.tsx`: arena-workspace root and mast. Routes: `/agent-dashboard`.
@@ -132,6 +131,7 @@ The batch history (what each PR converted, and why) is in [SMARTERDESIGN-HISTORY
 - **SettlementPage**, `src/pages/SettlementPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/settlement`, `/unions/:unionId/settlement`.
 - **SuperAgentDashboard**, `src/pages/SuperAgentDashboard.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/agent-dashboard`.
 - **TransactionHistoryPage**, `src/pages/TransactionHistoryPage.tsx`: arena-workspace root and mast. Routes: `/transactions`.
+- **VIPPage**, `src/pages/VIPPage.tsx`: arena-workspace root and mast. Routes: `/vip`.
 - **ClubControlWorkspacePage**, `src/pages/workspaces/ArenaWorkspacePages.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/control`.
 - **ClubFinanceWorkspacePage**, `src/pages/workspaces/ArenaWorkspacePages.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/finance`.
 - **CommunityWorkspacePage**, `src/pages/workspaces/ArenaWorkspacePages.tsx`: arena-workspace root and mast. Routes: `/community`.
