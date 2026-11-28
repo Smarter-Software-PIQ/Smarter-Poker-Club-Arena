@@ -11,8 +11,9 @@
 import { build, buildSync } from 'esbuild';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const HERE = dirname(new URL(import.meta.url).pathname);
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 export const GLOBAL_SHEETS = [
   'src/styles/club-engine.css',

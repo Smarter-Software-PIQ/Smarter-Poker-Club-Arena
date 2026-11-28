@@ -41,6 +41,7 @@
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const ROOT = resolve(process.env.TABLE_SKIN_INK_ROOT || process.cwd());
 const DIRS = ['src/components/table', 'src/components/console', 'src/components/handdetail'];
@@ -280,4 +281,4 @@ function main() {
   console.log(`check-table-skin-ink: ${files.length} table stylesheets clean against the baseline`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
