@@ -3,6 +3,15 @@
  *  CREDIT ADMIN PANEL — Agent Credit Limit Management
  * ═══════════════════════════════════════════════════════════════════════════════
  *  Admin page for adjusting agent credit limits and viewing recent changes.
+ *
+ *  #SmarterDesign (batch O2, 2026-11-28): off the painted spade console onto
+ *  the arena workspace. Back is a chrome key above the finance mast, the scope
+ *  rides the live line, Credit Requests is a chrome case, the exposure totals
+ *  are chrome readout tiles with Export Shown Rows lit, Agents and Recent
+ *  Credit Changes are chrome cases of chrome rows, Edit / Save / Cancel are
+ *  chrome keys (Save lit) and the new limit is a dark well. Every figure,
+ *  credit limit, word, region and control is unchanged
+ *  (tests/components/creditAdminPanelIsPinned.test.tsx).
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -16,7 +25,8 @@ import { retryFetch } from '../utils/retryFetch';
 import { exportToCSV } from '../lib/export';
 import { AgentService } from '../services/AgentService';
 import { CreditRequestManagerInbox } from '../components/agent/CreditRequestWidget';
-import { SpadeConsole } from '../components/console/SpadeConsole';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import { useClubStore } from '../stores/useClubStore';
 import PageBar from '../components/help/PageBar';
 
 import { useIsMounted } from '../hooks/useIsMounted';
@@ -38,7 +48,10 @@ import {
   type AgentCredit,
   type CreditAdminAuditEntry,
 } from '../utils/creditAdminData';
-import styles from './CreditAdminPanel.module.css';
+import './CreditAdminPanel.css';
+
+const SUMMARY =
+  'Agent Credit Control. Review Credit Requests, Credit Limits And Exposure For The Agents In Your Scope.';
 
 export default function CreditAdminPanel() {
   const { user, isHydrating } = useAuthUser();
@@ -411,6 +424,12 @@ function CreditAdminPanelForScope() {
     }
   };
 
+  // The mast names the club the scope chose, from the membership already held;
+  // with none held the line stays blank rather than naming another club.
+  const clubName = useClubStore(
+    (state) => state.memberships.find((m) => m.club?.id === scopeClubId)?.club?.name
+  );
+
   const totalCreditExposure = dataReady ? creditAdminTotal(agents, 'creditLimit') : null;
   const totalDebt = dataReady ? creditAdminTotal(agents, 'debtOwed') : null;
   const hasExport = dataReady && agents.length > 0;
@@ -476,163 +495,179 @@ function CreditAdminPanelForScope() {
 
   if (!scopeReady) {
     return (
-      <main className={styles.page}>
-        <SpadeConsole
-          className={styles.console}
-          family="spade"
-          crest="spade"
-          title="Credit Admin"
-          titleAs="h1"
-          pill="Verifying"
-          pillInk="gold"
-          foot="foot"
-          aria-busy="true"
-        >
-          <button type="button" className={styles.backWord} onClick={() => navigate(-1)}>
+      <main className="credit-admin-page arena-workspace" aria-busy="true">
+        <div className="arena-switch arena-ops-keys credit-admin-page__back">
+          <button type="button" onClick={() => navigate(-1)}>
             Back
           </button>
-          <p className={styles.state} role="status">
+        </div>
+        <ArenaWorkspaceHeader
+          area="finance"
+          title="Credit Admin"
+          context={clubName || undefined}
+          summary={SUMMARY}
+        />
+        <PageBar
+          title="Credit Admin"
+          titleAs={false}
+          showHelp={false}
+          status="Verifying"
+          statusTone="attention"
+        />
+        <section className="arena-case arena-ops-case credit-admin-page__case">
+          <p className="credit-admin-page__state" role="status">
             Verifying Credit Access.
           </p>
-        </SpadeConsole>
+        </section>
       </main>
     );
   }
 
   return (
-    <main className={styles.page}>
-      {/* Dan, 2026-10-17: "PAGES DON'T NEED TITLES LIKE THIS". The eyebrow and
-          the descriptive subtitle moved behind the painted "?"; the head keeps
-          its title and its live pill. */}
+    <main className="credit-admin-page arena-workspace" aria-busy={loading || undefined}>
+      <div className="arena-switch arena-ops-keys credit-admin-page__back">
+        <button type="button" onClick={() => navigate(-1)}>
+          Back
+        </button>
+      </div>
+      {/* Dan, 2026-10-17: "PAGES DON'T NEED TITLES LIKE THIS". What this page
+          is lives behind the chrome "?"; the live line keeps the scope. */}
+      <ArenaWorkspaceHeader
+        area="finance"
+        title="Credit Admin"
+        context={clubName || undefined}
+        summary={SUMMARY}
+      />
       <PageBar
         title="Credit Admin"
         titleAs={false}
-        summary="Agent Credit Control. Review Credit Requests, Credit Limits And Exposure For The Agents In Your Scope."
+        showHelp={false}
+        status={scopePlatformWide ? 'Platform' : 'Club'}
+        statusTone={loadError ? 'danger' : 'live'}
       />
-      <SpadeConsole
-        className={styles.console}
-        family="spade"
-        crest="spade"
-        title="Credit Admin"
-        titleAs="h1"
-        pill={scopePlatformWide ? 'Platform' : 'Club'}
-        pillInk={loadError ? 'red' : 'gold'}
-        foot={hasExport ? 'plates' : 'foot'}
-        aria-busy={loading || undefined}
-        plates={
-          hasExport
-            ? {
-                secondary: { label: 'Back', onClick: () => navigate(-1) },
-                primary: { label: 'Export Shown Rows', onClick: exportShownRows },
-              }
-            : undefined
+      <p className="credit-admin-page__note">
+        Showing Up To {CREDIT_ADMIN_VIEW_LIMIT} Agents, Ordered By Credit Limit. Totals And CSV
+        Cover The Shown Rows Only.
+      </p>
+
+      {scopeClubId && !scopePlatformWide && <CreditRequestManagerInbox clubId={scopeClubId} />}
+
+      <dl
+        className={
+          loadError
+            ? 'arena-ops-readings credit-admin-page__summary credit-admin-page__summary--failed'
+            : 'arena-ops-readings credit-admin-page__summary'
         }
+        aria-label="Credit Exposure Summary"
       >
-        {!hasExport && (
-          <button type="button" className={styles.backWord} onClick={() => navigate(-1)}>
-            Back
+        <div className="arena-meter">
+          <dt>Credit Limits In View</dt>
+          <dd>{creditAdminMoney(totalCreditExposure)}</dd>
+        </div>
+        <div className="arena-meter">
+          <dt>Wallet Shortfall In View</dt>
+          <dd className="credit-admin-page__shortfall">{creditAdminMoney(totalDebt)}</dd>
+        </div>
+        <div className="arena-meter">
+          <dt>Agents In View</dt>
+          <dd>{dataReady ? agents.length : 'Unavailable'}</dd>
+        </div>
+      </dl>
+      {hasExport && (
+        <div className="arena-switch arena-ops-keys arena-ops-primary credit-admin-page__export">
+          <button type="button" onClick={exportShownRows}>
+            Export Shown Rows
           </button>
-        )}
-        <p className={styles.scopeNote}>
-          Showing Up To {CREDIT_ADMIN_VIEW_LIMIT} Agents, Ordered By Credit Limit. Totals And CSV
-          Cover The Shown Rows Only.
-        </p>
+        </div>
+      )}
 
-        {scopeClubId && !scopePlatformWide && <CreditRequestManagerInbox clubId={scopeClubId} />}
-
-        <dl className={styles.summary} aria-label="Credit Exposure Summary">
-          <div className={styles.summaryRow}>
-            <dt>Credit Limits In View</dt>
-            <dd className="sc-ink--blue">{creditAdminMoney(totalCreditExposure)}</dd>
-          </div>
-          <div className={styles.summaryRow}>
-            <dt>Wallet Shortfall In View</dt>
-            <dd className="sc-ink--red">{creditAdminMoney(totalDebt)}</dd>
-          </div>
-          <div className={styles.summaryRow}>
-            <dt>Agents In View</dt>
-            <dd className="sc-ink--green">{dataReady ? agents.length : 'Unavailable'}</dd>
-          </div>
-        </dl>
-
-        <section aria-labelledby="credit-agents-heading">
-          <h2 id="credit-agents-heading" className={styles.sectionHeading}>
-            Agents
-          </h2>
-          {!dataReady && !loadError ? (
-            <p className={styles.state} role="status">
-              Loading Agent Credit Lines.
-            </p>
-          ) : loadError ? (
-            <div role="alert" className={styles.state}>
-              <p>{loadError}</p>
-              <button type="button" onClick={() => loadAgents()} className={styles.wordButton}>
+      <section
+        className="arena-case arena-ops-case credit-admin-page__case"
+        aria-labelledby="credit-agents-heading"
+      >
+        <h2 id="credit-agents-heading" className="arena-section-title">
+          Agents
+        </h2>
+        {!dataReady && !loadError ? (
+          <p className="credit-admin-page__state" role="status">
+            Loading Agent Credit Lines.
+          </p>
+        ) : loadError ? (
+          <div role="alert" className="credit-admin-page__state">
+            <p>{loadError}</p>
+            <div className="arena-switch arena-ops-keys arena-ops-primary credit-admin-page__retry">
+              <button type="button" onClick={() => loadAgents()}>
                 Retry
               </button>
             </div>
-          ) : agents.length === 0 ? (
-            <p className={styles.state}>No Agents Found</p>
-          ) : (
-            <div className={styles.agentList}>
-              {agents.map((agent) => (
-                <article key={agent.id} className={styles.agentRow}>
-                  <div className={styles.agentIdentity}>
-                    <strong data-player-name>{titleCase(agent.displayName)}</strong>
-                    <span className={styles.clubName}>{titleCase(agent.clubName)}</span>
-                    <span className={styles.agentStatus}>{titleCase(agent.status)}</span>
-                    <dl className={styles.agentMoney}>
-                      <div>
-                        <dt>Balance</dt>
-                        <dd className="sc-ink--green">{creditAdminMoney(agent.currentBalance)}</dd>
+          </div>
+        ) : agents.length === 0 ? (
+          <p className="credit-admin-page__state">No Agents Found</p>
+        ) : (
+          <div className="credit-admin-page__agents">
+            {agents.map((agent) => (
+              <article key={agent.id} className="arena-ledger-row credit-admin-page__agent">
+                <div className="credit-admin-page__identity">
+                  <strong data-player-name>{titleCase(agent.displayName)}</strong>
+                  <span className="credit-admin-page__club">{titleCase(agent.clubName)}</span>
+                  <span className="credit-admin-page__status">{titleCase(agent.status)}</span>
+                  <dl className="credit-admin-page__money">
+                    <div>
+                      <dt>Balance</dt>
+                      <dd className="credit-admin-page__balance">
+                        {creditAdminMoney(agent.currentBalance)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Wallet Shortfall</dt>
+                      <dd className="credit-admin-page__shortfall">
+                        {creditAdminMoney(agent.debtOwed)}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+                <div className="credit-admin-page__actions">
+                  {editingAgent === agent.id ? (
+                    <>
+                      <label className="credit-admin-page__field">
+                        <span>New Limit</span>
+                        <input
+                          className="arena-ops-well"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={newLimit}
+                          onChange={(event) => setNewLimit(event.target.value)}
+                          placeholder={
+                            agent.creditLimit === null ? 'Unavailable' : String(agent.creditLimit)
+                          }
+                        />
+                      </label>
+                      <div className="arena-switch arena-ops-keys arena-ops-primary credit-admin-page__keys">
+                        <button
+                          type="button"
+                          onClick={() => handleSaveLimit(agent.id)}
+                          disabled={saving || !canEdit}
+                        >
+                          {saving ? 'Saving' : 'Save'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingAgent(null);
+                            setNewLimit('');
+                          }}
+                        >
+                          Cancel
+                        </button>
                       </div>
-                      <div>
-                        <dt>Wallet Shortfall</dt>
-                        <dd className="sc-ink--red">{creditAdminMoney(agent.debtOwed)}</dd>
-                      </div>
-                    </dl>
-                  </div>
-                  <div className={styles.agentActions}>
-                    {editingAgent === agent.id ? (
-                      <>
-                        <label className={styles.limitField}>
-                          <span>New Limit</span>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={newLimit}
-                            onChange={(event) => setNewLimit(event.target.value)}
-                            placeholder={
-                              agent.creditLimit === null ? 'Unavailable' : String(agent.creditLimit)
-                            }
-                          />
-                        </label>
-                        <div className={styles.actionWords}>
-                          <button
-                            type="button"
-                            onClick={() => handleSaveLimit(agent.id)}
-                            disabled={saving || !canEdit}
-                            className={`${styles.wordButton} sc-ink--green`}
-                          >
-                            {saving ? 'Saving' : 'Save'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingAgent(null);
-                              setNewLimit('');
-                            }}
-                            className={`${styles.wordButton} sc-ink--red`}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <span className={`${styles.creditLimit} sc-ink--gold`}>
-                          {creditAdminMoney(agent.creditLimit)}
-                        </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="credit-admin-page__limit">
+                        {creditAdminMoney(agent.creditLimit)}
+                      </span>
+                      <div className="arena-switch arena-ops-keys credit-admin-page__keys">
                         <button
                           type="button"
                           disabled={
@@ -657,55 +692,63 @@ function CreditAdminPanelForScope() {
                             setEditingAgent(agent.id);
                             setNewLimit(agent.creditLimit.toString());
                           }}
-                          className={styles.wordButton}
                         >
                           Edit
                         </button>
-                      </>
-                    )}
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
 
         {dataReady && auditError && (
-          <p className={styles.state} role="status">
+          <p className="credit-admin-page__state" role="status">
             Recent Credit Changes Are Unavailable.
           </p>
         )}
-        {dataReady && !auditError && agents.length > 0 && (
-          <section className={styles.audit} aria-labelledby="credit-audit-heading">
-            <h2 id="credit-audit-heading" className={styles.sectionHeading}>
-              Recent Credit Changes For Agents In View
-            </h2>
-            <p className={styles.scopeNote}>
-              Up To {CREDIT_ADMIN_AUDIT_LIMIT} Recent Changes Available To Your Account.
+      </section>
+      {dataReady && !auditError && agents.length > 0 && (
+        <section
+          className="arena-case arena-ops-case credit-admin-page__case"
+          aria-labelledby="credit-audit-heading"
+        >
+          <h2 id="credit-audit-heading" className="arena-section-title">
+            Recent Credit Changes For Agents In View
+          </h2>
+          <p className="credit-admin-page__note">
+            Up To {CREDIT_ADMIN_AUDIT_LIMIT} Recent Changes Available To Your Account.
+          </p>
+          {auditLog.length === 0 && (
+            <p className="credit-admin-page__state">
+              No Visible Credit Changes For Agents In This View.
             </p>
-            {auditLog.length === 0 && <p>No Visible Credit Changes For Agents In This View.</p>}
-            <ol className={styles.auditList}>
-              {auditLog.map((log) => (
-                <li key={log.id} className={styles.auditRow}>
-                  <span>
-                    <strong data-player-name>{titleCase(log.agentName)}</strong>
-                    <small>
-                      {titleCase(log.clubName)} /{' '}
-                      {log.createdAt
-                        ? new Date(log.createdAt).toLocaleDateString()
-                        : 'Date Unavailable'}
-                    </small>
+          )}
+          <ol className="credit-admin-page__audit">
+            {auditLog.map((log) => (
+              <li key={log.id} className="arena-ledger-row credit-admin-page__change">
+                <span>
+                  <strong data-player-name>{titleCase(log.agentName)}</strong>
+                  <small>
+                    {titleCase(log.clubName)} /{' '}
+                    {log.createdAt
+                      ? new Date(log.createdAt).toLocaleDateString()
+                      : 'Date Unavailable'}
+                  </small>
+                </span>
+                <span className="credit-admin-page__shift">
+                  <span className="credit-admin-page__from">
+                    From {creditAdminMoney(log.oldLimit)}
                   </span>
-                  <span className={styles.auditChange}>
-                    <span className="sc-ink--red">From {creditAdminMoney(log.oldLimit)}</span>
-                    <span className="sc-ink--green">To {creditAdminMoney(log.newLimit)}</span>
-                  </span>
-                </li>
-              ))}
-            </ol>
-          </section>
-        )}
-      </SpadeConsole>
+                  <span className="credit-admin-page__to">To {creditAdminMoney(log.newLimit)}</span>
+                </span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
     </main>
   );
 }

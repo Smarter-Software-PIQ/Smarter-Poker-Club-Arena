@@ -2,8 +2,8 @@
  * THE O2 OPERATOR MONEY PAGES KEEP THEIR #SmarterDesign DRESS INSIDE THEIR OWN
  * WORKSPACE (batch O2, 2026-11-28)
  *
- * Settlement History moved off the painted shark console onto the arena
- * workspace with a sheet of its own. Every rule of that sheet must apply only
+ * Settlement History and Credit Admin moved off the painted consoles onto the
+ * arena workspace, each with a sheet of its own. Every rule of that sheet must apply only
  * under the page's own `.arena-workspace` root, so no other page that shares a
  * class name changes, and no sheet may draw its own gradient, shadow, radius or
  * hover: the chrome comes from ArenaWorkspace.css and ArenaOps.css. The page
@@ -21,6 +21,12 @@ const PAGES = [
     sheet: 'src/pages/SettlementHistoryPage.css',
     root: 'settlement-history-page',
     retired: 'src/pages/SettlementHistoryPage.module.css',
+  },
+  {
+    page: 'src/pages/CreditAdminPanel.tsx',
+    sheet: 'src/pages/CreditAdminPanel.css',
+    root: 'credit-admin-page',
+    retired: 'src/pages/CreditAdminPanel.module.css',
   },
 ] as const;
 
@@ -68,5 +74,18 @@ describe('the O2 operator money pages wear the arena workspace', () => {
       /<h2 className="arena-section-title">([\s\S]*?)<\/h2>/g
     ))
       expect(title[1], title[1]).not.toMatch(/<small|\{/);
+  });
+
+  it('dresses the shared Credit Requests inbox only inside Credit Admin', () => {
+    // CreditRequestWidget also renders on the Super Agent Dashboard; its own
+    // markup and sheet are unchanged, and the arena dress keys on Credit
+    // Admin's root (asserted for every selector above).
+    const widget = read('src/components/agent/CreditRequestWidget.tsx');
+    expect(widget).toContain(
+      '<section className="credit-request-inbox" aria-label="Credit Requests">'
+    );
+    expect(read('src/pages/CreditAdminPanel.css')).toContain(
+      '.arena-workspace.credit-admin-page .credit-request-inbox'
+    );
   });
 });

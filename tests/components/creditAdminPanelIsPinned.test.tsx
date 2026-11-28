@@ -185,6 +185,11 @@ function renderPage() {
   ).container;
 }
 
+/** The Credit Requests inbox reads on its own; the pin waits for it to settle. */
+async function inboxSettled() {
+  await screen.findByText('No Pending Credit Requests Are Visible For This Club.');
+}
+
 function headingIsTitleOnly() {
   expect(screen.getByRole('heading', { name: 'Credit Admin', exact: true })).toBeTruthy();
 }
@@ -265,6 +270,7 @@ describe('Credit Admin keeps every figure, limit, word, region and control', () 
     await waitFor(() => expect(enabled()).toHaveLength(1));
     fireEvent.click(enabled()[0]);
     await screen.findByText('New Limit');
+    await inboxSettled();
     expect(body(root)).toMatchInlineSnapshot(`
       {
         "controls": [
@@ -309,6 +315,7 @@ describe('Credit Admin keeps every figure, limit, word, region and control', () 
     m.agents = () => Promise.resolve({ data: [], error: null });
     const root = renderPage();
     await screen.findByText('No Agents Found');
+    await inboxSettled();
     headingIsTitleOnly();
     expect(body(root)).toMatchInlineSnapshot(`
       {
@@ -339,6 +346,7 @@ describe('Credit Admin keeps every figure, limit, word, region and control', () 
     await screen.findByText('The Agent Credit Lines Could Not Be Loaded.', undefined, {
       timeout: 8000,
     });
+    await inboxSettled();
     headingIsTitleOnly();
     expect(body(root)).toMatchInlineSnapshot(`
       {
@@ -367,6 +375,7 @@ describe('Credit Admin keeps every figure, limit, word, region and control', () 
     m.audit = () => Promise.resolve({ data: null, error: { message: 'refused' } });
     const root = renderPage();
     await screen.findByText('Recent Credit Changes Are Unavailable.', undefined, { timeout: 8000 });
+    await inboxSettled();
     expect(body(root)).toMatchInlineSnapshot(`
       {
         "controls": [
@@ -403,6 +412,7 @@ describe('Credit Admin keeps every figure, limit, word, region and control', () 
   it('loading', async () => {
     const root = renderPage();
     await screen.findByText('Loading Agent Credit Lines.');
+    await inboxSettled();
     headingIsTitleOnly();
     expect(body(root)).toMatchInlineSnapshot(`
       {
@@ -420,7 +430,7 @@ describe('Credit Admin keeps every figure, limit, word, region and control', () 
           "dl||Credit Exposure Summary",
           "p|status|",
         ],
-        "text": "Showing Up To | 100 | Agents, Ordered By Credit Limit. Totals And CSV Cover The Shown Rows Only. | Credit Requests | Loading Credit Requests... | Credit Limits In View | Unavailable | Wallet Shortfall In View | Unavailable | Agents In View | Unavailable | Agents | Loading Agent Credit Lines.",
+        "text": "Showing Up To | 100 | Agents, Ordered By Credit Limit. Totals And CSV Cover The Shown Rows Only. | Credit Requests | No Pending Credit Requests Are Visible For This Club. | Credit Limits In View | Unavailable | Wallet Shortfall In View | Unavailable | Agents In View | Unavailable | Agents | Loading Agent Credit Lines.",
       }
     `);
   });

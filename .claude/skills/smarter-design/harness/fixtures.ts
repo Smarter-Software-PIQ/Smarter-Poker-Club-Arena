@@ -328,6 +328,25 @@ export const fixtures = {
         created_at: '2026-11-20T18:00:00Z',
       },
     ],
+    /* Credit Admin's Credit Requests inbox: one pending request. The stub
+       ignores .eq(), so it is also read back as the viewer's own request. */
+    credit_requests: [
+      {
+        id: 'credit-request-1',
+        requester_id: ownerId,
+        approver_id: ownerId,
+        club_id: CLUB_UUID,
+        requested_amount: '2500.00',
+        approved_amount: null,
+        reason: 'friday night game',
+        status: 'pending',
+        created_at: '2026-11-27T18:00:00Z',
+        reviewed_at: null,
+        reviewed_by: null,
+        reviewer_notes: null,
+        decision_authority_version: 1,
+      },
+    ],
     /* Settlement History (route /settlement-history): four union rake-hold cycles. */
     settlement_invoices: [
       ['paid', '2026-11-23T12:00:00Z', 47, '12840.55', '1284.06', '11556.49'],

@@ -18,7 +18,7 @@
 }
 
 /* One Back key, not a full-width bar across the phone. */
-.arena-workspace.settlement-history-page .settlement-history-page__back > button {
+.arena-workspace.settlement-history-page .arena-switch.settlement-history-page__back > button {
   flex: 0 1 140px;
 }
 
@@ -91,7 +91,7 @@
   margin-top: 10px;
 }
 
-.arena-workspace.settlement-history-page .settlement-history-page__retry > button {
+.arena-workspace.settlement-history-page .arena-switch.settlement-history-page__retry > button {
   flex: 0 1 160px;
 }
 
