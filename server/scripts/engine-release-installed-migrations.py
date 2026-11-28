@@ -415,6 +415,23 @@ def inert_versions(repo, control, *others):
                 return frozenset()
         if control in others:
             return frozenset()
+        # Reject unknown/unfetched SHAs locally without triggering a slow
+        # promisor remote fetch; real commits exist locally even in
+        # --filter=blob:none / --filter=tree:0 partial clones, while blobs
+        # below still fetch normally through git() / cat-file --batch.
+        unique_shas = list(dict.fromkeys((control, *others)))
+        check = subprocess.run(
+            ['git', '-C', repo, 'cat-file', '--batch-check=%(objecttype)'],
+            input=('\n'.join(unique_shas) + '\n').encode('ascii'),
+            capture_output=True,
+            timeout=15,
+            env={**os.environ, 'GIT_NO_REPLACE_OBJECTS': '1', 'GIT_NO_LAZY_FETCH': '1'},
+        )
+        if check.returncode or any(
+            line not in ('commit', 'tree', 'tag')
+            for line in check.stdout.decode('ascii', errors='replace').splitlines()
+        ) or len(check.stdout.splitlines()) != len(unique_shas):
+            return frozenset()
         mine = _migration_blobs(repo, control)
         theirs = [_migration_blobs(repo, sha) for sha in others]
         if others:
@@ -449,7 +466,7 @@ def inert_versions(repo, control, *others):
             input=batch_in,
             capture_output=True,
             timeout=30,
-            env={**os.environ, 'GIT_NO_REPLACE_OBJECTS': '1', 'GIT_NO_LAZY_FETCH': '1'},
+            env={**os.environ, 'GIT_NO_REPLACE_OBJECTS': '1'},
         )
         if raw.returncode:
             return frozenset()
@@ -547,7 +564,7 @@ def digest(rows):
 
 def git(repo, *args, ok=(0,)):
     result = subprocess.run(['git', '-C', repo, *args], capture_output=True, timeout=30,
-                            env={**os.environ, 'GIT_NO_REPLACE_OBJECTS': '1', 'GIT_NO_LAZY_FETCH': '1'})
+                            env={**os.environ, 'GIT_NO_REPLACE_OBJECTS': '1'})
     if result.returncode not in ok:
         raise RuntimeError('git ' + args[0] + ' failed')
     return result.stdout.decode()
