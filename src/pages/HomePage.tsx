@@ -63,8 +63,10 @@ import type { UserClub, ClubStats } from '../components/home/CarouselSection';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 
 import { STORAGE_KEYS } from '../lib/storage';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import '../components/ops/ArenaOps.css';
 /* Before the module sheet: SpadeConsole.css must load first so this page's
-   .consoleNarrow (--sc-max) can narrow the console it lays out. */
+   .consoleNarrow (--sc-max) can narrow the modal consoles it lays out. */
 import { SpadeConsole } from '../components/console/SpadeConsole';
 import styles from './HomePage.module.css';
 import { titleCase } from '../utils/titleCase';
@@ -124,29 +126,29 @@ class HomePageErrorBoundary extends Component<{ children: ReactNode }, ErrorBoun
   render() {
     if (this.state.hasError) {
       return (
-        <div className={styles.errorBoundary}>
-          <SpadeConsole
-            className={styles.consoleNarrow}
-            title="Something Went Wrong"
-            titleId="home-error-boundary-title"
-            pill="Error"
-            pillInk="red"
-            foot="foot"
+        <div className={`${styles.errorBoundary} arena-workspace`}>
+          <section
+            className={`arena-case arena-ops-case ${styles.stateCase}`}
             role="alert"
             aria-labelledby="home-error-boundary-title"
           >
-            <p className={`${styles.errorBoundaryMessage} sc-copy sc-copy--center`}>
+            <div className="arena-section-title">
+              <h2 id="home-error-boundary-title">Something Went Wrong</h2>
+              <small>Error</small>
+            </div>
+            <p className={styles.errorBoundaryMessage}>
               {titleCase(this.state.errorMessage) ||
                 'An Unexpected Error Occurred. Please Try Again.'}
             </p>
-            <button
-              type="button"
-              className={`${styles.word} sc-ink--blue`}
-              onClick={() => this.setState({ hasError: false, errorMessage: '' })}
-            >
-              Retry
-            </button>
-          </SpadeConsole>
+            <div className={`${styles.stateActions} arena-switch arena-ops-keys arena-ops-primary`}>
+              <button
+                type="button"
+                onClick={() => this.setState({ hasError: false, errorMessage: '' })}
+              >
+                Retry
+              </button>
+            </div>
+          </section>
         </div>
       );
     }
@@ -1353,7 +1355,7 @@ function HomePageInner() {
 
   return (
     <div
-      className={styles.container}
+      className={`${styles.container} arena-workspace`}
       style={
         SEASONAL_GRADIENTS[seasonalTheme]
           ? { background: SEASONAL_GRADIENTS[seasonalTheme] }
@@ -1440,7 +1442,23 @@ function HomePageInner() {
                 MAIN CONTENT — Scrollable card layout
             ═══════════════════════════════════════════════════════════════════════ */}
       <div className={styles.mainContent}>
-        <h1 className={`${styles.arenaTitle} sc-ink--silver`}>Poker Arena</h1>
+        <div className={styles.mastWrap}>
+          <ArenaWorkspaceHeader
+            area="dashboard"
+            title="Poker Arena"
+            summary="Open Your Clubs, Join Or Create A Private Club, Or Find A Player Seated At A Live Table."
+            steps={[
+              {
+                title: 'Club Carousel',
+                body: 'Swipe Through Your Clubs And Tap Any Club Card To Enter Its Lobby.',
+              },
+              {
+                title: 'Quick Actions',
+                body: 'Use Create A Club, Find A Player, Or Join A Club Directly Above The Carousel.',
+              },
+            ]}
+          />
+        </div>
         {/* ═══════════════════════════════════════════════════════════════════════
                     HORIZONTAL ACTION BAR — Dan 2026-10-23: Create A Club, Find A Player
                     and Join A Club lead the arena again; the Play Poker plate is retired.
@@ -1499,62 +1517,68 @@ function HomePageInner() {
             statements and must not render the same. */}
         {!isLoading && loadFailed && (
           <div className={styles.emptyStateCard}>
-            <SpadeConsole
-              className={styles.consoleNarrow}
-              crest="flat"
-              title="Could Not Load Your Clubs"
-              pill="Error"
-              pillInk="red"
-              foot="foot"
-              role="status"
-            >
-              <p className={`${styles.emptyStateDesc} sc-copy sc-copy--center`}>
+            <section className={`arena-case arena-ops-case ${styles.stateCase}`} role="status">
+              <div className="arena-section-title">
+                <h2>Could Not Load Your Clubs</h2>
+                <small>Error</small>
+              </div>
+              <p className={styles.emptyStateDesc}>
                 Your Clubs Are Still There - We Just Could Not Reach Them Right Now. This Is Usually
                 Brief. Try Again In A Moment.
               </p>
-              <button
-                type="button"
-                className={`${styles.word} sc-ink--blue`}
-                onClick={() => {
-                  setLoadFailed(false);
-                  fetchUserData(false, () => true);
-                }}
+              <div
+                className={`${styles.stateActions} arena-switch arena-ops-keys arena-ops-primary`}
               >
-                Try Again
-              </button>
-            </SpadeConsole>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoadFailed(false);
+                    fetchUserData(false, () => true);
+                  }}
+                >
+                  Try Again
+                </button>
+              </div>
+            </section>
           </div>
         )}
 
-        {/* Empty state — premium onboarding when user has no clubs */}
+        {/* Empty state — onboarding when user has no clubs */}
         {!isLoading && !loadFailed && hasFetchedOnceRef.current && displayClubs.length === 0 && (
           <div className={styles.emptyStateCard}>
-            <SpadeConsole
-              className={styles.consoleNarrow}
-              title="Welcome To Poker Arena"
-              pill="New"
-              plates={{
-                secondary: {
-                  label: 'Create One',
-                  onClick: () => {
-                    haptic.light();
-                    setShowCreateClubModal(true);
-                  },
-                },
-                primary: {
-                  label: 'Join A Club',
-                  ink: 'white',
-                  onClick: () => {
-                    haptic.medium();
-                    setShowJoinModal(true);
-                  },
-                },
-              }}
-            >
-              <p className={`${styles.emptyStateDesc} sc-copy sc-copy--center`}>
+            <section className={`arena-case arena-ops-case ${styles.stateCase}`}>
+              <div className="arena-section-title">
+                <h2>Welcome To Poker Arena</h2>
+                <small>New</small>
+              </div>
+              <p className={styles.emptyStateDesc}>
                 Join A Club To Play Poker With Friends, Compete On Leaderboards, And Earn Rewards.
               </p>
-            </SpadeConsole>
+              <div className={`${styles.stateActions} ${styles.stateActionsDual}`}>
+                <div className="arena-switch arena-ops-keys">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      haptic.light();
+                      setShowCreateClubModal(true);
+                    }}
+                  >
+                    Create One
+                  </button>
+                </div>
+                <div className="arena-switch arena-ops-keys arena-ops-primary">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      haptic.medium();
+                      setShowJoinModal(true);
+                    }}
+                  >
+                    Join A Club
+                  </button>
+                </div>
+              </div>
+            </section>
           </div>
         )}
 

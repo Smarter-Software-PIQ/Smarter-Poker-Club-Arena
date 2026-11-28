@@ -1,69 +1,38 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   CLUB DISCOVERY - on the spade console (#ClubArenaConsole)
+   CLUB DISCOVERY - on the #SmarterDesign arena workspace (Batch H1, 2026-11-28)
 
-   The frame, the crest, the header well, the pill slot and the closing cap
-   come from SpadeConsole.css. This sheet only lays out what prints on the
-   black glass between the rails: the search groove, the four lit view words,
-   and one row per club.
-
-   NOTHING HERE DRAWS A CONTROL. Every rounded card face, every gradient, the
-   48px logo well, the `--radius-full` tag pills, the gradient level badge,
-   the pulsing green dot and the blue JOIN button are gone with the markup
-   that carried them - a frame may never sit on a frame, and this component
-   renders directly beneath the Clubs page console.
-
-   IT IS ALSO NAMESPACED NOW. This is a plain global stylesheet, not a module,
-   and it used to declare bare `.club-card`, `.club-stats`, `.club-logo`,
-   `.join-btn`, `.tag`, `.stars`, `.search-bar`, `.filter-group` and
-   `.empty-state` - all of which are live class names in OTHER components
-   (ClubCardPanel, InvitePage, ClubLogoSelector, FavoriteTablesWidget,
-   LeaderboardPage, SearchBar). Whichever sheet the bundler emitted last won.
-   Every selector below is under `.club-discovery`, so it cannot reach them.
-
-   Sizes are cqw against the console (`.sc` sets container-type), so a 320px
-   phone and a 430px phone get the same picture. No :hover: phones do not
-   hover and a stuck hover state is a bug.
+   All chrome frames, dark search well, section title, and buttons come from
+   ArenaWorkspace.css and ArenaOps.css. Every selector is scoped under
+   `.club-discovery` so it cannot leak into other stylesheets.
+   Zero custom gradients, zero drawn corner radii, zero :hover states.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* One picture, centred, the same width as the console above it. */
 .club-discovery {
-  margin: 0 auto;
   width: 100%;
-  max-width: 560px;
 }
 
-/* ── The search groove: cut into the glass, never a bordered box ───────── */
+/* ── Search well ──────────────────────────────────────────────────────── */
 
 .club-discovery .club-discovery__search {
   display: grid;
-  gap: 1.4cqw;
-  padding: 1cqw 0 0;
+  gap: 6px;
 }
 
 .club-discovery .club-discovery__search-label {
   justify-self: start;
+  color: #74dfff;
+  font:
+    700 11px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
+/* 16px floor prevents iOS Safari zoom on input focus. */
 .club-discovery .club-discovery__search-field {
-  display: block;
-  width: 100%;
-  margin: 0;
-  padding: 2.6cqw 1cqw;
-  border: 0;
-  border-top: 1px solid #000;
-  border-bottom: 1px solid #000;
-  border-radius: 0;
-  background: transparent;
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 9%),
-    0 1px 0 rgb(255 255 255 / 9%);
-  color: #e6e9ee;
-  /* 16px floor: anything smaller makes iOS zoom the page on focus. */
-  font:
-    500 max(16px, 3.6cqw) / 1.4 Inter,
-    system-ui,
-    sans-serif;
-  outline: none;
+  font-size: max(16px, 0.95rem);
   caret-color: #5bb8ff;
 }
 
@@ -71,58 +40,27 @@
   color: #6b7784;
 }
 
-.club-discovery .club-discovery__search-field:focus-visible {
-  outline: 0.6cqw solid #8fd4ff;
-  outline-offset: -0.6cqw;
-}
-
-/* ── The four views: lit words, never drawn tabs ──────────────────────── */
+/* ── Filter switch ────────────────────────────────────────────────────── */
 
 .club-discovery .club-discovery__views {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 5cqw;
-  padding: 0.5cqw 0 1cqw;
+  width: 100%;
 }
 
-.club-discovery .club-discovery__view {
-  appearance: none;
-  margin: 0;
-  /* 44px minimum tap target on a phone, expressed against the console so it
-     scales with the picture rather than against it. */
-  min-height: 44px;
-  padding: 1cqw 1.5cqw;
-  border: 0;
-  background: transparent;
-  font:
-    800 3.6cqw/1 'Roboto Condensed',
-    Inter,
-    sans-serif;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  cursor: pointer;
-  touch-action: manipulation;
-}
-
-.club-discovery .club-discovery__view:active {
-  filter: brightness(1.3);
-}
-
-.club-discovery .club-discovery__view:focus-visible {
-  outline: 0.6cqw solid #8fd4ff;
-  outline-offset: -0.6cqw;
-}
-
-/* ── The list: one club per row on the glass ──────────────────────────── */
+/* ── Club rows ────────────────────────────────────────────────────────── */
 
 .club-discovery .club-discovery__loading {
-  padding: 1cqw 0;
+  padding: 6px 0;
 }
 
 .club-discovery .club-discovery__empty {
-  padding: 4cqw 2cqw;
+  margin: 0;
+  padding: 18px 8px;
   color: #9aa5b3;
+  font:
+    500 13px/1.45 Inter,
+    Arial,
+    sans-serif;
+  text-align: center;
 }
 
 .club-discovery .club-discovery__list {
@@ -135,14 +73,19 @@
 
 .club-discovery .club-discovery__row {
   display: grid;
-  gap: 2cqw;
-  padding: 3.4cqw 0;
+  gap: 10px;
+  padding: 14px 0;
   min-width: 0;
 }
 
-/* The engraved rule the master uses between its own rows: a black hairline
-   with one pixel of highlight beneath it. Never a drawn divider, never a
-   border around the row - that would be a frame on a frame. */
+.club-discovery .club-discovery__row:first-child {
+  padding-top: 4px;
+}
+
+.club-discovery .club-discovery__row:last-child {
+  padding-bottom: 4px;
+}
+
 .club-discovery .club-discovery__row + .club-discovery__row {
   border-top: 1px solid #000;
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
@@ -152,7 +95,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 2cqw;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -160,28 +103,47 @@
   flex: 1 1 auto;
   min-width: 0;
   margin: 0;
+  color: #f1f5fc;
   font:
-    800 5cqw/1.2 'Roboto Condensed',
+    800 17px/1.2 'Roboto Condensed',
+    'Arial Narrow',
     Inter,
     sans-serif;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
   overflow-wrap: anywhere;
 }
 
-/* A word in the master's own ink, not a capsule. HOT used to be a gradient
-   badge and PRIVATE a lozenge glyph; the standard paints pills in the art,
-   so a status here is simply lit type. */
 .club-discovery .club-discovery__flag {
   flex: 0 0 auto;
+  font:
+    700 11px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.club-discovery .club-discovery__flag--gold {
+  color: #ffd700;
+}
+
+.club-discovery .club-discovery__flag--blue {
+  color: #74dfff;
 }
 
 .club-discovery .club-discovery__desc {
   margin: 0;
+  color: #b6c8d6;
+  font:
+    400 13px/1.45 Inter,
+    Arial,
+    sans-serif;
   overflow-wrap: anywhere;
 }
 
-/* ── The figures: label left in lit blue, value right in silver ───────── */
+/* ── Figures: label left in arena ice, value right in chrome silver ───── */
 
 .club-discovery .club-discovery__facts {
   display: grid;
@@ -194,8 +156,8 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 3cqw;
-  padding: 1.8cqw 0;
+  gap: 12px;
+  padding: 7px 0;
   min-width: 0;
 }
 
@@ -207,54 +169,50 @@
 .club-discovery .club-discovery__fact-label {
   flex: 0 0 auto;
   margin: 0;
+  color: #74dfff;
+  font:
+    700 11px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .club-discovery .club-discovery__fact-value {
   flex: 1 1 auto;
   min-width: 0;
   margin: 0;
+  color: #f1f5fc;
   font:
-    700 3.6cqw/1.3 'Roboto Condensed',
+    700 14px/1.25 'Roboto Condensed',
+    'Arial Narrow',
     Inter,
     sans-serif;
+  font-variant-numeric: tabular-nums;
   letter-spacing: 0.03em;
   text-align: right;
   overflow-wrap: anywhere;
 }
 
-/* ── The two actions on a row: lit words, never plates ────────────────── */
+.club-discovery .club-discovery__fact-value--live {
+  color: #4ade80;
+}
 
+/* Two side-by-side chrome switches keep visual order identical to DOM/tab order
+   (View Club on the left, lit Join/Request primary on the right). */
 .club-discovery .club-discovery__row-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 7cqw;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  max-width: 360px;
 }
 
-.club-discovery .club-discovery__word {
-  appearance: none;
-  margin: 0;
-  min-height: 44px;
-  padding: 1cqw 0;
-  border: 0;
-  background: transparent;
-  font:
-    800 3.6cqw/1 'Roboto Condensed',
-    Inter,
-    sans-serif;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  cursor: pointer;
-  touch-action: manipulation;
-}
-
-.club-discovery .club-discovery__word:active {
-  filter: brightness(1.3);
-}
-
-.club-discovery .club-discovery__word:focus-visible {
-  outline: 0.6cqw solid #8fd4ff;
-  outline-offset: -0.6cqw;
+@media (max-width: 480px) {
+  .club-discovery .club-discovery__row-actions {
+    max-width: none;
+    width: 100%;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -49,10 +49,10 @@ import { ClubsService } from '../../services/ClubsService';
 import { useMasterBusSubscription } from '../../hooks/useMasterBusSubscription';
 import { getClubLevel } from '../../utils/clubLevels';
 import { useIsMounted } from '../../hooks/useIsMounted';
-import { SpadeConsole } from '../console/SpadeConsole';
 import PageSkeleton from '../common/PageSkeleton';
 import { compactChips } from '../../utils/format';
 import { titleCase } from '../../utils/titleCase';
+import '../ops/ArenaOps.css';
 import './ClubDiscovery.css';
 import { reportError } from '../../utils/errorReporter';
 
@@ -226,23 +226,19 @@ export const ClubDiscovery: React.FC<ClubDiscoveryProps> = ({ onJoinRequest, onV
   const hotCount = filteredClubs.length > 3 ? 3 : 0;
 
   return (
-    <SpadeConsole
-      className="club-discovery"
-      aria-busy={loading || undefined}
-      title="Discover Clubs"
-      pill={loading ? 'Loading' : countPill(filteredClubs.length)}
-      pillInk={loading || filteredClubs.length === 0 ? 'muted' : 'blue'}
-      foot="foot"
-    >
-      {/* A groove cut into the glass, not a bordered box: a black hairline
-          with a light lip, the cut the master's own chrome rules are made of. */}
+    <section className="arena-case arena-ops-case club-discovery" aria-busy={loading || undefined}>
+      <div className="arena-section-title">
+        <h2>Discover Clubs</h2>
+        <small>{loading ? 'Loading' : countPill(filteredClubs.length)}</small>
+      </div>
+
       <div className="club-discovery__search">
-        <label className="club-discovery__search-label sc-label sc-ink--blue" htmlFor={searchId}>
+        <label className="club-discovery__search-label" htmlFor={searchId}>
           Search
         </label>
         <input
           id={searchId}
-          className="club-discovery__search-field"
+          className="arena-ops-well club-discovery__search-field"
           type="search"
           placeholder="Search Clubs By Name, Game, Or Tag..."
           value={search}
@@ -250,17 +246,16 @@ export const ClubDiscovery: React.FC<ClubDiscoveryProps> = ({ onJoinRequest, onV
         />
       </div>
 
-      {/* The four views are lit words cut into the glass, not drawn tabs: the
-          art paints no tab, so nothing here draws one either. */}
-      <div className="club-discovery__views" role="group" aria-label="Club Views">
+      <div
+        className="club-discovery__views arena-switch arena-ops-keys"
+        role="group"
+        aria-label="Club Views"
+      >
         {FILTERS.map((f) => (
           <button
             key={f.key}
             type="button"
             aria-pressed={filter === f.key}
-            className={`club-discovery__view ${
-              filter === f.key ? 'sc-ink--silver' : 'sc-ink--muted'
-            }`}
             onClick={() => setFilter(f.key)}
           >
             {f.label}
@@ -273,9 +268,7 @@ export const ClubDiscovery: React.FC<ClubDiscoveryProps> = ({ onJoinRequest, onV
           <PageSkeleton variant="list" />
         </div>
       ) : filteredClubs.length === 0 ? (
-        <p className="sc-copy sc-copy--center club-discovery__empty">
-          No Clubs Found Matching Your Criteria
-        </p>
+        <p className="club-discovery__empty">No Clubs Found Matching Your Criteria</p>
       ) : (
         <ol className="club-discovery__list">
           {filteredClubs.map((club, i) => (
@@ -285,34 +278,32 @@ export const ClubDiscovery: React.FC<ClubDiscoveryProps> = ({ onJoinRequest, onV
               style={rowAnimationStyle(visibleItems.has(i))}
             >
               <div className="club-discovery__row-head">
-                <h3 className="club-discovery__name sc-ink--silver">{club.name}</h3>
+                <h3 className="club-discovery__name">{club.name}</h3>
                 {i < hotCount && (
-                  <span className="club-discovery__flag sc-label sc-ink--gold">Hot</span>
+                  <span className="club-discovery__flag club-discovery__flag--gold">Hot</span>
                 )}
                 {club.isPrivate && (
-                  <span className="club-discovery__flag sc-label sc-ink--blue">Private</span>
+                  <span className="club-discovery__flag club-discovery__flag--blue">Private</span>
                 )}
               </div>
 
               {/* Owner copy is data, so it is Title Cased where it prints. */}
               {club.description && (
-                <p className="sc-copy club-discovery__desc">{titleCase(club.description)}</p>
+                <p className="club-discovery__desc">{titleCase(club.description)}</p>
               )}
 
               <dl className="club-discovery__facts">
                 <div className="club-discovery__fact">
-                  <dt className="club-discovery__fact-label sc-label sc-ink--blue">Members</dt>
-                  <dd className="club-discovery__fact-value sc-ink--silver">
+                  <dt className="club-discovery__fact-label">Members</dt>
+                  <dd className="club-discovery__fact-value">
                     {club.memberCount == null ? '…' : compactChips(club.memberCount)}
                   </dd>
                 </div>
                 <div className="club-discovery__fact">
-                  <dt className="club-discovery__fact-label sc-label sc-ink--blue">Tables</dt>
-                  {/* The green pulsing dot is gone; the figure itself lights up
-                      when a club has games running, which is what the dot said. */}
+                  <dt className="club-discovery__fact-label">Tables</dt>
                   <dd
                     className={`club-discovery__fact-value ${
-                      club.activeTableCount > 0 ? 'sc-ink--green' : 'sc-ink--silver'
+                      club.activeTableCount > 0 ? 'club-discovery__fact-value--live' : ''
                     }`}
                   >
                     {club.activeTableCount > 0
@@ -322,16 +313,16 @@ export const ClubDiscovery: React.FC<ClubDiscoveryProps> = ({ onJoinRequest, onV
                 </div>
                 {club.levelInfo && (
                   <div className="club-discovery__fact">
-                    <dt className="club-discovery__fact-label sc-label sc-ink--blue">Level</dt>
-                    <dd className="club-discovery__fact-value sc-ink--silver">
+                    <dt className="club-discovery__fact-label">Level</dt>
+                    <dd className="club-discovery__fact-value">
                       {`Lv.${club.levelInfo.level} ${club.levelInfo.tierLabel}`}
                     </dd>
                   </div>
                 )}
                 {club.tags.length > 0 && (
                   <div className="club-discovery__fact">
-                    <dt className="club-discovery__fact-label sc-label sc-ink--blue">Games</dt>
-                    <dd className="club-discovery__fact-value sc-ink--silver">
+                    <dt className="club-discovery__fact-label">Games</dt>
+                    <dd className="club-discovery__fact-value">
                       {club.tags
                         .slice(0, 3)
                         .map((tag) => titleCase(tag))
@@ -341,42 +332,43 @@ export const ClubDiscovery: React.FC<ClubDiscoveryProps> = ({ onJoinRequest, onV
                 )}
                 {club.rating > 0 && (
                   <div className="club-discovery__fact">
-                    <dt className="club-discovery__fact-label sc-label sc-ink--blue">Rating</dt>
+                    <dt className="club-discovery__fact-label">Rating</dt>
                     {/* Whole stars, rounded DOWN, so a printed figure never
-                        overstates a club. The star glyphs are gone with the
-                        rest of the stuck-on icons. */}
-                    <dd className="club-discovery__fact-value sc-ink--silver">
+                        overstates a club. */}
+                    <dd className="club-discovery__fact-value">
                       {`${Math.floor(club.rating)} / 5`}
                     </dd>
                   </div>
                 )}
               </dl>
 
-              {/* Two lit words, not a clickable card with a gradient button
-                  inside it: both actions are real buttons a keyboard reaches. */}
               <div className="club-discovery__row-actions">
-                <button
-                  type="button"
-                  className="club-discovery__word sc-ink--silver"
-                  aria-label={`View ${club.name}`}
-                  onClick={() => onViewClub?.(club)}
-                >
-                  View Club
-                </button>
-                <button
-                  type="button"
-                  className="club-discovery__word sc-ink--blue"
-                  aria-label={club.isPrivate ? `Request To Join ${club.name}` : `Join ${club.name}`}
-                  onClick={() => onJoinRequest?.(club.id)}
-                >
-                  {club.isPrivate ? 'Request' : 'Join'}
-                </button>
+                <div className="arena-switch arena-ops-keys">
+                  <button
+                    type="button"
+                    aria-label={`View ${club.name}`}
+                    onClick={() => onViewClub?.(club)}
+                  >
+                    View Club
+                  </button>
+                </div>
+                <div className="arena-switch arena-ops-keys arena-ops-primary">
+                  <button
+                    type="button"
+                    aria-label={
+                      club.isPrivate ? `Request To Join ${club.name}` : `Join ${club.name}`
+                    }
+                    onClick={() => onJoinRequest?.(club.id)}
+                  >
+                    {club.isPrivate ? 'Request' : 'Join'}
+                  </button>
+                </div>
               </div>
             </li>
           ))}
         </ol>
       )}
-    </SpadeConsole>
+    </section>
   );
 };
 
