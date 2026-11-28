@@ -351,7 +351,15 @@ export const fixtures = {
     /* Table Bomb Settings (route tables/<id>/bomb-settings) reads one row. */
     tables: [
       {
+        id: 'table-kings-main-1',
         name: 'Kings Main 1',
+        club_id: CLUB_UUID,
+        small_blind: 1,
+        big_blind: 2,
+        current_players: 6,
+        max_players: 9,
+        status: 'running',
+        game_variant: 'NLH',
         bomb_pot_enabled: true,
         bomb_pot_trigger_mode: 'every_n_hands',
         bomb_pot_frequency: 10,

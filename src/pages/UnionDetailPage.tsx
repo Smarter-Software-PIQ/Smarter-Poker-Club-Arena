@@ -7,6 +7,13 @@ import { getTournamentEntryCapacity } from '../utils/tournamentPresentation';
  * ═══════════════════════════════════════════════════════════════════════════════
  *  CLUB ENGINE — Union Detail Page
  * Complete union management with financials and settlements
+ *
+ * #SmarterDesign (batch U1, 2026-11-28): the arena workspace. The chrome mast
+ * heads the page with the live figures under it; the union, its readouts, the
+ * tab keys and every tab's sections are chrome cases, chrome readout tiles,
+ * chrome keys (the open tab lit) and chrome ledger rows. Every printed
+ * figure, word and control is pinned by
+ * tests/components/unionDetailPageIsPinned.test.tsx.
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 
@@ -36,7 +43,10 @@ import CreateTournamentModal from '../components/club/CreateTournamentModal';
 import GameCreationActions from '../components/club/GameCreationActions';
 import { getUnionLevel, getClubLevel } from '../utils/clubLevels';
 import { reportError } from '../utils/errorReporter';
-import CasinoSurfaceHeader from '../components/rewards/RewardsSurfaceHeader';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import PageBar from '../components/help/PageBar';
+import { formatPopupText } from '../utils/popupStyle';
+import './UnionDetailArena.css';
 // Whole-number tournament money (Dan 2026-08-20).
 import { formatBuyInShort } from '../utils/buyIn';
 import UnionClubGovernance from '../components/union/UnionClubGovernance';
@@ -728,108 +738,130 @@ export default function UnionDetailPage() {
 
   if (resolutionStatus === 'loading' || (resolutionStatus === 'ready' && loading)) {
     return (
-      <div className={styles.loading}>
-        <LoadingState message="Opening Union Command" />
+      <div className="union-detail arena-workspace">
+        <ArenaWorkspaceHeader area="operations" title="Union Command" context="Union Network" />
+        <div className="arena-case arena-ops-case">
+          <LoadingState arena message="Opening Union Command" />
+        </div>
       </div>
     );
   }
 
   if (resolutionStatus === 'error' || loadError) {
     return (
-      <div className={styles.error}>
-        <ErrorState
-          message={
-            resolutionStatus === 'error'
-              ? 'Could Not Load This Union. Please Try Again.'
-              : loadError!
-          }
-          onRetry={
-            resolutionStatus === 'error'
-              ? retryResolution
-              : () => setLoadRevision((value) => value + 1)
-          }
-        />
+      <div className="union-detail arena-workspace">
+        <ArenaWorkspaceHeader area="operations" title="Union Command" context="Union Network" />
+        <div className="arena-case arena-ops-case">
+          <ErrorState
+            arena
+            message={
+              resolutionStatus === 'error'
+                ? 'Could Not Load This Union. Please Try Again.'
+                : loadError!
+            }
+            onRetry={
+              resolutionStatus === 'error'
+                ? retryResolution
+                : () => setLoadRevision((value) => value + 1)
+            }
+          />
+        </div>
       </div>
     );
   }
 
   if (resolutionStatus === 'not_found' || !union) {
     return (
-      <div className={styles.error}>
-        <EmptyState
-          icon="UNION"
-          eyebrow="Network Unavailable"
-          title="Union Not Found"
-          description="This Union May Have Been Removed, Or The Link May Use An Outdated Identifier."
-          /* Not /unions - see UnionDashboardPage: a person refused here would
+      <div className="union-detail arena-workspace">
+        <ArenaWorkspaceHeader area="operations" title="Union Command" context="Union Network" />
+        <div className="arena-case arena-ops-case">
+          <EmptyState
+            arena
+            icon="UNION"
+            eyebrow="Network Unavailable"
+            title="Union Not Found"
+            description="This Union May Have Been Removed, Or The Link May Use An Outdated Identifier."
+            /* Not /unions - see UnionDashboardPage: a person refused here would
              be refused there too since the directory became allowlisted. */
-          action={{
-            label: 'Back To Community',
-            onClick: () => navigate('/community', { replace: true }),
-          }}
-          secondaryAction={{ label: 'Return To Arena', onClick: () => navigate('/') }}
-        />
+            action={{
+              label: 'Back To Community',
+              onClick: () => navigate('/community', { replace: true }),
+            }}
+            secondaryAction={{ label: 'Return To Arena', onClick: () => navigate('/') }}
+          />
+        </div>
       </div>
     );
   }
 
   if (user?.id && canManageUnion === null) {
     return (
-      <div className={styles.loading} role="status" aria-live="polite">
-        <LoadingState message="Checking Union Management Access" />
+      <div className="union-detail arena-workspace">
+        <ArenaWorkspaceHeader area="operations" title="Union Command" context="Union Network" />
+        <div className="arena-case arena-ops-case">
+          <LoadingState arena message="Checking Union Management Access" />
+        </div>
       </div>
     );
   }
 
   if (user?.id && canManageUnion === false) {
     return (
-      <div className={styles.loading} role="status" aria-live="polite">
-        <LoadingState message="Returning To Your Clubs" />
+      <div className="union-detail arena-workspace">
+        <ArenaWorkspaceHeader area="operations" title="Union Command" context="Union Network" />
+        <div className="arena-case arena-ops-case">
+          <LoadingState arena message="Returning To Your Clubs" />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className={styles.page}>
-      <CasinoSurfaceHeader
-        title={union.name}
-        description={
+    <div className="union-detail arena-workspace">
+      <ArenaWorkspaceHeader
+        area="operations"
+        title={formatPopupText(union.name)}
+        context="Union Network"
+        summary={formatPopupText(
           union.description ||
-          'Inspect This Connected Club Network, Its Live Games, Player Scale, And Governed Operations.'
-        }
-        status="UNION NETWORK // LIVE"
+            'Inspect This Connected Club Network, Its Live Games, Player Scale, And Governed Operations.'
+        )}
+      />
+      <PageBar
+        titleAs={false}
+        showHelp={false}
+        title={formatPopupText(union.name)}
         metrics={[
           { label: 'Clubs', value: union.clubCount },
           { label: 'Players', value: union.memberCount.toLocaleString(), tone: 'live' },
           { label: 'Online', value: countText(onlineNow), tone: 'attention' },
         ]}
       />
-      <div className={styles.header}>
-        <div className={styles.unionAvatar}>
-          {union.avatarUrl ? <img src={union.avatarUrl} alt="" /> : union.name.charAt(0)}
+      <section className="arena-case arena-ops-case union-detail-identity">
+        <div className="union-detail-identity__head">
+          <div className="union-detail-avatar">
+            {union.avatarUrl ? <img src={union.avatarUrl} alt="" /> : union.name.charAt(0)}
+          </div>
+          <div className="union-detail-identity__copy">
+            <h2 className="arena-section-title">{union.name}</h2>
+            <p className="arena-ops-copy">{union.description}</p>
+          </div>
         </div>
-        <div className={styles.unionInfo}>
-          <h2>{union.name}</h2>
-          <p>{union.description}</p>
-        </div>
-        <div className={styles.headerActions}>
-          {canManageUnion ? (
-            <>
-              <Link className={styles.managementButton} to={`/unions/${unionRef}/table-management`}>
-                Table Management
-              </Link>
-              <GameCreationActions
-                managementPath={`/unions/${unionRef}/table-management`}
-                compact
-              />
-            </>
-          ) : (
-            <button className={styles.applyButton} onClick={handleApplyClick} disabled={applying}>
+        {canManageUnion ? (
+          <>
+            <div className="arena-switch arena-ops-keys arena-ops-primary">
+              <Link to={`/unions/${unionRef}/table-management`}>Table Management</Link>
+            </div>
+            <GameCreationActions managementPath={`/unions/${unionRef}/table-management`} arena />
+          </>
+        ) : (
+          <div className="arena-switch arena-ops-keys arena-ops-primary">
+            <button onClick={handleApplyClick} disabled={applying}>
               {applying ? 'Applying...' : 'Apply To Join'}
             </button>
-          )}
-        </div>
-      </div>
+          </div>
+        )}
+      </section>
 
       {/* Club Selector Modal */}
       {showClubSelector && (
@@ -874,110 +906,85 @@ export default function UnionDetailPage() {
         });
         return (
           <>
-            <div className={styles.statsRow}>
-              <div className={styles.statCard}>
-                <span className={styles.statValue}>{union.clubCount}</span>
-                <span className={styles.statLabel}>Member Clubs</span>
-              </div>
-              <div className={styles.statCard}>
-                <span
-                  className={styles.statValue}
-                  style={{
-                    background: uLevel.gradient,
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
-                    fontWeight: 800,
-                  }}
-                >
-                  Lv.{uLevel.level}
-                </span>
-                <span className={styles.statLabel} style={{ color: uLevel.color, fontWeight: 600 }}>
-                  {uLevel.tierLabel}
-                </span>
-              </div>
-              <div className={styles.statCard}>
-                <span className={styles.statValue}>{union.memberCount.toLocaleString()}</span>
-                <span className={styles.statLabel}>Total Players</span>
-              </div>
-              <div className={styles.statCard}>
-                <span className={`${styles.statValue} ${styles.online}`}>
-                  {countText(onlineNow)}
-                </span>
-                <span className={styles.statLabel}>Online Now</span>
-              </div>
-              {financialSummary && (
-                <div className={styles.statCard}>
-                  <span className={styles.statValue}>
-                    {statementMoney(financialSummary.unionRevenue)}
-                  </span>
-                  <span className={styles.statLabel}>Latest Statement Share</span>
+            <section className="arena-case arena-ops-case union-detail-readings">
+              <div className="union-detail-stats">
+                <div className="union-detail-stat arena-meter">
+                  <span className="union-detail-stat__value">{union.clubCount}</span>
+                  <span className="union-detail-stat__label">Member Clubs</span>
                 </div>
-              )}
-            </div>
-            {/* Level Progress Bar */}
-            <div
-              style={{
-                width: '100%',
-                height: '4px',
-                background: 'rgba(255,255,255,0.08)',
-                borderRadius: '2px',
-                margin: '12px 0 4px',
-                overflow: 'hidden',
-              }}
-            >
-              <div
-                style={{
-                  width: `${uLevel.progressPercent}%`,
-                  height: '100%',
-                  background: uLevel.gradient,
-                  borderRadius: '2px',
-                  transition: 'width 0.8s ease-out',
-                }}
-              />
-            </div>
-            <div
-              style={{
-                textAlign: 'right',
-                fontSize: '0.6rem',
-                color: 'rgba(255,255,255,0.4)',
-                marginBottom: '8px',
-              }}
-            >
-              {uLevel.progressPercent}% To Lv.{Math.min(uLevel.level + 1, 50)}
-            </div>
+                <div className="union-detail-stat arena-meter">
+                  <span className="union-detail-stat__value" style={{ color: uLevel.color }}>
+                    Lv.{uLevel.level}
+                  </span>
+                  <span className="union-detail-stat__label" style={{ color: uLevel.color }}>
+                    {uLevel.tierLabel}
+                  </span>
+                </div>
+                <div className="union-detail-stat arena-meter">
+                  <span className="union-detail-stat__value">
+                    {union.memberCount.toLocaleString()}
+                  </span>
+                  <span className="union-detail-stat__label">Total Players</span>
+                </div>
+                <div className="union-detail-stat arena-meter">
+                  <span className="union-detail-stat__value union-detail-stat__value--live">
+                    {countText(onlineNow)}
+                  </span>
+                  <span className="union-detail-stat__label">Online Now</span>
+                </div>
+                {financialSummary && (
+                  <div className="union-detail-stat arena-meter">
+                    <span className="union-detail-stat__value">
+                      {statementMoney(financialSummary.unionRevenue)}
+                    </span>
+                    <span className="union-detail-stat__label">Latest Statement Share</span>
+                  </div>
+                )}
+              </div>
+              {/* Level Progress Bar */}
+              <div className="union-detail-progress">
+                <div
+                  className="union-detail-progress__fill"
+                  style={{ width: `${uLevel.progressPercent}%`, background: uLevel.gradient }}
+                />
+              </div>
+              <div className="union-detail-progress__copy">
+                {uLevel.progressPercent}% To Lv.{Math.min(uLevel.level + 1, 50)}
+              </div>
+            </section>
           </>
         );
       })()}
 
       {/* Tab Navigation */}
-      <nav className={styles.tabNav}>
+      <nav className="arena-switch arena-ops-keys union-detail-tabs">
         <button
-          className={`${styles.tab} ${activeTab === 'overview' ? styles.active : ''}`}
+          className={activeTab === 'overview' ? 'active' : undefined}
           onClick={() => setActiveTab('overview')}
         >
           Overview
         </button>
         <button
-          className={`${styles.tab} ${activeTab === 'clubs' ? styles.active : ''}`}
+          className={activeTab === 'clubs' ? 'active' : undefined}
           onClick={() => setActiveTab('clubs')}
         >
           Clubs
         </button>
         <button
-          className={`${styles.tab} ${activeTab === 'tables' ? styles.active : ''}`}
+          className={activeTab === 'tables' ? 'active' : undefined}
           onClick={() => setActiveTab('tables')}
         >
           Tables
         </button>
         <button
-          className={`${styles.tab} ${activeTab === 'financials' ? styles.active : ''}`}
+          className={activeTab === 'financials' ? 'active' : undefined}
           onClick={() => setActiveTab('financials')}
         >
           Financials
         </button>
         {union?.settings?.crossClubTournaments && (
           <button
-            className={`${styles.tab} ${activeTab === 'tournaments' ? styles.active : ''}`}
+            className={activeTab === 'tournaments' ? 'active' : undefined}
             onClick={() => setActiveTab('tournaments')}
           >
             Tournaments
@@ -985,7 +992,7 @@ export default function UnionDetailPage() {
         )}
         {union?.ownerId === user?.id && (
           <button
-            className={`${styles.tab} ${activeTab === 'settings' ? styles.active : ''}`}
+            className={activeTab === 'settings' ? 'active' : undefined}
             onClick={() => {
               setActiveTab('settings');
               // Load current settings
@@ -1008,102 +1015,62 @@ export default function UnionDetailPage() {
       </nav>
 
       {/* Tab Content */}
-      <section className={styles.tabContent}>
+      <section className="union-detail-tab">
         {/* Overview Tab */}
         {activeTab === 'overview' && (
-          <div className={styles.overviewGrid}>
+          <div className="union-detail-grid">
             {/* Union Activity Summary */}
-            <div
-              className={styles.card}
-              style={{
-                background: 'linear-gradient(135deg, rgba(99,102,241,0.15), rgba(139,92,246,0.10))',
-                border: '1px solid rgba(139,92,246,0.25)',
-              }}
-            >
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>Union Activity</h3>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(3, 1fr)',
-                  gap: '12px',
-                  marginTop: '8px',
-                }}
-              >
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#6ee7b7' }}>
+            <div className="arena-case arena-ops-case">
+              <h3 className="arena-section-title">Union Activity</h3>
+              <div className="union-detail-stats union-detail-stats--three">
+                <div className="union-detail-stat arena-meter">
+                  <div className="union-detail-stat__value union-detail-stat__value--live">
                     {tables.filter((t) => (t.current_players || 0) > 0).length}
                   </div>
-                  <div
-                    style={{
-                      fontSize: '0.6rem',
-                      color: 'rgba(255,255,255,0.5)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.5px',
-                    }}
-                  >
-                    Active Tables
-                  </div>
+                  <div className="union-detail-stat__label">Active Tables</div>
                 </div>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#60a5fa' }}>
+                <div className="union-detail-stat arena-meter">
+                  <div className="union-detail-stat__value union-detail-stat__value--live">
                     {tables.reduce((sum, t) => sum + (t.current_players || 0), 0)}
                   </div>
-                  <div
-                    style={{
-                      fontSize: '0.6rem',
-                      color: 'rgba(255,255,255,0.5)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.5px',
-                    }}
-                  >
-                    Seated Players
-                  </div>
+                  <div className="union-detail-stat__label">Seated Players</div>
                 </div>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#c084fc' }}>
+                <div className="union-detail-stat arena-meter">
+                  <div className="union-detail-stat__value union-detail-stat__value--live">
                     {
                       unionTournaments.filter(
                         (t: any) => t.status === 'RUNNING' || t.status === 'REGISTERING'
                       ).length
                     }
                   </div>
-                  <div
-                    style={{
-                      fontSize: '0.6rem',
-                      color: 'rgba(255,255,255,0.5)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.5px',
-                    }}
-                  >
-                    Tournaments
-                  </div>
+                  <div className="union-detail-stat__label">Tournaments</div>
                 </div>
               </div>
             </div>
 
-            <div className={styles.card}>
-              <h3>
+            <div className="arena-case arena-ops-case">
+              <h3 className="arena-section-title">
                 {' '}
                 Live Tables ({tables.filter((t) => (t.current_players || 0) > 0).length} Active)
               </h3>
               {tables.filter((t) => (t.current_players || 0) > 0).length === 0 ? (
-                <div
-                  style={{ textAlign: 'center', padding: '20px 0', color: 'rgba(255,255,255,0.4)' }}
-                >
-                  <div style={{ fontSize: '1.5rem', marginBottom: '6px' }}>◆</div>
-                  <p style={{ margin: 0, fontSize: '0.75rem' }}>
-                    No Active Tables - Games Will Appear Here When Clubs Start Playing
-                  </p>
+                <div className="union-detail-empty">
+                  <div className="union-detail-empty__mark">◆</div>
+                  <p>No Active Tables - Games Will Appear Here When Clubs Start Playing</p>
                 </div>
               ) : (
-                <div className={styles.tableList}>
+                <div className="union-detail-rows">
                   {tables
                     .filter((t) => (t.current_players || 0) > 0)
                     .slice(0, 8)
                     .map((table) => (
-                      <Link key={table.id} to={`/table/${table.id}`} className={styles.tableRow}>
-                        <span>{table.name}</span>
-                        <span className={styles.stakes}>
+                      <Link
+                        key={table.id}
+                        to={`/table/${table.id}`}
+                        className="arena-ledger-row union-detail-row"
+                      >
+                        <span className="union-detail-row__name">{table.name}</span>
+                        <span className="union-detail-row__live">
                           {table.small_blind}/{table.big_blind}
                         </span>
                         <span>
@@ -1112,55 +1079,34 @@ export default function UnionDetailPage() {
                       </Link>
                     ))}
                   {tables.filter((t) => (t.current_players || 0) > 0).length > 8 && (
-                    <button className={styles.viewAllBtn} onClick={() => setActiveTab('tables')}>
-                      View All {tables.length} Tables →
-                    </button>
+                    <div className="arena-switch arena-ops-keys">
+                      <button onClick={() => setActiveTab('tables')}>
+                        View All {tables.length} Tables →
+                      </button>
+                    </div>
                   )}
                 </div>
               )}
             </div>
 
-            <div className={styles.card}>
-              <h3> Top Clubs</h3>
-              <div className={styles.clubList}>
+            <div className="arena-case arena-ops-case">
+              <h3 className="arena-section-title"> Top Clubs</h3>
+              <div className="union-detail-rows">
                 {clubs.slice(0, 5).map((club) => {
                   const cLevel = getClubLevel({ playerCount: club.memberCount });
                   return (
                     <Link
                       key={club.clubId}
                       to={`/clubs/${club.clubId}`}
-                      className={styles.clubRow}
-                      style={{ textDecoration: 'none', color: 'inherit' }}
+                      className="arena-ledger-row union-detail-row"
                     >
-                      <div
-                        className={styles.clubAvatar}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontWeight: 700,
-                          fontSize: '0.9rem',
-                          color: '#fff',
-                          textTransform: 'uppercase',
-                        }}
-                      >
+                      <div className="union-detail-avatar union-detail-avatar--small">
                         {club.clubName?.charAt(0) || '?'}
                       </div>
-                      <div className={styles.clubInfo}>
+                      <div className="union-detail-row__copy">
                         <strong>{club.clubName}</strong>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span
-                            style={{
-                              fontSize: '0.6rem',
-                              padding: '1px 5px',
-                              borderRadius: '6px',
-                              background: cLevel.gradient,
-                              color: '#fff',
-                              fontWeight: 700,
-                              letterSpacing: '0.3px',
-                              textShadow: '0 1px 2px rgba(0,0,0,0.5)',
-                            }}
-                          >
+                        <span className="union-detail-row__meta">
+                          <span className="union-detail-level" style={{ color: cLevel.color }}>
                             Lv.{cLevel.level}
                           </span>
                           {club.clubId === KINGS_CLUB_UUID
@@ -1175,18 +1121,18 @@ export default function UnionDetailPage() {
             </div>
 
             {financialSummary && (
-              <div className={styles.card}>
-                <h3> Latest Issued Statements</h3>
-                <p>{financialSummary.periodLabel}</p>
-                <p>{financialSummary.coverageLabel}</p>
-                <div className={styles.financialQuick}>
+              <div className="arena-case arena-ops-case">
+                <h3 className="arena-section-title"> Latest Issued Statements</h3>
+                <p className="arena-ops-copy">{financialSummary.periodLabel}</p>
+                <p className="arena-ops-copy">{financialSummary.coverageLabel}</p>
+                <div className="union-detail-quick">
                   <div>
                     <span>Recorded Rake</span>
                     <strong>{statementMoney(financialSummary.totalRakeThisPeriod)}</strong>
                   </div>
                   <div>
                     <span>Recorded Union Share</span>
-                    <strong className={styles.positive}>
+                    <strong className="union-detail-positive">
                       {statementMoney(financialSummary.unionRevenue)}
                     </strong>
                   </div>
@@ -1204,7 +1150,7 @@ export default function UnionDetailPage() {
                     financialSummary.overdueAmount > 0 && (
                       <div>
                         <span>Overdue</span>
-                        <strong className={styles.negative}>
+                        <strong className="union-detail-negative">
                           {financialSummary.overdueAmount.toLocaleString()}
                         </strong>
                       </div>
@@ -1217,20 +1163,12 @@ export default function UnionDetailPage() {
 
         {/* Clubs Tab */}
         {activeTab === 'clubs' && (
-          <div className={styles.clubsGrid}>
+          <div className="arena-case arena-ops-case union-detail-rows">
             {clubs.length === 0 ? (
-              <div
-                style={{
-                  textAlign: 'center',
-                  padding: '40px 20px',
-                  color: 'rgba(255,255,255,0.4)',
-                }}
-              >
-                <div style={{ fontSize: '2rem', marginBottom: '8px' }}>⌂</div>
-                <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 500 }}>No Clubs Yet</p>
-                <p style={{ margin: '4px 0 0', fontSize: '0.7rem' }}>
-                  Invite Clubs To Join Your Union To Get Started
-                </p>
+              <div className="union-detail-empty">
+                <div className="union-detail-empty__mark">⌂</div>
+                <p className="union-detail-empty__title">No Clubs Yet</p>
+                <p>Invite Clubs To Join Your Union To Get Started</p>
               </div>
             ) : (
               clubs.map((club) => {
@@ -1243,54 +1181,25 @@ export default function UnionDetailPage() {
                   <Link
                     key={club.clubId}
                     to={`/clubs/${club.clubId}`}
-                    className={`${styles.clubCard} ${visibleClubs.has(club.clubId) ? styles.fadeInUp : styles.hidden}`}
-                    style={{
-                      ...(visibleClubs.has(club.clubId)
-                        ? {}
-                        : { opacity: 0, transform: 'translateY(8px)' }),
-                      textDecoration: 'none',
-                      color: 'inherit',
-                    }}
+                    className={`arena-ledger-row union-detail-row union-detail-club${
+                      visibleClubs.has(club.clubId) ? ' union-detail-club--shown' : ''
+                    }`}
                   >
-                    <div
-                      className={styles.clubCardAvatar}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontWeight: 800,
-                        fontSize: '1.2rem',
-                        color: '#fff',
-                        textTransform: 'uppercase',
-                      }}
-                    >
-                      {club.clubName?.charAt(0) || '?'}
-                    </div>
-                    <div className={styles.clubCardInfo}>
-                      <h4 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div className="union-detail-avatar">{club.clubName?.charAt(0) || '?'}</div>
+                    <div className="union-detail-row__copy">
+                      <h4>
                         {club.clubName}
-                        <span
-                          style={{
-                            fontSize: '0.55rem',
-                            padding: '1px 5px',
-                            borderRadius: '6px',
-                            background: cLevel.gradient,
-                            color: '#fff',
-                            fontWeight: 700,
-                            letterSpacing: '0.3px',
-                            textShadow: '0 1px 2px rgba(0,0,0,0.3)',
-                          }}
-                        >
+                        <span className="union-detail-level" style={{ color: cLevel.color }}>
                           Lv.{cLevel.level}
                         </span>
                       </h4>
                       <p>Owner: {club.ownerName || 'Unknown'}</p>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span className="union-detail-row__meta">
                         {club.clubId === KINGS_CLUB_UUID
                           ? `${kingsTotals?.member_total?.toLocaleString() ?? '…'} Members`
                           : `${club.memberCount} ${club.memberCount === 1 ? 'Member' : 'Members'}`}
                         {activeTableCount > 0 && (
-                          <span style={{ color: '#6ee7b7', fontSize: '0.7rem', fontWeight: 600 }}>
+                          <span className="union-detail-row__live">
                             {activeTableCount} {activeTableCount === 1 ? 'Table' : 'Tables'}
                           </span>
                         )}
@@ -1301,6 +1210,7 @@ export default function UnionDetailPage() {
                       // owner sees live seats, open entries, unsettled rake and agent
                       // credit before anything is unwound.
                       <span
+                        className="union-detail-row__governance"
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
@@ -1325,49 +1235,39 @@ export default function UnionDetailPage() {
 
         {/* Tables Tab */}
         {activeTab === 'tables' && (
-          <div>
+          <div className="arena-case arena-ops-case">
             {tables.length === 0 ? (
-              <div
-                style={{
-                  textAlign: 'center',
-                  padding: '40px 20px',
-                  color: 'rgba(255,255,255,0.4)',
-                }}
-              >
-                <div style={{ fontSize: '2rem', marginBottom: '8px' }}>▦</div>
-                <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 500 }}>No Tables Active</p>
-                <p style={{ margin: '4px 0 0', fontSize: '0.7rem' }}>
-                  Your Clubs&apos; Tables Will Appear Here When Games Start
-                </p>
+              <div className="union-detail-empty">
+                <div className="union-detail-empty__mark">▦</div>
+                <p className="union-detail-empty__title">No Tables Active</p>
+                <p>Your Clubs&apos; Tables Will Appear Here When Games Start</p>
               </div>
             ) : (
               <>
                 {activeTables.length > 0 && (
                   <>
-                    <h3 style={{ color: '#fff', margin: '0 0 1rem' }}>
-                      Active Tables ({activeTables.length})
-                    </h3>
-                    <div className={styles.tablesGrid}>
+                    <h3 className="arena-section-title">Active Tables ({activeTables.length})</h3>
+                    <div className="union-detail-cards">
                       {activeTables.map((table) => (
-                        <div key={table.id} className={styles.tableCard}>
-                          <div className={styles.tableCardHeader}>
+                        <div key={table.id} className="arena-ledger-row union-detail-card">
+                          <div className="union-detail-card__head">
                             <h4>{table.name}</h4>
-                            <span className={`${styles.statusDot} ${styles[table.status]}`} />
+                            <span className="union-detail-dot" />
                           </div>
-                          <div className={styles.tableCardDetails}>
+                          <div className="union-detail-card__details">
                             <span>
                               {table.small_blind}/{table.big_blind}
                             </span>
-                            <span className={styles.variant}>
+                            <span className="union-detail-card__variant">
                               {(table as any).game_variant || 'NLH'}
                             </span>
                             <span>
                               {table.current_players}/{table.max_players}
                             </span>
                           </div>
-                          <Link to={`/table/${table.id}`} className={styles.joinButton}>
-                            View Table
-                          </Link>
+                          <div className="arena-switch arena-ops-keys">
+                            <Link to={`/table/${table.id}`}>View Table</Link>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1375,27 +1275,28 @@ export default function UnionDetailPage() {
                 )}
                 {emptyTables.length > 0 && (
                   <>
-                    <h3 style={{ color: 'rgba(255,255,255,0.5)', margin: '2rem 0 1rem' }}>
-                      Empty Tables ({emptyTables.length})
-                    </h3>
-                    <div className={styles.tablesGrid}>
+                    <h3 className="arena-section-title">Empty Tables ({emptyTables.length})</h3>
+                    <div className="union-detail-cards">
                       {emptyTables.map((table) => (
-                        <div key={table.id} className={styles.tableCard} style={{ opacity: 0.6 }}>
-                          <div className={styles.tableCardHeader}>
+                        <div
+                          key={table.id}
+                          className="arena-ledger-row union-detail-card union-detail-card--idle"
+                        >
+                          <div className="union-detail-card__head">
                             <h4>{table.name}</h4>
                           </div>
-                          <div className={styles.tableCardDetails}>
+                          <div className="union-detail-card__details">
                             <span>
                               {table.small_blind}/{table.big_blind}
                             </span>
-                            <span className={styles.variant}>
+                            <span className="union-detail-card__variant">
                               {(table as any).game_variant || 'NLH'}
                             </span>
                             <span>0/{table.max_players}</span>
                           </div>
-                          <Link to={`/table/${table.id}`} className={styles.joinButton}>
-                            View Table
-                          </Link>
+                          <div className="arena-switch arena-ops-keys">
+                            <Link to={`/table/${table.id}`}>View Table</Link>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1408,54 +1309,36 @@ export default function UnionDetailPage() {
 
         {/* Tournaments Tab */}
         {activeTab === 'tournaments' && union?.settings?.crossClubTournaments && (
-          <div className={styles.tournamentsContainer}>
-            <div className={styles.sectionHeader}>
+          <div className="arena-case arena-ops-case">
+            <div className="union-detail-section-head">
               <div>
-                <h3>Union Tournaments (XMTT)</h3>
-                <p>Tournaments Open To All Member Clubs</p>
+                <h3 className="arena-section-title">Union Tournaments (XMTT)</h3>
+                <p className="arena-ops-copy">Tournaments Open To All Member Clubs</p>
               </div>
               {union?.ownerId === user?.id && clubs.length > 0 && (
-                <button
-                  className={styles.joinButton}
-                  style={{
-                    background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
-                    border: 'none',
-                    fontWeight: 700,
-                  }}
-                  onClick={() => setShowXmttModal(true)}
-                >
-                  + Create XMTT
-                </button>
+                <div className="arena-switch arena-ops-keys arena-ops-primary">
+                  <button onClick={() => setShowXmttModal(true)}>+ Create XMTT</button>
+                </div>
               )}
             </div>
             {unionTournaments.length === 0 ? (
-              <div className={styles.emptyState}>
+              <div className="union-detail-empty">
                 <p>No Union Wide Tournaments Scheduled</p>
                 {union?.ownerId === user?.id && (
-                  <button
-                    className={styles.joinButton}
-                    style={{
-                      marginTop: '1rem',
-                      background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
-                      border: 'none',
-                    }}
-                    onClick={() => setShowXmttModal(true)}
-                  >
-                    + Create First XMTT
-                  </button>
+                  <div className="arena-switch arena-ops-keys arena-ops-primary">
+                    <button onClick={() => setShowXmttModal(true)}>+ Create First XMTT</button>
+                  </div>
                 )}
               </div>
             ) : (
-              <div className={styles.tablesGrid}>
+              <div className="union-detail-cards">
                 {unionTournaments.map((t) => (
-                  <div key={t.id} className={styles.tableCard}>
-                    <div className={styles.tableCardHeader}>
+                  <div key={t.id} className="arena-ledger-row union-detail-card">
+                    <div className="union-detail-card__head">
                       <h4>{t.name}</h4>
-                      <span className={`${styles.statusBadge} ${styles[t.status]}`}>
-                        {t.status}
-                      </span>
+                      <span className="union-detail-badge">{t.status}</span>
                     </div>
-                    <div className={styles.tableCardDetails}>
+                    <div className="union-detail-card__details">
                       {/* hide_club_name (2026-08-22): never leak the hosting
                           club's name when the owner chose to hide it. */}
                       <span>
@@ -1472,9 +1355,9 @@ export default function UnionDetailPage() {
                       </span>
                       <span> {new Date(t.start_time).toLocaleDateString()}</span>
                     </div>
-                    <Link to={`/tournaments/${t.id}`} className={styles.joinButton}>
-                      View Details
-                    </Link>
+                    <div className="arena-switch arena-ops-keys">
+                      <Link to={`/tournaments/${t.id}`}>View Details</Link>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1490,23 +1373,26 @@ export default function UnionDetailPage() {
             {union?.ownerId === user?.id && schedulesError && <p role="alert">{schedulesError}</p>}
             {union?.ownerId === user?.id && schedules.length > 0 && (
               <>
-                <h3 style={{ margin: '2rem 0 1rem' }}>Recurring Schedules</h3>
-                <div className={styles.tablesGrid}>
+                <h3 className="arena-section-title">Recurring Schedules</h3>
+                <div className="union-detail-cards">
                   {schedules.map((s) => (
                     <div
                       key={s.id}
-                      className={styles.tableCard}
-                      style={!s.active ? { opacity: 0.55 } : undefined}
+                      className={`arena-ledger-row union-detail-card${
+                        s.active ? '' : ' union-detail-card--idle'
+                      }`}
                     >
-                      <div className={styles.tableCardHeader}>
+                      <div className="union-detail-card__head">
                         <h4>{s.name}</h4>
                         <span
-                          className={`${styles.statusBadge} ${s.active ? styles.paid : styles.overdue}`}
+                          className={`union-detail-badge ${
+                            s.active ? 'union-detail-badge--good' : 'union-detail-badge--bad'
+                          }`}
                         >
                           {s.active ? 'ACTIVE' : 'OFF'}
                         </span>
                       </div>
-                      <div className={styles.tableCardDetails}>
+                      <div className="union-detail-card__details">
                         <span>
                           {describeSchedule(
                             s.days_of_week,
@@ -1521,13 +1407,12 @@ export default function UnionDetailPage() {
                           an owner edit of it, so it offers no button that would
                           only appear to work. */}
                       {isFixedBoardSchedule(s) ? (
-                        <div className={styles.tableCardDetails}>
+                        <div className="union-detail-card__details">
                           <span>Fixed Daily Board</span>
                         </div>
                       ) : (
-                        <div style={{ display: 'flex', gap: 8 }}>
+                        <div className="arena-switch arena-ops-keys">
                           <button
-                            className={styles.joinButton}
                             disabled={scheduleBusyId === s.id}
                             onClick={() => handleScheduleActiveToggle(s, !s.active)}
                           >
@@ -1549,22 +1434,19 @@ export default function UnionDetailPage() {
 
         {/* Financials Tab */}
         {activeTab === 'financials' && (
-          <div className={styles.financialsContainer}>
+          <div className="union-detail-finance">
             {/*
               The weekly square-up board. It lives on its own page because it
               is per-period and per-club, and because the one thing it has to
               show - a club that was never billed - needs the whole club list
               beside the invoice list to be visible at all.
             */}
-            <button
-              type="button"
-              className={styles.statementsLink}
-              onClick={() => navigate(`/unions/${unionRef}/statements`)}
-            >
-              Weekly Statements And Square-Up
-            </button>
+            <div className="arena-switch arena-ops-keys arena-ops-primary">
+              <button type="button" onClick={() => navigate(`/unions/${unionRef}/statements`)}>
+                Weekly Statements And Square-Up
+              </button>
 
-            {/*
+              {/*
               What the union PRODUCED, as against what it billed. Until this
               existed the rake snapshot could only be reached from inside a
               member club, so a union lead who owns no club had no door to
@@ -1572,112 +1454,118 @@ export default function UnionDetailPage() {
               a route nobody finds - /union-dashboard sat unlinked for months,
               two comments below this one.
             */}
-            <button
-              type="button"
-              className={styles.statementsLink}
-              onClick={() => navigate(`/unions/${unionRef}/data`)}
-            >
-              Union Rake And Production Data
-            </button>
+              <button type="button" onClick={() => navigate(`/unions/${unionRef}/data`)}>
+                Union Rake And Production Data
+              </button>
+            </div>
 
-            {financialError && <p role="alert">{financialError}</p>}
+            {financialError && (
+              <p role="alert" className="union-detail-alert">
+                {financialError}
+              </p>
+            )}
             {financialSummary && (
               <>
-                <p>{financialSummary.periodLabel}</p>
-                <p>{financialSummary.coverageLabel}</p>
+                <p className="arena-ops-copy">{financialSummary.periodLabel}</p>
+                <p className="arena-ops-copy">{financialSummary.coverageLabel}</p>
                 {/* Summary Cards */}
-                <div className={styles.financialCards}>
-                  <div className={styles.financialCard}>
-                    <span className={styles.financialIcon}>%</span>
+                <div className="union-detail-stats">
+                  <div className="union-detail-stat arena-meter union-detail-money">
+                    <span className="union-detail-money__icon">%</span>
                     <div>
-                      <span className={styles.financialValue}>
+                      <span className="union-detail-stat__value">
                         {statementMoney(financialSummary.totalRakeThisPeriod)}
                       </span>
-                      <span className={styles.financialLabel}>Recorded Statement Rake</span>
+                      <span className="union-detail-stat__label">Recorded Statement Rake</span>
                     </div>
                   </div>
-                  <div className={styles.financialCard}>
-                    <span className={styles.financialIcon}>◉</span>
+                  <div className="union-detail-stat arena-meter union-detail-money">
+                    <span className="union-detail-money__icon">◉</span>
                     <div>
-                      <span className={`${styles.financialValue} ${styles.positive}`}>
+                      <span className="union-detail-stat__value union-detail-positive">
                         {statementMoney(financialSummary.unionRevenue)}
                       </span>
-                      <span className={styles.financialLabel}>Recorded Union Share</span>
+                      <span className="union-detail-stat__label">Recorded Union Share</span>
                     </div>
                   </div>
-                  <div className={styles.financialCard}>
-                    <span className={styles.financialIcon}>◷</span>
+                  <div className="union-detail-stat arena-meter union-detail-money">
+                    <span className="union-detail-money__icon">◷</span>
                     <div>
-                      <span className={styles.financialValue}>
+                      <span className="union-detail-stat__value">
                         {financialSummary.pendingSettlements === null
                           ? 'Unavailable'
                           : financialSummary.pendingSettlements}
                       </span>
-                      <span className={styles.financialLabel}>Pending Settlements</span>
+                      <span className="union-detail-stat__label">Pending Settlements</span>
                     </div>
                   </div>
                   {financialSummary.overdueAmount !== null &&
                     financialSummary.overdueAmount > 0 && (
-                      <div className={`${styles.financialCard} ${styles.overdue}`}>
-                        <span className={styles.financialIcon}>!</span>
+                      <div className="union-detail-stat arena-meter union-detail-money union-detail-money--overdue">
+                        <span className="union-detail-money__icon">!</span>
                         <div>
-                          <span className={`${styles.financialValue} ${styles.negative}`}>
+                          <span className="union-detail-stat__value union-detail-negative">
                             {financialSummary.overdueAmount.toLocaleString()}
                           </span>
-                          <span className={styles.financialLabel}>Overdue</span>
+                          <span className="union-detail-stat__label">Overdue</span>
                         </div>
                       </div>
                     )}
                 </div>
 
                 {/* Settlement History */}
-                <div className={styles.settlementSection}>
-                  <h3> Statements For Selected Period</h3>
+                <div className="arena-case arena-ops-case">
+                  <h3 className="arena-section-title"> Statements For Selected Period</h3>
                   {/* 2026-08-19: /union-dashboard had NO link anywhere in the app —
                   it was reachable only by typing the URL. That is where the
                   union wallet, the treasury and the weekly player win/loss
                   settlement live, so in practice none of it was visible to the
                   people who own it. */}
-                  <p style={{ margin: '0 0 12px', fontSize: 13, opacity: 0.75 }}>
+                  <p className="arena-ops-copy">
                     Weekly Player Win/Loss Settlement, Wallet And Treasury Live On The{' '}
-                    <Link
-                      to={`/unions/${unionRef}/operations`}
-                      style={{ color: '#1877F2', fontWeight: 600 }}
-                    >
+                    <Link to={`/unions/${unionRef}/operations`} className="union-detail-link">
                       Union Dashboard
                     </Link>
                     .
                   </p>
-                  <table className={styles.settlementTable}>
-                    <thead>
-                      <tr>
-                        <th>Period</th>
-                        <th>Club</th>
-                        <th>Rake</th>
-                        <th>Union Share</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {settlements.map((s) => (
-                        <tr key={s.id}>
-                          <td>
-                            {s.periodStart && s.periodEnd
-                              ? `${s.periodStart} To ${s.periodEnd}`
-                              : 'No Issued Period'}
-                          </td>
-                          <td>{s.clubName}</td>
-                          <td>{statementMoney(s.rakeGenerated)}</td>
-                          <td className={styles.positive}>{statementMoney(s.unionShare)}</td>
-                          <td>
-                            <span className={`${styles.statusBadge} ${styles[s.status]}`}>
-                              {s.status === 'unverified' ? 'Payment Details Unavailable' : s.status}
-                            </span>
-                          </td>
+                  <div className="union-detail-table-well">
+                    <table className="union-detail-table">
+                      <thead>
+                        <tr>
+                          <th>Period</th>
+                          <th>Club</th>
+                          <th>Rake</th>
+                          <th>Union Share</th>
+                          <th>Status</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {settlements.map((s) => (
+                          <tr key={s.id}>
+                            <td>
+                              {s.periodStart && s.periodEnd
+                                ? `${s.periodStart} To ${s.periodEnd}`
+                                : 'No Issued Period'}
+                            </td>
+                            <td>{s.clubName}</td>
+                            <td>{statementMoney(s.rakeGenerated)}</td>
+                            <td className="union-detail-positive">
+                              {statementMoney(s.unionShare)}
+                            </td>
+                            <td>
+                              <span
+                                className={`union-detail-badge union-detail-badge--${s.status}`}
+                              >
+                                {s.status === 'unverified'
+                                  ? 'Payment Details Unavailable'
+                                  : s.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </>
             )}
@@ -1686,16 +1574,16 @@ export default function UnionDetailPage() {
 
         {/* Settings Tab - Owner Only */}
         {activeTab === 'settings' && union?.ownerId === user?.id && (
-          <div className={styles.settingsContainer}>
-            <div className={styles.settingsCard}>
-              <h3> Revenue Configuration</h3>
-              <p className={styles.settingsDesc}>
+          <div className="union-detail-settings">
+            <div className="arena-case arena-ops-case">
+              <h3 className="arena-section-title"> Revenue Configuration</h3>
+              <p className="arena-ops-copy">
                 Configure How Revenue Is Split Between The Union And Clubs
               </p>
 
-              <div className={styles.settingRow}>
+              <div className="union-detail-setting">
                 <label>Revenue Share %</label>
-                <div className={styles.sliderRow}>
+                <div className="union-detail-slider">
                   <input
                     type="range"
                     min="0"
@@ -1707,15 +1595,17 @@ export default function UnionDetailPage() {
                         revenueSharePercent: Number(e.target.value),
                       }))
                     }
-                    className={styles.slider}
+                    className="union-detail-slider__input"
                   />
-                  <span className={styles.sliderValue}>{settingsForm.revenueSharePercent}%</span>
+                  <span className="union-detail-slider__value">
+                    {settingsForm.revenueSharePercent}%
+                  </span>
                 </div>
-                <p className={styles.settingHint}>Percentage Of Club Rake That Goes To The Union</p>
+                <p className="union-detail-hint">Percentage Of Club Rake That Goes To The Union</p>
               </div>
 
-              <div className={styles.settingRow}>
-                <label className={styles.toggleLabel}>
+              <div className="union-detail-setting">
+                <label className="union-detail-toggle">
                   <input
                     type="checkbox"
                     checked={settingsForm.sharedPlayerPool}
@@ -1725,11 +1615,11 @@ export default function UnionDetailPage() {
                   />
                   Shared Player Pool
                 </label>
-                <p className={styles.settingHint}>Allow Players To Sit At Any Club’s Tables</p>
+                <p className="union-detail-hint">Allow Players To Sit At Any Club’s Tables</p>
               </div>
 
-              <div className={styles.settingRow}>
-                <label className={styles.toggleLabel}>
+              <div className="union-detail-setting">
+                <label className="union-detail-toggle">
                   <input
                     type="checkbox"
                     checked={settingsForm.crossClubTournaments}
@@ -1742,7 +1632,7 @@ export default function UnionDetailPage() {
                   />
                   Cross-Club Tournaments
                 </label>
-                <p className={styles.settingHint}>Enable Union-Wide Tournament Scheduling</p>
+                <p className="union-detail-hint">Enable Union-Wide Tournament Scheduling</p>
               </div>
 
               {(['cash', 'tournament'] as const).map((activity) => {
@@ -1751,8 +1641,8 @@ export default function UnionDetailPage() {
                 const rateKey = activity === 'cash' ? 'eco_cash_rate' : 'eco_tournament_rate';
                 const label = activity === 'cash' ? 'Cash ECO' : 'Tournament ECO';
                 return (
-                  <div className={styles.settingRow} key={activity}>
-                    <label className={styles.toggleLabel}>
+                  <div className="union-detail-setting" key={activity}>
+                    <label className="union-detail-toggle">
                       <input
                         type="checkbox"
                         checked={settingsForm[enabledKey] === true}
@@ -1770,7 +1660,7 @@ export default function UnionDetailPage() {
                         min="0"
                         max="100"
                         step="0.1"
-                        className={styles.ecoRate}
+                        className="arena-ops-well union-detail-rate"
                         aria-label={`${label} Rate`}
                         placeholder="Not Configured"
                         value={
@@ -1786,62 +1676,63 @@ export default function UnionDetailPage() {
                         }}
                       />
                     </label>
-                    <p className={styles.settingHint}>
+                    <p className="union-detail-hint">
                       {settingsForm[enabledKey] === undefined ? 'Not Configured. ' : ''}Separate
                       Club Profit / Loss. Horses And All Players Included.
                     </p>
                   </div>
                 );
               })}
-              <p className={styles.settingHint}>
+              <p className="union-detail-hint">
                 ECO Changes Apply At The Server-Confirmed Accounting Boundary.
               </p>
               {union.ecoTermsEffectiveFrom && (
-                <p className={styles.settingHint}>
+                <p className="union-detail-hint">
                   ECO Terms Effective From {union.ecoTermsEffectiveFrom}
                 </p>
               )}
 
               {!union.ecoTermsEffectiveFrom && (
-                <p className={styles.settingHint}>ECO Effective Accounting Boundary Unavailable.</p>
+                <p className="union-detail-hint">ECO Effective Accounting Boundary Unavailable.</p>
               )}
 
-              <button
-                className={styles.saveButton}
-                onClick={async () => {
-                  if (!unionId || isUpdatingSettings) return;
-                  let ecoPatch: Record<string, boolean | number>;
-                  try {
-                    ecoPatch = unionEcoSettingsPatch(settingsForm, ecoSettingsDirty);
-                  } catch {
-                    toast.error('Configure Both ECO Switches And Rates Before Saving');
-                    return;
-                  }
-                  const generalSettings = {
-                    revenueSharePercent: settingsForm.revenueSharePercent,
-                    sharedPlayerPool: settingsForm.sharedPlayerPool,
-                    crossClubTournaments: settingsForm.crossClubTournaments,
-                  };
-                  setIsUpdatingSettings(true);
-                  try {
-                    const updated = await unionService.updateUnion(unionId, {
-                      settings: { ...generalSettings, ...ecoPatch },
-                    });
-                    if (updated) {
-                      setUnion(updated);
-                      toast.success('Settings saved successfully!');
+              <div className="arena-switch arena-ops-keys arena-ops-primary">
+                <button
+                  onClick={async () => {
+                    if (!unionId || isUpdatingSettings) return;
+                    let ecoPatch: Record<string, boolean | number>;
+                    try {
+                      ecoPatch = unionEcoSettingsPatch(settingsForm, ecoSettingsDirty);
+                    } catch {
+                      toast.error('Configure Both ECO Switches And Rates Before Saving');
+                      return;
                     }
-                  } catch (error) {
-                    reportError(error, 'Union Settings');
-                    toast.error('Settings Could Not Be Saved');
-                  } finally {
-                    setIsUpdatingSettings(false);
-                  }
-                }}
-                disabled={isUpdatingSettings}
-              >
-                {isUpdatingSettings ? 'Saving...' : 'Save Settings'}
-              </button>
+                    const generalSettings = {
+                      revenueSharePercent: settingsForm.revenueSharePercent,
+                      sharedPlayerPool: settingsForm.sharedPlayerPool,
+                      crossClubTournaments: settingsForm.crossClubTournaments,
+                    };
+                    setIsUpdatingSettings(true);
+                    try {
+                      const updated = await unionService.updateUnion(unionId, {
+                        settings: { ...generalSettings, ...ecoPatch },
+                      });
+                      if (updated) {
+                        setUnion(updated);
+                        toast.success('Settings saved successfully!');
+                      }
+                    } catch (error) {
+                      reportError(error, 'Union Settings');
+                      toast.error('Settings Could Not Be Saved');
+                    } finally {
+                      setIsUpdatingSettings(false);
+                    }
+                  }}
+                  disabled={isUpdatingSettings}
+                >
+                  {isUpdatingSettings ? 'Saving...' : 'Save Settings'}
+                </button>
+              </div>
             </div>
           </div>
         )}

@@ -13,12 +13,29 @@ import { describe, expect, it } from 'vitest';
 
 const read = (path: string) => readFileSync(path, 'utf8');
 
+/** Split a selector list on its top-level commas, not those inside :is(). */
+function topLevel(list: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < list.length; i++) {
+    if (list[i] === '(') depth++;
+    else if (list[i] === ')') depth--;
+    else if (list[i] === ',' && depth === 0) {
+      out.push(list.slice(start, i));
+      start = i + 1;
+    }
+  }
+  out.push(list.slice(start));
+  return out;
+}
+
 function selectors(css: string): string[] {
   const stripped = css.replace(/\/\*[\s\S]*?\*\//g, '');
   return [...stripped.matchAll(/([^{}]+)\{/g)]
     .map((m) => m[1].trim())
     .filter((s) => s && !s.startsWith('@') && !/^(from|to|\d+%)/.test(s))
-    .flatMap((s) => s.split(','))
+    .flatMap((s) => topLevel(s))
     .map((s) => s.trim())
     .filter(Boolean);
 }
@@ -36,6 +53,16 @@ describe('the Union pages wear the arena workspace, scoped', () => {
     expect(page).toContain('<ArenaWorkspaceHeader');
     expect(page).not.toContain('SpadeConsole');
     expectScoped(read('src/pages/UnionsPage.css'), '.unions-page.arena-workspace');
+  });
+
+  it('Union Command: the arena root, the chrome mast, every rule under the root', () => {
+    const page = read('src/pages/UnionDetailPage.tsx');
+    expect(page).toContain('className="union-detail arena-workspace"');
+    expect(page).toContain('<ArenaWorkspaceHeader');
+    expect(page).not.toContain('SpadeConsole');
+    expectScoped(read('src/pages/UnionDetailArena.css'), '.union-detail.arena-workspace');
+    // The game keys take the arena switch through GameCreationActions' own opt-in.
+    expect(page).toMatch(/<GameCreationActions[^>]*\barena\b/);
   });
 
   it('the shared state screens take the arena dress only by opt-in', () => {
