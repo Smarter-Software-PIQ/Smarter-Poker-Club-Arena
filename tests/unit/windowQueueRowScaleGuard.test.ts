@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { parse } from 'yaml';
 // @ts-expect-error plain ESM helper
 import {
@@ -50,9 +52,107 @@ describe('row-scale statistics capture & hot-table query-plan guard', () => {
       String(s.run ?? '').includes('rehearse-window-queue.sh')
     );
     expect(rehearseStep.env.TABLE_STATS).toBe('${{ runner.temp }}/in/table-stats.json');
+    expect(rehearseStep.env.REHEARSAL_ADMIN_PSQL).toBe(
+      'docker exec -i -e PGPASSWORD=rehearsal-only window-rehearsal-db psql -U supabase_admin -d postgres'
+    );
 
     // N-1 compatibility guard wired into the secretless guards job.
     expect(JSON.stringify(guards)).toContain('scripts/ci/check-migration-n-minus-1-compat.mjs');
+  });
+
+  it('wires REHEARSAL_ADMIN_PSQL into rehearse-window-queue.sh and fails closed when seed-stats fails', () => {
+    const sh = read('scripts/ci/rehearse-window-queue.sh');
+    expect(sh).toContain('REHEARSAL_ADMIN_PSQL');
+    expect(sh).toContain('ADMIN_PSQL');
+    expect(sh).toMatch(/seed-stats[\s\S]*?"\$\{ADMIN_PSQL\[@\]\}"/);
+    expect(sh).not.toContain('warning: could not seed row-scale stats');
+
+    // Runtime execution check: when REHEARSAL_ADMIN_PSQL fails to seed pg_class stats,
+    // rehearse-window-queue.sh must exit 1 (fail closed) even if regular PSQL succeeds.
+    const dir = mkdtempSync(join(tmpdir(), 'rehearse-seed-fail-'));
+    try {
+      const migDir = join(dir, 'mig');
+      const evidenceDir = join(dir, 'evidence');
+      mkdirSync(migDir, { recursive: true });
+      writeFileSync(join(dir, 'installed.txt'), '20261128000000\n');
+      writeFileSync(join(dir, 'changed.txt'), 'supabase/migrations/20261128000002_changed.sql\n');
+      writeFileSync(
+        join(dir, 'table-stats.json'),
+        JSON.stringify([
+          { schemaname: 'public', relname: 'hand_history', est_rows: 200000, rel_bytes: 1e8 },
+        ])
+      );
+      writeFileSync(
+        join(migDir, '20261128000001_prereq.sql'),
+        '-- @install-window: daily-maintenance\nBEGIN;\nSELECT 1;\nCOMMIT;\n'
+      );
+      writeFileSync(
+        join(migDir, '20261128000002_changed.sql'),
+        "-- @install-window: daily-maintenance\nBEGIN;\nCREATE INDEX idx_hh_note ON public.hand_history (note);\nUPDATE public.hand_history SET status = 'done' WHERE note = 'x';\nCOMMIT;\n"
+      );
+      const traceFile = join(dir, 'trace.log');
+      const fakePsql = join(dir, 'fake-psql.mjs');
+      writeFileSync(
+        fakePsql,
+        `import { appendFileSync, readFileSync } from 'node:fs';
+const role = process.argv[2];
+const mode = process.argv[3];
+const sql = readFileSync(0, 'utf8');
+appendFileSync(${JSON.stringify(traceFile)}, role + ':' + (sql.includes('pg_catalog.pg_class') ? 'SEED' : sql.includes('EXPLAIN (FORMAT JSON)') ? 'EXPLAIN' : sql.includes('20261128000001_prereq.sql') ? 'INSTALL_M1' : sql.includes('20261128000002_changed.sql') ? 'INSTALL_M2' : 'OTHER') + '\\n');
+if (role === 'admin' && mode === 'fail-seed') {
+  console.error('ERROR: permission denied for table pg_class');
+  process.exit(1);
+}
+if (sql.includes('EXPLAIN (FORMAT JSON)')) {
+  const hasIdx = sql.includes('CREATE INDEX idx_hh_note');
+  console.log(JSON.stringify([{ Plan: { 'Node Type': hasIdx ? 'Index Scan' : 'Seq Scan', 'Relation Name': 'hand_history', Schema: 'public' } }]));
+}
+`
+      );
+
+      // 1. Seed failure via REHEARSAL_ADMIN_PSQL -> fails closed (exit 1).
+      const failRun = spawnSync('bash', [resolve(ROOT, 'scripts/ci/rehearse-window-queue.sh')], {
+        env: {
+          ...process.env,
+          REHEARSAL_PSQL: `node ${fakePsql} regular ok`,
+          REHEARSAL_ADMIN_PSQL: `node ${fakePsql} admin fail-seed`,
+          MIG_DIR: migDir,
+          INSTALLED: join(dir, 'installed.txt'),
+          CHANGED: join(dir, 'changed.txt'),
+          TABLE_STATS: join(dir, 'table-stats.json'),
+          EVIDENCE: evidenceDir,
+        },
+        encoding: 'utf8',
+      });
+      expect(failRun.status).toBe(1);
+      expect(readFileSync(join(evidenceDir, 'summary.md'), 'utf8')).toContain(
+        'REFUSED** row-scale planner stats could not be seeded'
+      );
+      expect(readFileSync(traceFile, 'utf8')).toContain('admin:SEED');
+
+      // 2. Healthy seed -> M1 installs BEFORE M2 EXPLAIN, and M2 EXPLAIN runs BEFORE M2 installs.
+      writeFileSync(traceFile, '');
+      const okRun = spawnSync('bash', [resolve(ROOT, 'scripts/ci/rehearse-window-queue.sh')], {
+        env: {
+          ...process.env,
+          REHEARSAL_PSQL: `node ${fakePsql} regular ok`,
+          REHEARSAL_ADMIN_PSQL: `node ${fakePsql} admin ok`,
+          MIG_DIR: migDir,
+          INSTALLED: join(dir, 'installed.txt'),
+          CHANGED: join(dir, 'changed.txt'),
+          TABLE_STATS: join(dir, 'table-stats.json'),
+          EVIDENCE: join(dir, 'evidence-ok'),
+        },
+        encoding: 'utf8',
+      });
+      expect(okRun.status).toBe(0);
+      const events = readFileSync(traceFile, 'utf8').trim().split('\n');
+      expect(events[0]).toBe('admin:SEED');
+      expect(events.indexOf('regular:INSTALL_M1')).toBeLessThan(events.indexOf('regular:EXPLAIN'));
+      expect(events.indexOf('regular:EXPLAIN')).toBeLessThan(events.indexOf('regular:INSTALL_M2'));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('validates and builds safe pg_class reltuples/relpages seed SQL', () => {
@@ -253,5 +353,167 @@ COMMIT;
     expect(exempted.ok).toBe(true);
     expect(exempted.violations).toEqual([]);
     expect(runExplain).toHaveBeenCalledTimes(1); // Skipped EXPLAIN because exempt
+  });
+
+  it('extracts INSERT ... SELECT and PL/pgSQL DO / IF ... THEN hot-table install statements', () => {
+    const insertSql = `
+BEGIN;
+INSERT INTO public.hand_history_archive
+SELECT * FROM public.hand_history WHERE unindexed_note = 'old';
+COMMIT;
+`;
+    const insertStmts = extractHotTableInstallStatements(insertSql, new Set(['hand_history']));
+    expect(insertStmts).toHaveLength(1);
+    expect(insertStmts[0].statement).toMatch(/^INSERT INTO public\.hand_history_archive/i);
+    expect(insertStmts[0].tables).toEqual(['hand_history']);
+
+    const doIfSql = `
+BEGIN;
+DO $$
+DECLARE
+  v_flag boolean := true;
+BEGIN
+  IF v_flag THEN
+    UPDATE public.hand_history SET status = 'archived' WHERE unindexed_note = 'old';
+  ELSIF false THEN
+    DELETE FROM public.hand_history WHERE unindexed_note = 'stale';
+  END IF;
+EXCEPTION WHEN others THEN
+  INSERT INTO public.archive SELECT * FROM public.hand_history WHERE unindexed_note = 'err';
+END $$;
+COMMIT;
+`;
+    const doStmts = extractHotTableInstallStatements(doIfSql, new Set(['hand_history']));
+    expect(doStmts).toHaveLength(3);
+    expect(doStmts[0].statement).toMatch(/^UPDATE public\.hand_history/i);
+    expect(doStmts[1].statement).toMatch(/^DELETE FROM public\.hand_history/i);
+    expect(doStmts[2].statement).toMatch(/^INSERT INTO public\.archive/i);
+  });
+
+  it('executes preceding same-migration DDL before EXPLAIN and visibly reports non-variable EXPLAIN failures', () => {
+    const stats = [
+      { schemaname: 'public', relname: 'hand_history', est_rows: 500_000, rel_bytes: 1e8 },
+    ];
+
+    // 1. CREATE INDEX before UPDATE -> planner sees the index and picks Index Scan (no false positive).
+    const idxThenUpdate = `
+BEGIN;
+CREATE INDEX idx_hh_unindexed_note ON public.hand_history (unindexed_note);
+UPDATE public.hand_history SET status = 'archived' WHERE unindexed_note = 'old';
+COMMIT;
+`;
+    const seenContexts: any[] = [];
+    const idxResult = evaluateHotTablePlans(
+      '20261128000010_idx_then_update.sql',
+      idxThenUpdate,
+      stats,
+      (_stmt: string, _file: string, ctx: any) => {
+        seenContexts.push(ctx);
+        const hasIndex = (ctx?.precedingDdl ?? []).some((d: string) =>
+          /CREATE\s+INDEX\s+idx_hh_unindexed_note\b/i.test(d)
+        );
+        return {
+          plan: [
+            {
+              Plan: {
+                'Node Type': 'ModifyTable',
+                Plans: [
+                  hasIndex
+                    ? {
+                        'Node Type': 'Index Scan',
+                        'Index Name': 'idx_hh_unindexed_note',
+                        'Relation Name': 'hand_history',
+                        Schema: 'public',
+                      }
+                    : {
+                        'Node Type': 'Seq Scan',
+                        'Relation Name': 'hand_history',
+                        Schema: 'public',
+                      },
+                ],
+              },
+            },
+          ],
+          error: null,
+        };
+      }
+    );
+    expect(idxResult.ok).toBe(true);
+    expect(idxResult.violations).toEqual([]);
+    expect(seenContexts[0]?.precedingDdl).toEqual([
+      expect.stringMatching(/CREATE INDEX idx_hh_unindexed_note/i),
+    ]);
+
+    // 2. ALTER TABLE ADD COLUMN before UPDATE -> EXPLAIN sees new_col and catches Seq Scan.
+    const addColThenUpdate = `
+BEGIN;
+ALTER TABLE public.hand_history ADD COLUMN new_col text;
+UPDATE public.hand_history SET new_col = 'x' WHERE unindexed_note = 'old';
+COMMIT;
+`;
+    const addColResult = evaluateHotTablePlans(
+      '20261128000011_add_col_then_update.sql',
+      addColThenUpdate,
+      stats,
+      (_stmt: string, _file: string, ctx: any) => {
+        const hasCol = (ctx?.precedingDdl ?? []).some((d: string) =>
+          /ADD\s+COLUMN\s+new_col\b/i.test(d)
+        );
+        if (!hasCol) {
+          return {
+            plan: null,
+            error: 'ERROR:  column "new_col" of relation "hand_history" does not exist',
+          };
+        }
+        return {
+          plan: [
+            {
+              Plan: {
+                'Node Type': 'Seq Scan',
+                'Relation Name': 'hand_history',
+                Schema: 'public',
+              },
+            },
+          ],
+          error: null,
+        };
+      }
+    );
+    expect(addColResult.ok).toBe(false);
+    expect(addColResult.violations).toHaveLength(1);
+    expect(addColResult.explainErrors).toEqual([]);
+
+    // 3. Non-variable EXPLAIN error is visibly reported (not silently swallowed),
+    // while a DO-block declared variable error is skipped as variable-bound.
+    const brokenTopLevel =
+      "BEGIN;\nUPDATE public.hand_history SET missing_col = 'x' WHERE id = 1;\nCOMMIT;\n";
+    const errResult = evaluateHotTablePlans(
+      '20261128000012_explain_err.sql',
+      brokenTopLevel,
+      stats,
+      () => ({
+        plan: null,
+        error: 'ERROR:  column "missing_col" of relation "hand_history" does not exist',
+      })
+    );
+    expect(errResult.explainErrors).toHaveLength(1);
+    expect(errResult.explainErrors[0].error).toContain('missing_col');
+
+    const doVarSql = `
+BEGIN;
+DO $$
+DECLARE
+  v_id uuid;
+BEGIN
+  UPDATE public.hand_history SET status = 'done' WHERE id = v_id;
+END $$;
+COMMIT;
+`;
+    const varResult = evaluateHotTablePlans('20261128000013_do_var.sql', doVarSql, stats, () => ({
+      plan: null,
+      error: 'ERROR:  column "v_id" does not exist',
+    }));
+    expect(varResult.explainErrors).toEqual([]);
+    expect(varResult.skippedVariableExplain).toBe(1);
   });
 });

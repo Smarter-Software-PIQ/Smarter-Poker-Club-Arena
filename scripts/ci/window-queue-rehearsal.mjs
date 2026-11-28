@@ -316,14 +316,53 @@ export function seedTableStatsSQL(stats) {
 }
 
 /**
- * Strip comments and CREATE FUNCTION/PROCEDURE definitions from SQL while
- * preserving top-level and DO-block install-time statements.
+ * Iteratively strip leading PL/pgSQL block and control-flow headers so DML/DDL
+ * statements nested inside DO blocks (DECLARE/BEGIN/IF/ELSIF/ELSE/FOR/LOOP/
+ * EXCEPTION/WHEN) are exposed cleanly.
  */
-function installTimeSqlBody(sql) {
+export function stripPlpgsqlHeaders(rawStmt) {
+  let stmt = String(rawStmt || '').trim();
+  for (;;) {
+    const next = stmt
+      .replace(/^<<[A-Za-z_][A-Za-z0-9_]*>>\s*/i, '')
+      .replace(/^DECLARE\b[^;]*;\s*/i, '')
+      .replace(/^DECLARE\b\s+(?=BEGIN\b)/i, '')
+      .replace(/^(?:BEGIN|ELSE|LOOP|EXCEPTION)\b\s*/i, '')
+      .replace(/^(?:IF|ELSIF|WHEN)\b[\s\S]*?\bTHEN\b\s*/i, '')
+      .replace(/^FOR\b[\s\S]*?\bLOOP\b\s*/i, '')
+      .trim();
+    if (next === stmt) break;
+    stmt = next;
+  }
+  return stmt;
+}
+
+function collectPlpgsqlVars(body) {
+  const vars = new Set();
+  const declMatch = /\bDECLARE\b([\s\S]*?)\bBEGIN\b/i.exec(body);
+  if (declMatch) {
+    for (const part of declMatch[1].split(';')) {
+      const m = /^\s*([a-z_][a-z0-9_]*)\s+[a-z_]/i.exec(part);
+      if (m && !/^(?:BEGIN|IF|END|DECLARE|CONSTANT|ALIAS)$/i.test(m[1])) {
+        vars.add(m[1].toLowerCase());
+      }
+    }
+  }
+  for (const m of body.matchAll(/\bFOR\s+([a-z_][a-z0-9_]*)\s+IN\b/gi)) {
+    vars.add(m[1].toLowerCase());
+  }
+  return vars;
+}
+
+/**
+ * Strip SQL comments while keeping single-quoted and dollar-quoted literals
+ * intact, and split into top-level semicolon-terminated statements.
+ */
+function splitSqlStatementsPreservingQuotes(sql) {
   const s = String(sql);
-  let out = '';
+  const stmts = [];
+  let cur = '';
   let i = 0;
-  let stmtStart = 0;
   while (i < s.length) {
     const c = s[i];
     const n = s[i + 1];
@@ -335,7 +374,7 @@ function installTimeSqlBody(sql) {
     if (c === '/' && n === '*') {
       const e = s.indexOf('*/', i + 2);
       i = e < 0 ? s.length : e + 2;
-      out += ' ';
+      cur += ' ';
       continue;
     }
     if (c === "'") {
@@ -353,7 +392,7 @@ function installTimeSqlBody(sql) {
         j = k + 1;
         break;
       }
-      out += s.slice(i, j);
+      cur += s.slice(i, j);
       i = j;
       continue;
     }
@@ -362,89 +401,122 @@ function installTimeSqlBody(sql) {
       if (m) {
         const tag = m[0];
         const close = s.indexOf(tag, i + tag.length);
-        const body = s.slice(i + tag.length, close < 0 ? s.length : close);
-        const stmtHeader = out.slice(stmtStart).trim();
-        if (/^DO\b/i.test(stmtHeader)) {
-          // Drop the DO wrapper header and keep inner statements for inspection.
-          out = out.slice(0, stmtStart) + ' ' + installTimeSqlBody(body) + ';';
-          stmtStart = out.length;
-        } else if (/^CREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\b/i.test(stmtHeader)) {
-          out = out.slice(0, stmtStart);
-        } else {
-          out += s.slice(i, close < 0 ? s.length : close + tag.length);
-        }
-        i = close < 0 ? s.length : close + tag.length;
+        const end = close < 0 ? s.length : close + tag.length;
+        cur += s.slice(i, end);
+        i = end;
         continue;
       }
     }
-    if (c === ';') stmtStart = out.length + 1;
-    out += c;
-    i++;
-  }
-  return out;
-}
-
-function splitTopStatements(sql) {
-  const stmts = [];
-  let cur = '';
-  let inSingle = false;
-  for (let i = 0; i < sql.length; i++) {
-    const ch = sql[i];
-    if (inSingle) {
-      cur += ch;
-      if (ch === "'") {
-        if (sql[i + 1] === "'") {
-          cur += sql[i + 1];
-          i++;
-        } else {
-          inSingle = false;
-        }
-      }
-      continue;
-    }
-    if (ch === "'") {
-      inSingle = true;
-      cur += ch;
-      continue;
-    }
-    if (ch === ';') {
+    if (c === ';') {
       const trimmed = cur.trim();
       if (trimmed) stmts.push(trimmed);
       cur = '';
+      i++;
       continue;
     }
-    cur += ch;
+    cur += c;
+    i++;
   }
   if (cur.trim()) stmts.push(cur.trim());
   return stmts;
 }
 
 /**
- * Extract install-time SELECT / UPDATE / DELETE (including CTE WITH ...)
- * statements targeting any table in `hotTablesSet`.
+ * Extract the dollar-quoted body of a `DO [LANGUAGE ...] $tag$ ... $tag$`
+ * statement, or null if `stmt` is not a dollar-quoted DO block.
+ */
+function extractDoBlockBody(stmt) {
+  if (!/^DO\b/i.test(stmt)) return null;
+  let i = 0;
+  while (i < stmt.length) {
+    if (stmt[i] === "'") {
+      let j = i + 1;
+      for (;;) {
+        const k = stmt.indexOf("'", j);
+        if (k < 0) return null;
+        if (stmt[k + 1] === "'") {
+          j = k + 2;
+          continue;
+        }
+        i = k + 1;
+        break;
+      }
+      continue;
+    }
+    if (stmt[i] === '$' && !/[A-Za-z0-9_$]/.test(stmt[i - 1] ?? ' ')) {
+      const m = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(stmt.slice(i, i + 80));
+      if (m) {
+        const tag = m[0];
+        const close = stmt.indexOf(tag, i + tag.length);
+        return stmt.slice(i + tag.length, close < 0 ? stmt.length : close);
+      }
+    }
+    i++;
+  }
+  return null;
+}
+
+/**
+ * Extract install-time SELECT / UPDATE / DELETE / INSERT (including CTE WITH ...)
+ * statements targeting any table in `hotTablesSet`, along with preceding DDL
+ * statements from the same migration so EXPLAIN sees newly created columns,
+ * indexes, tables, or helper functions inside a rolled-back transaction.
  */
 export function extractHotTableInstallStatements(sql, hotTablesSet = new Set(HOT_TABLES)) {
-  const body = installTimeSqlBody(sql);
-  const stmts = splitTopStatements(body);
   const found = [];
-  for (const rawStmt of stmts) {
-    // Strip leading PL/pgSQL BEGIN/EXCEPTION markers if extracted from a DO block.
-    const stmt = rawStmt.replace(/^(?:BEGIN|ELSE)\b\s*/i, '').trim();
-    if (!/^(?:WITH|SELECT|UPDATE|DELETE)\b/i.test(stmt)) continue;
-    // Skip PL/pgSQL control statements or expressions with unbound INTO/variables.
-    if (/^SELECT\s+set_config\s*\(/i.test(stmt)) continue;
-    const matched = [];
-    for (const tbl of hotTablesSet) {
-      const re = new RegExp(
-        `(?:\\b(?:FROM|JOIN|UPDATE|INTO)\\s+(?:ONLY\\s+)?(?:(?:public|smarter_private)\\s*\\.\\s*)?"?${tbl}"?\\b)`,
-        'i'
-      );
-      if (re.test(stmt)) matched.push(tbl);
+  const precedingDdl = [];
+
+  const visit = (chunk, fromDoBlock, inheritedVars) => {
+    const stmts = splitSqlStatementsPreservingQuotes(chunk);
+    for (const rawStmt of stmts) {
+      const trimmed = rawStmt.trim();
+      if (!trimmed) continue;
+
+      const doBody = extractDoBlockBody(trimmed);
+      if (doBody !== null) {
+        const blockVars = new Set([...inheritedVars, ...collectPlpgsqlVars(doBody)]);
+        visit(doBody, true, blockVars);
+        continue;
+      }
+
+      const stmt = stripPlpgsqlHeaders(trimmed);
+      if (!stmt) continue;
+
+      if (/^CREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\b/i.test(stmt)) {
+        // Keep function/procedure definition as preceding DDL (without scanning its body).
+        precedingDdl.push(stmt);
+        continue;
+      }
+
+      if (/^(?:CREATE|ALTER|DROP|COMMENT|GRANT|REVOKE)\b/i.test(stmt)) {
+        precedingDdl.push(stmt);
+        continue;
+      }
+
+      if (!/^(?:WITH|SELECT|UPDATE|DELETE|INSERT)\b/i.test(stmt)) continue;
+      if (/^SELECT\s+set_config\s*\(/i.test(stmt)) continue;
+
+      const matched = [];
+      for (const tbl of hotTablesSet) {
+        const re = new RegExp(
+          `(?:\\b(?:FROM|JOIN|UPDATE|INTO)\\s+(?:ONLY\\s+)?(?:(?:public|smarter_private)\\s*\\.\\s*)?"?${tbl}"?\\b)`,
+          'i'
+        );
+        if (re.test(stmt)) matched.push(tbl);
+      }
+      if (matched.length > 0) {
+        found.push({
+          statement: stmt,
+          tables: matched,
+          precedingDdl: [...precedingDdl],
+          fromDoBlock,
+          declaredVars: [...inheritedVars],
+        });
+      }
     }
-    if (matched.length > 0) {
-      found.push({ statement: stmt, tables: matched });
-    }
-  }
+  };
+
+  visit(sql, false, new Set());
   return found;
 }
 
@@ -518,8 +590,52 @@ export function analyzeExplainPlan(explainJson, hotTableStats) {
 }
 
 /**
+ * True when an EXPLAIN failure is strictly caused by an unbound PL/pgSQL local
+ * variable, SELECT ... INTO target, or positional parameter ($1) inside a DO
+ * block — as opposed to a real SQL/schema error that must be surfaced visibly.
+ */
+export function isPlpgsqlVariableExplainError(
+  error,
+  { fromDoBlock = false, declaredVars = [], statement = '' } = {}
+) {
+  const msg = String(error || '');
+  if (!msg) return false;
+  if (/there is no parameter \$\d+/i.test(msg)) return true;
+  if (!fromDoBlock) return false;
+  if (/\bINTO\b/i.test(statement) && /syntax error at or near "INTO"/i.test(msg)) return true;
+  const varSet = new Set((declaredVars || []).map((v) => String(v).toLowerCase()));
+  const colMatch = /column "([^"]+)" does not exist/i.exec(msg);
+  if (colMatch && varSet.has(colMatch[1].toLowerCase())) return true;
+  const tblMatch = /missing FROM-clause entry for table "([^"]+)"/i.exec(msg);
+  if (tblMatch && varSet.has(tblMatch[1].toLowerCase())) return true;
+  const recMatch = /record "([^"]+)" is not assigned yet/i.exec(msg);
+  if (recMatch && varSet.has(recMatch[1].toLowerCase())) return true;
+  return false;
+}
+
+/**
+ * Build the rolled-back SQL script that executes same-migration preceding DDL
+ * (normalizing CREATE INDEX CONCURRENTLY so it can run inside a transaction)
+ * before running EXPLAIN (FORMAT JSON) on the target statement.
+ */
+export function buildExplainSql(statement, precedingDdl = []) {
+  const linesOut = ['BEGIN;', 'SET LOCAL client_min_messages = warning;'];
+  for (const ddl of precedingDdl || []) {
+    const normalized = String(ddl)
+      .trim()
+      .replace(/;+$/, '')
+      .replace(/\bCREATE\s+(UNIQUE\s+)?INDEX\s+CONCURRENTLY\b/i, 'CREATE $1INDEX');
+    if (normalized) linesOut.push(`${normalized};`);
+  }
+  linesOut.push('SET LOCAL enable_seqscan = off;');
+  linesOut.push(`EXPLAIN (FORMAT JSON) ${String(statement).trim().replace(/;+$/, '')};`);
+  linesOut.push('ROLLBACK;');
+  return linesOut.join('\n') + '\n';
+}
+
+/**
  * Evaluate install-time statements in a single migration against production
- * row-scale stats using `runExplain(statement) => parsedExplainJson | null`.
+ * row-scale stats using `runExplain(statement, file, ctx) => plan | { plan, error } | null`.
  */
 export function evaluateHotTablePlans(file, sql, stats, runExplain) {
   const highCardHot = new Map();
@@ -530,20 +646,51 @@ export function evaluateHotTablePlans(file, sql, stats, runExplain) {
     }
   }
   if (highCardHot.size === 0) {
-    return { ok: true, file, checkedStatements: 0, skippedExempt: 0, violations: [] };
+    return {
+      ok: true,
+      file,
+      checkedStatements: 0,
+      skippedExempt: 0,
+      skippedVariableExplain: 0,
+      violations: [],
+      explainErrors: [],
+    };
   }
   const candidates = extractHotTableInstallStatements(sql, new Set(highCardHot.keys()));
   const violations = [];
+  const explainErrors = [];
   let checkedStatements = 0;
   let skippedExempt = 0;
-  for (const { statement, tables } of candidates) {
+  let skippedVariableExplain = 0;
+  for (const { statement, tables, precedingDdl, fromDoBlock, declaredVars } of candidates) {
     if (tables.every((t) => isHotTablePlanExempt(sql, t))) {
       skippedExempt++;
       continue;
     }
     checkedStatements++;
-    const plan = runExplain(statement, file);
-    if (!plan) continue;
+    const rawResult = runExplain(statement, file, { precedingDdl, fromDoBlock, declaredVars });
+    const plan = Array.isArray(rawResult)
+      ? rawResult
+      : rawResult && typeof rawResult === 'object' && 'plan' in rawResult
+        ? rawResult.plan
+        : null;
+    const error =
+      rawResult && typeof rawResult === 'object' && 'error' in rawResult ? rawResult.error : null;
+    if (!plan) {
+      if (error) {
+        if (isPlpgsqlVariableExplainError(error, { fromDoBlock, declaredVars, statement })) {
+          skippedVariableExplain++;
+        } else {
+          explainErrors.push({
+            file,
+            tables,
+            error: String(error).trim(),
+            statement: statement.replace(/\s+/g, ' ').slice(0, 240),
+          });
+        }
+      }
+      continue;
+    }
     for (const hit of analyzeExplainPlan(plan, highCardHot)) {
       if (isHotTablePlanExempt(sql, hit.table)) continue;
       violations.push({
@@ -558,29 +705,41 @@ export function evaluateHotTablePlans(file, sql, stats, runExplain) {
     file,
     checkedStatements,
     skippedExempt,
+    skippedVariableExplain,
     violations,
+    explainErrors,
   };
 }
 
-function runExplainViaPsql(psqlArgv, statement) {
+function runExplainViaPsql(psqlArgv, statement, precedingDdl = []) {
   // On a schema-only restore (0 physical heap blocks), Postgres's planner
   // scales reltuples by RelationGetNumberOfBlocks() = 0 unless seqscan is
   // discouraged. Setting enable_seqscan = off inside the rolled-back EXPLAIN
   // transaction forces Postgres to pick any usable index and fall back to
   // Seq Scan ONLY when no selective index can answer the predicate.
-  const explainSql = `BEGIN;\nSET LOCAL enable_seqscan = off;\nEXPLAIN (FORMAT JSON) ${statement};\nROLLBACK;\n`;
+  const explainSql = buildExplainSql(statement, precedingDdl);
   const res = spawnSync(psqlArgv[0], [...psqlArgv.slice(1), '-X', '-Atq', '-v', 'ON_ERROR_STOP=1'], {
     input: explainSql,
     encoding: 'utf8',
     timeout: 15_000,
   });
-  if (res.status !== 0) return null;
+  if (res.status !== 0) {
+    return {
+      plan: null,
+      error: (res.stderr || res.stdout || `psql exited with status ${res.status}`).trim(),
+    };
+  }
   const trimmed = (res.stdout || '').trim();
-  if (!trimmed) return null;
+  if (!trimmed) {
+    return { plan: null, error: 'EXPLAIN produced empty output' };
+  }
   try {
-    return JSON.parse(trimmed);
-  } catch {
-    return null;
+    return { plan: JSON.parse(trimmed), error: null };
+  } catch (err) {
+    return {
+      plan: null,
+      error: `invalid EXPLAIN JSON output: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 }
 
@@ -588,9 +747,9 @@ function runExplainViaPsql(psqlArgv, statement) {
 //   node scripts/ci/window-queue-rehearsal.mjs plan <migrations-dir> <installed-versions-file> [changed-names-file]
 //   node scripts/ci/window-queue-rehearsal.mjs sql <migrations-dir> <file>
 //   node scripts/ci/window-queue-rehearsal.mjs seed-stats <table-stats.json>
-//   node scripts/ci/window-queue-rehearsal.mjs check-plans <migrations-dir> <table-stats.json> <changed-names-file>
+//   node scripts/ci/window-queue-rehearsal.mjs check-plans <migrations-dir> <table-stats.json> (<changed-names-file> | --file <name>)
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const [cmd, dir, a, b] = process.argv.slice(2);
+  const [cmd, dir, a, b, c] = process.argv.slice(2);
   if (cmd === 'plan') {
     const installed = new Set(lines(a).filter((v) => /^\d{14}$/.test(v)));
     const changed = new Set(b ? lines(b).map((p) => p.replace(/^supabase\/migrations\//, '')) : []);
@@ -607,7 +766,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.stdout.write(seedTableStatsSQL(stats));
   } else if (cmd === 'check-plans') {
     const stats = parseTableStats(readFileSync(a, 'utf8'));
-    const changedNames = lines(b).map((p) => p.replace(/^supabase\/migrations\//, ''));
+    const singleMode = b === '--file';
+    const changedNames = singleMode
+      ? [String(c || '').trim().replace(/^supabase\/migrations\//, '')].filter(Boolean)
+      : lines(b).map((p) => p.replace(/^supabase\/migrations\//, ''));
     const psqlStr = (process.env.REHEARSAL_PSQL || '').trim();
     if (!psqlStr) {
       console.error('REHEARSAL_PSQL is required for check-plans');
@@ -616,23 +778,55 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const psqlArgv = psqlStr.split(/\s+/);
     const reports = [];
     const allViolations = [];
+    const allExplainErrors = [];
     for (const name of changedNames) {
       if (!MIGRATION_FILE.test(name)) continue;
       const fullPath = join(dir, name);
       if (!existsSync(fullPath)) continue;
       const sql = readFileSync(fullPath, 'utf8');
-      const rep = evaluateHotTablePlans(name, sql, stats, (stmt) =>
-        runExplainViaPsql(psqlArgv, stmt)
+      const rep = evaluateHotTablePlans(name, sql, stats, (stmt, _file, ctx) =>
+        runExplainViaPsql(psqlArgv, stmt, ctx?.precedingDdl ?? [])
       );
       reports.push(rep);
       allViolations.push(...rep.violations);
+      allExplainErrors.push(...rep.explainErrors);
     }
     if (process.env.EVIDENCE) {
       mkdirSync(process.env.EVIDENCE, { recursive: true });
+      const jsonPath = join(process.env.EVIDENCE, 'hot-table-plans.json');
+      let existing = { statsCount: stats.length, reports: [], violations: [], explainErrors: [] };
+      if (singleMode && existsSync(jsonPath)) {
+        try {
+          const prev = JSON.parse(readFileSync(jsonPath, 'utf8'));
+          if (prev && typeof prev === 'object') {
+            existing = {
+              statsCount: stats.length,
+              reports: Array.isArray(prev.reports) ? prev.reports : [],
+              violations: Array.isArray(prev.violations) ? prev.violations : [],
+              explainErrors: Array.isArray(prev.explainErrors) ? prev.explainErrors : [],
+            };
+          }
+        } catch {
+          // Ignore malformed prior JSON and overwrite cleanly.
+        }
+      }
       writeFileSync(
-        join(process.env.EVIDENCE, 'hot-table-plans.json'),
-        JSON.stringify({ statsCount: stats.length, reports, violations: allViolations }, null, 2) +
-          '\n'
+        jsonPath,
+        JSON.stringify(
+          {
+            statsCount: stats.length,
+            reports: [...existing.reports, ...reports],
+            violations: [...existing.violations, ...allViolations],
+            explainErrors: [...existing.explainErrors, ...allExplainErrors],
+          },
+          null,
+          2
+        ) + '\n'
+      );
+    }
+    for (const e of allExplainErrors) {
+      console.error(
+        `[hot-table-plan] EXPLAIN-ERROR ${e.file} (${e.tables.join(', ')}): ${e.error} — ${e.statement}`
       );
     }
     if (allViolations.length > 0) {
@@ -644,12 +838,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       }
       process.exit(1);
     }
+    const errSuffix =
+      allExplainErrors.length > 0
+        ? ` (${allExplainErrors.length} non-variable EXPLAIN error(s) — see log)`
+        : '';
     console.log(
-      `[hot-table-plan] OK: ${reports.reduce((acc, r) => acc + r.checkedStatements, 0)} install-time hot-table statement(s) checked against ${stats.length} table stat(s); 0 Seq Scan violations.`
+      `[hot-table-plan] OK: ${reports.reduce((acc, r) => acc + r.checkedStatements, 0)} install-time hot-table statement(s) checked against ${stats.length} table stat(s); 0 Seq Scan violations${errSuffix}.`
     );
   } else {
     console.error(
-      'usage: window-queue-rehearsal.mjs plan <dir> <installed> [changed] | sql <dir> <file> | seed-stats <stats.json> | check-plans <dir> <stats.json> <changed>'
+      'usage: window-queue-rehearsal.mjs plan <dir> <installed> [changed] | sql <dir> <file> | seed-stats <stats.json> | check-plans <dir> <stats.json> (<changed> | --file <name>)'
     );
     process.exit(2);
   }
