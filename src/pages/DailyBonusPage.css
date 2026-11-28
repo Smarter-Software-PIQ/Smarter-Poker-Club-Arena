@@ -1,11 +1,313 @@
-/* The /bonuses page is the Rewards Circuit header's console with the sheet
-   printed on its glass; the page itself only provides the room around it. */
-.daily-bonus-page {
-  padding-bottom: 24px;
+/* /bonuses in #SmarterDesign (player pages batch P6, 2026-11-28).
+   The page is the arena workspace: the chrome mast, then one arena case that
+   holds the Daily Bonus sheet's glass variant. The sheet is shared with the
+   modal the shell raises on entry, so its own sheet (DailyBonusSheet.css) is
+   untouched; every rule here sits under this page's arena root and dresses
+   the sheet's insides from the workspace's own art and inks:
+   the readouts and the week on chrome tiles (today lit), every reward and
+   every note a chrome row, Claim the one lit key, Use Bonus Spin and Try
+   Again chrome keys. Words and figures are the sheet's, unchanged. */
+
+.daily-bonus-page.arena-workspace {
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+}
+
+.daily-bonus-page.arena-workspace .daily-bonus-page__case {
+  container-type: inline-size;
+}
+
+/* ── The sheet: no width or scale of its own inside the case ─────────── */
+.daily-bonus-page.arena-workspace .dbs--glass {
+  gap: 8px;
+  color: #dce5ef;
+}
+
+/* The console inks, read as the workspace's. */
+.daily-bonus-page.arena-workspace .dbs .sc-ink--white {
+  color: #f1f5fc;
+}
+.daily-bonus-page.arena-workspace .dbs .sc-ink--silver {
+  color: #dce5ef;
+}
+.daily-bonus-page.arena-workspace .dbs .sc-ink--blue {
+  color: #74dfff;
+}
+.daily-bonus-page.arena-workspace .dbs .sc-ink--muted {
+  color: #9fbacc;
+}
+.daily-bonus-page.arena-workspace .dbs .sc-ink--gold {
+  color: #ffe98a;
+}
+.daily-bonus-page.arena-workspace .dbs .sc-ink--green {
+  color: #c8ffd2;
+}
+.daily-bonus-page.arena-workspace .dbs .sc-ink--red {
+  color: #ff5b6e;
+}
+.daily-bonus-page.arena-workspace .dbs .sc-label {
+  font:
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.02em;
+  text-shadow: none;
+}
+.daily-bonus-page.arena-workspace .dbs .sc-copy {
+  color: #dce5ef;
+  font:
+    13px/1.4 Arial,
+    sans-serif;
+  text-shadow: none;
+}
+
+/* ── Readouts: Streak, Multiplier, Resets In on chrome tiles ─────────── */
+.daily-bonus-page.arena-workspace .dbs__readouts {
+  gap: 4px;
+}
+.daily-bonus-page.arena-workspace .dbs__readout {
+  align-content: start;
+  gap: 2px;
+  padding: 5px 2px;
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  background: var(--arena-tile);
+}
+.daily-bonus-page.arena-workspace .dbs__readout dt {
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.daily-bonus-page.arena-workspace .dbs__figure,
+.daily-bonus-page.arena-workspace .dbs__clock {
+  font:
+    800 18px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+}
+.daily-bonus-page.arena-workspace .dbs__clock.sc-ink--gold {
+  color: #74dfff;
+}
+.daily-bonus-page.arena-workspace .dbs__readout .dbs__readout-note {
+  color: #9aabba;
+  font:
+    10px/1.3 Arial,
+    sans-serif;
+}
+.daily-bonus-page.arena-workspace .dbs__readout .dbs__readout-note.sc-ink--gold {
+  color: #ffe98a;
+}
+
+/* ── The week: seven chrome tiles, today on the lit rim ──────────────── */
+.daily-bonus-page.arena-workspace .dbs__week {
+  gap: 3px;
+  padding: 0;
+  border-top: 0;
+  box-shadow: none;
+}
+.daily-bonus-page.arena-workspace .dbs__day {
+  gap: 2px;
+  padding: 5px 0;
+  border: 4px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  background: var(--arena-tile);
+}
+.daily-bonus-page.arena-workspace .dbs__day[data-state='today'] {
+  border-image-source: var(--arena-active);
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68);
+}
+.daily-bonus-page.arena-workspace .dbs__day[data-state='today'] .sc-ink--blue {
+  color: #f1f5fc;
+}
+.daily-bonus-page.arena-workspace .dbs__day[data-state='today']::after {
+  display: none;
+}
+.daily-bonus-page.arena-workspace .dbs__day-label {
+  font-size: 10px;
+  letter-spacing: 0;
+}
+.daily-bonus-page.arena-workspace .dbs__day-value {
+  font:
+    800 14px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.daily-bonus-page.arena-workspace .dbs__day-sub {
+  font-size: 9px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* ── Rewards: every tile a chrome row ────────────────────────────────── */
+.daily-bonus-page.arena-workspace .dbs__tiles {
+  gap: 4px;
+}
+.daily-bonus-page.arena-workspace .dbs-row {
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  gap: 0 10px;
+  min-height: 64px;
+  padding: 6px 10px;
+  border: 4px solid transparent;
+  border-image: var(--arena-row) 13 / 6px stretch;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+  box-shadow: none;
+}
+.daily-bonus-page.arena-workspace .dbs-row__render {
+  width: 52px;
+  height: 52px;
+}
+.daily-bonus-page.arena-workspace .dbs-row__lines {
+  gap: 2px;
+}
+.daily-bonus-page.arena-workspace .dbs-row__type,
+.daily-bonus-page.arena-workspace .dbs-row__lucky,
+.daily-bonus-page.arena-workspace .dbs-row__note {
+  font-size: 11px;
+}
+.daily-bonus-page.arena-workspace .dbs-row__figure {
+  font:
+    800 20px/1.05 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.daily-bonus-page.arena-workspace .dbs-row__sub {
+  color: #9fbacc;
+  font:
+    12px/1.35 Arial,
+    sans-serif;
+}
+
+/* ── Words and keys ──────────────────────────────────────────────────── */
+.daily-bonus-page.arena-workspace .dbs-word {
+  font:
+    700 13px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+.daily-bonus-page.arena-workspace .dbs-row__action {
+  padding: 0;
+}
+.daily-bonus-page.arena-workspace .dbs-row__action--locked {
+  max-width: 96px;
+  font-size: 12px;
+}
+.daily-bonus-page.arena-workspace .dbs-row[data-state='claimed'] .dbs-row__action {
+  color: #c8ffd2;
+}
+
+/* Every pressable word is a chrome key; Claim is the one lit primary. */
+.daily-bonus-page.arena-workspace .dbs button.dbs-word {
+  position: relative;
+  min-height: 44px;
+  padding: 6px 14px;
+  color: #dce5ef;
+  background: linear-gradient(#152639, #06111e 65%);
+  border-radius: 6px;
+}
+.daily-bonus-page.arena-workspace .dbs button.dbs-word::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  border-style: solid;
+  border-width: 6px;
+  border-color: transparent;
+}
+.daily-bonus-page.arena-workspace .dbs button.dbs__claim-all,
+.daily-bonus-page.arena-workspace .dbs__state button.dbs-word {
+  color: white;
+  background: linear-gradient(#1678ec, #064da9 52%, #082d60);
+}
+.daily-bonus-page.arena-workspace .dbs button.dbs__claim-all::after,
+.daily-bonus-page.arena-workspace .dbs__state button.dbs-word::after {
+  border-image-source: var(--arena-active);
+}
+.daily-bonus-page.arena-workspace .dbs button.dbs__claim-all {
+  align-self: stretch;
+  font-size: 15px;
+}
+.daily-bonus-page.arena-workspace .dbs button.dbs-word:active {
+  filter: brightness(0.86);
+}
+.daily-bonus-page.arena-workspace .dbs button.dbs-word:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+.daily-bonus-page.arena-workspace .dbs button.dbs-word:disabled {
+  opacity: 0.5;
+}
+.daily-bonus-page.arena-workspace .dbs a.dbs-word {
+  color: #74dfff;
+  font-size: 14px;
+}
+
+/* ── Notes: label and line on a chrome row each ──────────────────────── */
+.daily-bonus-page.arena-workspace .dbs__notes {
+  gap: 4px;
+  padding: 0;
+  border-top: 0;
+  box-shadow: none;
+}
+.daily-bonus-page.arena-workspace .dbs__note {
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 0 10px;
+  align-items: center;
+  min-height: 44px;
+  padding: 6px 10px;
+  border: 4px solid transparent;
+  border-image: var(--arena-row) 13 / 6px stretch;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+}
+.daily-bonus-page.arena-workspace .dbs__note dd {
+  font-size: 13px;
+}
+.daily-bonus-page.arena-workspace .dbs__note dd p {
+  margin: 6px 0 0;
+}
+.daily-bonus-page.arena-workspace .dbs__note-clock.sc-ink--gold {
+  color: #74dfff;
+}
+
+/* ── Loading, refusal, not available: a dark well in the case ────────── */
+.daily-bonus-page.arena-workspace .dbs__state {
+  gap: 12px;
+  padding: 18px 12px;
+  background: #040d17;
+  border: 1px solid #476079;
+}
+.daily-bonus-page.arena-workspace .dbs__state p {
+  color: #dce5ef;
+  font:
+    700 15px/1.3 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-shadow: none;
+  text-transform: none;
+}
+.daily-bonus-page.arena-workspace .dbs__spinner {
+  width: 28px;
+  height: 28px;
+  border-width: 3px;
+  border-top-color: #74dfff;
+}
+
+@media (max-width: 480px) {
+  .daily-bonus-page.arena-workspace .dbs-row {
+    grid-template-columns: 52px minmax(0, 1fr);
+  }
+  .daily-bonus-page.arena-workspace .dbs-word {
+    font-size: 13px;
+  }
 }
 
 @media (min-width: 720px) {
-  .daily-bonus-page {
+  .daily-bonus-page.arena-workspace {
     padding-bottom: 32px;
   }
 }
