@@ -452,6 +452,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   // 2026-11-27 lead-8 lane OFA: the flop / turn people cells and the bettor's record count the bets people never
   // showed although they did not win them uncontested (folded later, mucked) as non-value (ships dark)
   'omahaPeoplePriorCountsHiddenBets',
+  // 2026-11-27 lead-9 lane HUOOP: the hidden part of the turn bettor's non-value share priced as give-ups (ships dark)
+  'omahaHiddenBetsArePricedAsGiveUps',
   // 2026-11-26 PLO-OWNER lead-7: heads-up flop facing one bet, the V40 class cap priced against the bettor's range
   // on people-only flop shares for the call-or-fold check (ships dark)
   'omahaFlopPressureCapIsPriced',

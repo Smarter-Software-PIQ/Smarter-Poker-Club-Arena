@@ -5151,6 +5151,25 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     },
     b: { omahaFacingBetEv: true, omahaFacingBetPriorIsPeopleMeasured: true },
   })),
+  // 2026-11-27 lead-9 lane HUOOP (default OFF, PLO4/PLO5 cash): the hidden part of the heads-up turn bettor's
+  // non-value share priced as give-ups (weakest half, full realization), on top of the hidden-bets people prior.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_hidden_bets_are_priced_as_give_ups`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaFacingBetEv: true,
+      omahaFacingBetPriorIsPeopleMeasured: true,
+      omahaPeoplePriorCountsHiddenBets: true,
+      omahaHiddenBetsArePricedAsGiveUps: true,
+    },
+    b: {
+      omahaFacingBetEv: true,
+      omahaFacingBetPriorIsPeopleMeasured: true,
+      omahaPeoplePriorCountsHiddenBets: true,
+    },
+  })),
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_facing_bet_field_is_joint`,
     variant,

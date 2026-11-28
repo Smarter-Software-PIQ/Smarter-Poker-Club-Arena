@@ -74,6 +74,43 @@ export function omahaPeoplePriorHiddenCell(
   return { n: ng + pa, share, nonTop20 };
 }
 
+/** omahaHiddenBetsArePricedAsGiveUps: the key of a turn bet after a CHECKED-THROUGH flop in a RE-RAISED pot, where
+ *  omahaPeoplePriorHiddenKeyOf stands aside. The turn cells are split by line, not by pot type, and a flop that
+ *  checked through is the same public evidence in every pot; the recorded calls an earlier head added in this line
+ *  did not lose (PLO5 +17.2 +/- 22.4 bb, n 16, l9-huresid/BUILD.md). Any other re-raised-pot line: null. */
+export function omahaPeoplePriorHiddenReraisedCheckedKeyOf(
+  variant: string,
+  history: Hist,
+  bettorSeat: number
+): OmahaPeoplePriorHiddenKey | null {
+  const game = String(variant ?? '').toLowerCase();
+  if (game !== 'plo4' && game !== 'plo5') return null;
+  if (omahaPeoplePriorFlopPotOf(history) !== 'reraised') return null;
+  return omahaPeoplePriorTurnLineOf(history, bettorSeat) === 'x' ? { game, split: 'x' } : null;
+}
+
+/** omahaHiddenBetsArePricedAsGiveUps: the share of the split cell's bets that are HIDDEN (he checked and folded to a
+ *  bet later in the hand, or mucked at the showdown), shrunk toward the game-pooled split exactly as the cell's
+ *  share is (same P). n is the people evidence behind it; null when no key, another street, or hidden not counted. */
+export function omahaPeoplePriorHiddenFraction(
+  street: string,
+  multiway: boolean,
+  bucket: string,
+  key: OmahaPeoplePriorHiddenKey | null | undefined
+): { n: number; hidden: number } | null {
+  if (!key || (street !== 'flop' && street !== 'turn')) return null;
+  const b = bucket === 'over' ? 'big' : bucket;
+  const w = multiway ? 'mw' : 'hu';
+  const g = OMAHA_PEOPLE_PRIOR_HIDDEN_DATA[`${street}|${key.game}|${w}|${b}|${key.split}`];
+  const a = OMAHA_PEOPLE_PRIOR_HIDDEN_DATA[`${street}|all|${w}|${b}|${key.split}`];
+  const frac = (c: HiddenRow | undefined): number =>
+    c && c.hiddenCounted && rowN(c) > 0 ? c.hidden / rowN(c) : 0;
+  const ng = okShare(g) ? rowN(g) : 0;
+  const pa = okShare(a) ? Math.min(OMAHA_PEOPLE_PRIOR_HIDDEN_POOL_BETS, rowN(a)) : 0;
+  if (!(ng + pa > 0)) return { n: 0, hidden: 0 };
+  return { n: ng + pa, hidden: (ng * frac(g) + pa * frac(a)) / (ng + pa) };
+}
+
 type Hist =
   | ReadonlyArray<{ stage?: unknown; seat?: number; action?: string; amount?: number }>
   | null
