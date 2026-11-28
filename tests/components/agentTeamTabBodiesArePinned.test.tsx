@@ -25,7 +25,8 @@ const state = vi.hoisted(() => ({
   cashouts: vi.fn(),
 }));
 
-vi.mock('../../src/services/AgentService', () => ({
+vi.mock('../../src/services/AgentService', async (importActual) => ({
+  ...(await importActual<typeof import('../../src/services/AgentService')>()),
   AgentService: {
     getAgents: async () => {
       if (state.agentsError) throw state.agentsError;
@@ -147,7 +148,7 @@ const AGENTS = [
     businessBalance: 18400.5,
     activePlayerCount: 12,
     subAgentCount: 1,
-    commissionRate: 35,
+    commissionRate: 0.35,
   },
   {
     id: 'agent-child',
@@ -159,7 +160,7 @@ const AGENTS = [
     businessBalance: 1000,
     activePlayerCount: 3,
     subAgentCount: 0,
-    commissionRate: 20,
+    commissionRate: 0.2,
   },
   {
     id: 'agent-held',
@@ -170,7 +171,7 @@ const AGENTS = [
     businessBalance: 1234567.89,
     activePlayerCount: 0,
     subAgentCount: 0,
-    commissionRate: 12.5,
+    commissionRate: 0.125,
   },
 ];
 
@@ -279,20 +280,20 @@ describe('the Hierarchy tab keeps every figure, word, region and control', () =>
             "12",
             "1",
             "18,400.50",
-            "35",
+            "35.0%",
             "3",
             "0",
             "1,000.00",
-            "20",
+            "20.0%",
             "0",
             "0",
             "1,234,567.89",
-            "12.5",
+            "12.5%",
           ],
           "hooks": [],
         },
         "regions": [],
-        "text": "3 Agents Expand All Collapse All Refresh ▼ S Super One Super Agent 12 Players 1 Sub-Agents 18,400.50 Balance 35 % Commission active Send Chips C Child Two Agent 3 Players 0 Sub-Agents 1,000.00 Balance 20 % Commission active Send Chips H Held Three Sub-Agent 0 Players 0 Sub-Agents 1,234,567.89 Balance 12.5 % Commission suspended ● Super Agent ● Agent ● Sub-Agent",
+        "text": "3 Agents Expand All Collapse All Refresh ▼ S Super One Super Agent 12 Players 1 Sub-Agents 18,400.50 Balance 35.0% Commission active Send Chips C Child Two Agent 3 Players 0 Sub-Agents 1,000.00 Balance 20.0% Commission active Send Chips H Held Three Sub-Agent 0 Players 0 Sub-Agents 1,234,567.89 Balance 12.5% Commission suspended ● Super Agent ● Agent ● Sub-Agent",
       }
     `);
   });
@@ -328,7 +329,7 @@ describe('the Hierarchy tab keeps every figure, word, region and control', () =>
           "hooks": [],
         },
         "regions": [],
-        "text": "Failed to load agent hierarchy",
+        "text": "Failed To Load Agent Hierarchy",
       }
     `);
   });

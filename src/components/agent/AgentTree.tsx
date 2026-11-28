@@ -8,7 +8,7 @@ import { formatWalletChips } from '../../utils/format';
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { AgentService, type Agent } from '../../services/AgentService';
+import { AgentService, formatAgentRate, type Agent } from '../../services/AgentService';
 import '../ops/ArenaOps.css';
 import styles from './AgentTree.module.css';
 import { generateDefaultAvatar } from '../../utils/avatarGenerator';
@@ -192,7 +192,7 @@ function TreeNode({
             <span className={styles.statLabel}>Balance</span>
           </div>
           <div className={`arena-meter ${styles.statItem}`}>
-            <span className={styles.statValue}>{node.commissionRate}%</span>
+            <span className={styles.statValue}>{formatAgentRate(node.commissionRate)}</span>
             <span className={styles.statLabel}>Commission</span>
           </div>
         </div>
@@ -259,7 +259,7 @@ export default function AgentTree({ clubId, onAgentClick, onTransferClick }: Age
       const agents = await AgentService.getAgents(clubId);
       setTree(buildTree(agents));
     } catch (err) {
-      setError('Failed to load agent hierarchy');
+      setError('Failed To Load Agent Hierarchy');
       reportError(err, 'AgentTree.error');
     }
     setLoading(false);
