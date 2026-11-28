@@ -1,8 +1,9 @@
 /**
  * The Agent Team Hierarchy and Payouts bodies wear #SmarterDesign (batch 6,
  * 2026-11-28). Their dress applies only inside .arena-workspace, and the
- * shared AgentCashoutPanel only where a page opts in with `arena`: the
- * Cashier's dialog and the player record keep the painted console. None of
+ * shared AgentCashoutPanel only where a page opts in with `arena` (Agent Team
+ * and, since batch 7, the player record): the Cashier's dialog keeps the
+ * painted console. None of
  * these sheets restates the workspace's gradients or draws a radius, shadow or
  * hover of its own.
  */
@@ -43,15 +44,25 @@ describe('the Agent Team tab bodies arena dress', () => {
     ).toBe(true);
   });
 
-  it('only Agent Team opts the shared cashout panel into the arena case', () => {
+  /* Batch 7 (2026-11-28): the player record is an arena workspace page, so its
+     Cash Out Requested panel opts in too. The Cashier's copy is a dialog and
+     keeps the painted console. */
+  it('the arena pages opt the shared cashout panel in; the Cashier dialog does not', () => {
     expect(read('src/pages/AgentManagementPage.tsx')).toContain(
       '<AgentCashoutPanel clubId={clubId} arena />'
     );
-    for (const page of ['src/pages/CashierTradePage.tsx', 'src/pages/MemberManagementPage.tsx']) {
+    const tagOf = (page: string) => {
       const source = read(page);
       const tag = source.slice(source.indexOf('<AgentCashoutPanel'));
-      expect(tag.slice(0, tag.indexOf('/>')), page).not.toMatch(/\barena\b/);
-    }
+      return tag.slice(0, tag.indexOf('/>'));
+    };
+    expect(read('src/pages/MemberManagementPage.tsx')).toContain(
+      '<div className="member-mgmt-page arena-workspace">'
+    );
+    expect(tagOf('src/pages/MemberManagementPage.tsx')).toMatch(
+      /eyebrow="Cash Out Requested"\s+arena\s/
+    );
+    expect(tagOf('src/pages/CashierTradePage.tsx')).not.toMatch(/\barena\b/);
   });
 
   it('the console keeps its layout around the arena key wrapper', () => {

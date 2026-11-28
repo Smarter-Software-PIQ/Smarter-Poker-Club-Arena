@@ -1033,6 +1033,7 @@ export default function MemberManagementPage() {
               clubId={resolvedClubId}
               playerId={memberUuid}
               eyebrow="Cash Out Requested"
+              arena
               onCashoutProcessed={() => {
                 pendingCashouts.reload();
                 recordRefreshRef.current();

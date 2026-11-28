@@ -1,9 +1,10 @@
 /* PENDING CASHOUTS INSIDE THE ARENA WORKSPACE (#SmarterDesign, batch 6, 2026-11-28)
 
-   AgentCashoutPanel is shared. Agent Team's Payouts tab opts in with the
-   `arena` prop and gets the thin chrome case (`acp--arena`); the Cashier's
-   dialog and the player record leave it off and keep the painted console and
-   its lit words, so every rule here is scoped under
+   AgentCashoutPanel is shared. Agent Team's Payouts tab and (batch 7) the
+   player record's Cash Out Requested panel opt in with the `arena` prop and
+   get the thin chrome case (`acp--arena`); the Cashier's dialog leaves it off
+   and keeps the painted console and its lit words, so every rule here is
+   scoped under
    `.arena-workspace .acp--arena` and those surfaces are untouched. The case,
    the chrome keys (Approve Cashout lit, Reject in the error ink) and each
    request's chrome row come from ArenaWorkspace.css and ArenaOps.css; this
