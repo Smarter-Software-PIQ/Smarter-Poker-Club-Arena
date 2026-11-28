@@ -458,6 +458,12 @@ describe('Credit Admin keeps every figure, limit, word, region and control', () 
     `);
   });
 
+  /* Batch A2 (2026-11-28) passes `arena` to the scope state, so these
+     answers print on the workspace: the title moves into the mast (left out
+     of the reading), the pill becomes the live line's status (its word,
+     role and tone are read), and the painted eyebrow and the subtitle that
+     repeated the message are gone. The message, its role and every control
+     are unchanged. */
   it('scope denied, scope loading and a role without credit authority', async () => {
     m.scope = scope({ status: 'denied', clubId: null });
     const denied = renderPage();
@@ -469,12 +475,15 @@ describe('Credit Admin keeps every figure, limit, word, region and control', () 
         ],
         "money": {
           "figures": [],
-          "hooks": [],
+          "hooks": [
+            "data-tone=danger",
+          ],
         },
         "regions": [
+          "span|status|",
           "p|alert|",
         ],
-        "text": "Club Arena Data | Financial Access Restricted | Your Role Does Not Include Finance Access. | Restricted | Your Role Does Not Include Finance Access.",
+        "text": "Restricted | Your Role Does Not Include Finance Access.",
       }
     `);
     cleanup();
@@ -486,12 +495,15 @@ describe('Credit Admin keeps every figure, limit, word, region and control', () 
         "controls": [],
         "money": {
           "figures": [],
-          "hooks": [],
+          "hooks": [
+            "data-tone=live",
+          ],
         },
         "regions": [
+          "span|status|",
           "p|status|",
         ],
-        "text": "Club Arena Data | Financial Access | Checking Your Club Finance Access. | Checking | Checking Your Club Finance Access.",
+        "text": "Checking | Checking Your Club Finance Access.",
       }
     `);
     cleanup();
@@ -505,12 +517,15 @@ describe('Credit Admin keeps every figure, limit, word, region and control', () 
         ],
         "money": {
           "figures": [],
-          "hooks": [],
+          "hooks": [
+            "data-tone=danger",
+          ],
         },
         "regions": [
+          "span|status|",
           "p|alert|",
         ],
-        "text": "Club Arena Data | Financial Access Restricted | Credit Admin Requires An Authorized Club. Select A Club Where You Are An Owner, Co Owner Or Admin. No Credit Data Has Been Loaded. | Restricted | Credit Admin Requires An Authorized Club. Select A Club Where You Are An Owner, Co Owner Or Admin. No Credit Data Has Been Loaded.",
+        "text": "Restricted | Credit Admin Requires An Authorized Club. Select A Club Where You Are An Owner, Co Owner Or Admin. No Credit Data Has Been Loaded.",
       }
     `);
   });

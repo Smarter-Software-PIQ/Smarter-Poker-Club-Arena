@@ -470,7 +470,7 @@ function CreditAdminPanelForScope() {
   // Nothing financial renders until the scope has named one club and
   // confirmed the viewer's finance role in it.
   if (scope.status !== 'ready') {
-    return <FinancialAdminScopeState scope={scope} />;
+    return <FinancialAdminScopeState scope={scope} arena />;
   }
 
   // The agents and credit_assignments policies are deliberately club-scoped.
@@ -489,6 +489,7 @@ function CreditAdminPanelForScope() {
           message:
             'Credit Admin Requires An Authorized Club. Select A Club Where You Are An Owner, Co Owner Or Admin. No Credit Data Has Been Loaded.',
         }}
+        arena
       />
     );
   }

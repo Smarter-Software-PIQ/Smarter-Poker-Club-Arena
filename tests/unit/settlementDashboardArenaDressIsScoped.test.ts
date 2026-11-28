@@ -67,8 +67,15 @@ describe('the Settlement Center arena dress', () => {
       'src/pages/ClubFinancialsPage.tsx',
     ])
       expect(read(host), host).not.toMatch(/<TransactionLedgerView[^>]*\barena\b/);
-    for (const host of ['src/pages/SettlementHistoryPage.tsx', 'src/pages/CreditAdminPanel.tsx'])
-      expect(read(host), host).not.toMatch(/<FinancialAdminScopeState[^>]*\barena\b/);
+    // Settlement History and Credit Admin (batch O2) pass it since batch A2,
+    // so their access-loading and denied screens wear the arena too.
+    expect(read('src/pages/SettlementHistoryPage.tsx')).toContain(
+      '<FinancialAdminScopeState scope={scope} arena />'
+    );
+    const credit = read('src/pages/CreditAdminPanel.tsx');
+    expect(credit).toContain('<FinancialAdminScopeState scope={scope} arena />');
+    expect(credit.match(/<FinancialAdminScopeState\b/g)?.length).toBe(2);
+    expect(credit.match(/<FinancialAdminScopeState[^>]*\barena\b/g)?.length).toBe(2);
     const page = read('src/pages/SettlementDashboardPage.tsx');
     expect(page).toContain('<FinancialAdminScopeState scope={scope} arena />');
     expect(page.match(/<TransactionLedgerView[^>]*\barena\b/g)?.length).toBe(2);
