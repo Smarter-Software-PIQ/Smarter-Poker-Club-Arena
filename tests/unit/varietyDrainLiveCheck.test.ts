@@ -42,6 +42,7 @@ describe('the variety drain live check', () => {
       'tables_within_cap',
       'horse_error_log',
       'cap_every_cycle',
+      'cap_wind_down',
       'owed_starts_made',
       'owed_waiting_now',
       'drain_why',
@@ -103,14 +104,56 @@ describe('the variety drain live check', () => {
     expect(body).toContain(
       '(SELECT d.ts FROM deals d WHERE d.game = w.game AND d.k = w.k) AS after_deal'
     );
-    /* only a wait with no first-owed time keeps the minimum label */
-    expect(body).toContain('truncated AND since IS NULL AS truncated');
+    /* 2026-11-28: the fleet keeps first-owed times in memory and restarts with
+       the release, so a time after the release is the restarted fleet's first
+       cycle (1 AM CST seal: nine owed games, one instant, 1:05:15 AM). Only a
+       time at or before the release times the wait; any other wait that began
+       before the window keeps the minimum label. */
+    expect(body).toContain('CASE WHEN truncated AND since <= (SELECT at FROM rel)');
+    expect(body).toContain(
+      'truncated AND (since IS NULL OR since > (SELECT at FROM rel)) AS truncated'
+    );
+    expect(body).not.toContain('truncated AND since IS NULL AS truncated');
+    expect(body).not.toContain('CASE WHEN truncated AND since IS NOT NULL');
   });
 
-  it('2026-11-26: judges the cap at every beat that carries it and measures how long owed games wait', () => {
-    expect(body).toContain("h.detail -> 'cash_room' AS room");
-    expect(body).toMatch(/WHEN count\(\*\) = 0 THEN 'INFO'/);
-    expect(body).toContain("(room ->> 'counted')::int > (room ->> 'cap')::int");
+  it('2026-11-28: the cap rows fail on a table that entered over the cap, never on a room above a cap that fell', () => {
+    /* The old rows failed every beat that read counted > cap. The hourly cap
+       falls through the night, so they failed every night with no table
+       opened (137 beats on the 10 PM and 1 AM CST seals of 2026-11-27/28).
+       tests/unit/varietyDrainLiveCheckCap.pg.test.ts runs the statement on a
+       real PostgreSQL and proves a Horse-side open over the cap still fails. */
+    expect(body).not.toContain("(room ->> 'counted')::int > (room ->> 'cap')::int");
+    expect(body).not.toContain(
+      "CASE WHEN (SELECT counted FROM census) <= (SELECT table_cap FROM cap) THEN 'PASS' ELSE 'FAIL' END"
+    );
+    /* every beat that carries the room, with the old fleet's last reading as the first pair's earlier beat */
+    expect(body).toContain("(h.detail -> 'cash_room' ->> 'counted')::int AS counted");
+    expect(body).toContain("WHERE h.beat_at > rel.at - interval '30 minutes'");
+    expect(body).toContain(
+      'WHERE s.in_window AND s.p_at IS NOT NULL AND s.counted > s.p_counted AND s.counted > s.cap'
+    );
+    /* a table entered at or above the cap: above both readings' caps and every hourly cap between */
+    expect(body).toContain('s.counted - greatest(s.p_counted, s.p_cap, s.cap,');
+    expect(body).toContain(
+      "FROM generate_series(s.p_at, s.beat_at, interval '1 hour') g\n             CROSS JOIN LATERAL public.fn_cash_hourly_table_range(g) c)) AS entered"
+    );
+    /* only a person explains one: a person-started table, or a person on a waiting list */
+    expect(body).toContain(
+      'JOIN public.cash_hourly_table_origins o ON o.table_id = hh.table_id AND o.human_started, rel'
+    );
+    expect(body).toContain('FROM public.cash_game_waitlist w');
+    expect(body).toContain("WHEN count(*) FILTER (WHERE j.entered > j.explained) = 0 THEN 'PASS'");
+    expect(body).toContain('OR EXISTS (SELECT 1 FROM judged j WHERE j.entered > j.explained) THEN');
+    /* no beat carries the room: INFO, never a PASS on nothing */
+    expect(body).toContain(
+      "CASE WHEN (SELECT count(*) FROM room WHERE in_window AND NOT is_now) = 0 THEN 'INFO'"
+    );
+    /* the room now is the last reading of the same rule */
+    expect(body).toContain(
+      'SELECT clock_timestamp(), (SELECT table_cap FROM cap), (SELECT counted FROM census)::int, true, true'
+    );
+    expect(method).toContain('cap_wind_down');
   });
 
   it("2026-11-27: a wait ends at the game's first dealt hand, never at the game leaving the owed list", () => {
