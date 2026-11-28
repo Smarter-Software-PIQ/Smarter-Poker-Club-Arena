@@ -21,16 +21,16 @@ The batch history (what each PR converted, and why) is in [SMARTERDESIGN-HISTORY
 
 ## Summary
 
-- Not converted: 38
+- Not converted: 35
 - Partial: 3
 - UNKNOWN: 2
-- Converted: 54
+- Converted: 57
 - Excluded on purpose: 29
 - Renders no page of its own: 3
 
 `src/App.tsx` provides `<ConsoleSkinProvider value="smarterdesign">`, so every `SpadeConsole` renders as a thin chrome case instead of the painted master. That is a skin, not a conversion: a page built from console sections still has no arena-workspace root, mast, readouts or chrome keys, and is graded on what its own source carries.
 
-## Not converted (38)
+## Not converted (35)
 
 - **AgentPortalPage**, `src/pages/AgentPortalPage.tsx`: painted console sections in `src/pages/AgentPortalPage.tsx` (3), `src/components/agent/AgentInvoicesPanel.tsx` (1); the root smarterdesign skin dresses them, but there is no arena shell. Routes: `/agent-portal`.
 - **ClubAdvertisePage**, `src/pages/ClubAdvertisePage.tsx`: painted console sections in `src/pages/ClubAdvertisePage.tsx` (8); the root smarterdesign skin dresses them, but there is no arena shell. Routes: `/advertise`, `/clubs/:clubId/advertise`.
@@ -39,13 +39,10 @@ The batch history (what each PR converted, and why) is in [SMARTERDESIGN-HISTORY
 - **CreateTablePage**, `src/pages/CreateTablePage.tsx`: a plain flat sheet, no frames. Routes: `/clubs/:clubId/create-table`.
 - **CreateUnionPage**, `src/pages/CreateUnionPage.tsx`: its own module dress (19 painted radii, 8 gradients). Routes: `/unions/create`.
 - **CreditAdminPanel**, `src/pages/CreditAdminPanel.tsx`: painted console sections in `src/pages/CreditAdminPanel.tsx` (2); the root smarterdesign skin dresses them, but there is no arena shell. Routes: `/credit-admin`.
-- **DiamondEarnPage**, `src/pages/DiamondEarnPage.tsx`: painted console sections in `src/pages/DiamondEarnPage.tsx` (3); the root smarterdesign skin dresses them, but there is no arena shell. Routes: `/clubs/:clubId/earn-diamonds`.
 - **DiamondGamesPage**, `src/pages/DiamondGamesPage.tsx`: painted console sections in `src/pages/DiamondGamesPage.tsx` (5), `src/components/games/FloorFeed.tsx` (2); the root smarterdesign skin dresses them, but there is no arena shell. Routes: `/clubs/:clubId/diamond-games`.
-- **FlashPoolPage**, `src/pages/FlashPoolPage.tsx`: a plain flat sheet, no frames. Routes: `/flash-pool`.
 - **FriendsPage**, `src/pages/FriendsPage.tsx`: its own module dress (19 painted radii, 6 gradients). Routes: `/friends`.
 - **HomePage**, `src/pages/HomePage.tsx`: painted console sections in `src/pages/HomePage.tsx` (3); the root smarterdesign skin dresses them, but there is no arena shell. Routes: `/`.
 - **InviteCodePage**, `src/pages/InviteCodePage.tsx`: its own module dress (11 painted radii, 19 gradients). Routes: `/i/:code`.
-- **LightningEntryPage**, `src/pages/LightningEntryPage.tsx`: a plain flat sheet, no frames. Routes: `/lightning/:clusterId`.
 - **MarketplacePage**, `src/pages/MarketplacePage.tsx`: its own module dress (26 painted radii, 0 gradients). Routes: `/marketplace`.
 - **PokerArenaLandingPage**, `src/pages/PokerArenaLandingPage.tsx`: painted console sections in `src/pages/PokerArenaLandingPage.tsx` (5); the root smarterdesign skin dresses them, but there is no arena shell. Routes: `/`.
 - **ProfilePage**, `src/pages/ProfilePage.tsx`: its own module dress (22 painted radii, 23 gradients). Routes: `/profile`.
@@ -82,7 +79,7 @@ The batch history (what each PR converted, and why) is in [SMARTERDESIGN-HISTORY
 - **MarketplaceRoute**, `src/pages/MarketplaceRoute.tsx`: no markup of its own and nothing this scan could follow; read the source. Routes: `/marketplace`.
 - **NotFoundPage**, `src/pages/NotFoundPage.tsx`: no markup of its own and nothing this scan could follow; read the source. Routes: `/*`.
 
-## Converted (54)
+## Converted (57)
 
 - **CashierEntrance**, `src/components/navigation/CashierEntrance.tsx`: arena-workspace root and mast. Routes: `/cashier`, `/clubs/:clubId/cashier-classic`.
 - **AgentDashboardPage**, `src/pages/AgentDashboardPage.tsx`: arena-workspace root and mast. Routes: `/agent-dashboard`.
@@ -112,13 +109,16 @@ The batch history (what each PR converted, and why) is in [SMARTERDESIGN-HISTORY
 - **ClubSettingsPage**, `src/pages/ClubSettingsPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/settings`.
 - **ClubWelcomeMessagePage**, `src/pages/ClubWelcomeMessagePage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/welcome-message`, `/welcome-messages`.
 - **DailyBonusPage**, `src/pages/DailyBonusPage.tsx`: arena-workspace root and mast. Routes: `/bonuses`.
+- **DiamondEarnPage**, `src/pages/DiamondEarnPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/earn-diamonds`.
 - **DisputeManagementPage**, `src/pages/DisputeManagementPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/disputes`, `/disputes`.
+- **FlashPoolPage**, `src/pages/FlashPoolPage.tsx`: arena-workspace root and mast. Routes: `/flash-pool`.
 - **HandHistoryPage**, `src/pages/HandHistoryPage.tsx`: arena-workspace root and mast. Routes: `/hand-history`.
 - **HelpPage**, `src/pages/HelpPage.tsx`: arena-workspace root and mast. Routes: `/help`.
 - **FairGamingPage**, `src/pages/legal/FairGamingPage.tsx`: arena-workspace root and mast. Routes: `/legal/fair-gaming`.
 - **PrivacyPolicyPage**, `src/pages/legal/PrivacyPolicyPage.tsx`: arena-workspace root and mast. Routes: `/legal/privacy`.
 - **ClubPromotionRulesPage**, `src/pages/legal/PromotionsPage.tsx`: arena-workspace root and mast. Routes: `/legal/promotions`.
 - **TermsOfServicePage**, `src/pages/legal/TermsOfServicePage.tsx`: arena-workspace root and mast. Routes: `/legal/tos`.
+- **LightningEntryPage**, `src/pages/LightningEntryPage.tsx`: arena-workspace root and mast. Routes: `/lightning/:clusterId`.
 - **NotificationsPage**, `src/pages/NotificationsPage.tsx`: arena-workspace root and mast. Routes: `/notifications`.
 - **PlayerStatisticsPage**, `src/pages/PlayerStatisticsPage.tsx`: arena-workspace root and mast. Routes: `/clubs/:clubId/members/:userId/statistics`.
 - **PlayerStatsPage**, `src/pages/PlayerStatsPage.tsx`: arena-workspace root and mast. Routes: `/stats`, `/stats/:userId`.
