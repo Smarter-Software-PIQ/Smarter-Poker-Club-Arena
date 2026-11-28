@@ -56,7 +56,7 @@ Fixed harness (`server/scripts/horse-grade.ts`, ON minus the same-seed no-op; ev
 
 The value-only and people cards reach the option rarely (2 to 11 divergent deals in 6,000 to 8,000): heads-up self-play seldom produces the memory-driven sampler band this option answers; the mirrors reach it more (98 to 539 divergent deals).
 
-Audit fixture (445 audited PLO4 heads-up flop decisions, memory off; base `omahaFlopPressureCapIsPriced` + `omahaPeoplePriorCountsHiddenBets`): the receipt fires on 20, 2 fold to call, 0 other changes, 0 in limped or re-raised pots. Speed (relative-cost law `anOmahaFlopPeoplePricedEquityIsFast`, the 20 lifted decisions): on 9.47 ms vs off 9.42 ms per decision telemetry off (ratio 1.00, limit 3), 9.43 vs 9.49 telemetry on (0.99). The option reads the number the cap has already computed; it adds one scope check and one scan of the flop actions. Flag-off: @@FLAGOFF@@.
+Audit fixture (445 audited PLO4 heads-up flop decisions, memory off; base `omahaFlopPressureCapIsPriced` + `omahaPeoplePriorCountsHiddenBets`): the receipt fires on 20, 2 fold to call, 0 other changes, 0 in limped or re-raised pots. Speed (relative-cost law `anOmahaFlopPeoplePricedEquityIsFast`, the 20 lifted decisions): on 9.47 ms vs off 9.42 ms per decision telemetry off (ratio 1.00, limit 3), 9.43 vs 9.49 telemetry on (0.99). The option reads the number the cap has already computed; it adds one scope check and one scan of the flop actions. Flag-off: 0 differences in 28,000 decisions (`scripts/ops/horse-flag-off-check.sh`, set full, head cbeedca75104 against main 65a64d1f6206, 2026-11-28).
 
 ## Watch And Rollback
 
