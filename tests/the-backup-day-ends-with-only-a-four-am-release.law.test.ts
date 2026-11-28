@@ -506,6 +506,128 @@ git() { echo unexpected-main-read >&2; return 99; }
         expect(result.stdout).not.toContain('ALREADY CERTIFIED');
       }
     );
+    // O37b (2026-11-27): plan must never retarget onto a newer server commit
+    // whose Engine release prequalification already completed with a
+    // non-success conclusion. Retargeting sets control_sha != GITHUB_SHA,
+    // which causes refresh -> due's step-down to refuse (producer provenance)
+    // and defer, starving the good pushed commit below it.
+    describe('O37b: plan never retargets onto a head whose Engine release prequalification already failed', () => {
+      const fakeGhWithPrequal = (prequalReply: string | 'FAIL') =>
+        `gh() {
+  echo "gh $*" >> "$CALLS"
+  case "$2" in
+    *actions/workflows/backup-engine.yml/runs*) echo 0 ;;
+    *actions/workflows/engine-release-prequalification.yml/runs*) ${
+      prequalReply === 'FAIL'
+        ? 'echo "HTTP 502" >&2; return 1'
+        : `printf '%s\\n' ${JSON.stringify(prequalReply)}`
+    } ;;
+    *'/commits?sha=main&path=server&per_page=1') echo '${newest}' ;;
+    *'/compare/'*) echo 'ahead' ;;
+    *'/statuses'*) echo missing ;;
+    *) return 1 ;;
+  esac
+}
+git() { echo unexpected-main-read >&2; return 99; }
+`;
+      const prequalRun = (overrides: Record<string, unknown> = {}) =>
+        JSON.stringify({
+          workflow_runs: [
+            {
+              id: 46052191027,
+              head_sha: newest,
+              head_branch: 'main',
+              event: 'push',
+              path: '.github/workflows/engine-release-prequalification.yml',
+              repository: { full_name: 'o/r' },
+              head_repository: { full_name: 'o/r' },
+              status: 'completed',
+              conclusion: 'failure',
+              ...overrides,
+            },
+          ],
+        });
+
+      it('does not invoke scripts/release/step-down-past-held-migration.py in plan (no checkout yet)', () => {
+        expect(plan).not.toContain('step-down-past-held-migration.py');
+        expect(plan).toContain(
+          'actions/workflows/engine-release-prequalification.yml/runs?branch=main&head_sha=$head&per_page=1'
+        );
+      });
+
+      it.each([
+        ['failure (push)', 'failure', 'push', 46052191027],
+        ['cancelled (push)', 'cancelled', 'push', 46052191028],
+        ['timed_out (workflow_dispatch)', 'timed_out', 'workflow_dispatch', 46052191029],
+      ])(
+        'skips retarget and keeps pushed sha with no control_sha override when head prequalification is %s',
+        (_label, conclusion, event, runId) => {
+          const result = run(fakeGhWithPrequal(prequalRun({ id: runId, event, conclusion })), {
+            ...base,
+            EVENT: 'push',
+          });
+          expect(result.status, result.stderr).toBe(0);
+          expect(result.stdout).toContain(
+            `SKIPPED RETARGET: main's newest server commit ${newest} already failed Engine release prequalification (${conclusion}, run ${runId}); keeping ${pushed}.`
+          );
+          expect(result.stdout).toContain('sha=' + pushed);
+          expect(result.stdout).not.toContain('sha=' + newest);
+          expect(result.stdout).not.toContain('control_sha=');
+          expect(result.stdout).not.toContain('RETARGETED:');
+          expect(result.stdout).toContain('refresh=auto');
+          expect(result.stdout).toContain('inherit_eligible=true');
+          expect(result.calls).toContain(
+            `actions/workflows/engine-release-prequalification.yml/runs?branch=main&head_sha=${newest}&per_page=1`
+          );
+          expect(result.calls).toContain(`/commits/${pushed}/statuses`);
+          expect(result.calls).not.toContain(`/commits/${newest}/statuses`);
+        }
+      );
+
+      it.each([
+        ['success', prequalRun({ status: 'completed', conclusion: 'success' })],
+        ['in_progress', prequalRun({ status: 'in_progress', conclusion: null })],
+        ['queued', prequalRun({ status: 'queued', conclusion: null })],
+        ['absent', JSON.stringify({ workflow_runs: [] })],
+        ['API error (CLAUDE.md 10.86)', 'FAIL' as const],
+        ['unparseable JSON (CLAUDE.md 10.86)', 'not json'],
+        [
+          'mismatched head_sha',
+          prequalRun({ head_sha: 'c'.repeat(40), status: 'completed', conclusion: 'failure' }),
+        ],
+        [
+          'non-main head_branch',
+          prequalRun({ head_branch: 'feature', status: 'completed', conclusion: 'failure' }),
+        ],
+        [
+          'non-push/dispatch event',
+          prequalRun({ event: 'pull_request', status: 'completed', conclusion: 'failure' }),
+        ],
+        [
+          'wrong workflow path',
+          prequalRun({
+            path: '.github/workflows/other.yml',
+            status: 'completed',
+            conclusion: 'failure',
+          }),
+        ],
+        [
+          'foreign head_repository',
+          prequalRun({
+            head_repository: { full_name: 'evil/fork' },
+            status: 'completed',
+            conclusion: 'failure',
+          }),
+        ],
+      ])('retargets as before when head prequalification is %s', (_label, reply) => {
+        const result = run(fakeGhWithPrequal(reply), { ...base, EVENT: 'push' });
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toContain(`RETARGETED: pushed ${pushed} is superseded by ${newest}`);
+        expect(result.stdout).toContain('sha=' + newest);
+        expect(result.stdout).toContain('control_sha=' + newest);
+        expect(result.stdout).not.toContain('SKIPPED RETARGET');
+      });
+    });
   });
   // 2026-11-14: on the off-cycle cutover the booked candidate waited about
   // 50 minutes behind an unrelated push, and the release owner dispatched a
@@ -3139,6 +3261,8 @@ git() { echo "2026-11-22T07:00:00Z"; }
       const pendingStep = certify.steps.find((s: any) => s.id === 'pending');
       const publishStep = certify.steps.find((s: any) => /Publish the verdict/.test(s.name));
       const sha = 'e'.repeat(40);
+      const liveServing = 'd'.repeat(40);
+      const oldServing = '1'.repeat(40);
       const compDigest = 'b'.repeat(64);
       const otherDigest = '9'.repeat(64);
 
@@ -3146,18 +3270,50 @@ git() { echo "2026-11-22T07:00:00Z"; }
         verdictOut: string,
         standingLine: string | 'FAIL',
         overrides: Partial<Record<string, string>> = {},
-        dateStub = 'date() { echo "2026-11-22"; }'
+        dateStub = 'date() { echo "2026-11-22"; }',
+        opts: {
+          liveServing?: string | 'FAIL';
+          rehearsedServing?: string | 'FAIL' | 'NO_ARTIFACT';
+          standingRunId?: string;
+        } = {}
       ) {
         const dir = mkdtempSync(resolve(tmpdir(), 'backup-due-o10-'));
         const calls = resolve(dir, 'calls');
         const summary = resolve(dir, 'summary.md');
-        const ghBody =
+        const runId = opts.standingRunId ?? '45032836371';
+        const effectiveLive = opts.liveServing ?? liveServing;
+        const effectiveRehearsed = opts.rehearsedServing ?? liveServing;
+        const pipeLine =
           standingLine === 'FAIL'
+            ? 'FAIL'
+            : standingLine === ''
+              ? ''
+              : standingLine.includes('\t')
+                ? `${standingLine.split('\t')[0]}|https://github.com/o/r/actions/runs/${runId}|${standingLine.split('\t').slice(1).join('\t')}`
+                : standingLine;
+        const statusBody =
+          pipeLine === 'FAIL'
             ? 'echo "HTTP 502" >&2; return 1'
-            : standingLine.includes('\t')
-              ? `printf '%s\\t%s\\n' ${JSON.stringify(standingLine.split('\t')[0])} ${JSON.stringify(standingLine.split('\t').slice(1).join('\t'))}`
-              : `printf '%s\\n' ${JSON.stringify(standingLine)}`;
+            : `printf '%s\\n' ${JSON.stringify(pipeLine)}`;
+        const artifactListBody =
+          effectiveRehearsed === 'NO_ARTIFACT'
+            ? 'echo ""'
+            : effectiveRehearsed === 'FAIL'
+              ? 'echo "HTTP 502" >&2; return 1'
+              : 'echo "777001"';
+        const artifactZipBody =
+          effectiveRehearsed === 'FAIL' || effectiveRehearsed === 'NO_ARTIFACT'
+            ? 'echo "HTTP 502" >&2; return 1'
+            : `command python3 -c 'import io,json,sys,zipfile; b=io.BytesIO(); z=zipfile.ZipFile(b,"w"); z.writestr("certificate.json", json.dumps({"rehearsedServingSha": sys.argv[1]})); z.close(); sys.stdout.buffer.write(b.getvalue())' ${JSON.stringify(effectiveRehearsed)}`;
+        const curlBody =
+          effectiveLive === 'FAIL'
+            ? 'echo "curl: connection refused" >&2; return 1'
+            : `printf '%s\\n' ${JSON.stringify(JSON.stringify({ running: true, releaseSha: effectiveLive }))}`;
         const harness = `sha256sum() { echo "0000000000000000000000000000000000000000000000000000000000000000  $1"; }
+curl() {
+  echo "curl $*" >> "$CALLS"
+  ${curlBody}
+}
 ssh() {
   echo "ssh $*" >> "$CALLS"
   case "$*" in
@@ -3175,7 +3331,12 @@ ssh() {
 }
 gh() {
   echo "gh $*" >> "$CALLS"
-  ${ghBody}
+  case "$*" in
+    *'/actions/artifacts/'*'/zip'*) ${artifactZipBody} ;;
+    *'/actions/runs/'*'/artifacts'*) ${artifactListBody} ;;
+    *'/commits/'*'/statuses'*) ${statusBody} ;;
+    *) return 1 ;;
+  esac
 }
 python3() {
   if [ "$1" = -B ] && [ "$2" = server/scripts/engine-release-installed-migrations.py ]; then
@@ -3338,6 +3499,34 @@ git() { echo "2026-11-22T10:15:00Z"; }
           standingLine
         );
         expect(r.status, r.stderr).toBe(0);
+        expect(r.stdout).not.toContain('deferred=1');
+        expect(r.calls).not.toContain('LEASE_RELEASED');
+      });
+
+      it.each([
+        [
+          'stale rehearsedServingSha (certified against older serving engine)',
+          { rehearsedServing: oldServing },
+        ],
+        ['unreadable live /health (CLAUDE.md 10.86)', { liveServing: 'FAIL' as const }],
+        [
+          'missing certificate artifact (CLAUDE.md 10.86)',
+          { rehearsedServing: 'NO_ARTIFACT' as const },
+        ],
+        [
+          'unreadable certificate artifact (CLAUDE.md 10.86)',
+          { rehearsedServing: 'FAIL' as const },
+        ],
+      ])('O37b (BUG 1A): Layer 1 does NOT defer on %s', (_label, opts) => {
+        const r = runDueO10(
+          `due=false\nproduction=${compDigest}\npending=\ncomparable=${compDigest}`,
+          `success\tCertified on the Backup Engine; installed migrations ${compDigest}`,
+          { EVENT: 'push' },
+          'date() { echo "2026-11-22"; }',
+          opts
+        );
+        expect(r.status, r.stderr).toBe(0);
+        expect(r.stdout).not.toContain('ALREADY CERTIFIED');
         expect(r.stdout).not.toContain('deferred=1');
         expect(r.calls).not.toContain('LEASE_RELEASED');
       });

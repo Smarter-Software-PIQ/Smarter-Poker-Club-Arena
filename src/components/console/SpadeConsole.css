@@ -273,21 +273,21 @@
   font-size: 2.6cqw;
   font-weight: 700;
   letter-spacing: 0.18em;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .sc__title {
   font-size: 7cqw;
   font-weight: 800;
   letter-spacing: 0.03em;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .sc__subtitle {
   font-size: 3.2cqw;
   font-weight: 600;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 /* The painted pill slot top right of the header well. */
@@ -297,7 +297,7 @@
   font-size: 3.4cqw;
   font-weight: 800;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 /* ── THE X (Dan 2026-09-23) ───────────────────────────────────────────────
@@ -471,7 +471,7 @@
   font-size: calc(4.2cqw * var(--fit, 1));
   font-weight: 800;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
+  text-transform: none;
   white-space: nowrap;
 }
 
@@ -555,7 +555,7 @@
   font-size: 2.7cqw;
   font-weight: 700;
   letter-spacing: 0.16em;
-  text-transform: uppercase;
+  text-transform: none;
   white-space: nowrap;
 }
 
@@ -679,7 +679,7 @@ input.sc-check__box:disabled {
   max-width: var(--sc-max);
   padding: 14px 14px 16px;
   gap: 12px;
-  color: #f1f5fc;
+  color: var(--sd-ink);
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, system-ui, sans-serif;
   background: var(--sd-panel), #030b14;
 }
@@ -735,14 +735,14 @@ input.sc-check__box:disabled {
   text-transform: none;
 }
 .sc.sc--sd.sc--sd .sc__eyebrow {
-  color: #86daff;
+  color: var(--sd-ice);
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.04em;
   line-height: 1.2;
 }
 .sc.sc--sd.sc--sd .sc__title {
-  color: #f4f8ff;
+  color: var(--sd-white);
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, system-ui, sans-serif;
   font-size: clamp(20px, 5.6cqw, 28px);
   font-weight: 700;
@@ -750,7 +750,7 @@ input.sc-check__box:disabled {
   line-height: 1.08;
 }
 .sc.sc--sd.sc--sd .sc__subtitle {
-  color: #bdd0e2;
+  color: var(--sd-silver);
   font-size: 13.5px;
   font-weight: 600;
   letter-spacing: 0.01em;
@@ -775,7 +775,7 @@ input.sc-check__box:disabled {
   color: #e4edf7;
 }
 .sc.sc--sd.sc--sd .sc__pill.sc-ink--blue {
-  color: #86daff;
+  color: var(--sd-ice);
 }
 
 /* The X: a 44px chrome key, tucked into the upper-right corner. */
@@ -855,7 +855,7 @@ input.sc-check__box:disabled {
   border-image: var(--sd-stat) 11 / 6px stretch !important;
   border-radius: 0 !important;
   background: linear-gradient(155deg, #12273b, #07111c 70%) !important;
-  color: #f1f5fc !important;
+  color: var(--sd-ink) !important;
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, system-ui, sans-serif;
   font-size: 17px;
   font-weight: 700;
@@ -871,7 +871,11 @@ input.sc-check__box:disabled {
 }
 .sc.sc--sd.sc--sd .sc-sd__plate--primary {
   border-image-source: var(--sd-active) !important;
-  background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
+  background: linear-gradient(
+    var(--sd-cobalt-top),
+    var(--sd-cobalt-mid) 55%,
+    var(--sd-cobalt-deep)
+  ) !important;
   background-clip: padding-box !important;
   color: #fff !important;
 }
@@ -885,10 +889,10 @@ input.sc-check__box:disabled {
   text-transform: none;
 }
 .sc.sc--sd.sc--sd .sc-sd__plate-text.sc-ink--red {
-  color: #ff8a93;
+  color: var(--sd-red);
 }
 .sc.sc--sd.sc--sd .sc-sd__plate-text.sc-ink--green {
-  color: #4dc660;
+  color: var(--sd-green);
 }
 .sc.sc--sd.sc--sd .sc-sd__plate--primary .sc-sd__plate-text:not(.sc-ink--red) {
   color: #fff;
@@ -911,7 +915,7 @@ input.sc-check__box:disabled {
   color: #d7e3f0;
 }
 .sc.sc--sd.sc--sd :where(.sc-label) {
-  color: #86daff;
+  color: var(--sd-ice);
 }
 /* Inside a dialog the shared popup sheet (metallic-popups.css) paints any
    `__head` as a raised, rounded header bar with !important. The #SmarterDesign
@@ -927,4 +931,47 @@ input.sc-check__box:disabled {
 }
 .sc.sc--sd.sc--sd .sc__title.sc__title {
   text-shadow: none !important;
+}
+
+/* Toggles and tab rows printed on a #SmarterDesign console's glass (time bank
+   quantities, the leaderboard ranges, the Game Rules tabs) were lit words
+   left over from the painted master; they are the workspace switch now
+   (.arena-switch in ArenaWorkspace.css): chrome keys, the chosen one lit
+   cobalt. A key that carries a picture (a controller theme swatch) keeps its
+   own frame. */
+.sc.sc--sd.sc--sd > .sc__body button:is([aria-pressed], [role='tab']):not(:has(img)),
+.sc.sc--sd.sc--sd > .sc__body .rules-modal__tab.rules-modal__tab {
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 4px 8px;
+  border: 4px solid transparent !important;
+  border-image: var(--sd-stat) 11 / 5px stretch !important;
+  border-radius: 0 !important;
+  background: linear-gradient(155deg, #12273b, #07111c 70%) !important;
+  box-shadow: none !important;
+  color: #e4edf7 !important;
+  -webkit-text-fill-color: currentcolor;
+  font-family: 'Rajdhani', 'Roboto Condensed', Inter, system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+  text-shadow: none;
+  text-transform: none;
+  white-space: normal;
+}
+.sc.sc--sd.sc--sd
+  > .sc__body
+  button:is([aria-pressed='true'], [aria-selected='true']):not(:has(img)),
+.sc.sc--sd.sc--sd > .sc__body .rules-modal__tab.rules-modal__tab--active {
+  border-image-source: var(--sd-active) !important;
+  background: linear-gradient(
+    var(--sd-cobalt-top),
+    var(--sd-cobalt-mid) 55%,
+    var(--sd-cobalt-deep)
+  ) !important;
+  color: #fff !important;
+}
+.sc.sc--sd.sc--sd > .sc__body .rules-modal__tabs {
+  gap: 4px;
 }

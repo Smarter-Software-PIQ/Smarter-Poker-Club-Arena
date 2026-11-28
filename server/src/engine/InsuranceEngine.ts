@@ -260,6 +260,28 @@ export class InsuranceEngine {
     return this.tableConfigs.get(tableId)?.enabled ?? false;
   }
 
+  offerTimeoutSeconds(tableId: string): number {
+    return (
+      this.tableConfigs.get(tableId)?.offerTimeoutSeconds ?? this.DEFAULT_CONFIG.offerTimeoutSeconds
+    );
+  }
+
+  /**
+   * Authoritative armed deadline from the DeadlineScheduler across any pending
+   * ('offered') insurance offers on this table (0 if none are armed).
+   */
+  activeOfferDeadlineMs(tableId: string): number {
+    const offers = this.activeOffers.get(tableId);
+    if (!offers || offers.length === 0) return 0;
+    let latest = 0;
+    for (const offer of offers) {
+      if (offer.status !== 'offered') continue;
+      const deadline = this.scheduler.getDeadline(tableId, this.offerEventId(offer.playerId));
+      if (deadline > latest) latest = deadline;
+    }
+    return latest;
+  }
+
   /**
    * Create insurance offers for all-in players.
    * Called by ServerTableEngine when an all-in runout is pending.

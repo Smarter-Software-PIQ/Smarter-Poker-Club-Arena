@@ -52,7 +52,7 @@
   line-height: 1.1;
   font-weight: 700;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
+  text-transform: none;
   white-space: nowrap;
 }
 .tournament-entry-holder__clock-line,
@@ -79,7 +79,7 @@
   font-size: calc(6.2cqw * var(--fit, 1));
   font-weight: 800;
   line-height: 1.1;
-  text-transform: uppercase;
+  text-transform: none;
   white-space: nowrap;
   text-shadow:
     0 1px 0 #6d747c,

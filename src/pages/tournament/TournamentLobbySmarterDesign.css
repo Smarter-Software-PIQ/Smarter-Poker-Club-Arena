@@ -74,14 +74,37 @@
 }
 
 /* ---- The tab rail: an arena-switch. Steel chrome-stat keys, the selected
-   section lit blue on the active rim. */
+   section lit blue on the active rim.
+
+   ONE ROW, NEVER A GRID (2026-11-28). ArenaLobbyConsole.css lays the tabs
+   out as a four-column grid, so eight tabs took two 44px rows and a mystery
+   bounty event's nine took three. Under the event plaque that left the one
+   growing tab panel under 200px at 1280x720 (production post-deploy run
+   46124486361) and about 190px on a 375x667 phone. The shell
+   (TournamentDetails.css) has always meant one row that scrolls sideways,
+   and TournamentDetails.tsx scrolls the selected tab into view for exactly
+   that strip. Here the keys fill the row when they fit (the 600px lobby
+   column) and the row scrolls when they do not (a phone); each key keeps
+   the 44px floor. Rendered by tests/e2e/css/tournamentLobbyTabPanelHeightCases.ts. */
 .tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby .details-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
   gap: 4px;
   padding: 6px;
   background: none;
   border-bottom: 1px solid #253e57;
 }
+.tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby
+  .details-tabs::-webkit-scrollbar {
+  display: none;
+}
 .tournament-details.arena-workspace.console-lobby.console-lobby.console-lobby .details-tabs .tab {
+  flex: 1 0 auto;
+  white-space: nowrap;
   min-height: 44px;
   padding: 6px 5px;
   border: 5px solid transparent;

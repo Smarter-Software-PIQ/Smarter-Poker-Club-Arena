@@ -1,0 +1,3 @@
+# server/src/observability/statsIndexCatchesUpAfterMaintenanceBreak.law.test.ts
+
+`StatsHealthMonitor` keeps its 30-minute lag threshold intact and runs `ca_refresh_hand_player_index` at most once on an explicit maintenance-break exit transition (or cold boot right after a break) when lag already exceeds one 15-minute cadence — never during an active freeze and never as a steady-state repair loop — preventing recurring `ClubArenaStatsIndexLag` / `StatsHandIndexLagging` false alarms after every 3-hourly `:00-:05` maintenance break while still paging if the external scheduler truly stops (incidents eb6f18a7 and 91172a99).

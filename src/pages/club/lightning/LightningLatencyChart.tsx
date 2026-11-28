@@ -7,8 +7,8 @@
  * ClubActivityChart is from the club dashboard: it never reaches the entry
  * chunk or the overview.
  *
- * Inks are the console's own (silver, lit blue, red); the lines are the one
- * thing on this surface the art does not paint.
+ * Inks are the smarter.poker chart schema only (#SmarterDesign, Dan
+ * 2026-11-27): gold P50, blue P95, red P99 on the dark arena case.
  */
 import {
   CartesianGrid,
@@ -22,7 +22,7 @@ import {
 import type { LatencyLeg, LightningLatencyWindow } from '../../../lightning/lightningOperatorApi';
 import styles from '../ClubLightningOperationsPage.module.css';
 
-const INK = { p50: '#e4e7ec', p95: '#45adff', p99: '#ff5b6e' } as const;
+const INK = { p50: '#ffd700', p95: '#45adff', p99: '#ff5a6a' } as const;
 
 function clock(iso: string | null): string {
   if (!iso) return '';
@@ -57,16 +57,16 @@ export default function LightningLatencyChart({
       <div className={styles.chart} role="img" aria-label="Latency P50, P95 And P99 By Window">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
+            <CartesianGrid stroke="rgba(37,62,87,0.6)" vertical={false} />
             <XAxis
               dataKey="label"
-              tick={{ fill: '#9aa5b3', fontSize: 10 }}
+              tick={{ fill: '#9fbacc', fontSize: 10 }}
               tickLine={false}
               axisLine={{ stroke: 'rgba(255,255,255,0.12)' }}
               minTickGap={16}
             />
             <YAxis
-              tick={{ fill: '#9aa5b3', fontSize: 10 }}
+              tick={{ fill: '#9fbacc', fontSize: 10 }}
               tickLine={false}
               axisLine={false}
               width={40}
@@ -74,11 +74,11 @@ export default function LightningLatencyChart({
             />
             <Tooltip
               contentStyle={{
-                background: '#050607',
+                background: '#050d17',
                 border: '1px solid rgba(69,173,255,0.35)',
                 fontSize: '0.75rem',
               }}
-              labelStyle={{ color: '#e4e7ec' }}
+              labelStyle={{ color: '#f1f5fc' }}
               formatter={(value, name) => [
                 value === null || value === undefined ? '-' : Math.round(Number(value)),
                 String(name ?? ''),
@@ -115,10 +115,10 @@ export default function LightningLatencyChart({
         </ResponsiveContainer>
       </div>
       <p className={styles.legend} aria-hidden="true">
-        <span className="sc-ink--silver">P50</span>
-        <span className="sc-ink--blue">P95</span>
-        <span className="sc-ink--red">P99</span>
-        <span className="sc-ink--muted">Milliseconds</span>
+        <span className={styles.ink_gold}>P50</span>
+        <span className={styles.ink_blue}>P95</span>
+        <span className={styles.ink_red}>P99</span>
+        <span className={styles.ink_muted}>Milliseconds</span>
       </p>
     </>
   );

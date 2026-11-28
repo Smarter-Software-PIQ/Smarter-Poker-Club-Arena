@@ -1,0 +1,452 @@
+/*
+ * THE HAND ARCHIVE IN #SMARTERDESIGN (Dan 2026-11-27; player pages batch P4,
+ * 2026-11-28).
+ *
+ * The page root carries `arena-workspace`, so the shell, the chrome mast, the
+ * thin chrome cases, the chrome-stat keys, the readout tiles and the ledger
+ * rows all come from src/components/lobby/ArenaWorkspace.css and
+ * src/components/ops/ArenaOps.css. This sheet only lays them out for the
+ * archive and dresses its own insides with the workspace's inks.
+ *
+ * EVERY RULE HERE IS SCOPED UNDER `.hand-history-page.arena-workspace`, so it
+ * outranks the older Hand Archive dress in HandHistoryPage.css on this page and
+ * reaches nothing else. The hand rundown (HandDetailView), the flag and note
+ * controls, the Hand Detail dialog and the replay keep their own skin.
+ */
+
+.hand-history-page.arena-workspace {
+  width: 100%;
+  min-height: 100dvh;
+  padding: 7px 6px calc(var(--bottom-nav-clearance, 96px) + env(safe-area-inset-bottom, 0px));
+  background: #050d17;
+  color: #f1f5fc;
+  font-family: 'Roboto Condensed', 'Arial Narrow', Arial, sans-serif;
+}
+
+.hand-history-page.arena-workspace > * {
+  box-sizing: border-box;
+  width: min(1000px, 100%);
+  margin-inline: auto;
+}
+
+/* ── Every key on the page: Title Case, the workspace's press and focus ── */
+.hand-history-page.arena-workspace .arena-switch > :is(button, a) {
+  text-transform: none;
+  letter-spacing: 0;
+  transform: none;
+  cursor: pointer;
+}
+
+.hand-history-page.arena-workspace .arena-switch > :is(button, a):active {
+  transform: none;
+  filter: brightness(0.86);
+}
+
+.hand-history-page.arena-workspace .arena-switch > :is(button, a):focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+
+.hand-history-page.arena-workspace .arena-switch > :is(button, a):disabled {
+  opacity: 0.5;
+  cursor: default;
+  filter: none;
+}
+
+/* ── Find A Hand: one case holding the search, the game mode and the filters ── */
+.hand-history-page.arena-workspace .hh-search {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.hand-history-page.arena-workspace .hh-search__label {
+  grid-column: 1 / -1;
+  margin: 0;
+  opacity: 1;
+  text-transform: none;
+  white-space: normal;
+}
+
+.hand-history-page.arena-workspace .hh-search__input,
+.hand-history-page.arena-workspace .hh-search__select {
+  grid-column: 1 / -1;
+  order: 0;
+}
+
+.hand-history-page.arena-workspace .hh-search .arena-ops-well {
+  min-height: 44px;
+  padding: 0 10px;
+  background: #040d17;
+  border: 1px solid #476079;
+  border-radius: 0;
+  color: #f1f5fc;
+  color-scheme: dark;
+  font:
+    16px/1.2 Arial,
+    sans-serif;
+}
+
+.hand-history-page.arena-workspace .hh-search .arena-ops-well::placeholder {
+  color: #9fbacc;
+}
+
+.hand-history-page.arena-workspace .hh-search .arena-ops-well:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 1px;
+}
+
+/* Clear (when a filter is set) and Export For Tracker share one row, the
+   export lit as the case's one primary action. */
+.hand-history-page.arena-workspace .hh-search__keys {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.hand-history-page.arena-workspace .hh-search__keys > .hh-search__export {
+  color: white;
+  background: linear-gradient(#1678ec, #064da9 52%, #082d60);
+}
+
+.hand-history-page.arena-workspace .hh-search__keys > .hh-search__export::after {
+  border-image-source: var(--arena-active);
+}
+
+.hand-history-page.arena-workspace .hh-filters {
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+/* Eight filters: four across on a phone, one row on a wide screen. */
+.hand-history-page.arena-workspace .hh-filters--loaded {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (min-width: 721px) {
+  .hand-history-page.arena-workspace .hh-search {
+    grid-template-columns: minmax(0, 2fr) repeat(3, minmax(0, 1fr));
+  }
+
+  .hand-history-page.arena-workspace .hh-search__input,
+  .hand-history-page.arena-workspace .hh-search__select {
+    grid-column: auto;
+  }
+
+  .hand-history-page.arena-workspace .hh-filters--loaded {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+}
+
+/* ── Notes and returns: a case with its words and its keys ─────────────── */
+.hand-history-page.arena-workspace .hh-stats-drilldown {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  margin: 7px auto;
+  padding: 14px;
+  border: 0;
+  border-radius: 0;
+  background: var(--arena-panel);
+  color: #dce5ef;
+  font:
+    13px/1.4 Arial,
+    sans-serif;
+  letter-spacing: 0;
+}
+
+.hand-history-page.arena-workspace .hh-stats-drilldown > span {
+  flex: none;
+}
+
+.hand-history-page.arena-workspace .hh-stats-drilldown__keys {
+  margin: 0;
+}
+
+/* ── The figures across the loaded hands: chrome readout tiles ──────────── */
+.hand-history-page.arena-workspace .hh-summary {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 7px auto 0;
+  padding: 14px;
+  border: 0;
+  border-radius: 0;
+  background: var(--arena-panel);
+}
+
+.hand-history-page.arena-workspace .hh-summary .summary-stat {
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+  flex: 1 1 calc(33.333% - 4px);
+  gap: 3px;
+  min-width: 0;
+  min-height: 0;
+  padding: 6px 3px;
+  border: 5px solid transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
+  border-radius: 0;
+  background: var(--arena-tile);
+  box-shadow: none;
+  text-align: center;
+}
+
+.hand-history-page.arena-workspace .hh-summary .stat-label {
+  color: #9fbacc;
+  font:
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.hand-history-page.arena-workspace .hh-summary .stat-value {
+  color: #f1f5fc;
+  font:
+    800 18px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.hand-history-page.arena-workspace .hh-summary .summary-stat.positive .stat-value {
+  color: #35d95a;
+}
+
+.hand-history-page.arena-workspace .hh-summary .summary-stat.negative .stat-value {
+  color: #ff5b6e;
+}
+
+/* Biggest Pot can name two assets, so it takes a row of its own on a phone;
+   the tiles before it share their rows evenly. */
+.hand-history-page.arena-workspace .hh-summary > .summary-stat:nth-last-child(2) {
+  flex-basis: 100%;
+}
+
+.hand-history-page.arena-workspace .hh-summary__keys {
+  flex: 1 1 100%;
+  margin: 2px 0 0;
+}
+
+@media (min-width: 721px) {
+  .hand-history-page.arena-workspace .hh-summary .summary-stat,
+  .hand-history-page.arena-workspace .hh-summary > .summary-stat:nth-last-child(2) {
+    flex: 1 1 0;
+  }
+
+  .hand-history-page.arena-workspace .hh-summary > .summary-stat:nth-last-child(2) {
+    flex-grow: 2;
+  }
+}
+
+.hand-history-page.arena-workspace .hh-summary-scope {
+  margin: 4px auto 0;
+  padding: 0 4px;
+  color: #9fbacc;
+  font:
+    11px/1.35 Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* ── The hands: one chrome ledger row per hand inside a case ────────────── */
+.hand-history-page.arena-workspace .hands-list {
+  gap: 6px;
+  padding: 14px;
+}
+
+.hand-history-page.arena-workspace .hands-list > .hand-card {
+  padding: 0;
+  border: 4px solid transparent;
+  border-image: var(--arena-row) 13 / 6px stretch;
+  border-radius: 0;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+  box-shadow: none;
+}
+
+.hand-history-page.arena-workspace .hands-list > .hand-card--expanded {
+  border-image-source: var(--arena-active);
+}
+
+.hand-history-page.arena-workspace .hands-list > .hand-card--linked .table-name {
+  color: #74dfff;
+}
+
+.hand-history-page.arena-workspace .hand-card__summary {
+  min-height: 44px;
+  padding: 7px 9px;
+  color: #dce5ef;
+}
+
+.hand-history-page.arena-workspace .hand-card__summary:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+
+.hand-history-page.arena-workspace .table-name {
+  color: #f1f5fc;
+  font:
+    800 16px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.hand-history-page.arena-workspace .hand-num {
+  color: #74dfff;
+  font:
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+}
+
+.hand-history-page.arena-workspace .hand-date {
+  color: #9fbacc;
+  font:
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+}
+
+.hand-history-page.arena-workspace .pot-label {
+  color: #9fbacc;
+  font:
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.hand-history-page.arena-workspace .pot-value,
+.hand-history-page.arena-workspace .result-badge {
+  color: #f1f5fc;
+  font:
+    800 17px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.hand-history-page.arena-workspace .result-badge.win {
+  color: #35d95a;
+}
+
+.hand-history-page.arena-workspace .result-badge.loss {
+  color: #ff5b6e;
+}
+
+/* A tag is a word in a hairline well, the field's rim at a smaller size. */
+.hand-history-page.arena-workspace .hand-tag {
+  padding: 1px 6px;
+  border: 1px solid #476079;
+  border-radius: 0;
+  background: #040d17;
+  color: #dce5ef;
+  font:
+    700 11px/1.3 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.hand-history-page.arena-workspace .hand-tag--quiet {
+  color: #9fbacc;
+}
+
+.hand-history-page.arena-workspace .hand-footer {
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+}
+
+.hand-history-page.arena-workspace .hand-card__chevron {
+  color: #74dfff;
+}
+
+.hand-history-page.arena-workspace .hand-card__detail {
+  padding: 4px 6px 8px;
+}
+
+.hand-history-page.arena-workspace .hand-card__actions {
+  margin: 8px 0 0;
+}
+
+/* ── Nothing to show, a failed read, and Load More ──────────────────────── */
+.hand-history-page.arena-workspace .hh-empty {
+  padding: 24px 12px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  text-align: center;
+}
+
+.hand-history-page.arena-workspace .hh-empty--failed {
+  margin: 7px auto;
+  padding: 18px 14px;
+  background: var(--arena-panel);
+}
+
+.hand-history-page.arena-workspace .hh-empty__suits {
+  color: #476079;
+}
+
+.hand-history-page.arena-workspace .hh-empty__title {
+  color: #f1f5fc;
+  font:
+    800 18px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.hand-history-page.arena-workspace .hh-empty--failed .hh-empty__title {
+  color: #ff5b6e;
+}
+
+.hand-history-page.arena-workspace .hh-empty__body {
+  margin: 0;
+  color: #9fbacc;
+  font:
+    13px/1.4 Arial,
+    sans-serif;
+}
+
+.hand-history-page.arena-workspace .hh-load-more {
+  margin: 7px auto;
+}
+
+.hand-history-page.arena-workspace .hh-empty--failed .hh-load-more {
+  width: min(320px, 100%);
+}
+
+/* A failed first read leaves the list with nothing in it; no empty case. */
+.hand-history-page.arena-workspace .hands-list:empty {
+  display: none;
+}
+
+/* A link to another player's hand shows no figures, and the bar under the
+   mast then holds nothing at all. */
+.hand-history-page.arena-workspace > .ca-page-bar:empty {
+  display: none;
+}

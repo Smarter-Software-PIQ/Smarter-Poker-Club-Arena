@@ -78,11 +78,12 @@ describe('sortCardsByRank — Bible V8 §11.1 cards_pre_sort', () => {
 
 describe('getGameVariantLabel', () => {
   it.each([
-    ['nlh', "NO LIMIT HOLD'EM"],
-    ['NLH', "NO LIMIT HOLD'EM"],
-    ['plo4', 'POT LIMIT OMAHA (4)'],
-    ['short_deck', 'SHORT DECK 6+'],
-    ['SHORT_DECK', 'SHORT DECK 6+'],
+    ['nlh', "No Limit Hold'em"],
+    ['NLH', "No Limit Hold'em"],
+    ['plo4', 'Pot Limit Omaha (4)'],
+    ['plo8', 'PLO Hi-Lo (8+)'],
+    ['short_deck', 'Short Deck 6+'],
+    ['SHORT_DECK', 'Short Deck 6+'],
   ])('labels %s', (input, expected) => {
     expect(getGameVariantLabel(input)).toBe(expected);
   });
@@ -97,7 +98,17 @@ describe('getGameVariantLabel', () => {
   });
 
   it('falls back to a readable label for a variant it has never seen', () => {
-    expect(getGameVariantLabel('some_new_game')).toBe('SOME NEW GAME');
+    expect(getGameVariantLabel('some_new_game')).toBe('Some New Game');
+    expect(getGameVariantLabel('PLO_SPLIT_POT')).toBe('PLO Split Pot');
+  });
+
+  it('prints every label in Title Case, never shouted (2026-11-28)', () => {
+    for (const label of Object.values(GAME_VARIANT_LABELS)) {
+      for (const word of label.split(/[\s-]+/)) {
+        if (/^(PLO|NLH|FLH)$/.test(word) || !/[A-Za-z]/.test(word)) continue;
+        expect(word, label).not.toMatch(/^[A-Z]{2,}/);
+      }
+    }
   });
 
   it('never returns an empty label for a non-empty input', () => {

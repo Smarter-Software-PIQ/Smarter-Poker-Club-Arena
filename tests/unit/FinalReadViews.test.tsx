@@ -356,7 +356,7 @@ describe('achievement reads and page-owned notification invalidation', () => {
         : { data: null, error: new Error('RLS refused') };
     render(<AchievementsPage />);
     await settle();
-    expect(screen.getByRole('alert').textContent).toContain('could not be loaded');
+    expect(screen.getByRole('alert').textContent).toContain('Could Not Be Loaded');
     expect(screen.queryByTestId('Getting Started')).toBeNull();
     h.response = (q) => ({
       data: q.table === 'profiles' ? { login_streak: 2 } : [progress('owner-a', 30)],

@@ -128,7 +128,7 @@ describe('Table Management dialogs', () => {
     fireEvent.submit(screen.getByRole('dialog'));
 
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'The big blind cannot be lower than the small blind.'
+      'The Big Blind Cannot Be Lower Than The Small Blind.'
     );
     expect(onSave).not.toHaveBeenCalled();
   });

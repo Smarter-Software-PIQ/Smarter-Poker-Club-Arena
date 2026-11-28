@@ -20,7 +20,7 @@
  * The wallet owns its ground now. The other six destinations keep the shared
  * convergence exactly as it was.
  */
-:is(.transaction-history-page, .rakeback-page, .promotions-page, .bonus-page, .achievements-page) {
+:is(.rakeback-page, .promotions-page, .bonus-page, .achievements-page) {
   color: var(--realism-chrome-hot, #eaf3f9);
   background: #000 !important;
 }
@@ -42,8 +42,6 @@
    machined realism surface with the generic one - the same defect as the
    ground above, one level down. The wallet's own sheet owns its panels. */
 :is(
-  .transaction-history-page .summary-card,
-  .transaction-history-page .transaction-row,
   .rakeback-page .rakeback-promo-banner,
   .rakeback-page .summary-card,
   .rakeback-page .rakeback-chart,
@@ -83,18 +81,12 @@
   -webkit-backdrop-filter: none !important;
 }
 
-:is(
-  .transaction-history-page .transaction-row,
-  .rakeback-page .period-row,
-  .bonus-page .special-card,
-  .achievements-page .achievement-card
-) {
+:is(.rakeback-page .period-row, .bonus-page .special-card, .achievements-page .achievement-card) {
   position: relative;
   overflow: hidden;
 }
 
 :is(
-  .transaction-history-page .transaction-row,
   .rakeback-page .period-row,
   .bonus-page .special-card,
   .achievements-page .achievement-card
@@ -110,8 +102,6 @@
 }
 
 :is(
-  .transaction-history-page .export-btn,
-  .transaction-history-page .load-more-btn,
   .rakeback-page .claim-btn,
   .bonus-page .claim-btn,
   .bonus-page .btn-sm,
@@ -138,7 +128,6 @@
 
 @media (max-width: 640px) {
   :is(
-    .transaction-history-page .tx-summary,
     .rakeback-page .rakeback-summary,
     .rakeback-page .rakeback-chart,
     .bonus-page .bonus-section

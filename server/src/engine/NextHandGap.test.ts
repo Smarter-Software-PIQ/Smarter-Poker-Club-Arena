@@ -53,6 +53,30 @@ describe('NextHandGapRecorder', () => {
     expect(s.maxMs).toBe(2100);
   });
 
+  it('separates intentional cluster/Lightning halt dwell from live over-budget counts and maxMs (1e532243 Phase 5)', () => {
+    const r = new NextHandGapRecorder(2000);
+    r.record(sample(2050, { tableId: 'live' }));
+    r.record(
+      sample(634_301, {
+        tableId: 'halted-recover',
+        phases: { recover_busted_horses_halted: 632_000, next_hand_rest: 2000 },
+      })
+    );
+    r.record(
+      sample(180_000, {
+        tableId: 'halted-cluster',
+        phases: { cluster_dealing_halted: 178_000, next_hand_rest: 2000 },
+      })
+    );
+    const s = r.snapshot();
+    expect(s.samples).toBe(3);
+    expect((s as any).withClusterHalt).toBe(2);
+    expect(s.withRebuyPause).toBe(0);
+    expect(s.over).toBe(0);
+    expect(s.maxMs).toBe(2050);
+    expect(s.slowest).toEqual([]);
+  });
+
   it('forgets samples older than the window', () => {
     const r = new NextHandGapRecorder(2000);
     r.record(sample(2100, { at: Date.now() - 11 * 60_000 }));

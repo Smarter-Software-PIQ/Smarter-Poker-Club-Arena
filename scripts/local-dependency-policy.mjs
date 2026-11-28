@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { lstatSync, readFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -7,6 +7,16 @@ export function localDependencyPolicy(root) {
   const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   const lock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'));
   if (!lock.packages || !lock.packages['']) throw new Error('A complete npm lockfile is required');
+  try {
+    if (lstatSync(join(root, 'node_modules')).isSymbolicLink()) {
+      return {
+        mode: 'blocked',
+        missing: ['node_modules (symlink to shared clone is forbidden)'],
+      };
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
   const required = { ...manifest.dependencies, ...manifest.devDependencies };
   const optional = manifest.optionalDependencies ?? {};
   const missing = Object.keys(required).filter((name) => {

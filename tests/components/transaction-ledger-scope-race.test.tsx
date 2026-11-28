@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import TransactionLedgerView from '../../src/components/common/TransactionLedgerView';
+import { moneyFigures } from '../helpers/moneyFigures';
 
 const reads: Array<{
   resolve: (value: { data: unknown; error: unknown }) => void;
@@ -439,5 +440,37 @@ describe('TransactionLedgerView scope identity', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('The Ledger Could Not Be Loaded');
     expect(screen.queryByText('Player Wallet To Shark Club')).not.toBeInTheDocument();
+  });
+});
+
+describe('every money figure is pinned before its frame moves (2026-11-27)', () => {
+  it('prints the same figures and hooks, in the same order', async () => {
+    reads.length = 0;
+    const view = render(<TransactionLedgerView userId={PLAYER_A} />);
+    await waitFor(() => expect(reads).toHaveLength(1));
+    await act(async () => {
+      reads[0].resolve({
+        data: [entry('pin-a', 'Player Wallet'), entry('pin-b', 'Internal Transfer')],
+        error: null,
+      });
+    });
+    await waitFor(() =>
+      expect(view.container.querySelectorAll('[data-player-name], li, tr').length).toBeGreaterThan(
+        0
+      )
+    );
+    expect(moneyFigures(view.container)).toMatchInlineSnapshot(`
+      {
+        "figures": [
+          "2",
+          "100",
+          "100",
+        ],
+        "hooks": [
+          "data-category=Transfer",
+          "data-category=Transfer",
+        ],
+      }
+    `);
   });
 });

@@ -2931,10 +2931,6 @@
     overflow: visible;
     padding-inline: 0;
   }
-  .stats-page.arena-workspace .stats-pill-tabs {
-    /* Leave room for Performance between both six-pixel chrome edges. */
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 6.5rem), 1fr));
-  }
   .stats-page.arena-workspace .stats-range-row {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
@@ -2945,6 +2941,39 @@
     min-height: 44px;
     padding-inline: 4px;
     white-space: normal;
+  }
+  /* A TAB IS NEVER NARROWER THAN ITS OWN LABEL (2026-11-28).
+     The section tabs used to sit in fixed grid tracks of at least 6.5rem,
+     a width measured for the condensed face. When that face did not render
+     (the stack led with 'Arial Narrow', which Linux and Android do not
+     ship, until #12275), PERFORMANCE drew in an Arial-width face at
+     105.9px inside a 107.5px tile at 480px and ran 2px into the 6px chrome
+     edge (post-deploy run 46101513017). A track cannot grow for its label,
+     so the tabs wrap as flex items instead: every tab asks for 6.5rem, as
+     the tracks did, and none may shrink below its label plus the 8px of
+     padding that clears the chrome on each side. With the condensed face
+     the rows are the same as before; with any wider face a crowded row
+     gives up a tab to the next row instead of overlapping its edge.
+     Where three tabs fit on a row, a tab stops growing at a third of the
+     row, so a short last row keeps the column width of the rows above it
+     (the grid's look at 393px) instead of stretching across the bar.
+     Pinned by tests/unit/statsTabsAreNeverNarrowerThanTheirLabel.test.ts. */
+  .stats-page.arena-workspace .stats-pill-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    container: stats-section-tabs / inline-size;
+  }
+  .stats-page.arena-workspace .stats-pill-tabs > button {
+    flex: 1 1 6.5rem;
+    width: auto;
+    min-width: max-content;
+    max-width: 100%;
+    padding-inline: 8px;
+  }
+  @container stats-section-tabs (min-width: 20rem) {
+    .stats-page.arena-workspace .stats-pill-tabs:has(> button:nth-child(4)) > button {
+      max-width: calc((100% - 8px) / 3);
+    }
   }
   .stats-page.arena-workspace .stats-section-lead {
     align-items: center;

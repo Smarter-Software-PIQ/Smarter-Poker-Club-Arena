@@ -391,6 +391,7 @@ it('coalesces performance bursts without aborting the active read or applying cu
     variant: 'plo',
     hands: 143,
   });
+  await waitFor(() => expect(state.broadcasts.has(statisticsTopic)).toBe(true));
   act(() => state.broadcasts.get(statisticsTopic)!.onPayload({}));
   await waitFor(() => expect(state.getMemberStatistics).toHaveBeenCalledTimes(3));
   const signal = state.getMemberStatistics.mock.calls[2][4] as AbortSignal;
@@ -452,6 +453,7 @@ it('ignores the old performance read when the viewer changes during a queued ref
         finish = resolve;
       })
   );
+  await waitFor(() => expect(state.broadcasts.has(statisticsTopic)).toBe(true));
   act(() => state.broadcasts.get(statisticsTopic)!.onPayload({}));
   await waitFor(() => expect(state.getMemberStatistics).toHaveBeenCalledTimes(2));
   const oldSignal = state.getMemberStatistics.mock.calls[1][4] as AbortSignal;
@@ -601,6 +603,7 @@ it.each(['player', 'agent'])(
       })
     );
     received = true;
+    await waitFor(() => expect(state.broadcasts.has(statisticsTopic)).toBe(true));
     act(() => state.broadcasts.get(statisticsTopic)!.onPayload({ user_id: state.params.userId }));
     await screen.findByText('Sent To River');
   }

@@ -1,6 +1,6 @@
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 /**
- *  PROMOTIONS PAGE — Club Promotions & Bonuses with Live Updates
+ *  PROMOTIONS PAGE: Club Promotions And Bonuses With Live Updates
  */
 
 import { useState, useEffect, useRef, useCallback, type RefObject } from 'react';
@@ -16,7 +16,6 @@ import ReferralModal from '../components/social/ReferralModal';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useToast } from '../components/common/Toast';
 import { promotionService } from '../services/PromotionService';
-import '../components/lobby/ArenaWorkspace.css';
 import './PromotionsPage.css';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import { resolveClubUUID } from '../utils/clubIdResolver';
@@ -27,11 +26,20 @@ import StandardContentLayout from '../components/layouts/StandardContentLayout';
 import DiamondsToChipsButton from '../components/games/DiamondsToChipsButton';
 import { reportError } from '../utils/errorReporter';
 import RewardsOverlayPortal from '../components/rewards/RewardsOverlayPortal';
-import RewardsSurfaceHeader from '../components/rewards/RewardsSurfaceHeader';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import PageBar from '../components/help/PageBar';
+import { ArenaState } from '../components/ops/ArenaOps';
+import { formatInt } from '../utils/clubDashboard';
 import { publicOrigin } from '../lib/appBase';
 import { getMyInviteLink } from '../services/ClubInviteService';
 import { useReferralCount } from '../hooks/useReferralCount';
 import { usePageTitle } from '../hooks/usePageTitle';
+
+/** The club's name as the route spells it; a raw UUID names nothing. */
+function clubContext(clubId?: string): string | undefined {
+  if (!clubId || /^[0-9a-f]{8}-/i.test(clubId)) return undefined;
+  return clubId.replace(/[-_]/g, ' ');
+}
 
 interface Promotion {
   id: string;
@@ -231,7 +239,7 @@ function PromotionsAccount({
 
     /* DB LOAD PASS 2026-08-24: this subscription had no filter, so every
        promotion write for every club on the platform was delivered here and
-       re-ran the page's own club-scoped query — and could even toast "New
+       re-ran the page's own club-scoped query, and could even toast "New
        promotion available!" for another club's promotion.
 
        The route param may be a slug, so the club UUID has to be resolved
@@ -311,7 +319,7 @@ function PromotionsAccount({
         .from('promotions')
         .select(
           // promotions real columns are name/banner_url/status (not title/image_url/
-          // is_active) — alias so the UI fields keep working. See PromotionService.
+          // is_active), aliased so the UI fields keep working. See PromotionService.
           'id, title:name, description, type, image_url:banner_url, start_date, end_date, prize_pool, status, requirements, club_id'
         )
         .order('start_date', { ascending: false });
@@ -333,7 +341,7 @@ function PromotionsAccount({
     } catch (error) {
       if (!ownsAccount() || (getIsMounted && !getIsMounted())) return;
       reportError(error, 'PromotionsPage.Failed_to_load_promotions');
-      setLoadError('Promotions could not be loaded. Existing offers have not been changed.');
+      setLoadError('Promotions Could Not Be Loaded. Existing Offers Have Not Been Changed.');
       toast.error('Failed to load promotions');
     }
     if (!ownsAccount() || (getIsMounted && !getIsMounted())) return;
@@ -411,83 +419,96 @@ function PromotionsAccount({
     return 'Ending Soon';
   };
 
+  const countFor = (view: 'all' | 'active' | 'upcoming') =>
+    promotions.filter((p) => {
+      const start = new Date(p.start_date);
+      const end = new Date(p.end_date);
+      if (view === 'active') return start <= now && end >= now;
+      if (view === 'upcoming') return start > now;
+      return true;
+    }).length;
+
   return (
     <StandardContentLayout className="promotions-page arena-workspace">
-      {/* ONE PICTURE (#ClubArenaConsole): the Rewards Circuit console carries the
-          title and the status word in its painted head, the view words, every
-          offer and its claim on the glass, and the two doors on its painted
-          plates. Nothing on this page is drawn. */}
-      <RewardsSurfaceHeader
-        arena
+      {/* #SmarterDesign (Dan 2026-11-27): the chrome mast with the club's name
+          and the "?" help, the live offer counts as chrome meters, the two
+          doors as chrome keys, and every offer as a chrome row in one case.
+          The painted Rewards Circuit console is the old style. */}
+      <ArenaWorkspaceHeader
+        area="control"
         title="Promotions"
-        description="Active Club Offers, Scheduled Events, Referral Rewards And Leaderboard Races, With The Live Eligibility And Claim Workflows Beneath Them."
-        status="OFFER INDEX // LIVE"
-        crest="flat"
-        pill={`${filteredPromos.length} ${filter}`}
-        pillInk={filteredPromos.length > 0 ? 'green' : 'muted'}
-        plates={{
-          secondary: {
-            label: 'Invite Friends',
-            ink: 'silver',
-            onClick: () => setShowReferral(true),
-            'aria-haspopup': 'dialog',
-          },
-          primary: {
-            label: 'Daily Bonus',
-            ink: 'white',
-            onClick: () => navigate(withClubContext('/bonuses', clubId)),
-          },
-        }}
-      >
-        <div className="promo-views arena-switch" role="group" aria-label="Offer View">
+        context={clubContext(clubId)}
+        summary="Active Club Offers, Scheduled Events, Referral Rewards And Leaderboard Races, With The Live Eligibility And Claim Workflows Beneath Them."
+      />
+      <PageBar
+        title="Promotions"
+        titleAs={false}
+        showHelp={false}
+        status={loading ? 'Reading Offers' : loadError ? 'Offers Unavailable' : 'Offer Index Live'}
+        statusTone={loading ? 'attention' : loadError ? 'danger' : 'live'}
+        metrics={[
+          { label: 'Active', value: loading ? '-' : formatInt(countFor('active')), tone: 'live' },
+          { label: 'Upcoming', value: loading ? '-' : formatInt(countFor('upcoming')) },
+          { label: 'All Offers', value: loading ? '-' : formatInt(promotions.length) },
+        ]}
+      />
+      <div className="arena-switch arena-ops-keys arena-ops-primary">
+        <button type="button" onClick={() => navigate(withClubContext('/bonuses', clubId))}>
+          Daily Bonus
+        </button>
+        <button type="button" aria-haspopup="dialog" onClick={() => setShowReferral(true)}>
+          Invite Friends
+        </button>
+      </div>
+
+      <section className="arena-case arena-ops-case" aria-label="Club Offers">
+        <h2 className="arena-section-title">
+          Club Offers
+          <small>
+            {filteredPromos.length} {filter.charAt(0).toUpperCase() + filter.slice(1)}
+          </small>
+        </h2>
+        <div className="arena-switch" role="group" aria-label="Offer View">
           {(['active', 'upcoming', 'all'] as const).map((f) => (
-            <button
-              key={f}
-              type="button"
-              className="promo-views__word"
-              aria-pressed={filter === f}
-              onClick={() => setFilter(f)}
-            >
+            <button key={f} type="button" aria-pressed={filter === f} onClick={() => setFilter(f)}>
               {f.charAt(0).toUpperCase() + f.slice(1)}
             </button>
           ))}
         </div>
 
         {loading ? (
-          <div className="promo-state" role="status" aria-busy="true" aria-live="polite">
-            <p className="sc-copy sc-copy--center promo-word--busy">Reading The Offer Index</p>
-          </div>
+          <ArenaState tone="loading" title="Reading The Offer Index" />
         ) : loadError ? (
-          <div className="promo-state" role="alert">
-            <p className="sc-copy sc-copy--center">{loadError}</p>
-            <span className="arena-switch arena-ops-keys arena-ops-primary promo-keys">
-              <button type="button" className="promo-word" onClick={() => void loadPromotions()}>
+          <ArenaState
+            tone="error"
+            title="Offers Unavailable"
+            message={loadError}
+            actions={
+              <button type="button" onClick={() => void loadPromotions()}>
                 Try Again
               </button>
-            </span>
-          </div>
+            }
+          />
         ) : filteredPromos.length === 0 ? (
-          <div className="promo-state" role="status">
-            <span className="promo-state__render" aria-hidden="true">
-              <ThrowableImage throwableId="star" size={96} loading="lazy" />
-            </span>
-            <p className="promo-state__title sc-ink--silver">
-              {filter === 'active'
+          <ArenaState
+            tone="empty"
+            title={
+              filter === 'active'
                 ? 'No Active Promotions'
                 : filter === 'upcoming'
                   ? 'No Upcoming Promotions'
-                  : 'No Promotions'}
-            </p>
-            <p className="sc-copy sc-copy--center promo-state__copy">
-              {filter === 'active'
+                  : 'No Promotions'
+            }
+            message={
+              filter === 'active'
                 ? 'There Are No Promotions Running Right Now. Check Back Soon.'
                 : filter === 'upcoming'
                   ? 'No Promotions Are Scheduled Yet. Stay Tuned.'
-                  : 'No Promotions Have Been Created For This Club Yet.'}
-            </p>
-          </div>
+                  : 'No Promotions Have Been Created For This Club Yet.'
+            }
+          />
         ) : (
-          <ul className="promo-list" aria-label="Offers">
+          <ul className="promo-list arena-ops-rows arena-ops-rows--single" aria-label="Offers">
             {filteredPromos.map((promo, index) => {
               const running = new Date(promo.end_date) > now && new Date(promo.start_date) <= now;
               const endingSoon =
@@ -495,17 +516,13 @@ function PromotionsAccount({
               const claimed = claimedIds.has(promo.id);
               const claiming = claimingId === promo.id;
               return (
-                /* A ROW on the glass, not a card: the render beside the words,
-                   the figures on one line, CLAIM a lit word at the end. */
+                /* One chrome row: the render beside the words, the figures on
+                   one line, Claim a chrome key at the end. The stagger still
+                   lifts each row in, from the sheet rather than inline. */
                 <li
                   key={promo.id}
-                  className="promo-row arena-ledger-row"
+                  className={`promo-row arena-ledger-row${visiblePromoCards.has(index) ? ' promo-row--shown' : ''}`}
                   data-type={promo.type}
-                  style={{
-                    opacity: visiblePromoCards.has(index) ? 1 : 0,
-                    transform: visiblePromoCards.has(index) ? 'translateY(0)' : 'translateY(10px)',
-                    transition: 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-                  }}
                 >
                   <span className="promo-row__render" aria-hidden="true">
                     <ThrowableImage
@@ -515,40 +532,39 @@ function PromotionsAccount({
                     />
                   </span>
                   <span className="promo-row__lines">
-                    <span className="sc-label sc-ink--blue promo-row__type">
-                      {formatPromoType(promo.type)}
-                    </span>
-                    <span className="promo-row__title sc-ink--silver">{promo.title}</span>
+                    <span className="promo-row__type">{formatPromoType(promo.type)}</span>
+                    <span className="promo-row__title">{promo.title}</span>
                     {promo.description && (
-                      <span className="sc-copy promo-row__desc">{promo.description}</span>
+                      <span className="promo-row__desc">{promo.description}</span>
                     )}
                     <span className="promo-row__meta">
                       <span className="promo-row__fact">
-                        <span className="sc-label sc-ink--blue">Runs</span>
-                        <span className="sc-ink--silver promo-row__figure">
+                        <span className="promo-row__label">Runs</span>
+                        <span className="promo-row__figure">
                           {formatDate(promo.start_date)} To {formatDate(promo.end_date)}
                         </span>
                       </span>
                       {promo.prize_pool != null && promo.prize_pool > 0 && (
                         <span className="promo-row__fact">
-                          <span className="sc-label sc-ink--blue">Prize</span>
-                          <span className="sc-ink--green promo-row__figure">
+                          <span className="promo-row__label">Prize</span>
+                          <span className="promo-row__figure" data-tone="gold">
                             {compactChips(promo.prize_pool)}
                           </span>
                         </span>
                       )}
                       {running && (
                         <span className="promo-row__fact">
-                          <span className="sc-label sc-ink--blue">Left</span>
+                          <span className="promo-row__label">Left</span>
                           <span
-                            className={`promo-row__figure ${endingSoon ? 'sc-ink--red' : 'sc-ink--gold'}`}
+                            className="promo-row__figure"
+                            data-tone={endingSoon ? 'red' : 'gold'}
                           >
                             {getTimeRemaining(promo.end_date)}
                           </span>
                         </span>
                       )}
                     </span>
-                    {/* Leaderboard promotions carry their standings on the same glass. */}
+                    {/* Leaderboard promotions carry their standings in the same row. */}
                     {promo.type === 'leaderboard' && (
                       <span className="promo-row__board">
                         <LeaderboardCard
@@ -562,16 +578,16 @@ function PromotionsAccount({
                     )}
                   </span>
                   {/* Claim: active, non-leaderboard promos (leaderboard payouts are
-                      ranked, not manually claimed). A lit word, nothing drawn. */}
+                      ranked, not manually claimed). */}
                   {promo.type !== 'leaderboard' &&
                     running &&
                     (claimed ? (
-                      <span className="promo-word sc-ink--green promo-row__action">Claimed</span>
+                      <span className="promo-row__claimed">Claimed</span>
                     ) : (
-                      <span className="arena-switch arena-ops-primary promo-row__action">
+                      <span className="arena-switch promo-row__action">
                         <button
                           type="button"
-                          className={`promo-word${claiming ? ' promo-word--busy' : ''}`}
+                          className={claiming ? 'promo-word--busy' : undefined}
                           disabled={claiming}
                           aria-busy={claiming || undefined}
                           onClick={() => handleClaimPromo(promo.id)}
@@ -585,7 +601,7 @@ function PromotionsAccount({
             })}
           </ul>
         )}
-      </RewardsSurfaceHeader>
+      </section>
 
       {/* THE DIAMOND GAMES (Dan 2026-09-07; restored 2026-09-11). The wheel,
           the board and the curve are a promotion the club runs, so the door

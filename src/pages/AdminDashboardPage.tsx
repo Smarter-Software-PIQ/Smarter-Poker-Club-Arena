@@ -397,7 +397,7 @@ function DashboardTab({ clubId }: { clubId: string }) {
         setLoadError(
           err instanceof Error
             ? safeErrorMessage(err, 'Failed to load dashboard')
-            : 'Failed to load dashboard'
+            : 'Failed To Load Dashboard'
         );
     } finally {
       loadingRef.current = false;
@@ -975,7 +975,7 @@ function AnnouncementsTab({ clubId }: { clubId: string }) {
     // An author is required by the table, so refuse with a readable message
     // rather than sending a statement the database will refuse silently.
     if (!editing && !user?.id) {
-      setActionError('Your session could not be identified, so this announcement was not saved.');
+      setActionError('Your Session Could Not Be Identified, So This Announcement Was Not Saved.');
       return;
     }
     setSaving(true);
@@ -1952,7 +1952,7 @@ function TemplatesTab({ clubId }: { clubId: string }) {
                           clubId,
                         });
                       } catch (e: unknown) {
-                        setActionError(`Launch failed: ${safeErrorMessage(e)}`);
+                        setActionError(`Launch Failed: ${safeErrorMessage(e)}`);
                       }
                     }}
                     className="admin-btn admin-btn-success admin-btn-sm"
@@ -1979,7 +1979,7 @@ function TemplatesTab({ clubId }: { clubId: string }) {
                         if (delErr) throw delErr;
                         load();
                       } catch (e: unknown) {
-                        setActionError(`Delete failed: ${safeErrorMessage(e)}`);
+                        setActionError(`Delete Failed: ${safeErrorMessage(e)}`);
                       }
                     }}
                     className="admin-btn admin-btn-danger admin-btn-sm"
@@ -2333,14 +2333,14 @@ function ClubAdminDashboard({
             setRole(memRole.role);
             if (!['owner', 'co_owner', 'admin', 'manager'].includes(memRole.role)) {
               setError(
-                'ACCESS DENIED: Operations center requires Club Owner, Admin, or Manager privileges.'
+                'ACCESS DENIED: Operations Center Requires Club Owner, Admin, Or Manager Privileges.'
               );
             }
           } else {
-            setError('ACCESS DENIED: Not a member of this club.');
+            setError('ACCESS DENIED: Not A Member Of This Club.');
           }
         } else if (!cancelled) {
-          setError('No club found or selected.');
+          setError('No Club Found Or Selected.');
         }
       } catch (err: unknown) {
         if (!cancelled) setError(safeErrorMessage(err));

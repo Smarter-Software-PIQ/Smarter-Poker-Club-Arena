@@ -23,7 +23,8 @@
  *
  * It reads no network and holds no credential.
  */
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
@@ -215,9 +216,363 @@ export function evidenceFromEnv(env = process.env, repo) {
   };
 }
 
+export const HOT_TABLES = Object.freeze([
+  'hand_history',
+  'chip_ledger',
+  'diamonds_ledger',
+  'table_seats',
+  'tournaments',
+]);
+
+export const HOT_TABLE_ROW_THRESHOLD = 50_000;
+const ALLOWED_STATS_SCHEMAS = new Set(['public', 'smarter_private']);
+const SAFE_PG_IDENT = /^[a-z_][a-z0-9_]*$/;
+const DEFAULT_BYTES_PER_PAGE = 8192;
+
+/**
+ * Parse and validate non-sensitive table cardinality metadata captured from
+ * pg_stat_user_tables + pg_class. Malformed or unsafe identifiers are dropped.
+ */
+export function parseTableStats(raw) {
+  let parsed;
+  try {
+    parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const out = [];
+  for (const row of parsed) {
+    if (!row || typeof row !== 'object') continue;
+    const schemaname = String(row.schemaname ?? '').trim();
+    const relname = String(row.relname ?? '').trim();
+    if (!ALLOWED_STATS_SCHEMAS.has(schemaname) || !SAFE_PG_IDENT.test(relname)) continue;
+    const estRows = Math.max(0, Math.floor(Number(row.est_rows ?? 0) || 0));
+    const relBytes = Math.max(0, Math.floor(Number(row.rel_bytes ?? 0) || 0));
+    const rawPages = Number(row.rel_pages ?? 0);
+    const relPages =
+      Number.isFinite(rawPages) && rawPages > 0
+        ? Math.floor(rawPages)
+        : relBytes > 0
+          ? Math.max(1, Math.round(relBytes / DEFAULT_BYTES_PER_PAGE))
+          : estRows > 0
+            ? Math.max(1, Math.ceil(estRows / 100))
+            : 0;
+    out.push({
+      schemaname,
+      relname,
+      est_rows: estRows,
+      rel_bytes: relBytes,
+      rel_pages: relPages,
+    });
+  }
+  return out;
+}
+
+/**
+ * Emit idempotent SQL that seeds pg_catalog.pg_class.reltuples and relpages in
+ * the throwaway rehearsal database so EXPLAIN chooses production-scale plans.
+ */
+export function seedTableStatsSQL(stats) {
+  const rows = Array.isArray(stats) ? stats : [];
+  const linesOut = ['BEGIN;'];
+  for (const row of rows) {
+    if (!ALLOWED_STATS_SCHEMAS.has(row.schemaname) || !SAFE_PG_IDENT.test(row.relname)) continue;
+    if (!(row.est_rows > 0)) continue;
+    const pages = Math.max(
+      1,
+      Math.floor(
+        row.rel_pages && row.rel_pages > 0
+          ? row.rel_pages
+          : row.rel_bytes > 0
+            ? Math.round(row.rel_bytes / DEFAULT_BYTES_PER_PAGE)
+            : Math.ceil(row.est_rows / 100)
+      )
+    );
+    linesOut.push(
+      `UPDATE pg_catalog.pg_class c SET reltuples = ${Math.floor(row.est_rows)}::real, relpages = ${pages}::integer ` +
+        `FROM pg_catalog.pg_namespace n WHERE c.relnamespace = n.oid AND n.nspname = '${row.schemaname}' ` +
+        `AND c.relname = '${row.relname}' AND c.relkind IN ('r', 'p', 'm');`
+    );
+  }
+  linesOut.push('COMMIT;');
+  return linesOut.join('\n') + '\n';
+}
+
+/**
+ * Strip comments and CREATE FUNCTION/PROCEDURE definitions from SQL while
+ * preserving top-level and DO-block install-time statements.
+ */
+function installTimeSqlBody(sql) {
+  const s = String(sql);
+  let out = '';
+  let i = 0;
+  let stmtStart = 0;
+  while (i < s.length) {
+    const c = s[i];
+    const n = s[i + 1];
+    if (c === '-' && n === '-') {
+      const e = s.indexOf('\n', i);
+      i = e < 0 ? s.length : e;
+      continue;
+    }
+    if (c === '/' && n === '*') {
+      const e = s.indexOf('*/', i + 2);
+      i = e < 0 ? s.length : e + 2;
+      out += ' ';
+      continue;
+    }
+    if (c === "'") {
+      let j = i + 1;
+      for (;;) {
+        const k = s.indexOf("'", j);
+        if (k < 0) {
+          j = s.length;
+          break;
+        }
+        if (s[k + 1] === "'") {
+          j = k + 2;
+          continue;
+        }
+        j = k + 1;
+        break;
+      }
+      out += s.slice(i, j);
+      i = j;
+      continue;
+    }
+    if (c === '$' && !/[A-Za-z0-9_$]/.test(s[i - 1] ?? ' ')) {
+      const m = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(s.slice(i, i + 80));
+      if (m) {
+        const tag = m[0];
+        const close = s.indexOf(tag, i + tag.length);
+        const body = s.slice(i + tag.length, close < 0 ? s.length : close);
+        const stmtHeader = out.slice(stmtStart).trim();
+        if (/^DO\b/i.test(stmtHeader)) {
+          // Drop the DO wrapper header and keep inner statements for inspection.
+          out = out.slice(0, stmtStart) + ' ' + installTimeSqlBody(body) + ';';
+          stmtStart = out.length;
+        } else if (/^CREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\b/i.test(stmtHeader)) {
+          out = out.slice(0, stmtStart);
+        } else {
+          out += s.slice(i, close < 0 ? s.length : close + tag.length);
+        }
+        i = close < 0 ? s.length : close + tag.length;
+        continue;
+      }
+    }
+    if (c === ';') stmtStart = out.length + 1;
+    out += c;
+    i++;
+  }
+  return out;
+}
+
+function splitTopStatements(sql) {
+  const stmts = [];
+  let cur = '';
+  let inSingle = false;
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i];
+    if (inSingle) {
+      cur += ch;
+      if (ch === "'") {
+        if (sql[i + 1] === "'") {
+          cur += sql[i + 1];
+          i++;
+        } else {
+          inSingle = false;
+        }
+      }
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+      cur += ch;
+      continue;
+    }
+    if (ch === ';') {
+      const trimmed = cur.trim();
+      if (trimmed) stmts.push(trimmed);
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur.trim()) stmts.push(cur.trim());
+  return stmts;
+}
+
+/**
+ * Extract install-time SELECT / UPDATE / DELETE (including CTE WITH ...)
+ * statements targeting any table in `hotTablesSet`.
+ */
+export function extractHotTableInstallStatements(sql, hotTablesSet = new Set(HOT_TABLES)) {
+  const body = installTimeSqlBody(sql);
+  const stmts = splitTopStatements(body);
+  const found = [];
+  for (const rawStmt of stmts) {
+    // Strip leading PL/pgSQL BEGIN/EXCEPTION markers if extracted from a DO block.
+    const stmt = rawStmt.replace(/^(?:BEGIN|ELSE)\b\s*/i, '').trim();
+    if (!/^(?:WITH|SELECT|UPDATE|DELETE)\b/i.test(stmt)) continue;
+    // Skip PL/pgSQL control statements or expressions with unbound INTO/variables.
+    if (/^SELECT\s+set_config\s*\(/i.test(stmt)) continue;
+    const matched = [];
+    for (const tbl of hotTablesSet) {
+      const re = new RegExp(
+        `(?:\\b(?:FROM|JOIN|UPDATE|INTO)\\s+(?:ONLY\\s+)?(?:(?:public|smarter_private)\\s*\\.\\s*)?"?${tbl}"?\\b)`,
+        'i'
+      );
+      if (re.test(stmt)) matched.push(tbl);
+    }
+    if (matched.length > 0) {
+      found.push({ statement: stmt, tables: matched });
+    }
+  }
+  return found;
+}
+
+/**
+ * True when the migration carries an explicit `-- @probe-exempt` covering
+ * `tableName` (or a general/query-plan exemption, not an unrelated function
+ * exemption like `-- @probe-exempt: public.fn_other ...`).
+ */
+export function isHotTablePlanExempt(sql, tableName) {
+  const linesList = String(sql).split('\n');
+  const tbl = String(tableName || '').toLowerCase();
+  for (const rawLine of linesList) {
+    const m = /^--[ \t]*@probe-exempt(?::[ \t]*(.*))?$/i.exec(rawLine.trim());
+    if (!m) continue;
+    const rest = (m[1] ?? '').trim().toLowerCase();
+    if (!rest) return true;
+    if (tbl && new RegExp(`\\b${tbl}\\b`).test(rest)) return true;
+    if (/\b(query-plan|seq-scan|hot-table)\b/.test(rest)) return true;
+    // If it explicitly names a function (public.fn_* / smarter_private.fn_*),
+    // treat it as scoped to that function probe rather than hot-table plans.
+    if (/^(?:public|smarter_private)\.[a-z0-9_]+\b/.test(rest)) continue;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Walk a PostgreSQL EXPLAIN (FORMAT JSON) output and return every Seq Scan
+ * targeting a high-cardinality hot table (est_rows >= HOT_TABLE_ROW_THRESHOLD).
+ */
+export function analyzeExplainPlan(explainJson, hotTableStats) {
+  const findings = [];
+  const lookup =
+    hotTableStats instanceof Map
+      ? hotTableStats
+      : new Map(
+          (Array.isArray(hotTableStats) ? hotTableStats : []).map((r) => [
+            String(r.relname).toLowerCase(),
+            r,
+          ])
+        );
+  const walk = (node) => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+      return;
+    }
+    if (node.Plan) walk(node.Plan);
+    const nodeType = node['Node Type'];
+    const relName = typeof node['Relation Name'] === 'string' ? node['Relation Name'].toLowerCase() : null;
+    if (nodeType === 'Seq Scan' && relName) {
+      const stat = lookup.get(relName);
+      if (stat && Number(stat.est_rows) >= HOT_TABLE_ROW_THRESHOLD) {
+        findings.push({
+          table: relName,
+          schema: node.Schema ?? stat.schemaname ?? 'public',
+          estRows: Number(stat.est_rows),
+          nodeType,
+          filter: node.Filter ?? null,
+          totalCost: node['Total Cost'] ?? null,
+          planRows: node['Plan Rows'] ?? null,
+        });
+      }
+    }
+    if (Array.isArray(node.Plans)) {
+      for (const child of node.Plans) walk(child);
+    }
+  };
+  walk(explainJson);
+  return findings;
+}
+
+/**
+ * Evaluate install-time statements in a single migration against production
+ * row-scale stats using `runExplain(statement) => parsedExplainJson | null`.
+ */
+export function evaluateHotTablePlans(file, sql, stats, runExplain) {
+  const highCardHot = new Map();
+  for (const row of stats) {
+    const rel = String(row.relname).toLowerCase();
+    if (HOT_TABLES.includes(rel) && Number(row.est_rows) >= HOT_TABLE_ROW_THRESHOLD) {
+      highCardHot.set(rel, row);
+    }
+  }
+  if (highCardHot.size === 0) {
+    return { ok: true, file, checkedStatements: 0, skippedExempt: 0, violations: [] };
+  }
+  const candidates = extractHotTableInstallStatements(sql, new Set(highCardHot.keys()));
+  const violations = [];
+  let checkedStatements = 0;
+  let skippedExempt = 0;
+  for (const { statement, tables } of candidates) {
+    if (tables.every((t) => isHotTablePlanExempt(sql, t))) {
+      skippedExempt++;
+      continue;
+    }
+    checkedStatements++;
+    const plan = runExplain(statement, file);
+    if (!plan) continue;
+    for (const hit of analyzeExplainPlan(plan, highCardHot)) {
+      if (isHotTablePlanExempt(sql, hit.table)) continue;
+      violations.push({
+        file,
+        ...hit,
+        statement: statement.replace(/\s+/g, ' ').slice(0, 240),
+      });
+    }
+  }
+  return {
+    ok: violations.length === 0,
+    file,
+    checkedStatements,
+    skippedExempt,
+    violations,
+  };
+}
+
+function runExplainViaPsql(psqlArgv, statement) {
+  // On a schema-only restore (0 physical heap blocks), Postgres's planner
+  // scales reltuples by RelationGetNumberOfBlocks() = 0 unless seqscan is
+  // discouraged. Setting enable_seqscan = off inside the rolled-back EXPLAIN
+  // transaction forces Postgres to pick any usable index and fall back to
+  // Seq Scan ONLY when no selective index can answer the predicate.
+  const explainSql = `BEGIN;\nSET LOCAL enable_seqscan = off;\nEXPLAIN (FORMAT JSON) ${statement};\nROLLBACK;\n`;
+  const res = spawnSync(psqlArgv[0], [...psqlArgv.slice(1), '-X', '-Atq', '-v', 'ON_ERROR_STOP=1'], {
+    input: explainSql,
+    encoding: 'utf8',
+    timeout: 15_000,
+  });
+  if (res.status !== 0) return null;
+  const trimmed = (res.stdout || '').trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+}
+
 // CLI:
 //   node scripts/ci/window-queue-rehearsal.mjs plan <migrations-dir> <installed-versions-file> [changed-names-file]
 //   node scripts/ci/window-queue-rehearsal.mjs sql <migrations-dir> <file>
+//   node scripts/ci/window-queue-rehearsal.mjs seed-stats <table-stats.json>
+//   node scripts/ci/window-queue-rehearsal.mjs check-plans <migrations-dir> <table-stats.json> <changed-names-file>
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [cmd, dir, a, b] = process.argv.slice(2);
   if (cmd === 'plan') {
@@ -228,9 +583,54 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     );
   } else if (cmd === 'sql') {
     process.stdout.write(rehearsalSQL(a, readFileSync(join(dir, a), 'utf8')));
+  } else if (cmd === 'seed-stats') {
+    const stats = parseTableStats(readFileSync(dir, 'utf8'));
+    process.stdout.write(seedTableStatsSQL(stats));
+  } else if (cmd === 'check-plans') {
+    const stats = parseTableStats(readFileSync(a, 'utf8'));
+    const changedNames = lines(b).map((p) => p.replace(/^supabase\/migrations\//, ''));
+    const psqlStr = (process.env.REHEARSAL_PSQL || '').trim();
+    if (!psqlStr) {
+      console.error('REHEARSAL_PSQL is required for check-plans');
+      process.exit(2);
+    }
+    const psqlArgv = psqlStr.split(/\s+/);
+    const reports = [];
+    const allViolations = [];
+    for (const name of changedNames) {
+      if (!MIGRATION_FILE.test(name)) continue;
+      const fullPath = join(dir, name);
+      if (!existsSync(fullPath)) continue;
+      const sql = readFileSync(fullPath, 'utf8');
+      const rep = evaluateHotTablePlans(name, sql, stats, (stmt) =>
+        runExplainViaPsql(psqlArgv, stmt)
+      );
+      reports.push(rep);
+      allViolations.push(...rep.violations);
+    }
+    if (process.env.EVIDENCE) {
+      mkdirSync(process.env.EVIDENCE, { recursive: true });
+      writeFileSync(
+        join(process.env.EVIDENCE, 'hot-table-plans.json'),
+        JSON.stringify({ statsCount: stats.length, reports, violations: allViolations }, null, 2) +
+          '\n'
+      );
+    }
+    if (allViolations.length > 0) {
+      for (const v of allViolations) {
+        console.error(
+          `[hot-table-plan] REFUSED ${v.file}: Seq Scan on high-cardinality hot table ${v.schema}.${v.table} ` +
+            `(est_rows=${v.estRows} >= ${HOT_TABLE_ROW_THRESHOLD}) without selective index or -- @probe-exempt: ${v.statement}`
+        );
+      }
+      process.exit(1);
+    }
+    console.log(
+      `[hot-table-plan] OK: ${reports.reduce((acc, r) => acc + r.checkedStatements, 0)} install-time hot-table statement(s) checked against ${stats.length} table stat(s); 0 Seq Scan violations.`
+    );
   } else {
     console.error(
-      'usage: window-queue-rehearsal.mjs plan <dir> <installed> [changed] | sql <dir> <file>'
+      'usage: window-queue-rehearsal.mjs plan <dir> <installed> [changed] | sql <dir> <file> | seed-stats <stats.json> | check-plans <dir> <stats.json> <changed>'
     );
     process.exit(2);
   }

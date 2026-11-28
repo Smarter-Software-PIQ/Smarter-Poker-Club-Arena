@@ -48,7 +48,13 @@ const count = (s, re) => (s.match(re) ?? []).length;
  */
 const paintedDecls = (style, prop, isZero) =>
   [...style.matchAll(new RegExp(`${prop}\\s*:\\s*([^;}]*)`, 'g'))].filter(
-    (m) => !isZero(m[1].trim().replace(/\s*!important$/, '').trim())
+    (m) =>
+      !isZero(
+        m[1]
+          .trim()
+          .replace(/\s*!important$/, '')
+          .trim()
+      )
   ).length;
 
 /**
@@ -426,7 +432,19 @@ if (process.argv.includes('--json')) {
   const pinned = rows.filter((r) => r.spokenFor).length;
   console.log(
     `\n${done.length} surface(s) already spoken for (${pinned} pinned by a visual test), ` +
-      `${rows.length - done.length} to go.`
+      `${rows.length - done.length} to go against the PAINTED #ClubArenaConsole kit.`
+  );
+  /* NOT A #SMARTERDESIGN COUNT (2026-11-28). A routed page on painted
+     SpadeConsole plates scores 0 here, which reads as "done", while under
+     #SmarterDesign (Dan, 2026-11-27) those plates are "THE OLD STYLE" on a page.
+     "0 to go" from this line sent lanes to the wrong list. Routed pages are
+     measured by scripts/smarterdesign-inventory.mjs; this scanner stays the
+     measure for popups, modals, sheets and dialogs. */
+  console.log(
+    '\nROUTED PAGES ARE NOT MEASURED HERE. A page built from painted SpadeConsole sections ' +
+      'scores 0\nabove, but under #SmarterDesign it is not converted. For routed pages, sub ' +
+      'pages and\nworkspaces run:  node scripts/smarterdesign-inventory.mjs  (and --claims ' +
+      'before starting one).\nThis list stays the measure for popups, modals, sheets and dialogs.'
   );
   if (retained === null) {
     console.log(

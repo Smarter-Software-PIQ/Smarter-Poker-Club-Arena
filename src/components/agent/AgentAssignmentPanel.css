@@ -1,55 +1,182 @@
-.agent-assignment {
-  display: grid;
-  gap: 3cqw;
+/* ASSIGN AND TRANSFER IN #SMARTERDESIGN (batch 6, 2026-11-28)
+
+   The Hierarchy tab of Agent Team. The case is ClubPageSection's arena case;
+   the fields are `arena-ops-well`, the actions `arena-switch arena-ops-keys`
+   (Review Assignment Or Transfer lit), the transfer review and each history
+   record a chrome `arena-ledger-row`. This sheet lays them out and dresses
+   what the kit has no rule for (labels, sub titles, the refusal line, the
+   Transfer Details disclosure) in the workspace inks. Every rule is scoped
+   under .arena-workspace. No new gradient, radius or shadow. Nothing reacts to
+   a resting pointer. */
+
+.arena-workspace .agent-assignment {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   min-width: 0;
-}
-.agent-assignment label {
-  display: grid;
-  gap: 1cqw;
-}
-.agent-assignment select {
-  width: 100%;
-  max-width: 100%;
-  color: #e4e7ec;
-  background: #050607;
-  font: inherit;
-}
-.agent-assignment option {
-  white-space: normal;
-}
-.agent-assignment button {
-  border: 0;
-  background: transparent;
-  padding: 1cqw;
-  cursor: pointer;
-}
-.agent-assignment button:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.agent-assignment button:focus-visible {
-  outline: 1px solid #45adff;
 }
 
-.agent-assignment input {
-  width: 100%;
-  max-width: 100%;
-  background: #050607;
-  color: #e4e7ec;
-  font: inherit;
-}
-.agent-assignment-preview,
-.agent-assignment-history,
-.agent-assignment-history li {
-  border-top: 1px solid #000;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
-  padding-top: 2cqw;
+.arena-workspace .agent-assignment-label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
   min-width: 0;
+  color: #9fbacc;
+  font:
+    700 11px/1.3 'Arial Narrow',
+    Arial,
+    sans-serif;
 }
-.agent-assignment ul,
-.agent-assignment ol {
-  padding-inline-start: 4cqw;
+
+/* Inputs keep 16px so iOS does not zoom on focus. */
+.arena-workspace .agent-assignment .arena-ops-well {
+  max-width: 100%;
+  color-scheme: dark;
+  font:
+    16px/1.2 Arial,
+    sans-serif;
 }
-.agent-assignment-operation {
+
+.arena-workspace .agent-assignment option {
+  white-space: normal;
+}
+
+.arena-workspace .agent-assignment .arena-switch {
+  margin: 0;
+}
+
+/* A key alone on its line keeps a key's width instead of spanning the case. */
+.arena-workspace .agent-assignment .arena-switch > button:only-child {
+  flex: 0 1 calc(50% - 4px);
+}
+
+.arena-workspace .agent-assignment .arena-switch.arena-ops-primary > button:only-child {
+  flex: 1 1 100%;
+}
+
+@media (min-width: 721px) {
+  .arena-workspace .agent-assignment .arena-switch > button:only-child,
+  .arena-workspace .agent-assignment .arena-switch.arena-ops-primary > button:only-child {
+    flex: 0 1 22rem;
+  }
+}
+
+.arena-workspace .agent-assignment-alert {
+  color: #ff5b6e;
+}
+
+.arena-workspace .agent-assignment-subtitle {
+  margin: 0;
+  color: #f1f5fc;
+  font:
+    800 17px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: -0.2px;
+}
+
+/* The review before a transfer, and each record of one: chrome rows. */
+.arena-workspace .agent-assignment-preview,
+.arena-workspace .agent-assignment-record {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 10px;
+  color: #dce5ef;
+}
+
+.arena-workspace .agent-assignment-preview ul,
+.arena-workspace .agent-assignment-history ol {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.arena-workspace .agent-assignment-preview ul {
+  padding-inline-start: 14px;
+  list-style: disc;
+}
+
+.arena-workspace .agent-assignment-record p {
+  margin: 0;
+  font:
+    12px/1.4 Arial,
+    sans-serif;
+}
+
+.arena-workspace .agent-assignment-record > p:first-child {
+  color: #f1f5fc;
+  font:
+    800 14px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.arena-workspace .agent-assignment-record time {
+  color: #74dfff;
+}
+
+/* The history sits under the section-title hairline. */
+.arena-workspace .agent-assignment-history {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid #253e57;
+}
+
+.arena-workspace .agent-assignment-history form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Transfer Details: the ledger disclosure, a chevron of two strokes. */
+.arena-workspace .agent-assignment-record summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  color: #dce5ef;
+  font:
+    700 13px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  list-style: none;
+  cursor: pointer;
+}
+
+.arena-workspace .agent-assignment-record summary::-webkit-details-marker {
+  display: none;
+}
+
+.arena-workspace .agent-assignment-record summary::after {
+  content: '';
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-right: 2px solid #74dfff;
+  border-bottom: 2px solid #74dfff;
+  transform: rotate(45deg);
+}
+
+.arena-workspace .agent-assignment-record details[open] > summary::after {
+  transform: rotate(225deg);
+}
+
+.arena-workspace .agent-assignment-record summary:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+
+.arena-workspace .agent-assignment-operation {
+  color: #9fbacc;
   overflow-wrap: anywhere;
 }

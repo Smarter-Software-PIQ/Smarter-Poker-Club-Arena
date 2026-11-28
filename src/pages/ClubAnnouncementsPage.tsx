@@ -1,5 +1,5 @@
 /**
- *  CLUB ANNOUNCEMENTS PAGE — Live Updates
+ *  CLUB ANNOUNCEMENTS PAGE - Live Updates
  */
 
 import { useState, useEffect, useRef } from 'react';
@@ -14,14 +14,11 @@ import ConfirmModal from '../components/common/ConfirmModal';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import { resolveClubUUID } from '../utils/clubIdResolver';
 import { formatDate } from '../utils/format';
-import './ClubAnnouncementsPage.css';
-import PageSkeleton from '../components/common/PageSkeleton';
-import StandardContentLayout from '../components/layouts/StandardContentLayout';
-/* #SmarterDesign (Dan 2026-11-27): the painted console is the old style for a
-   page section; the posts print in the thin chrome case with chrome keys. */
-import { ClubPageSection as SpadeConsole } from '../components/club/ClubPageSection';
-import '../components/console/SpadeConsole.css';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import { ArenaState } from '../components/ops/ArenaOps';
 import '../components/lobby/ArenaWorkspace.css';
+import '../components/ops/ArenaOps.css';
+import './ClubAnnouncementsPage.css';
 import { reportError } from '../utils/errorReporter';
 
 const announcementAnimationStyle = (index: number) => ({
@@ -30,7 +27,7 @@ const announcementAnimationStyle = (index: number) => ({
   animation: `fadeInUp 0.5s ease-out ${index * 60}ms forwards`,
 });
 
-/* Whole-word plural, Title Case, for the painted pill slot. */
+/* Whole-word plural, Title Case, for the count beside the section title. */
 const postsPill = (n: number) => (n === 1 ? '1 Post' : `${n} Posts`);
 
 interface Announcement {
@@ -334,7 +331,7 @@ export default function ClubAnnouncementsPage() {
       reportError(error, 'ClubAnnouncementsPage.Failed_to_post_announcement');
       // 2026-08-28: this catch was error reporting-only. A thrown failure (network,
       // resolveClubUUID) left the composer open with no success and no error
-      // — the user could not tell whether the post landed. The in-band error
+      // - the user could not tell whether the post landed. The in-band error
       // branch above already toasts; a thrown one must too.
       toast.error('Failed to post announcement');
     } finally {
@@ -417,83 +414,62 @@ export default function ClubAnnouncementsPage() {
     }
   };
 
-  /* THE CONSOLE (2026-09-08). This was a stack of rounded navy cards with a
-     yellow pinned stripe, an amber PINNED chip, a cyan button bar and a row of
-     outlined Pin / Delete buttons under every post. It is now the spade
-     console, like Club Rules beside it: the club's name is the eyebrow,
-     ANNOUNCEMENTS is engraved in the header well, the count sits in the
-     painted pill slot, and every post prints on the glass between the rails
-     with an engraved rule between them - PINNED in gold, the title in silver,
-     the copy in the console's own type, who and when in muted ink. Staff get
-     the two plates painted into the foot (REFRESH / NEW POST, or CANCEL / POST
-     while writing) and a lit word on each post for Pin and Delete. Nothing is
-     drawn; nothing is stuck on. Every handler above is untouched. */
+  /* THE CONSOLE, NOW #SMARTERDESIGN (Dan 2026-11-27). The posts sat on the
+     painted spade console; they now sit in the arena workspace every Club
+     Operations page wears: the chrome mast with the club's name, one thin
+     chrome case with the count as a gold figure, and every post a chrome
+     ledger row - PINNED in gold, the title in white, who and when in muted
+     ink. Staff get one chrome switch (Refresh and New Post, or Cancel and Post
+     while writing) and chrome keys on each post for Pin and Delete. Every
+     handler above is untouched. */
   const canPost = !posting && !!newTitle.trim() && !!newContent.trim();
-  const staffPlates =
-    isAdmin && !loading && !loadError
-      ? showComposer
-        ? {
-            secondary: {
-              label: 'Cancel',
-              onClick: () => setShowComposer(false),
-              disabled: posting,
-            },
-            primary: {
-              label: posting ? 'Posting' : 'Post',
-              ink: 'white' as const,
-              onClick: () => void handlePost(),
-              disabled: !canPost,
-            },
-          }
-        : {
-            secondary: {
-              label: 'Refresh',
-              onClick: () => void loadAnnouncements(),
-            },
-            primary: {
-              label: 'New Post',
-              ink: 'white' as const,
-              onClick: () => setShowComposer(true),
-            },
-          }
-      : undefined;
+  const showStaffKeys = isAdmin && !loading && !loadError;
+  const countPill = loadError
+    ? 'Offline'
+    : loading
+      ? undefined
+      : announcements.length === 0
+        ? 'Empty'
+        : postsPill(announcements.length);
 
   return (
-    <StandardContentLayout className="announcements-page arena-workspace">
-      <SpadeConsole
-        arena
-        onClose={() => navigate(`/clubs/${clubId}`)}
-        className="announcements-console"
-        aria-busy={loading || posting || undefined}
-        eyebrow={clubName || 'Club'}
+    <section
+      className="announcements-page arena-workspace"
+      aria-busy={loading || posting || undefined}
+    >
+      <nav className="arena-switch ann-back" aria-label="Announcements Navigation">
+        <button type="button" onClick={() => navigate(`/clubs/${clubId}`)}>
+          Back To Club
+        </button>
+      </nav>
+      <ArenaWorkspaceHeader
+        area="control"
         title="Announcements"
-        pill={
-          loadError
-            ? 'Offline'
-            : loading
-              ? undefined
-              : announcements.length === 0
-                ? 'Empty'
-                : postsPill(announcements.length)
-        }
-        pillInk={loadError ? 'red' : announcements.length === 0 ? 'muted' : 'blue'}
-        plates={staffPlates}
-        foot={staffPlates ? 'plates' : 'foot'}
-      >
+        context={clubName || undefined}
+        summary="Read What The Club Has Posted For Its Members, Pinned Posts First."
+      />
+      <section className="arena-case arena-ops-case" aria-label="Announcements">
+        <h2 className="arena-section-title">
+          Announcements
+          {countPill && (
+            <small className="ann-pill" data-offline={loadError || undefined}>
+              {countPill}
+            </small>
+          )}
+        </h2>
         {loadError && !loading ? (
-          <div className="ann-empty">
-            <span className="sc-label sc-ink--red">Could Not Load</span>
-            <p className="sc-copy sc-copy--center">Failed To Load Announcements.</p>
-            <div className="arena-switch arena-ops-keys arena-ops-primary ann-keys">
-              <button type="button" className="ann-word" onClick={() => loadAnnouncements()}>
+          <ArenaState
+            tone="error"
+            title="Could Not Load"
+            message="Failed To Load Announcements."
+            actions={
+              <button type="button" onClick={() => loadAnnouncements()}>
                 Retry
               </button>
-            </div>
-          </div>
+            }
+          />
         ) : loading ? (
-          <div className="loading-state">
-            <PageSkeleton variant="list" />
-          </div>
+          <ArenaState tone="loading" title="Loading Announcements" />
         ) : (
           <>
             {showComposer && (
@@ -503,7 +479,7 @@ export default function ClubAnnouncementsPage() {
                   placeholder="Announcement Title"
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
-                  className="ann-input"
+                  className="arena-ops-well"
                   maxLength={100}
                   aria-label="Announcement Title"
                 />
@@ -512,51 +488,75 @@ export default function ClubAnnouncementsPage() {
                   value={newContent}
                   onChange={(e) => setNewContent(e.target.value)}
                   rows={5}
-                  className="ann-textarea"
+                  className="arena-ops-well ann-textarea"
                   maxLength={2000}
                   aria-label="Announcement"
                 />
               </div>
             )}
 
+            {showStaffKeys &&
+              (showComposer ? (
+                <div className="arena-switch arena-ops-keys">
+                  <button type="button" onClick={() => setShowComposer(false)} disabled={posting}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="active"
+                    onClick={() => void handlePost()}
+                    disabled={!canPost}
+                  >
+                    {posting ? 'Posting' : 'Post'}
+                  </button>
+                </div>
+              ) : (
+                <div className="arena-switch arena-ops-keys">
+                  <button type="button" onClick={() => void loadAnnouncements()}>
+                    Refresh
+                  </button>
+                  <button type="button" className="active" onClick={() => setShowComposer(true)}>
+                    New Post
+                  </button>
+                </div>
+              ))}
+
             {announcements.length === 0 ? (
-              <div className="ann-empty">
-                <span className="sc-label sc-ink--blue">No Announcements Yet</span>
-                <p className="sc-copy sc-copy--center">
-                  {isAdmin
+              <ArenaState
+                tone="empty"
+                title="No Announcements Yet"
+                message={
+                  isAdmin
                     ? 'Post The First One For Your Members.'
-                    : 'The Club Has Not Posted Anything Yet.'}
-                </p>
-              </div>
+                    : 'The Club Has Not Posted Anything Yet.'
+                }
+              />
             ) : (
-              <ol className="ann-list">
+              <ol className="arena-ops-rows arena-ops-rows--single">
                 {announcements.map((announcement, idx) => (
                   <li
                     key={announcement.id}
                     style={announcementAnimationStyle(idx)}
-                    className={`ann-post ${announcement.is_pinned ? 'ann-post--pinned' : ''}`.trim()}
+                    className={`arena-ledger-row ann-post ${announcement.is_pinned ? 'ann-post--pinned' : ''}`.trim()}
                   >
-                    {announcement.is_pinned && (
-                      <span className="sc-label sc-ink--gold ann-post__pin">Pinned</span>
-                    )}
-                    <h3 className="ann-post__title sc-ink--silver">{announcement.title}</h3>
-                    <p className="sc-copy ann-post__content">{announcement.content}</p>
-                    <div className="ann-post__meta sc-ink--muted">
+                    {announcement.is_pinned && <span className="ann-post__pin">Pinned</span>}
+                    <h3 className="ann-post__title">{announcement.title}</h3>
+                    <p className="arena-ops-copy ann-post__content">{announcement.content}</p>
+                    <div className="ann-post__meta">
                       <span>By {announcement.author_name}</span>
                       <span>{formatDate(announcement.created_at)}</span>
                     </div>
                     {isAdmin && (
-                      <div className="ann-post__actions arena-switch">
+                      <div className="arena-switch arena-ops-keys ann-post__actions">
                         <button
                           type="button"
-                          className="ann-word sc-ink--blue"
                           onClick={() => handleTogglePin(announcement.id, announcement.is_pinned)}
                         >
                           {announcement.is_pinned ? 'Unpin' : 'Pin'}
                         </button>
                         <button
                           type="button"
-                          className="ann-word sc-ink--red"
+                          className="ann-danger"
                           onClick={() => handleDelete(announcement.id)}
                         >
                           Delete
@@ -569,7 +569,7 @@ export default function ClubAnnouncementsPage() {
             )}
           </>
         )}
-      </SpadeConsole>
+      </section>
 
       {/* Confirm Modal */}
       <ConfirmModal
@@ -581,6 +581,6 @@ export default function ClubAnnouncementsPage() {
         onConfirm={executeDelete}
         onCancel={() => setDeleteTarget(null)}
       />
-    </StandardContentLayout>
+    </section>
   );
 }

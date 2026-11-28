@@ -250,7 +250,7 @@ describe('the multi-table surfaces can see the deadline too', () => {
        already precomputed by the parent. */
     expect(TABBAR).toMatch(/sitOutSecondsLeft\?: number/);
     expect(MULTI).toMatch(/sitOutSecondsLeft:/);
-    expect(TABBAR).toMatch(/table-tab-bar__tab-name">SEAT</);
+    expect(TABBAR).toMatch(/table-tab-bar__tab-name">Seat</);
   });
 
   it('the tab bar clock keeps running while only a sit-out is live', () => {

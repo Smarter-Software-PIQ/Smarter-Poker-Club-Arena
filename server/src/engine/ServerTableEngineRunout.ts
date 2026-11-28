@@ -525,6 +525,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
     // Phase 1: Chooser picks how many boards
     if (userId === state.chooserPlayerId && runs !== undefined) {
       this.runItTwiceEngine.chooserDecides(this.tableId, userId, runs);
+      this.markProgress();
       if (runs === 1) {
         /* Dan 2026-08-23: "I just tried to run it twice, and it did not run a
            second board... only ran it the one time and awarded me the pot."
@@ -575,6 +576,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
     // Phase 2: Other players accept or decline
     if (response === 'accept') {
       const allAccepted = this.runItTwiceEngine.accept(this.tableId, userId);
+      this.markProgress();
       // POKERBROS PARITY 2026-08-26: every accept is broadcast the moment it
       // lands, so all clients tick the player's green check LIVE (reference
       // behavior: checks appear one by one as players agree). Reads the state
@@ -606,6 +608,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
       return { success: true, status: 'waiting_for_others' };
     } else if (response === 'decline') {
       this.runItTwiceEngine.decline(this.tableId, userId);
+      this.markProgress();
       this.emitRitSingleRun('player_declined', userId);
       this.wakeRITWaiter();
       return { success: true, status: 'declined' };
@@ -652,6 +655,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
       if (!r.ok) {
         return { success: false, error: 'No pending EV cashout offer for this player' };
       }
+      this.markProgress();
       return { success: true, status: 'cashed_out', insuredAmount: r.amount };
     }
 
@@ -660,6 +664,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
       if (!accepted) {
         return { success: false, error: 'No pending insurance offer for this player' };
       }
+      this.markProgress();
       // NOTE: Premium is NOT deducted from stack here — player is ALL-IN.
       // Insurance premium is deducted from the winner's pot at settlement (like rake/BBJ).
       // If the insured player LOSES, they get paid from union/club bank.
@@ -682,6 +687,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
         .find((o) => o.playerId === userId && o.status === 'offered');
       const forHand = _declineForHand === true || (pending?.boardLength ?? 3) >= 3;
       this.insuranceEngine.decline(this.tableId, userId, forHand);
+      if (pending) this.markProgress();
       return { success: true, status: forHand ? 'declined_for_hand' : 'declined_street' };
     }
   }
@@ -1178,6 +1184,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
     if (!result) {
       return { success: false, error: 'Discard rejected' };
     }
+    this.markProgress();
     // A human action owns the seat now. Cancel a delayed or queued horse job
     // for that exact seat rather than letting it consume FIFO capacity only to
     // be stale-discarded later.
@@ -3694,6 +3701,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
         );
 
         if (offers.length > 0) {
+          this.noteActiveClockProgress();
           this.broadcastInsuranceOffers(offers, insurablePot, offerTimeout, {
             board: result.board,
             allInPlayers,
@@ -3742,6 +3750,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
           );
 
           if (offers.length > 0) {
+            this.noteActiveClockProgress();
             this.broadcastInsuranceOffers(offers, insurablePot, offerTimeout, {
               board: result.board,
               allInPlayers,
@@ -4174,7 +4183,15 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
       250
     ); // Check every 250ms
 
-    // Safety timeout: if insurance engine's own timeouts somehow fail, force continue after 20s
+    // Safety timeout: derive from InsuranceEngine's own configured offer window
+    // (+5s slack, matching waitForRITResponse) so the fallback never truncates
+    // the 25-second offer countdown (previously hardcoded at 22_000 ms).
+    const safetyTimeoutMs =
+      (typeof this.insuranceEngine.offerTimeoutSeconds === 'function'
+        ? this.insuranceEngine.offerTimeoutSeconds(this.tableId)
+        : 25) *
+        1000 +
+      5_000;
     const safetyTimeout = this.setHandTimeout(() => {
       if (!this.insuranceEngine.allResponded(this.tableId)) {
         console.warn(
@@ -4188,6 +4205,6 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
         }
       }
       finish();
-    }, 22_000);
+    }, safetyTimeoutMs);
   }
 }

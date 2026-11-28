@@ -95,7 +95,7 @@ test.describe('Cashier Trade — deep authenticated UX', () => {
       await expect(receipt).toBeHidden();
     } else if ((await retry.count()) > 0) {
       await expect(panel.getByRole('alert')).toContainText(
-        'Could not load your transaction history.'
+        'Could Not Load Your Transaction History.'
       );
     } else {
       await expect(empty).toBeVisible();

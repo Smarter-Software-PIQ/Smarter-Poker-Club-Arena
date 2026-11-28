@@ -541,7 +541,7 @@
   font-size: 0.8125rem;
   font-weight: 700;
   color: #e2e8f0;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.06em;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
@@ -615,7 +615,7 @@
 .jackpot-label {
   font-size: 0.625rem;
   font-weight: 700;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.1em;
   color: var(--sp-text-bright);
 }
@@ -1434,7 +1434,10 @@
   font-size: calc(0.67 * clamp(0.6875rem, 6cqw, 0.8125rem));
   font-weight: 600;
   letter-spacing: 0.035em;
-  text-transform: uppercase;
+  /* No uppercase transform (2026-11-28): club and union names are Title Cased
+     at the print site (titleCaseName), and every other line is a Title Case
+     literal. The short game code (NLH, PLO4) is upper case in the source. */
+  text-transform: none;
   color: #a6a6a6;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
   white-space: normal;
@@ -2461,7 +2464,7 @@
   font-size: 0.95rem;
   font-weight: 800;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  text-transform: none;
   cursor: pointer;
 }
 
@@ -3110,7 +3113,7 @@
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.06em;
-  text-transform: uppercase;
+  text-transform: none;
   white-space: normal;
   overflow: visible;
   overflow-wrap: anywhere;
@@ -3831,7 +3834,7 @@
   font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
   font-weight: 800;
   letter-spacing: 0.06em;
-  text-transform: uppercase;
+  text-transform: none;
   box-shadow:
     0 0 18px rgba(24, 119, 242, 0.45),
     0 4px 14px rgba(0, 0, 0, 0.5);
@@ -4179,7 +4182,7 @@ button.post-bb-overlay-button {
     Inter,
     sans-serif;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
+  text-transform: none;
   cursor: pointer;
 }
 
@@ -4336,7 +4339,7 @@ button.post-bb-overlay-button {
   font-size: 13px;
   font-weight: 800;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
+  text-transform: none;
   pointer-events: none;
   animation: spinHeadsUpNote 1.5s ease both;
 }
@@ -4972,7 +4975,7 @@ button.post-bb-overlay-button {
   font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 /* Portrait gameplay leaves real outboard lanes for player pods. Nine seats

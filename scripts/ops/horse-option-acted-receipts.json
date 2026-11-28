@@ -1278,11 +1278,25 @@
       "prefixes": ["omaha_turn_line_prior_"],
       "unlessOn": []
     },
+    "omahaMultiwayRiverBetPriorIsPeopleMeasured": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_mw_river_people_prior_"],
+      "unlessOn": []
+    },
     "omahaHiddenBetsArePricedAsGiveUps": {
       "releaseDefault": "off",
       "source": "declared",
       "keys": [],
       "prefixes": ["omaha_hidden_give_up_"],
+      "unlessOn": []
+    },
+    "omahaRiverBetPriorIsPotTypeSplit": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_river_pot_prior_"],
       "unlessOn": []
     },
     "omahaFacingBetFieldIsJoint": {
@@ -1291,6 +1305,20 @@
       "keys": [],
       "prefixes": ["omaha_priced_facing_bet_"],
       "unlessOn": ["omahaFacingBetIndifferenceCalls", "omahaFacingBetRangeIsMeasuredByLine"]
+    },
+    "omahaBareOverpairContinuationIsPeoplePriced": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_bare_overpair_people_priced"],
+      "unlessOn": []
+    },
+    "omahaGiveUpPricedTurnCallIsAtIndifference": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_give_up_indifference_"],
+      "unlessOn": []
     },
     "omahaMultiwayCallNeedsNutShare": {
       "releaseDefault": "off",
@@ -1438,6 +1466,20 @@
       "releaseDefault": "off",
       "source": "ledger",
       "keys": ["omaha_river_bluff_priced_on_range"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaMultiwayRiverBluffIsPricedOnBlockers": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_multiway_river_bluff_priced_on_blockers"],
+      "prefixes": [],
+      "unlessOn": []
+    },
+    "omahaFourWayPlusRiverBluffIsPricedOnBlockers": {
+      "releaseDefault": "off",
+      "source": "ledger",
+      "keys": ["omaha_four_way_plus_river_bluff_priced_on_blockers"],
       "prefixes": [],
       "unlessOn": []
     },

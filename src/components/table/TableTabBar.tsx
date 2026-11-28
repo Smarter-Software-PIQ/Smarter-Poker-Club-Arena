@@ -131,9 +131,9 @@ export interface TabInfo {
 
 /** What a pending decision is called on the pill. Short: it shares ~100px. */
 const DECISION_LABEL: Record<string, string> = {
-  discard: 'DISCARD',
-  insurance: 'INSURE',
-  rit: 'RUN IT',
+  discard: 'Discard',
+  insurance: 'Insure',
+  rit: 'Run It',
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -608,7 +608,7 @@ export function TableTabBar({
                   label: isTileView ? 'Single Table View' : 'Tile View',
                   icon: <TileViewIcon />,
                   disabled: !canToggleTileView,
-                  badge: isTileView ? 'ON' : undefined,
+                  badge: isTileView ? 'On' : undefined,
                   onClick: onToggleTileView,
                 },
               ],
@@ -732,28 +732,28 @@ export function TableTabBar({
              picker is TableMenu's own in-app gallery. */
             },
             {
-              /* Every switch says ON or OFF. A switch with no badge when off
+              /* Every switch says On or Off (Title Case, Dan 2026-11-28). A switch with no badge when off
                  reads as a row that does nothing. */
-              standUpBBBadge: tabs.find((t) => t.id === activeTabId)?.standUpNextBB ? 'ON' : 'OFF',
-              straddleBadge: tabs.find((t) => t.id === activeTabId)?.straddleEnabled ? 'ON' : 'OFF',
+              standUpBBBadge: tabs.find((t) => t.id === activeTabId)?.standUpNextBB ? 'On' : 'Off',
+              straddleBadge: tabs.find((t) => t.id === activeTabId)?.straddleEnabled ? 'On' : 'Off',
               leaveNextHandBadge: tabs.find((t) => t.id === activeTabId)?.leaveNextHandQueued
-                ? 'ON'
+                ? 'On'
                 : undefined,
               autoTopUpBadge: tabs.find((t) => t.id === activeTabId)?.isAutoRebuyEnabled
-                ? 'ON'
-                : 'OFF',
+                ? 'On'
+                : 'Off',
               autoTournamentRebuyBadge: tabs.find((t) => t.id === activeTabId)?.tournamentAutoRebuy
-                ? 'ON'
-                : 'OFF',
+                ? 'On'
+                : 'Off',
               autoTournamentAddOnBadge: tabs.find((t) => t.id === activeTabId)?.tournamentAutoAddOn
-                ? 'ON'
-                : 'OFF',
-              soundsBadge: soundOn ? 'ON' : 'OFF',
-              vibrationsBadge: vibrationOn ? 'ON' : 'OFF',
+                ? 'On'
+                : 'Off',
+              soundsBadge: soundOn ? 'On' : 'Off',
+              vibrationsBadge: vibrationOn ? 'On' : 'Off',
               profitTrackingBadge: onToggleProfitTracking
                 ? profitTrackingEnabled
-                  ? 'ON'
-                  : 'OFF'
+                  ? 'On'
+                  : 'Off'
                 : undefined,
               canAddFunds: tabs.find((t) => t.id === activeTabId)?.canAddFunds,
               heroSeated: tabs.find((t) => t.id === activeTabId)?.heroSeated,
@@ -978,7 +978,7 @@ export function TableTabBar({
                     sitOutUrgent ? ' table-tab-bar__tab-label--seat-urgent' : ''
                   }`}
                 >
-                  <span className="table-tab-bar__tab-name">SEAT</span>
+                  <span className="table-tab-bar__tab-name">Seat</span>
                   <span className="table-tab-bar__tab-sub">{sitOutLeft}</span>
                 </span>
               ) : timeBankLeft !== undefined ? (
@@ -986,7 +986,7 @@ export function TableTabBar({
                    kicks in, it should display TIME BANK with a countdown
                    clock in the box." */
                 <span className="table-tab-bar__tab-label">
-                  <span className="table-tab-bar__tab-name">TIME BANK</span>
+                  <span className="table-tab-bar__tab-name">Time Bank</span>
                   <span className="table-tab-bar__tab-sub">{timeBankLeft}s</span>
                 </span>
               ) : (

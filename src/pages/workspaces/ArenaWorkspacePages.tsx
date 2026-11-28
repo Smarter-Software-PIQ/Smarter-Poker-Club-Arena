@@ -20,7 +20,8 @@ import { compactChips } from '../../utils/format';
 import { freshnessLabel } from '../../utils/clubOperationsFreshness';
 import PageBar from '../../components/help/PageBar';
 import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
-import { ArenaReadings, ArenaRow, type ArenaTone } from '../../components/ops/ArenaOps';
+import { ArenaReadings, ArenaRow, ArenaState, type ArenaTone } from '../../components/ops/ArenaOps';
+import { useArenaClubName } from '../../components/ops/useArenaClubName';
 import { LEGAL_CENTER, LEGAL_CENTER_ENTRIES } from '../legalCenterContent';
 import styles from './ArenaWorkspacePages.module.css';
 
@@ -79,6 +80,8 @@ function WorkspacePage({
      about one club (legal, help, friends, a /clubs/... tool) come back from
      withClubContext untouched. */
   const { routeClubId } = useClubWorkspace();
+  /* The club's name in the mast from the first frame, never "Club Arena". */
+  const mastClubName = useArenaClubName(readingState?.overview?.club.name);
   const [now, setNow] = useState(() => Date.now());
   const hasReadingState = Boolean(readingState);
   useEffect(() => {
@@ -109,7 +112,7 @@ function WorkspacePage({
         <ArenaWorkspaceHeader
           area={mast}
           title={title}
-          context={readingState?.overview?.club.name || null}
+          context={mastClubName}
           summary={description}
           steps={steps}
         />
@@ -132,6 +135,17 @@ function WorkspacePage({
                 {readingState.loading ? 'Reading' : 'Refresh'}
               </button>
             </div>
+            {(!readings || readings.length === 0) &&
+              !readingState.denied &&
+              (readingState.error ? (
+                <ArenaState
+                  tone="error"
+                  title="Readings Unavailable"
+                  message="Refresh To Read This Club Again."
+                />
+              ) : readingState.loading ? (
+                <ArenaState tone="loading" title="Reading Club Readings" />
+              ) : null)}
             {readings && readings.length > 0 && (
               <ArenaReadings
                 readings={readings.map((reading) => ({

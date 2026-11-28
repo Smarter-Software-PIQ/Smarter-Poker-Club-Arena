@@ -460,11 +460,19 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaPeoplePriorCountsHiddenBets',
   // 2026-11-27 lead-9 lane HUOOP: the hidden part of the turn bettor's non-value share priced as give-ups (ships dark)
   'omahaHiddenBetsArePricedAsGiveUps',
+  // 2026-11-27 lead-9 lane RV2: the heads-up river bet of a re-raised pot is priced on people's re-raised-pot river bets (ships dark)
+  'omahaRiverBetPriorIsPotTypeSplit',
   // 2026-11-26 PLO-OWNER lead-7: heads-up flop facing one bet, the V40 class cap priced against the bettor's range
   // on people-only flop shares for the call-or-fold check (ships dark)
   'omahaFlopPressureCapIsPriced',
+  // 2026-11-27 lead-9 lane HU2: the bare-overpair flop continuation priced on people's measured flop range (ships dark)
+  'omahaBareOverpairContinuationIsPeoplePriced',
+  // 2026-11-27 lead-9 lane HU2: the call on a give-up-priced turn bet at EV >= 0, not EV > the margin (ships dark)
+  'omahaGiveUpPricedTurnCallIsAtIndifference',
   // 2026-11-27 lead-8 lane OFB: the turn bettor priced on the people cell of the flop line, heads-up and multiway (ships dark)
   'omahaTurnFacingBetPriorIsLineSplit',
+  // 2026-11-27 lead-9 lanes MWR + RV + RV2: a multiway river first bet is priced on the bettor's own shown river bets over the people-only multiway river cell (ships dark)
+  'omahaMultiwayRiverBetPriorIsPeopleMeasured',
   'omahaFacingBetFieldIsJoint',
   'omahaMultiwayCallNeedsNutShare',
   'omahaMultiwayValueBetIsPriced',
@@ -478,6 +486,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaTurnBluffIsPricedOnBlockers',
   'omahaTurnBluffIsPricedOnRangeAdvantage',
   'omahaRiverBluffIsPricedOnRangeAdvantage',
+  // 2026-11-27 PLO-OWNER lead-9 lane underbluff: the multiway river opening bluff: the price and blockers (ships dark)
+  'omahaMultiwayRiverBluffIsPricedOnBlockers',
+  'omahaFourWayPlusRiverBluffIsPricedOnBlockers',
   // 2026-11-26 PLO-OWNER lead-7 (lead decision on job 5): a river full house on a trips board that quads or a
   // straight flush can beat may call, never raise (ships dark)
   'omahaRiverTripsBoardBoatIsNotNutClass',

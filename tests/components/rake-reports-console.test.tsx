@@ -230,9 +230,47 @@ vi.mock('../../src/components/console/SpadeConsole', () => ({
     </section>
   ),
 }));
+// #SmarterDesign (2026-11-27): the consoles print through ClubPageSection's arena
+// case; the same stand-in keeps this test about the figures, not the chrome.
+vi.mock('../../src/components/club/ClubPageSection', () => ({
+  ClubPageSection: ({
+    title,
+    pill,
+    plates,
+    children,
+  }: {
+    title: string;
+    pill?: string;
+    plates?: {
+      secondary?: { label: string; onClick?: () => void; disabled?: boolean };
+      primary?: { label: string; onClick?: () => void; disabled?: boolean };
+    };
+    children: ReactNode;
+  }) => (
+    <section aria-label={title}>
+      {pill && <span>{pill}</span>}
+      {children}
+      {plates?.secondary && (
+        <button
+          type="button"
+          onClick={plates.secondary.onClick}
+          disabled={plates.secondary.disabled}
+        >
+          {plates.secondary.label}
+        </button>
+      )}
+      {plates?.primary && (
+        <button type="button" onClick={plates.primary.onClick} disabled={plates.primary.disabled}>
+          {plates.primary.label}
+        </button>
+      )}
+    </section>
+  ),
+}));
 
 import RakeReports, { parseHandBreakdownPayload } from '../../src/components/admin/RakeReports';
 import { parseClubFinancialsPayload } from '../../src/utils/clubFinancialsPayload';
+import { moneyFigures } from '../helpers/moneyFigures';
 
 beforeEach(() => {
   localStorage.clear();
@@ -669,5 +707,39 @@ describe('Rake Reports console and truth boundary', () => {
     expect(styles).not.toContain(':hover');
     expect(styles).not.toContain('linear-gradient');
     expect(styles).not.toContain('backdrop-filter');
+  });
+});
+
+describe('every money figure is pinned before its frame moves (2026-11-27)', () => {
+  it('prints the same figures and hooks, in the same order', async () => {
+    const { container } = render(<RakeReports clubId="shark-club" />);
+    await screen.findByLabelText('Verified Rake Summary');
+    await screen.findAllByText('Night Owl');
+    expect(moneyFigures(container)).toMatchInlineSnapshot(`
+      {
+        "figures": [
+          "700",
+          "70",
+          "10",
+          "7",
+          "7",
+          "7 Days",
+          "100",
+          "100",
+          "100",
+          "100",
+          "100",
+          "100",
+          "100",
+          "1",
+          "1",
+          "NLH 10/20",
+          "700",
+          "70",
+          "Hand 42",
+        ],
+        "hooks": [],
+      }
+    `);
   });
 });

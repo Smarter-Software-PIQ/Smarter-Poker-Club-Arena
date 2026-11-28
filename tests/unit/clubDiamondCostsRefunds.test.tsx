@@ -50,29 +50,6 @@ vi.mock('../../src/utils/clubIdResolver', () => ({
   isUUID: () => true,
   resolveClubUUIDStrict: async (id: string) => id,
 }));
-vi.mock('../../src/components/console/SpadeConsole', () => ({
-  SpadeConsole: ({ children, plates, title, eyebrow, pill, id, tabIndex }: any) => (
-    <section
-      id={id}
-      tabIndex={tabIndex}
-      aria-label={`${eyebrow ?? ''} ${title}`.trim()}
-      data-pill={pill ?? ''}
-    >
-      {children}
-      {plates?.secondary ? (
-        <button disabled={plates.secondary.disabled} onClick={plates.secondary.onClick}>
-          {plates.secondary.label}
-        </button>
-      ) : null}
-      {plates?.primary ? (
-        <button disabled={plates.primary.disabled} onClick={plates.primary.onClick}>
-          {plates.primary.label}
-        </button>
-      ) : null}
-    </section>
-  ),
-}));
-
 import ClubDiamondCostsPage from '../../src/pages/club/ClubDiamondCostsPage';
 
 const now = Date.now();
@@ -349,7 +326,7 @@ const records = () => screen.getByRole('region', { name: 'Records Receipts' });
 /** The loaded page's head (the loading console carries the same eyebrow and title). */
 async function loadedHead() {
   await screen.findByRole('region', { name: 'Records Receipts' });
-  return screen.getByRole('region', { name: 'Club Operations Diamond Costs' });
+  return screen.getByRole('region', { name: 'Club Operations Operating Access' });
 }
 const refundConsole = () => screen.getByRole('region', { name: /^Refund / });
 
@@ -615,7 +592,7 @@ describe('A former owner keeps their receipts', () => {
   it('reads the receipts, read only, when the scope refuses access_denied', async () => {
     server.status = { success: false, error: 'access_denied' };
     render(<ClubDiamondCostsPage scopeKind="club" />);
-    const head = await screen.findByRole('region', { name: 'Club Records Diamond Costs' });
+    const head = await screen.findByRole('region', { name: 'Club Records Former Owner' });
     expect(head).toHaveAttribute('data-pill', 'Receipts Only');
     expect(within(head).getByText(/You No Longer Manage This Club\./)).toBeInTheDocument();
     const box = screen.getByRole('region', { name: 'Records Receipts' });

@@ -2,6 +2,8 @@ import { useEffect, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import styles from './LegalDocumentLayout.module.css';
 import PageBar from '../help/PageBar';
+import ArenaWorkspaceHeader from '../lobby/ArenaWorkspaceHeader';
+import '../ops/ArenaOps.css';
 import { resolveSeo } from '../../lib/seo';
 
 export interface LegalDocumentSection {
@@ -51,24 +53,28 @@ export default function LegalDocumentLayout({
   }, [location.pathname, title]);
 
   return (
-    <div className={styles.page}>
+    <div className={`${styles.page} arena-workspace`}>
       {/* Dan, 2026-10-17: no eyebrow, no giant title, no summary paragraph.
           The breadcrumb names the document; what it covers is behind the "?";
-          the effective date prints with the document, in its footer. */}
-      <PageBar title={title} summary={summary}>
+          the effective date prints with the document, in its footer.
+          #SmarterDesign (Dan 2026-11-27): the breadcrumb back to the Legal
+          Center sits above the arena mast, which carries the title and the
+          chrome "?". */}
+      <PageBar className={styles.bar} title={title} titleAs={false} showHelp={false}>
         <nav className={styles.breadcrumbs} aria-label="Breadcrumb">
           <Link to="/legal">Legal Center</Link>
           <span aria-hidden="true">/</span>
           <span aria-current="page">{title}</span>
         </nav>
       </PageBar>
+      <ArenaWorkspaceHeader area="handreview" title={title} summary={summary} />
 
       <div className={styles.documentGrid}>
         <aside className={styles.indexRail}>
-          <div className={styles.indexPlate}>
+          <div className={`${styles.indexPlate} arena-case arena-ops-case`}>
             <nav aria-label={`${title} Sections`}>
               {sections.map((section, index) => (
-                <a href={`#${section.id}`} key={section.id}>
+                <a href={`#${section.id}`} key={section.id} className="arena-ledger-row">
                   <span>{String(index + 1).padStart(2, '0')}</span>
                   {section.title}
                 </a>
@@ -77,12 +83,12 @@ export default function LegalDocumentLayout({
           </div>
         </aside>
 
-        <article className={styles.document} aria-label={title}>
+        <article className={`${styles.document} arena-case arena-ops-case`} aria-label={title}>
           {sections.map((section, index) => (
             <section id={section.id} key={section.id} tabIndex={-1}>
               <div className={styles.sectionHeading}>
                 <span aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
-                <h2>{section.title}</h2>
+                <h2 className="arena-section-title">{section.title}</h2>
               </div>
               <div className={styles.sectionBody}>{section.content}</div>
             </section>
@@ -97,7 +103,10 @@ export default function LegalDocumentLayout({
         </article>
       </div>
 
-      <nav className={styles.documentSwitchboard} aria-label="Legal Documents">
+      <nav
+        className={`${styles.documentSwitchboard} arena-switch arena-ops-keys`}
+        aria-label="Legal Documents"
+      >
         {DOCUMENTS.map((document) => (
           <Link
             to={document.path}

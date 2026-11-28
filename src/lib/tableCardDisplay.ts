@@ -1,3 +1,4 @@
+import { enumToTitleCase } from '../utils/titleCase';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  CARD DISPLAY HELPERS — pure
@@ -173,38 +174,41 @@ export function heroWinningHoleCardIndexes(
 }
 
 export const GAME_VARIANT_LABELS: Record<string, string> = {
-  NLH: "NO LIMIT HOLD'EM",
-  nlh: "NO LIMIT HOLD'EM",
-  PLO4: 'POT LIMIT OMAHA (4)',
-  plo4: 'POT LIMIT OMAHA (4)',
-  PLO5: 'POT LIMIT OMAHA (5)',
-  plo5: 'POT LIMIT OMAHA (5)',
-  PLO6: 'POT LIMIT OMAHA (6)',
-  plo6: 'POT LIMIT OMAHA (6)',
-  PLO8: 'PLO HI-LO (8+)',
-  plo8: 'PLO HI-LO (8+)',
-  SHORT_DECK: 'SHORT DECK 6+',
-  short_deck: 'SHORT DECK 6+',
-  FLH: "FIXED LIMIT HOLD'EM",
-  flh: "FIXED LIMIT HOLD'EM",
+  NLH: "No Limit Hold'em",
+  nlh: "No Limit Hold'em",
+  PLO4: 'Pot Limit Omaha (4)',
+  plo4: 'Pot Limit Omaha (4)',
+  PLO5: 'Pot Limit Omaha (5)',
+  plo5: 'Pot Limit Omaha (5)',
+  PLO6: 'Pot Limit Omaha (6)',
+  plo6: 'Pot Limit Omaha (6)',
+  PLO8: 'PLO Hi-Lo (8+)',
+  plo8: 'PLO Hi-Lo (8+)',
+  SHORT_DECK: 'Short Deck 6+',
+  short_deck: 'Short Deck 6+',
+  FLH: "Fixed Limit Hold'em",
+  flh: "Fixed Limit Hold'em",
   /* Owner ruling, November 14, 2026: the limit Omahas by their names. */
-  FLO4: 'OMAHA 4 CARD FIXED LIMIT',
-  flo4: 'OMAHA 4 CARD FIXED LIMIT',
-  FLO5: 'OMAHA 5 CARD FIXED LIMIT',
-  flo5: 'OMAHA 5 CARD FIXED LIMIT',
-  FLO6: 'OMAHA 6 CARD FIXED LIMIT',
-  flo6: 'OMAHA 6 CARD FIXED LIMIT',
-  FLO8: 'OMAHA 8o FIXED LIMIT',
-  flo8: 'OMAHA 8o FIXED LIMIT',
+  FLO4: 'Omaha 4 Card Fixed Limit',
+  flo4: 'Omaha 4 Card Fixed Limit',
+  FLO5: 'Omaha 5 Card Fixed Limit',
+  flo5: 'Omaha 5 Card Fixed Limit',
+  FLO6: 'Omaha 6 Card Fixed Limit',
+  flo6: 'Omaha 6 Card Fixed Limit',
+  FLO8: 'Omaha 8o Fixed Limit',
+  flo8: 'Omaha 8o Fixed Limit',
 
-  FLO: 'FIXED LIMIT OMAHA',
-  flo: 'FIXED LIMIT OMAHA',
-  MIXED: 'MIXED GAME',
-  mixed: 'MIXED GAME',
+  FLO: 'Fixed Limit Omaha',
+  flo: 'Fixed Limit Omaha',
+  MIXED: 'Mixed Game',
+  mixed: 'Mixed Game',
 };
 
+/* Title Case at the print site (2026-11-28): the table header used to shout
+   these through a CSS uppercase transform. An unknown variant key is a stored
+   enum, so it is spaced and Title Cased with its acronyms kept (PLO, NLH). */
 export function getGameVariantLabel(gameType: string): string {
-  return GAME_VARIANT_LABELS[gameType] || gameType.toUpperCase().replace(/_/g, ' ');
+  return GAME_VARIANT_LABELS[gameType] || enumToTitleCase(gameType.toLowerCase());
 }
 
 /**

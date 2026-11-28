@@ -75,7 +75,7 @@
   max-width: none;
   border-radius: 9px;
   background: rgba(0, 0, 0, 0.66);
-  border: 1px solid rgba(255, 215, 0, 0.45);
+  border: 1px solid rgba(116, 223, 255, 0.45);
   color: var(--sp-text-bright);
   cursor: pointer;
   overflow: hidden;
@@ -104,14 +104,14 @@
 }
 
 .mini-stats-card__tstat + .mini-stats-card__tstat {
-  border-left: 1px solid rgba(255, 215, 0, 0.18);
+  border-left: 1px solid rgba(116, 223, 255, 0.18);
 }
 
 .mini-stats-card__tstat-label {
   font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
+  text-transform: none;
   opacity: 0.72;
 }
 
@@ -226,7 +226,7 @@
   font-size: 9px;
   font-weight: 700;
   color: var(--sp-text-bright);
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.05em;
   margin-left: auto;
 }

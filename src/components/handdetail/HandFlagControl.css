@@ -40,14 +40,14 @@
   font-size: 0.82rem;
   font-weight: 800;
   letter-spacing: 0.06em;
-  text-transform: uppercase;
+  text-transform: none;
   color: #d6ad52;
 }
 
 .hand-flag__private {
   font-size: 0.68rem;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
+  text-transform: none;
   opacity: 0.55;
 }
 
@@ -106,7 +106,7 @@
   font-size: 0.7rem;
   font-weight: 800;
   letter-spacing: 0.06em;
-  text-transform: uppercase;
+  text-transform: none;
   padding: 2px 8px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -151,7 +151,7 @@
   display: block;
   font-size: 0.66rem;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
+  text-transform: none;
   opacity: 0.6;
   margin-bottom: 4px;
 }
@@ -191,4 +191,81 @@
   .hand-flag__actions > * {
     width: 100%;
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   #SMARTERDESIGN leftovers (2026-11-28). Inside a #SmarterDesign console (the
+   table's Hand History) Flag This Hand is a 44px chrome key, Send To The
+   Operators is the one lit cobalt primary, Cancel is a chrome key, and the
+   gold title, rule and status ink move to white, silver and ice. Dan:
+   "YELLOW IS NOT A APPROVED COLOR". Off a console nothing here applies.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.sc--sd .hand-flag {
+  border-color: #253e57;
+  background: rgba(4, 13, 23, 0.55);
+}
+.sc--sd .hand-flag--filed {
+  border-color: rgba(116, 223, 255, 0.32);
+}
+.sc--sd .hand-flag__title {
+  color: var(--sd-ink);
+}
+.sc--sd .hand-flag__private,
+.sc--sd .hand-flag__prompt {
+  color: var(--sd-silver-dim);
+  opacity: 1;
+}
+.sc--sd .hand-flag__text {
+  border: 1px solid #476079;
+  border-radius: 0;
+  background: #040d17;
+  color: var(--sd-ink);
+  color-scheme: dark;
+  font:
+    16px/1.4 Arial,
+    sans-serif;
+}
+.sc--sd .hand-flag .hand-flag__btn,
+.sc--sd .hand-flag .hand-flag__cancel {
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 6px 14px;
+  border: 5px solid transparent;
+  border-image: var(--sd-stat) 11 / 6px stretch;
+  border-radius: 0;
+  background: linear-gradient(155deg, #12273b, #07111c 70%);
+  background-clip: padding-box;
+  color: var(--sd-ink);
+  font:
+    700 16px/1.1 'Rajdhani',
+    'Roboto Condensed',
+    Inter,
+    sans-serif;
+  letter-spacing: 0.02em;
+}
+.sc--sd .hand-flag__actions .hand-flag__btn {
+  border-image-source: var(--sd-active);
+  background: linear-gradient(
+    var(--sd-cobalt-top),
+    var(--sd-cobalt-mid) 55%,
+    var(--sd-cobalt-deep)
+  );
+  background-clip: padding-box;
+  color: #fff;
+}
+.sc--sd .hand-flag .hand-flag__btn:active,
+.sc--sd .hand-flag .hand-flag__cancel:active {
+  filter: brightness(0.86);
+}
+.sc--sd .hand-flag .hand-flag__btn:focus-visible,
+.sc--sd .hand-flag .hand-flag__cancel:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+.sc--sd .hand-flag__status.is-open {
+  color: var(--sd-ice-strong);
+  border-color: rgba(116, 223, 255, 0.45);
+}
+.sc--sd .hand-flag__reply {
+  border-left-color: rgba(116, 223, 255, 0.55);
 }

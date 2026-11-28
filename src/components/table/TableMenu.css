@@ -125,7 +125,7 @@
   background: #202831;
   font-size: calc(0.75rem * var(--menu-scale));
   font-weight: 700;
-  text-transform: uppercase;
+  text-transform: none;
   cursor: pointer;
 }
 
@@ -204,7 +204,7 @@
   gap: 5px;
   font-size: calc(0.65rem * var(--menu-scale));
   font-weight: 600;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.05em;
 }
 
@@ -232,11 +232,11 @@
 }
 
 .table-menu__conn--reconnecting {
-  color: #d29922;
+  color: #9fbacc;
 }
 .table-menu__conn--reconnecting .table-menu__conn-dot {
-  background: #d29922;
-  box-shadow: 0 0 4px #d29922;
+  background: #9fbacc;
+  box-shadow: 0 0 4px #9fbacc;
   animation: connPulse 1.2s ease-in-out infinite;
 }
 
@@ -293,7 +293,7 @@
   padding: 4px 16px 8px;
   font-size: calc(0.625rem * var(--menu-scale));
   font-weight: 700;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.1em;
   color: #6e7681;
 }
@@ -492,8 +492,15 @@
    lettering, every action a chrome ledger row with an ice-blue icon, the X a
    44px chrome key. Geometry, scaling, stacking and the slide-in animations
    above are unchanged (animation law: they still play).
+
+   PORTAL-SAFE (2026-11-27 follow-up). The drawer portals to document.body
+   (TableMenu.tsx, createPortal), so it is NOT a descendant of `.table-menu`.
+   These rules were first written as `.table-menu .table-menu__*` and matched
+   nothing: the live drawer stayed the old generic panel. They are anchored on
+   the drawer itself now, and tests/components/table-drawer-is-portal-safe
+   .test.ts refuses the old ancestor.
    ═══════════════════════════════════════════════════════════════════════════════ */
-.table-menu .table-menu__dropdown {
+.table-menu__dropdown.table-menu__dropdown {
   background:
     radial-gradient(ellipse at 90% -20%, #1e3853, transparent 58%),
     linear-gradient(160deg, #0b1a2b, #030b14 72%);
@@ -505,12 +512,14 @@
   border-radius: 0;
   box-shadow: 0 10px 40px rgb(0 0 0 / 70%);
 }
-.table-menu .table-menu__utility {
+.table-menu__dropdown .table-menu__utility {
   padding: calc(14px * var(--menu-scale)) calc(16px * var(--menu-scale)) 0;
 }
-.table-menu .table-menu__close {
-  min-width: 44px;
-  min-height: 44px;
+.table-menu__dropdown .table-menu__close {
+  /* The drawer scales with the table layer (--menu-scale), so the 44px floor
+     scales with it (tests/e2e/mobile-lobby-chrome.spec.ts). */
+  min-width: calc(44px * var(--menu-scale));
+  min-height: calc(44px * var(--menu-scale));
   border: 4px solid transparent;
   border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') 11 / 5px
     stretch;
@@ -520,36 +529,36 @@
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
   font-weight: 700;
 }
-.table-menu .table-menu__header {
+.table-menu__dropdown .table-menu__header {
   margin: 0 calc(14px * var(--menu-scale));
   border-bottom: 1px solid rgb(134 218 255 / 18%);
 }
-.table-menu .table-menu__table-name {
-  color: #f4f8ff;
+.table-menu__dropdown .table-menu__table-name {
+  color: var(--sd-white);
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
   font-weight: 700;
   letter-spacing: 0.01em;
 }
-.table-menu .table-menu__header-meta {
-  color: #bdd0e2;
+.table-menu__dropdown .table-menu__header-meta {
+  color: var(--sd-silver);
   font-variant-numeric: tabular-nums;
 }
-.table-menu .table-menu__body {
+.table-menu__dropdown .table-menu__body {
   padding: calc(8px * var(--menu-scale)) calc(14px * var(--menu-scale))
     calc(18px * var(--menu-scale));
 }
-.table-menu .table-menu__section:not(:last-child) {
+.table-menu__dropdown .table-menu__section:not(:last-child) {
   border-bottom: 0;
 }
-.table-menu .table-menu__section-title {
+.table-menu__dropdown .table-menu__section-title {
   padding: calc(8px * var(--menu-scale)) 2px calc(6px * var(--menu-scale));
-  color: #86daff;
+  color: var(--sd-ice);
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
   font-size: calc(0.86rem * var(--menu-scale));
   letter-spacing: 0.04em;
   text-transform: none;
 }
-.table-menu .table-menu__action {
+.table-menu__dropdown .table-menu__action {
   box-sizing: border-box;
   margin: 0 0 calc(5px * var(--menu-scale));
   border: 4px solid transparent;
@@ -557,48 +566,79 @@
     stretch;
   border-radius: 0;
   background: linear-gradient(108deg, #13253a, #060e18 72%);
-  color: #f1f5fc;
+  color: var(--sd-ink);
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
   font-size: calc(1.02rem * var(--menu-scale));
   font-weight: 700;
 }
-.table-menu .table-menu__action:active {
+.table-menu__dropdown .table-menu__action:active {
   filter: brightness(0.86);
 }
-.table-menu .table-menu__action-icon {
-  color: #86daff;
+.table-menu__dropdown .table-menu__action-icon {
+  color: var(--sd-ice);
 }
-.table-menu .table-menu__action--danger,
-.table-menu .table-menu__action--danger .table-menu__action-icon {
+.table-menu__dropdown .table-menu__action--danger,
+.table-menu__dropdown .table-menu__action--danger .table-menu__action-icon {
   color: #ff6b78;
 }
-.table-menu .table-menu__action-badge {
+.table-menu__dropdown .table-menu__action-badge {
   border: 3px solid transparent;
   border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') 11 / 4px
     stretch;
   border-radius: 0;
   background: #07111c;
-  color: #86daff;
+  color: var(--sd-ice);
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
 }
-.table-menu .table-menu__action:focus-visible,
-.table-menu .table-menu__close:focus-visible {
+.table-menu__dropdown .table-menu__action:focus-visible,
+.table-menu__dropdown .table-menu__close:focus-visible {
   outline: 2px solid #9ee3ff;
   outline-offset: 2px;
   box-shadow: none;
 }
-.table-menu .table-menu__observers {
+.table-menu__dropdown .table-menu__observers {
   margin-top: calc(6px * var(--menu-scale));
   border: 4px solid transparent;
   border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-row.webp') 13 / 6px
     stretch;
   background: linear-gradient(108deg, #13253a, #060e18 72%);
 }
-.table-menu .table-menu__observers-title {
-  color: #86daff;
+.table-menu__dropdown .table-menu__observers-title {
+  color: var(--sd-ice);
   font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
   text-transform: none;
 }
-.table-menu .table-menu__observer-name {
+.table-menu__dropdown .table-menu__observer-name {
   color: #e4edf7;
+}
+
+/* The state readouts: ON lit cobalt from the row's own aria-checked; the
+   Close key in Title Case like every other key; LIVE in ice blue and the
+   reconnecting state in silver (it was amber; yellow is not a schema colour,
+   Dan 2026-10-17). */
+.table-menu__dropdown .table-menu__action[aria-checked='true'] .table-menu__action-badge {
+  border-image-source: url('/assets/club-buttons/console/smarterdesign-v1/chrome-active.webp');
+  background: linear-gradient(
+    var(--sd-cobalt-top),
+    var(--sd-cobalt-mid) 55%,
+    var(--sd-cobalt-deep)
+  );
+  color: #fff;
+}
+.table-menu__dropdown .table-menu__close {
+  text-transform: none;
+}
+.table-menu__dropdown .table-menu__conn--connected {
+  color: var(--sd-ice);
+}
+.table-menu__dropdown .table-menu__conn--connected .table-menu__conn-dot {
+  background: var(--sd-ice);
+  box-shadow: 0 0 5px #2fb6ff;
+}
+.table-menu__dropdown .table-menu__conn--reconnecting {
+  color: var(--sd-silver);
+}
+.table-menu__dropdown .table-menu__conn--reconnecting .table-menu__conn-dot {
+  background: var(--sd-silver);
+  box-shadow: 0 0 4px var(--sd-ice);
 }

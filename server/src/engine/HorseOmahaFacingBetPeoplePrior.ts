@@ -33,6 +33,7 @@
  *  the middle : bottom split.
  * Identity never enters: the same arithmetic for every bettor; only the data is people-only.
  */
+import { omahaRiverPotCell, type OmahaRiverPotKey } from './HorseOmahaRiverPotPrior.js';
 import { OMAHA_FACING_BET_PEOPLE_PRIOR_DATA } from './HorseOmahaFacingBetPeoplePrior.data.js';
 import { omahaBetSizeBucket } from './HorseOmahaFacingBetEv.js';
 import { omahaEquilibriumAnchor } from './HorseOmahaEquilibriumAnchor.js';
@@ -66,6 +67,9 @@ export interface OmahaPeoplePriorInput {
   /** omahaPeoplePriorCountsHiddenBets: the game and split whose hidden-corrected cell replaces the pooled one (turn
    *  only; null / absent: today's cells, unchanged). The caller then passes a record that counts his hidden bets. */
   hidden?: OmahaPeoplePriorHiddenKey | null;
+  /** omahaRiverBetPriorIsPotTypeSplit: the pot type whose river cell (HorseOmahaRiverPotPrior) replaces the pooled
+   *  heads-up river cell for a bet (null / absent: today's cell, unchanged) */
+  riverPot?: OmahaRiverPotKey | null;
   /** omahaHiddenBetsArePricedAsGiveUps (with `hidden`, a turn bet): also return the give-up share (giveUp) */
   giveUps?: boolean;
 }
@@ -199,18 +203,31 @@ export function omahaPeoplePriorShare(input: OmahaPeoplePriorInput): OmahaPeople
   if (!Number.isFinite(input.potFrac)) return null;
   const balanced = omahaEquilibriumAnchor(input.paid, input.winnable, input.rake, input.twoStreet);
   if (balanced === null) return null;
-  const cell = omahaPeoplePriorCell(
+  let cell = omahaPeoplePriorCell(
     input.street,
     input.potFrac,
     input.isRaise,
     input.multiway,
     input.hidden
   );
+  // omahaRiverBetPriorIsPotTypeSplit: the pot type's river cell (shrunk toward the pooled cell) for a heads-up bet
+  const pot =
+    input.riverPot && input.street === 'river' && !input.isRaise && !input.multiway
+      ? omahaRiverPotCell(
+          omahaBetSizeBucket(input.potFrac),
+          input.riverPot,
+          omahaPeopleRiverRegionCell(input.potFrac, false, false),
+          omahaPeopleNonTop20('river', input.potFrac, false, false)
+        )
+      : null;
+  if (pot) cell = { n: pot.regions.n, share: pot.regions.bottom };
   const prior = omahaPeoplePriorBlend(cell, balanced);
   // river: the blended region weights (core, middle, bottom) before his record
   let base: { core: number; middle: number; bottom: number } | null = null;
   if (input.street === 'river') {
-    const rc = omahaPeopleRiverRegionCell(input.potFrac, input.isRaise, input.multiway);
+    const rc = pot
+      ? pot.regions
+      : omahaPeopleRiverRegionCell(input.potFrac, input.isRaise, input.multiway);
     if (rc) {
       const K = OMAHA_PEOPLE_PRIOR_ANCHOR_BETS;
       const core = (rc.n * rc.core + K * (1 - balanced)) / (rc.n + K);
@@ -221,13 +238,9 @@ export function omahaPeoplePriorShare(input: OmahaPeoplePriorInput): OmahaPeople
     }
   }
   const rec = input.isRaise ? null : input.record;
-  const pNT = omahaPeopleNonTop20(
-    input.street,
-    input.potFrac,
-    input.isRaise,
-    input.multiway,
-    input.hidden
-  );
+  const pNT = pot
+    ? pot.nonTop20
+    : omahaPeopleNonTop20(input.street, input.potFrac, input.isRaise, input.multiway, input.hidden);
   const { ratio, shown } = omahaPeoplePriorRecordRatio(rec, pNT);
   const share = clamp(prior * ratio);
   let regions: { core: number; middle: number; bottom: number } | null = null;

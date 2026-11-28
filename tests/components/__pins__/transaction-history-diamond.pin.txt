@@ -1,0 +1,9 @@
+money: {
+  "figures": [],
+  "hooks": []
+}
+text: Own Diamond History
+regions: [
+  "div|dialog|Diamond History|"
+]
+controls: []

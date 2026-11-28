@@ -11,8 +11,10 @@
 }
 
 .report-workspace {
-  width: min(100%, 1000px);
-  margin: 0 auto;
+  /* The casework runs the full content width, as on every other Club
+     Operations page (Dan 2026-11-27). */
+  width: 100%;
+  margin: 0;
   padding: 8px 0 60px;
   box-sizing: border-box;
 }
@@ -141,40 +143,6 @@
     sans-serif;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-}
-
-.report-state {
-  display: grid;
-  place-content: center;
-  gap: 6px;
-  min-height: 120px;
-  padding: 20px 8px;
-  color: #b6c8d6;
-  text-align: center;
-  font:
-    12px/1.4 Arial,
-    sans-serif;
-}
-
-.report-state p {
-  margin: 0;
-}
-
-.report-state__title {
-  color: #74dfff;
-  font:
-    800 14px 'Arial Narrow',
-    Arial,
-    sans-serif;
-  letter-spacing: 0.04em;
-}
-
-.report-state__title.is-danger {
-  color: #ff5a6a;
-}
-
-.report-error .arena-switch {
-  justify-content: center;
 }
 
 .report-cap {

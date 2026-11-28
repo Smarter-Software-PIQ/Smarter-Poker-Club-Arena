@@ -61,6 +61,8 @@ import ClubRosterService, {
   type MemberStatistics,
 } from '../services/ClubRosterService';
 import PageBar from '../components/help/PageBar';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import '../components/ops/ArenaOps.css';
 import type { TutorialStep } from '../components/help/PageHelp';
 import './PlayerStatisticsPage.css';
 
@@ -440,15 +442,11 @@ export default function PlayerStatisticsPage() {
   /* ── Render ─────────────────────────────────────────────────────────────── */
 
   return (
-    <div className="player-stats-page" aria-busy={loading}>
-      <PageBar
-        title="Player Performance"
-        titleId="ps-page-title"
-        summary="Read Playing Style, Volume, And Club Results Across Any Recorded Game Window. Every Figure Is Measured From Verified Hands."
-        steps={PERFORMANCE_TOUR}
-        className="ps-page-bar"
-      >
-        <ClubDataReturnLink />
+    <div className="player-stats-page arena-workspace" aria-busy={loading}>
+      {/* #SmarterDesign (Dan 2026-11-27): the back key sits above the arena
+          mast; the mast carries the title and the chrome "?", whose panel
+          holds the page description and the tour. */}
+      <div className="ps-backbar arena-switch">
         <button
           type="button"
           className="ps-back"
@@ -457,15 +455,31 @@ export default function PlayerStatisticsPage() {
         >
           ‹
         </button>
+      </div>
+      <ArenaWorkspaceHeader
+        area="stats"
+        title="Player Performance"
+        id="ps-page-title"
+        summary="Read Playing Style, Volume, And Club Results Across Any Recorded Game Window. Every Figure Is Measured From Verified Hands."
+        steps={PERFORMANCE_TOUR}
+      />
+      <PageBar titleAs={false} showHelp={false} title="Player Performance" className="ps-page-bar">
+        <ClubDataReturnLink />
       </PageBar>
 
-      <section className="ps-controls" aria-labelledby="ps-controls-title">
+      <section
+        className="ps-controls arena-case arena-ops-case"
+        aria-labelledby="ps-controls-title"
+      >
         <div className="ps-controls__heading">
-          <h2 id="ps-controls-title">Instrument Controls</h2>
+          <h2 id="ps-controls-title" className="arena-section-title">
+            Instrument Controls
+          </h2>
         </div>
         <label className="ps-variant">
           <span className="ps-variant__label">Game</span>
           <select
+            className="arena-ops-well"
             value={variant ?? ''}
             onChange={(e) => setVariant(e.target.value === '' ? null : e.target.value)}
           >
@@ -478,7 +492,11 @@ export default function PlayerStatisticsPage() {
           </select>
         </label>
 
-        <div className="ps-range__tabs" role="group" aria-label="Statistics Date Range">
+        <div
+          className="ps-range__tabs arena-switch"
+          role="group"
+          aria-label="Statistics Date Range"
+        >
           {(Object.keys(RANGE_LABEL) as StatsRange[]).map((mode) => (
             <button
               key={mode}
@@ -497,6 +515,7 @@ export default function PlayerStatisticsPage() {
             <label className="ps-date">
               <span>From</span>
               <input
+                className="arena-ops-well"
                 type="date"
                 value={customFrom}
                 max={customTo || undefined}
@@ -506,6 +525,7 @@ export default function PlayerStatisticsPage() {
             <label className="ps-date">
               <span>To</span>
               <input
+                className="arena-ops-well"
                 type="date"
                 value={customTo}
                 min={customFrom || undefined}
@@ -542,7 +562,7 @@ export default function PlayerStatisticsPage() {
         )}
         {stats?.authorized && (
           <details className="ps-metric-guide" aria-label="Performance Metric Definitions">
-            <summary>Metric Definitions</summary>
+            <summary className="arena-ledger-row">Metric Definitions</summary>
             <p>
               All Figures Use Recorded Hands For This Club, The Displayed Chicago Dates And Game.
               Older Activity May No Longer Be Retained.
@@ -570,7 +590,7 @@ export default function PlayerStatisticsPage() {
       </section>
 
       {loadFailed && stats && (
-        <div className="ps-stale" role="alert">
+        <div className="ps-stale arena-case arena-ops-case" role="alert">
           <div>
             <span className="ps-empty__status">Statistics Connection Interrupted</span>
             <p className="ps-stale__body">
@@ -590,7 +610,7 @@ export default function PlayerStatisticsPage() {
       {loading && !stats ? (
         <PageSkeleton variant="stats" />
       ) : loadFailed && !stats ? (
-        <div className="ps-empty" role="alert">
+        <div className="ps-empty arena-case arena-ops-case" role="alert">
           <span className="ps-empty__status">Statistics Connection Interrupted</span>
           <p className="ps-empty__heading">Could Not Load Statistics</p>
           <p className="ps-empty__body">
@@ -618,8 +638,8 @@ export default function PlayerStatisticsPage() {
         />
       ) : (
         <div className={loading ? 'ps-cards ps-cards--busy' : 'ps-cards'} aria-busy={loading}>
-          <section className="ps-card">
-            <h2 className="ps-card__title">Playing Style</h2>
+          <section className="ps-card arena-case arena-ops-case">
+            <h2 className="ps-card__title arena-section-title">Playing Style</h2>
             <StatRow label="VPIP" value={pct(stats.vpip)} />
             <StatRow label="PFR" value={pct(stats.pfr)} />
             {/* Per hand dealt, and labelled so. The old figure divided 3-bets
@@ -647,8 +667,8 @@ export default function PlayerStatisticsPage() {
             />
           </section>
 
-          <section className="ps-card">
-            <h2 className="ps-card__title">Volume</h2>
+          <section className="ps-card arena-case arena-ops-case">
+            <h2 className="ps-card__title arena-section-title">Volume</h2>
             {/* total_games, total_hands and winner were three labels on two
                 numbers: hands twice, and hands won as "Winner". */}
             <StatRow label="Hands" value={count(stats.hands)} />
@@ -656,8 +676,8 @@ export default function PlayerStatisticsPage() {
             <StatRow label="Win Rate" value={pct(stats.win_rate)} />
           </section>
 
-          <section className="ps-card">
-            <h2 className="ps-card__title">Club Result</h2>
+          <section className="ps-card arena-case arena-ops-case">
+            <h2 className="ps-card__title arena-section-title">Club Result</h2>
             <StatRow
               label="Net"
               value={stats.net === null ? 'Unavailable' : winLossChips(stats.net)}
@@ -692,7 +712,7 @@ function StatRow({
   const tone = signed == null || signed === 0 ? '' : signed > 0 ? ' ps-stat--up' : ' ps-stat--down';
 
   return (
-    <div className={`ps-stat${tone}`}>
+    <div className={`ps-stat arena-ledger-row${tone}`}>
       <span className="ps-stat__label">{label}</span>
       <span className="ps-stat__value">{value}</span>
     </div>
@@ -701,7 +721,7 @@ function StatRow({
 
 function EmptyStats({ heading, body }: { heading: string; body: string }) {
   return (
-    <div className="ps-empty">
+    <div className="ps-empty arena-case arena-ops-case">
       <span className="ps-empty__status">Awaiting Hand Ledger</span>
       <p className="ps-empty__heading">{heading}</p>
       <p className="ps-empty__body">{body}</p>

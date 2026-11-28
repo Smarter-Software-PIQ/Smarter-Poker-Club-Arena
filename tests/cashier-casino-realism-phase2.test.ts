@@ -16,7 +16,7 @@ describe('cashier phase 2 reports trustworthy operational state', () => {
   });
 
   it('surfaces and retries a failed club-switcher query', () => {
-    expect(PAGE).toContain("setMembershipsError('Could not load your club cashiers.')");
+    expect(PAGE).toContain("setMembershipsError('Could Not Load Your Club Cashiers.')");
     expect(PAGE).toContain('setMembershipsReload((value) => value + 1)');
     expect(PAGE).toContain('[user?.id, membershipsReload]');
     expect(PAGE).toContain('if (live) setMembershipsLoading(false)');

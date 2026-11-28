@@ -7,13 +7,13 @@
  *
  * WHY THIS PAGE EXISTS. The platform already had three bomb-pot views
  * (v_bomb_pot_daily, v_bomb_pot_vs_normal, v_bomb_pot_outcomes) and not one of
- * them carries club_id or table_id — they aggregate across the WHOLE platform.
+ * them carries club_id or table_id - they aggregate across the WHOLE platform.
  * They were operator views wearing a club-analytics label, no UI read any of
  * them, and until 2026-08-29 they were readable by anon into the bargain. A
  * club owner could not answer the first question anybody asks about a forced
  * ante: is it bringing players to my tables or driving them away.
  *
- * Data: fn_club_bomb_pot_report_v2 — SECURITY DEFINER, gated server-side on the
+ * Data: fn_club_bomb_pot_report_v2 - SECURITY DEFINER, gated server-side on the
  * same owner / co_owner / admin test fn_request_manual_bomb_pot uses, raising
  * ERRCODE 42501 like its siblings. The client gate below is cosmetic.
  *
@@ -23,10 +23,11 @@
  * non-zero number there means this report is reading an incomplete ledger, and
  * the owner should be told that rather than shown a total that looks whole.
  *
- * #ClubArenaConsole: one console. The window as lit words, the six totals as
- * rows on the black glass, the per-table records as rows between engraved
- * rules (never HTML-table chrome), Back and Export CSV on the two painted
- * plates. Every read, guard and pinned literal of the generic page is kept.
+ * #SmarterDesign (Dan 2026-11-27): the painted console is gone. The page
+ * wears the arena workspace: the finance mast with the club's name, the
+ * headline figures as chrome meters, the window as a chrome switch that lights
+ * the selected window, the six totals as chrome readouts and every table as a
+ * chrome ledger row. Every read, guard and pinned literal is kept.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -35,11 +36,10 @@ import { supabase } from '../../lib/supabase';
 import { isAuthzError } from '../../utils/clubDashboard';
 import { reportError } from '../../utils/errorReporter';
 import { downloadCsv, csvEscape } from '../../utils/downloadCsv';
-/* #SmarterDesign (Dan 2026-11-27): the painted console is the old style for a
-   page section; the report prints in the thin chrome case with chrome keys. */
-import { ClubPageSection as SpadeConsole } from '../../components/club/ClubPageSection';
-import '../../components/console/SpadeConsole.css';
-import '../../components/lobby/ArenaWorkspace.css';
+import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
+import PageBar from '../../components/help/PageBar';
+import { useArenaClubName } from '../../components/ops/useArenaClubName';
+import { ArenaReadings, ArenaState } from '../../components/ops/ArenaOps';
 import { compactChips } from '../../utils/format';
 import { titleCase } from '../../utils/titleCase';
 import { useIsMounted } from '../../hooks/useIsMounted';
@@ -194,6 +194,9 @@ interface ReportRequestState {
    past a thousand). The CSV below still carries the exact figures. */
 const chips = (n: number | null | undefined) => compactChips(Number(n ?? 0));
 
+const SUMMARY =
+  'Read Which Tables Run Bomb Pots, How Many Players Each One Pulls In, The Forced Money It Moves And How Often Somebody Scoops.';
+
 /**
  * The four trigger values are DB enums. The lobby maps them to English and the
  * replay does too; a report is no place to print `every_n_hands` at a club
@@ -214,6 +217,7 @@ const boardLabel = (n: number | null) => (n && n >= 2 ? `${n} Boards` : '1 Board
 
 export default function ClubBombPotReportPage() {
   const { clubId } = useParams<{ clubId: string }>();
+  const mastName = useArenaClubName();
   const navigate = useNavigate();
   const { user } = useAuthUser();
   const toast = useToast();
@@ -406,28 +410,32 @@ export default function ClubBombPotReportPage() {
     }
   }, [rows, clubId, days, isMounted, scopeKey, toast]);
 
+  const header = (
+    <ArenaWorkspaceHeader
+      area="finance"
+      id="bomb-pot-report-title"
+      title="Bomb Pot Report"
+      context={mastName}
+      summary={SUMMARY}
+    />
+  );
+
   if (notFound) {
     return (
       <div className={`${styles.page} arena-workspace`}>
-        <SpadeConsole
-          arena
-          family="spade"
-          className={styles.console}
-          eyebrow="Bomb Pots"
-          title="Club Not Found"
-          titleId="bomb-pot-report-title"
-          pill="Missing"
-          pillInk="muted"
-        >
-          <p className={`sc-copy sc-copy--center ${styles.state}`}>
-            No Club Answers To That Address.
-          </p>
-          <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.actions}`}>
-            <button type="button" className={styles.word} onClick={() => navigate('/clubs')}>
-              Back To Clubs
-            </button>
-          </div>
-        </SpadeConsole>
+        {header}
+        <section className="arena-case arena-ops-case">
+          <ArenaState
+            tone="empty"
+            title="Club Not Found"
+            message="No Club Answers To That Address."
+            actions={
+              <button type="button" onClick={() => navigate('/clubs')}>
+                Back To Clubs
+              </button>
+            }
+          />
+        </section>
       </div>
     );
   }
@@ -435,202 +443,198 @@ export default function ClubBombPotReportPage() {
   if (denied) {
     return (
       <div className={`${styles.page} arena-workspace`}>
-        <SpadeConsole
-          arena
-          family="spade"
-          className={styles.console}
-          eyebrow="Bomb Pots"
-          title="Bomb Pot Report"
-          titleId="bomb-pot-report-title"
-          pill="Staff"
-          pillInk="red"
-        >
-          <p className={`sc-copy sc-copy--center ${styles.state}`}>
-            This Report Is Only Available To Club Staff.
-          </p>
-          <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.actions}`}>
-            <button
-              type="button"
-              className={styles.word}
-              onClick={() => navigate(`/clubs/${clubId}`)}
-            >
-              Back To Club
-            </button>
-          </div>
-        </SpadeConsole>
+        {header}
+        <section className="arena-case arena-ops-case">
+          <ArenaState
+            tone="error"
+            title="Bomb Pot Report"
+            message="This Report Is Only Available To Club Staff."
+            actions={
+              <button type="button" onClick={() => navigate(`/clubs/${clubId}`)}>
+                Back To Club
+              </button>
+            }
+          />
+        </section>
       </div>
     );
   }
 
+  const hasRows = !!rows && rows.length > 0;
+
   return (
     <div className={`${styles.page} arena-workspace`}>
-      <SpadeConsole
-        arena
-        family="spade"
-        className={styles.console}
-        eyebrow="Bomb Pots"
+      <div className="arena-switch arena-ops-keys">
+        <button type="button" onClick={() => navigate(`/clubs/${clubId}`)}>
+          Back
+        </button>
+      </div>
+      {header}
+      <PageBar
         title="Bomb Pot Report"
-        titleId="bomb-pot-report-title"
-        pill={`${days} Days`}
-        pillInk="blue"
-        plates={{
-          secondary: { label: 'Back', onClick: () => navigate(`/clubs/${clubId}`) },
-          primary: {
-            label: 'Export CSV',
-            ink: 'white',
-            onClick: exportCsv,
-            disabled: !rows || rows.length === 0,
-          },
-        }}
-      >
-        <div className={`arena-switch ${styles.windows}`} role="group" aria-label="Report Window">
+        titleAs={false}
+        showHelp={false}
+        status={`${days} Days`}
+        statusTone={loading ? 'attention' : 'live'}
+        metrics={
+          hasRows
+            ? [
+                { label: 'Bomb Pots Dealt', value: totals.hands.toLocaleString() },
+                { label: 'Tables Running Them', value: totals.tables },
+                { label: 'Rake From Bomb Pots', value: chips(totals.rake), tone: 'live' },
+              ]
+            : []
+        }
+      />
+
+      <section className="arena-case arena-ops-case" aria-label="Bomb Pot Report">
+        <h2 className="arena-section-title">
+          Report Window<small>{days} Days</small>
+        </h2>
+        <div className="arena-switch" role="group" aria-label="Report Window">
           {WINDOWS.map((w) => (
-            <button
-              key={w}
-              type="button"
-              className={styles.word}
-              aria-pressed={days === w}
-              onClick={() => setDays(w)}
-            >
+            <button key={w} type="button" aria-pressed={days === w} onClick={() => setDays(w)}>
               {w} Days
             </button>
           ))}
         </div>
-
-        <p
-          className={`sc-copy sc-copy--center sc-ink--muted ${styles.notice}`}
-          aria-label="Data Coverage"
-        >
+        <div className="arena-switch arena-ops-keys arena-ops-primary">
+          <button type="button" onClick={exportCsv} disabled={!hasRows}>
+            Export CSV
+          </button>
+        </div>
+        <p className="arena-ops-copy" aria-label="Data Coverage">
           {BOMB_POT_DATA_BASIS}
         </p>
+      </section>
 
-        {loading && !rows ? (
-          <p className={`sc-copy sc-copy--center ${styles.state}`} aria-busy="true">
-            Loading Report...
-          </p>
-        ) : error ? (
-          <div className={styles.errorState} role="alert">
-            <p className={`sc-copy sc-copy--center ${styles.state} sc-ink--red`}>{error}</p>
-            <div className="arena-switch arena-ops-keys arena-ops-primary">
-              <button type="button" className={styles.word} onClick={() => void load()}>
-                Retry
-              </button>
-            </div>
+      {loading && !rows ? (
+        <section className="arena-case arena-ops-case">
+          <ArenaState tone="loading" title="Loading Report..." />
+        </section>
+      ) : error ? (
+        <section className="arena-case arena-ops-case">
+          <div className={styles.errorState}>
+            <ArenaState
+              tone="error"
+              title="Report Unavailable"
+              message={error}
+              actions={
+                <button type="button" onClick={() => void load()}>
+                  Retry
+                </button>
+              }
+            />
           </div>
-        ) : !rows || rows.length === 0 ? (
-          <p className={`sc-copy sc-copy--center ${styles.state}`}>
-            No Recorded Bomb Pots At This Club In The Last {days} Days.
-          </p>
-        ) : (
-          <>
-            <section className={styles.section} aria-label="Totals">
-              <div className={`arena-meter ${styles.row}`}>
-                <span className={`${styles.rowLabel} sc-ink--blue`}>Bomb Pots Dealt</span>
-                <span className={`${styles.rowValue} sc-ink--silver`}>
-                  {totals.hands.toLocaleString()}
-                </span>
-              </div>
-              <div className={`arena-meter ${styles.row}`}>
-                <span className={`${styles.rowLabel} sc-ink--blue`}>Tables Running Them</span>
-                <span className={`${styles.rowValue} sc-ink--silver`}>{totals.tables}</span>
-              </div>
-              <div className={`arena-meter ${styles.row}`}>
-                <span className={`${styles.rowLabel} sc-ink--blue`}>Players Per Bomb</span>
-                <span className={`${styles.rowValue} sc-ink--silver`}>
-                  {compactChips(totals.avgPlayers)}
-                </span>
-              </div>
-              <div className={`arena-meter ${styles.row}`}>
-                <span className={`${styles.rowLabel} sc-ink--blue`}>Forced Antes Collected</span>
-                <span className={`${styles.rowValue} sc-ink--silver`}>{chips(totals.antes)}</span>
-              </div>
-              <div className={`arena-meter ${styles.row}`}>
-                <span className={`${styles.rowLabel} sc-ink--blue`}>Rake From Bomb Pots</span>
-                <span className={`${styles.rowValue} sc-ink--green`}>{chips(totals.rake)}</span>
-              </div>
-              <div className={`arena-meter ${styles.row}`}>
-                <span className={`${styles.rowLabel} sc-ink--blue`}>Scooped Outright</span>
-                <span className={`${styles.rowValue} sc-ink--silver`}>
-                  {totals.scoopRate === null ? '-' : `${totals.scoopRate}%`}
-                </span>
-              </div>
-            </section>
+        </section>
+      ) : !rows || rows.length === 0 ? (
+        <section className="arena-case arena-ops-case">
+          <ArenaState
+            tone="empty"
+            title="No Bomb Pots"
+            message={`No Recorded Bomb Pots At This Club In The Last ${days} Days.`}
+          />
+        </section>
+      ) : (
+        <>
+          <section className="arena-case arena-ops-case" aria-label="Totals">
+            <h2 className="arena-section-title">Totals</h2>
+            <ArenaReadings
+              label="Bomb Pot Totals"
+              readings={[
+                { id: 'hands', label: 'Bomb Pots Dealt', value: totals.hands.toLocaleString() },
+                { id: 'tables', label: 'Tables Running Them', value: totals.tables },
+                {
+                  id: 'players',
+                  label: 'Players Per Bomb',
+                  value: compactChips(totals.avgPlayers),
+                },
+                { id: 'antes', label: 'Forced Antes Collected', value: chips(totals.antes) },
+                {
+                  id: 'rake',
+                  label: 'Rake From Bomb Pots',
+                  value: chips(totals.rake),
+                  tone: 'live',
+                },
+                {
+                  id: 'scoops',
+                  label: 'Scooped Outright',
+                  value: totals.scoopRate === null ? '-' : `${totals.scoopRate}%`,
+                },
+              ]}
+            />
 
             {/* The ledger telling on itself. A report that quietly averages over
                 hands it has no record of is how a hole stays invisible. */}
             {totals.unrecorded > 0 && (
-              <p className={`sc-copy ${styles.notice} sc-ink--gold`}>
+              <p className={styles.notice}>
                 {totals.unrecorded.toLocaleString()} Of These Hands Have No Award Record, So The
                 Scoop Figures Above Cover The Rest. Hand Counts And Money Are Unaffected.
               </p>
             )}
+          </section>
 
-            <section className={styles.section} aria-labelledby="bomb-pot-per-table">
-              <h2 id="bomb-pot-per-table" className={`arena-section-title ${styles.sectionTitle}`}>
-                Per Table
-              </h2>
-              <ul className={styles.records}>
-                {rows.map((d) => (
-                  <li
-                    key={`${d.table_id}-${d.trigger_reason}-${d.board_count}-${d.variant ?? ''}`}
-                    className={`arena-ledger-row ${styles.record}`}
-                  >
-                    <div className={styles.recordHead}>
-                      <span className={`${styles.recordName} sc-ink--silver`}>
-                        {d.table_name ? titleCase(d.table_name) : 'Table Name Unavailable'}
-                      </span>
-                      <span className={`${styles.recordMeta} sc-ink--blue`}>
-                        {triggerLabel(d.trigger_reason)}
-                        {' / '}
-                        {boardLabel(d.board_count)}
-                        {d.variant ? ` / ${d.variant.toUpperCase()}` : ''}
-                      </span>
+          <section className="arena-case arena-ops-case" aria-labelledby="bomb-pot-per-table">
+            <h2 id="bomb-pot-per-table" className="arena-section-title">
+              Per Table
+            </h2>
+            <ul className={styles.records}>
+              {rows.map((d) => (
+                <li
+                  key={`${d.table_id}-${d.trigger_reason}-${d.board_count}-${d.variant ?? ''}`}
+                  className={`arena-ledger-row ${styles.record}`}
+                >
+                  <div className={styles.recordHead}>
+                    <span className={styles.recordName}>
+                      {d.table_name ? titleCase(d.table_name) : 'Table Name Unavailable'}
+                    </span>
+                    <span className={styles.recordMeta}>
+                      {triggerLabel(d.trigger_reason)}
+                      {' / '}
+                      {boardLabel(d.board_count)}
+                      {d.variant ? ` / ${d.variant.toUpperCase()}` : ''}
+                    </span>
+                  </div>
+                  <dl className={styles.figures}>
+                    <div className={styles.figure}>
+                      <dt className={styles.figureLabel}>Hands</dt>
+                      <dd className={styles.figureValue}>{d.hands}</dd>
                     </div>
-                    <dl className={styles.figures}>
-                      <div className={styles.figure}>
-                        <dt className={`${styles.figureLabel} sc-ink--muted`}>Hands</dt>
-                        <dd className={`${styles.figureValue} sc-ink--silver`}>{d.hands}</dd>
-                      </div>
-                      <div className={styles.figure}>
-                        <dt className={`${styles.figureLabel} sc-ink--muted`}>Players</dt>
-                        <dd className={`${styles.figureValue} sc-ink--silver`}>
-                          {d.avg_players == null ? '-' : compactChips(Number(d.avg_players))}
-                        </dd>
-                      </div>
-                      <div className={styles.figure}>
-                        <dt className={`${styles.figureLabel} sc-ink--muted`}>Avg Pot</dt>
-                        <dd className={`${styles.figureValue} sc-ink--silver`}>
-                          {chips(d.avg_pot)}
-                        </dd>
-                      </div>
-                      <div className={styles.figure}>
-                        <dt className={`${styles.figureLabel} sc-ink--muted`}>Antes</dt>
-                        <dd className={`${styles.figureValue} sc-ink--silver`}>
-                          {chips(d.total_antes)}
-                        </dd>
-                      </div>
-                      <div className={styles.figure}>
-                        <dt className={`${styles.figureLabel} sc-ink--muted`}>Rake</dt>
-                        <dd className={`${styles.figureValue} sc-ink--green`}>
-                          {chips(d.total_rake)}
-                        </dd>
-                      </div>
-                      <div className={styles.figure}>
-                        <dt className={`${styles.figureLabel} sc-ink--muted`}>Scoops</dt>
-                        <dd className={`${styles.figureValue} sc-ink--silver`}>{d.scoops}</dd>
-                      </div>
-                      <div className={styles.figure}>
-                        <dt className={`${styles.figureLabel} sc-ink--muted`}>Splits</dt>
-                        <dd className={`${styles.figureValue} sc-ink--silver`}>{d.splits}</dd>
-                      </div>
-                    </dl>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          </>
-        )}
-      </SpadeConsole>
+                    <div className={styles.figure}>
+                      <dt className={styles.figureLabel}>Players</dt>
+                      <dd className={styles.figureValue}>
+                        {d.avg_players == null ? '-' : compactChips(Number(d.avg_players))}
+                      </dd>
+                    </div>
+                    <div className={styles.figure}>
+                      <dt className={styles.figureLabel}>Avg Pot</dt>
+                      <dd className={styles.figureValue}>{chips(d.avg_pot)}</dd>
+                    </div>
+                    <div className={styles.figure}>
+                      <dt className={styles.figureLabel}>Antes</dt>
+                      <dd className={styles.figureValue}>{chips(d.total_antes)}</dd>
+                    </div>
+                    <div className={styles.figure}>
+                      <dt className={styles.figureLabel}>Rake</dt>
+                      <dd className={`${styles.figureValue} ${styles.up}`}>
+                        {chips(d.total_rake)}
+                      </dd>
+                    </div>
+                    <div className={styles.figure}>
+                      <dt className={styles.figureLabel}>Scoops</dt>
+                      <dd className={styles.figureValue}>{d.scoops}</dd>
+                    </div>
+                    <div className={styles.figure}>
+                      <dt className={styles.figureLabel}>Splits</dt>
+                      <dd className={styles.figureValue}>{d.splits}</dd>
+                    </div>
+                  </dl>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </>
+      )}
     </div>
   );
 }

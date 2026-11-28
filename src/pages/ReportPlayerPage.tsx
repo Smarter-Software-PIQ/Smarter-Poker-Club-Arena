@@ -49,7 +49,7 @@ export default function ReportPlayerPage() {
 
   const handleSubmit = async () => {
     if (!form.description.trim()) {
-      setError('Please describe the issue');
+      setError('Please Describe The Issue');
       return;
     }
     if (!playerId || !user?.id) return;

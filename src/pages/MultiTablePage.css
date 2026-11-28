@@ -63,7 +63,7 @@
     Inter,
     sans-serif;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  text-transform: none;
   cursor: pointer;
 }
 
@@ -214,7 +214,7 @@
   font-size: 0.7rem;
   font-weight: 800;
   letter-spacing: 0.16em;
-  text-transform: uppercase;
+  text-transform: none;
   color: #45adff;
 }
 
@@ -235,7 +235,7 @@
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.1em;
-  text-transform: uppercase;
+  text-transform: none;
   color: #9aa5b3;
 }
 
@@ -525,7 +525,7 @@ body[data-ca-pinned-bar='1'] [data-fullscreen-overlay] {
   font-size: 0.875rem;
   font-weight: 700;
   letter-spacing: 0.12em;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -770,7 +770,7 @@ body[data-ca-pinned-bar='1'] [data-fullscreen-overlay] {
   font-size: 0.62rem;
   font-weight: 800;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  text-transform: none;
   color: #4dc660;
 }
 
@@ -807,7 +807,7 @@ body[data-ca-pinned-bar='1'] [data-fullscreen-overlay] {
   font-size: 0.8rem;
   font-weight: 800;
   letter-spacing: 0.12em;
-  text-transform: uppercase;
+  text-transform: none;
   cursor: pointer;
   box-shadow: 0 2px 10px rgba(63, 185, 80, 0.4);
   transition:
@@ -1072,7 +1072,7 @@ body[data-ca-pinned-bar='1'] [data-fullscreen-overlay] {
   font-size: 2.1cqw;
   font-weight: 800;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 /* A favourite is the one tier the player chose themselves, so it is the one
@@ -1102,7 +1102,7 @@ body[data-ca-pinned-bar='1'] [data-fullscreen-overlay] {
   font-size: 2.6cqw;
   font-weight: 800;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 /* A PHONE CANNOT DOUBLE THE WIDTH, SO IT DOUBLES THE TYPE (Dan 2026-10-16).

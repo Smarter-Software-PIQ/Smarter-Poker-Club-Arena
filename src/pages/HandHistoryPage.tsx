@@ -49,8 +49,11 @@ import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import { useIsMounted } from '../hooks/useIsMounted';
 import { retryFetch } from '../utils/retryFetch';
 import './HandHistoryPage.css';
+import '../components/ops/ArenaOps.css';
+import './HandHistoryArena.css';
 import { reportError } from '../utils/errorReporter';
-import CasinoSurfaceHeader from '../components/rewards/RewardsSurfaceHeader';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import PageBar from '../components/help/PageBar';
 import {
   filterHandsByStatsDrilldown,
   readStatsDrilldown,
@@ -997,11 +1000,19 @@ export default function HandHistoryPage() {
   }, [toast]);
 
   return (
-    <div className="hand-history-page" data-arena-surface="play">
-      <CasinoSurfaceHeader
+    <div className="hand-history-page arena-workspace">
+      {/* #SmarterDesign (Dan 2026-11-27): the arena mast carries the title and
+          the chrome "?", whose panel holds what the archive is for; the page
+          bar under it keeps only the live figures, on chrome meters. */}
+      <ArenaWorkspaceHeader
+        area="handreview"
         title="Hand Archive"
-        description="Every Hand You Played, Across Every Table, Newest First. Expand A Hand For The Full Rundown, Replay It, Share It, Or Open It In Personal Assistant."
-        status="HAND RECORD // LIVE"
+        summary="Every Hand You Played, Across Every Table, Newest First. Expand A Hand For The Full Rundown, Replay It, Share It, Or Open It In Personal Assistant."
+      />
+      <PageBar
+        titleAs={false}
+        showHelp={false}
+        title="Hand Archive"
         metrics={
           showingForeignLink
             ? []
@@ -1021,171 +1032,193 @@ export default function HandHistoryPage() {
         }
       />
 
-      <div className="hh-search">
-        <label className="hh-search__label" htmlFor="hh-search-input">
-          Find A Hand
-        </label>
-        <input
-          id="hh-search-input"
-          className="hh-search__input"
-          type="search"
-          value={search}
-          placeholder="Hand Number, Opponent, Tag Or Note"
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        {variantsPresent.length > 1 && (
-          <select
-            className="hh-search__select"
-            aria-label="Game"
-            value={variant}
-            onChange={(e) => setVariant(e.target.value)}
-          >
-            <option value="">Any Game</option>
-            {variantsPresent.map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
-        )}
-        <input
-          className="hh-search__date"
-          type="date"
-          aria-label="From This Date"
-          value={from}
-          max={to || undefined}
-          onChange={(e) => setFrom(e.target.value)}
-        />
-        <input
-          className="hh-search__date"
-          type="date"
-          aria-label="To This Date"
-          value={to}
-          min={from || undefined}
-          onChange={(e) => setTo(e.target.value)}
-        />
-        {(search || variant || from || to || filter !== 'all') && (
-          <button
-            type="button"
-            className="hh-search__clear"
-            onClick={() => {
-              setSearch('');
-              setVariant('');
-              setFrom('');
-              setTo('');
-              setFilter('all');
-            }}
-          >
-            Clear
-          </button>
-        )}
-        <button
-          type="button"
-          className="hh-search__export"
-          onClick={exportForTracker}
-          disabled={hands.length === 0 || gameMode === 'tournament'}
-          aria-describedby={gameMode === 'tournament' ? 'hh-tracker-tournament-note' : undefined}
-          title="Export These Hands In The PokerStars Format"
-        >
-          Export For Tracker
-        </button>
-      </div>
+      <section className="hh-controls arena-case arena-ops-case">
+        <div className="hh-search">
+          <label className="hh-search__label arena-section-title" htmlFor="hh-search-input">
+            Find A Hand
+          </label>
+          <input
+            id="hh-search-input"
+            className="hh-search__input arena-ops-well"
+            type="search"
+            value={search}
+            placeholder="Hand Number, Opponent, Tag Or Note"
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {variantsPresent.length > 1 && (
+            <select
+              className="hh-search__select arena-ops-well"
+              aria-label="Game"
+              value={variant}
+              onChange={(e) => setVariant(e.target.value)}
+            >
+              <option value="">Any Game</option>
+              {variantsPresent.map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          )}
+          <input
+            className="hh-search__date arena-ops-well"
+            type="date"
+            aria-label="From This Date"
+            value={from}
+            max={to || undefined}
+            onChange={(e) => setFrom(e.target.value)}
+          />
+          <input
+            className="hh-search__date arena-ops-well"
+            type="date"
+            aria-label="To This Date"
+            value={to}
+            min={from || undefined}
+            onChange={(e) => setTo(e.target.value)}
+          />
+          <div className="hh-search__keys arena-switch">
+            {(search || variant || from || to || filter !== 'all') && (
+              <button
+                type="button"
+                className="hh-search__clear"
+                onClick={() => {
+                  setSearch('');
+                  setVariant('');
+                  setFrom('');
+                  setTo('');
+                  setFilter('all');
+                }}
+              >
+                Clear
+              </button>
+            )}
+            <button
+              type="button"
+              className="hh-search__export"
+              onClick={exportForTracker}
+              disabled={hands.length === 0 || gameMode === 'tournament'}
+              aria-describedby={
+                gameMode === 'tournament' ? 'hh-tracker-tournament-note' : undefined
+              }
+              title="Export These Hands In The PokerStars Format"
+            >
+              Export For Tracker
+            </button>
+          </div>
+        </div>
 
-      <div className="hh-filters" role="group" aria-label="Hand History Game Mode">
-        {(['cash', 'tournament'] as const).map((mode) => (
-          <button
-            type="button"
-            key={mode}
-            className={`hh-filter-chip${gameMode === mode ? ' active' : ''}`}
-            aria-pressed={gameMode === mode}
-            onClick={() =>
-              setSearchParams((current) => {
-                const next = new URLSearchParams(current);
-                next.set('gameMode', mode);
-                next.delete('hand');
-                next.delete('statsSession');
-                next.delete('statsMetric');
-                return next;
-              })
-            }
-          >
-            {mode === 'cash' ? 'Cash Games' : 'Tournaments'}
-          </button>
-        ))}
-      </div>
-      <div className="hh-filters" role="group" aria-label="Filter Loaded Hands">
-        {FILTERS.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            className={`hh-filter-chip${filter === f.id ? ' active' : ''}`}
-            aria-pressed={filter === f.id}
-            onClick={() => setFilter(f.id)}
-          >
-            {f.label}
-          </button>
-        ))}
-        {/* The arena scope chip. Unlike its neighbours it is a SERVER scope,
+        <div
+          className="hh-filters arena-switch arena-ops-keys"
+          role="group"
+          aria-label="Hand History Game Mode"
+        >
+          {(['cash', 'tournament'] as const).map((mode) => (
+            <button
+              type="button"
+              key={mode}
+              className={`hh-filter-chip${gameMode === mode ? ' active' : ''}`}
+              aria-pressed={gameMode === mode}
+              onClick={() =>
+                setSearchParams((current) => {
+                  const next = new URLSearchParams(current);
+                  next.set('gameMode', mode);
+                  next.delete('hand');
+                  next.delete('statsSession');
+                  next.delete('statsMetric');
+                  return next;
+                })
+              }
+            >
+              {mode === 'cash' ? 'Cash Games' : 'Tournaments'}
+            </button>
+          ))}
+        </div>
+        <div
+          className="hh-filters hh-filters--loaded arena-switch"
+          role="group"
+          aria-label="Filter Loaded Hands"
+        >
+          {FILTERS.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              className={`hh-filter-chip${filter === f.id ? ' active' : ''}`}
+              aria-pressed={filter === f.id}
+              onClick={() => setFilter(f.id)}
+            >
+              {f.label}
+            </button>
+          ))}
+          {/* The arena scope chip. Unlike its neighbours it is a SERVER scope,
             so pressing it moves the route rather than a filter state: the
             record is refetched for the arena, and releasing it returns the
             cross-club record. Title Case, as every chip here is. */}
-        <button
-          type="button"
-          className={`hh-filter-chip${arenaScoped ? ' active' : ''}`}
-          aria-pressed={arenaScoped}
-          onClick={() =>
-            navigate(
-              arenaScoped
-                ? `/hand-history?gameMode=${gameMode}`
-                : `/hand-history?${DIAMOND_HAND_HISTORY_PARAM}=${DIAMOND_HAND_HISTORY_VALUE}&gameMode=${gameMode}`,
-              { replace: true }
-            )
-          }
-        >
-          Diamond Arena
-        </button>
-      </div>
+          <button
+            type="button"
+            className={`hh-filter-chip${arenaScoped ? ' active' : ''}`}
+            aria-pressed={arenaScoped}
+            onClick={() =>
+              navigate(
+                arenaScoped
+                  ? `/hand-history?gameMode=${gameMode}`
+                  : `/hand-history?${DIAMOND_HAND_HISTORY_PARAM}=${DIAMOND_HAND_HISTORY_VALUE}&gameMode=${gameMode}`,
+                { replace: true }
+              )
+            }
+          >
+            Diamond Arena
+          </button>
+        </div>
+      </section>
 
       {gameMode === 'tournament' && (
-        <div className="hh-stats-drilldown" role="status" id="hh-tracker-tournament-note">
+        <div
+          className="hh-stats-drilldown arena-case arena-ops-case"
+          role="status"
+          id="hh-tracker-tournament-note"
+        >
           Tournament CSV Exports Preserve Event IDs. Tracker Export Requires Original Entry And
           Level Metadata.
         </div>
       )}
 
       {showingForeignLink && (
-        <div className="hh-stats-drilldown" role="status">
+        <div className="hh-stats-drilldown arena-case arena-ops-case" role="status">
           <span>
             That Hand Belongs To Another Player, So It Cannot Open Here. Ask Them To Send It With
             The Share Button, Which Opens Their Hand For Anyone.
           </span>
-          <button type="button" onClick={() => void askForShareLink()}>
-            Ask For A Share Link
-          </button>
-          <button type="button" onClick={() => navigate('/hand-history', { replace: true })}>
-            Show My Hands
-          </button>
+          <div className="hh-stats-drilldown__keys arena-switch arena-ops-primary">
+            <button type="button" onClick={() => void askForShareLink()}>
+              Ask For A Share Link
+            </button>
+            <button type="button" onClick={() => navigate('/hand-history', { replace: true })}>
+              Show My Hands
+            </button>
+          </div>
         </div>
       )}
 
       {showingLinkedError && (
-        <div className="hh-stats-drilldown" role="alert">
+        <div className="hh-stats-drilldown arena-case arena-ops-case" role="alert">
           <span>
             Could Not Load The Linked Hand Right Now. This Looks Like A Network Or Service Issue,
             Not A Missing Hand.
           </span>
-          <button type="button" onClick={() => setLinkedRetry((n) => n + 1)}>
-            Retry Linked Hand
-          </button>
-          <button type="button" onClick={() => navigate('/hand-history', { replace: true })}>
-            Show My Hands
-          </button>
+          <div className="hh-stats-drilldown__keys arena-switch arena-ops-primary">
+            <button type="button" onClick={() => setLinkedRetry((n) => n + 1)}>
+              Retry Linked Hand
+            </button>
+            <button type="button" onClick={() => navigate('/hand-history', { replace: true })}>
+              Show My Hands
+            </button>
+          </div>
         </div>
       )}
 
       {cameFromPersonalAssistant && (
         <div
-          className="hh-stats-drilldown"
+          className="hh-stats-drilldown arena-case arena-ops-case"
           role="navigation"
           aria-label="Personal Assistant Return"
         >
@@ -1194,14 +1227,16 @@ export default function HandHistoryPage() {
               ? 'Opened From Personal Assistant'
               : 'Opened From Personal Assistant Leak Finder'}
           </span>
-          <button type="button" onClick={returnToPersonalAssistant}>
-            Return To Personal Assistant
-          </button>
+          <div className="hh-stats-drilldown__keys arena-switch arena-ops-primary">
+            <button type="button" onClick={returnToPersonalAssistant}>
+              Return To Personal Assistant
+            </button>
+          </div>
         </div>
       )}
 
       {hasStatsDrilldown && (
-        <div className="hh-stats-drilldown" role="status">
+        <div className="hh-stats-drilldown arena-case arena-ops-case" role="status">
           <span>
             Showing Stats Evidence
             {statsDrilldown.clubId ? ' · Selected Club' : ''}
@@ -1213,40 +1248,51 @@ export default function HandHistoryPage() {
               : ''}
             {statsDrilldown.statsSession ? ' · Exact Cash Session' : ''}
           </span>
-          <button type="button" onClick={() => navigate('/hand-history', { replace: true })}>
-            Clear Evidence Filter
-          </button>
+          <div className="hh-stats-drilldown__keys arena-switch arena-ops-primary">
+            <button type="button" onClick={() => navigate('/hand-history', { replace: true })}>
+              Clear Evidence Filter
+            </button>
+          </div>
         </div>
       )}
 
       {cameFromStats && (
-        <div className="hh-stats-drilldown" role="navigation" aria-label="Stats Evidence Return">
+        <div
+          className="hh-stats-drilldown arena-case arena-ops-case"
+          role="navigation"
+          aria-label="Stats Evidence Return"
+        >
           <span>Opened From Player Stats</span>
-          <button type="button" onClick={() => navigate(-1)}>
-            Back To Stats
-          </button>
+          <div className="hh-stats-drilldown__keys arena-switch arena-ops-primary">
+            <button type="button" onClick={() => navigate(-1)}>
+              Back To Stats
+            </button>
+          </div>
         </div>
       )}
 
       {!loading && hands.length > 0 && !showingForeignLink && (
         <>
-          <div className="hh-summary" aria-label={`Across The ${hands.length} Hands Loaded`}>
-            <div className="summary-stat">
+          <div
+            className="hh-summary arena-case arena-ops-case"
+            aria-label={`Across The ${hands.length} Hands Loaded`}
+          >
+            <div className="summary-stat arena-meter">
               <span className="stat-value">{hands.length}</span>
               <span className="stat-label">Hands</span>
             </div>
-            <div className="summary-stat positive">
+            <div className="summary-stat arena-meter positive">
               <span className="stat-value">{stats.wins}</span>
               <span className="stat-label">Won</span>
             </div>
-            <div className="summary-stat negative">
+            <div className="summary-stat arena-meter negative">
               <span className="stat-value">{stats.losses}</span>
               <span className="stat-label">Lost</span>
             </div>
             {assetTotals.map((total) => (
               <div
                 key={total.asset}
-                className={`summary-stat ${total.net > 0 ? 'positive' : total.net < 0 ? 'negative' : ''}`}
+                className={`summary-stat arena-meter ${total.net > 0 ? 'positive' : total.net < 0 ? 'negative' : ''}`}
               >
                 <span className="stat-value">
                   {total.net > 0 ? '+' : ''}
@@ -1255,22 +1301,24 @@ export default function HandHistoryPage() {
                 <span className="stat-label">Net {historyAssetLabel(total.asset)}</span>
               </div>
             ))}
-            <div className="summary-stat">
+            <div className="summary-stat arena-meter">
               <span className="stat-value">{stats.vpipPct}%</span>
               <span className="stat-label">VPIP</span>
             </div>
-            <div className="summary-stat">
+            <div className="summary-stat arena-meter">
               <span className="stat-value">{biggestPotsByAsset}</span>
               <span className="stat-label">Biggest Pot</span>
             </div>
-            <button
-              type="button"
-              className="export-btn"
-              onClick={handleExport}
-              aria-label="Export The Loaded Hands To CSV"
-            >
-              Export
-            </button>
+            <div className="hh-summary__keys arena-switch arena-ops-primary">
+              <button
+                type="button"
+                className="export-btn"
+                onClick={handleExport}
+                aria-label="Export The Loaded Hands To CSV"
+              >
+                Export
+              </button>
+            </div>
           </div>
           {/* These figures cover the hands LOADED, not the account lifetime. */}
           <div className="hh-summary-scope">
@@ -1281,12 +1329,14 @@ export default function HandHistoryPage() {
       )}
 
       {!loading && loadFailed && (
-        <div className="hh-empty">
+        <div className="hh-empty hh-empty--failed arena-case arena-ops-case">
           <p className="hh-empty__title">Could Not Load Your Hand History</p>
           <p className="hh-empty__body">This Is A Loading Problem, Not An Empty History.</p>
-          <button type="button" className="load-more-btn" onClick={() => void loadFirstPage()}>
-            Retry
-          </button>
+          <div className="hh-load-more arena-switch arena-ops-primary">
+            <button type="button" className="load-more-btn" onClick={() => void loadFirstPage()}>
+              Retry
+            </button>
+          </div>
         </div>
       )}
 
@@ -1295,7 +1345,7 @@ export default function HandHistoryPage() {
           link had opened the wrong person's history (2026-11-06). Show My Hands
           drops the link and brings the list back. */}
       {showingForeignLink ? null : (
-        <div className="hands-list" aria-busy={loading}>
+        <div className="hands-list arena-case arena-ops-case" aria-busy={loading}>
           {loading ? (
             <PageSkeleton variant="list" />
           ) : loadFailed && hands.length === 0 ? null : hands.length === 0 ? (
@@ -1340,7 +1390,7 @@ export default function HandHistoryPage() {
                 <article
                   key={hand.id}
                   id={`hand-${hand.id}`}
-                  className={`hand-card${expanded ? ' hand-card--expanded' : ''}${visible[hand.id] ? ' hand-card--in' : ''}${
+                  className={`hand-card arena-ledger-row${expanded ? ' hand-card--expanded' : ''}${visible[hand.id] ? ' hand-card--in' : ''}${
                     hand.id === linkedHandId ? ' hand-card--linked' : ''
                   }${deferred ? ' hand-card--deferred' : ''}`}
                 >
@@ -1426,7 +1476,7 @@ export default function HandHistoryPage() {
                           })
                         }
                       />
-                      <div className="hand-card__actions">
+                      <div className="hand-card__actions arena-switch arena-ops-keys arena-ops-primary">
                         <button
                           type="button"
                           className="replay-btn"
@@ -1473,14 +1523,16 @@ export default function HandHistoryPage() {
       )}
 
       {!loading && hasMore && rows.length > 0 && !showingForeignLink && (
-        <button
-          type="button"
-          className="load-more-btn"
-          onClick={() => void loadMore()}
-          disabled={loadingMore || firstReading}
-        >
-          {loadingMore ? 'Loading' : 'Load More Hands'}
-        </button>
+        <div className="hh-load-more arena-switch arena-ops-primary">
+          <button
+            type="button"
+            className="load-more-btn"
+            onClick={() => void loadMore()}
+            disabled={loadingMore || firstReading}
+          >
+            {loadingMore ? 'Loading' : 'Load More Hands'}
+          </button>
+        </div>
       )}
 
       {detailHand &&

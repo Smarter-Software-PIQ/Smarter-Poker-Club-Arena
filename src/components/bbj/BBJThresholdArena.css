@@ -1,0 +1,149 @@
+/**
+ * THE JACKPOT ANNOUNCEMENTS IN #SMARTERDESIGN (2026-11-28)
+ *
+ * The panel moved off the painted console onto the chrome case the rest of
+ * Club Settings wears (ClubPageSection arena). Every rule here is scoped under
+ * .arena-workspace, the Settings page root, so nothing changes anywhere the
+ * workspace is absent (tests/unit/partialOperatorPanelsArenaIsScoped.test.ts).
+ * The cqw sizes in BBJThresholdPanel.css measured the console; the case is not
+ * a size container, so the sizes are set here in px. Each threshold is a
+ * chrome ledger row, its two actions chrome keys, the two fields dark wells.
+ * The painted inks (sc-ink--*) keep their colour words but lose the painted
+ * glow and fill. No gradient, radius, shadow or :hover of its own.
+ */
+
+.arena-workspace .bbj-threshold-panel [class*='sc-ink--'] {
+  -webkit-text-fill-color: currentColor;
+  text-shadow: none;
+}
+
+.arena-workspace .bbj-threshold-panel__intro {
+  color: #b6c8d6;
+  font:
+    12px/1.45 Arial,
+    sans-serif;
+  text-shadow: none;
+}
+.arena-workspace .bbj-threshold-panel__intro strong {
+  color: #74dfff;
+}
+
+.arena-workspace .bbj-threshold-panel__empty {
+  padding: 0;
+  border-top: 0;
+  box-shadow: none;
+  color: #9fbacc;
+  font:
+    12px/1.4 Arial,
+    sans-serif;
+}
+
+.arena-workspace .bbj-threshold-panel__list {
+  display: grid;
+  gap: 4px;
+}
+
+.arena-workspace .bbj-threshold-panel__row {
+  align-items: center;
+  gap: 4px 10px;
+  min-height: 52px;
+  padding: 4px 6px 4px 10px;
+}
+
+.arena-workspace .bbj-threshold-panel__amount {
+  color: #f1f5fc;
+  font:
+    800 18px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+}
+
+.arena-workspace .bbj-threshold-panel__label {
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+}
+
+.arena-workspace .bbj-threshold-panel__state {
+  color: #35d95a;
+  font:
+    800 12px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+.arena-workspace .bbj-threshold-panel__state--off {
+  color: #9fbacc;
+}
+
+.arena-workspace .bbj-threshold-panel__actions.arena-switch {
+  flex: 0 0 auto;
+  gap: 4px;
+  margin: 0 0 0 auto;
+}
+.arena-workspace .bbj-threshold-panel__actions > .bbj-threshold-panel__word {
+  flex: 0 1 auto;
+  min-width: 76px;
+  padding: 6px 12px;
+  font:
+    700 12px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.arena-workspace .bbj-threshold-panel__actions > .bbj-threshold-panel__word.sc-ink--red {
+  color: #ff5b6e;
+}
+.arena-workspace .bbj-threshold-panel__actions > .bbj-threshold-panel__word:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.arena-workspace .bbj-threshold-panel__actions > .bbj-threshold-panel__word:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+
+.arena-workspace .bbj-threshold-panel__add {
+  gap: 8px;
+  padding-top: 0;
+  border-top: 0;
+  box-shadow: none;
+}
+.arena-workspace .bbj-threshold-panel__field {
+  flex: 1 1 160px;
+  gap: 4px;
+}
+.arena-workspace .bbj-threshold-panel__field-label {
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+}
+
+/* The search well (#SmarterDesign 2.7); 16px so iOS does not zoom on focus. */
+.arena-workspace .bbj-threshold-panel__input {
+  min-height: 44px;
+  padding: 0 8px;
+  background: #040d17;
+  border: 1px solid #476079;
+  border-radius: 0;
+  box-shadow: none;
+  color: #f1f5fc;
+  color-scheme: dark;
+  font:
+    16px/1.2 Arial,
+    sans-serif;
+}
+.arena-workspace .bbj-threshold-panel__input::placeholder {
+  color: #9fbacc;
+}
+.arena-workspace .bbj-threshold-panel__input:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 1px;
+}

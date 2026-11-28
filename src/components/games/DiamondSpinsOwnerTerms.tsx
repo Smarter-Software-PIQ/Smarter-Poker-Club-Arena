@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import { supabase } from '../../lib/supabase';
 import { SpadeConsole } from '../console/SpadeConsole';
+import { ClubPageSection } from '../club/ClubPageSection';
 import { reportError } from '../../utils/errorReporter';
 
 /** The base agreement that gates play, unchanged since 2026-09-14. */
@@ -33,8 +34,13 @@ export default function DiamondSpinsOwnerTerms({
   clubId,
   onAccepted,
   onStatusChange,
+  arena = false,
 }: {
   clubId: string | null;
+  /** #SmarterDesign (Dan 2026-11-27): print in the arena workspace's thin
+   *  chrome case. The operations pages opt in; the welcome package keeps the
+   *  painted console. */
+  arena?: boolean;
   onAccepted?: () => void;
   onStatusChange?: (accepted: boolean) => void;
 }) {
@@ -45,6 +51,7 @@ export default function DiamondSpinsOwnerTerms({
       clubId={clubId}
       onAccepted={onAccepted}
       onStatusChange={onStatusChange}
+      arena={arena}
     />
   );
 }
@@ -52,8 +59,10 @@ function OwnerTerms({
   clubId,
   onAccepted,
   onStatusChange,
+  arena,
 }: {
   clubId: string | null;
+  arena: boolean;
   onAccepted?: () => void;
   onStatusChange?: (accepted: boolean) => void;
 }) {
@@ -135,8 +144,10 @@ function OwnerTerms({
       setBusy(false);
     }
   }
+  const Console = arena ? ClubPageSection : SpadeConsole;
   return (
-    <SpadeConsole
+    <Console
+      arena={arena || undefined}
       title="Owner Agreement"
       eyebrow="Diamond Spins"
       pill={
@@ -210,6 +221,6 @@ function OwnerTerms({
           {error}
         </p>
       ) : null}
-    </SpadeConsole>
+    </Console>
   );
 }

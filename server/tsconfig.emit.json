@@ -7,6 +7,7 @@
     "src/engine/HorseHoldemPeopleRiverFoldTables.json",
     "src/engine/HorseHoldemPeopleTurnFoldTables.json",
     "src/engine/HorseOmahaFacingBetRangeTables.json",
+    "src/engine/HorseOmahaMultiwayRiverFoldTables.json",
     "src/engine/HorseOmahaOpeningBluffRangeTables.json",
     "src/engine/HorseOmahaPeopleFoldTables.json",
     "src/engine/HorseOmahaRiverOpeningRangeTables.json",

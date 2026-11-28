@@ -58,9 +58,8 @@ describe('connected data reports keep asynchronous results inside their request 
 
 describe('connected data reports render only approved, intentional console families', () => {
   it('declares an approved family on every painted console', () => {
-    for (const source of ownedPages) {
+    for (const source of [disputes]) {
       const openings = consoleOpenings(source);
-      expect(openings.length).toBeGreaterThan(0);
       for (const opening of openings) {
         expect(opening).toMatch(/family="(?:spade|shark|riveted)"/);
         expect(opening).not.toMatch(/crest="(?:club|diamond)"/);
@@ -68,8 +67,21 @@ describe('connected data reports render only approved, intentional console famil
     }
   });
 
-  it('keeps financial loading, refusal, missing, and failure states on painted masters', () => {
+  /* #SmarterDesign (Dan 2026-11-27): the financial reports left the painted
+     consoles for the arena workspace. Each still has one deliberate screen for
+     loading, refusal, a missing club and a failure, now the chrome ArenaState. */
+  it('keeps financial loading, refusal, missing, and failure states on the arena workspace', () => {
+    for (const source of reportPages) {
+      expect(consoleOpenings(source)).toHaveLength(0);
+      expect(source).toContain('arena-workspace');
+      expect(source).toContain('<ArenaWorkspaceHeader');
+    }
     expect(financials).not.toMatch(/<(?:ErrorState|PermissionState)\b/);
-    expect(consoleOpenings(financials)).toHaveLength(10);
+    for (const tone of ['empty', 'loading', 'error']) {
+      expect(financials).toContain(`tone="${tone}"`);
+    }
+    expect(financials).toContain('title="Financials Unavailable"');
+    expect(financials).toContain('title="Financials Are Restricted"');
+    expect(financials).toContain('title="Club Not Found"');
   });
 });

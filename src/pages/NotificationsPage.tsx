@@ -60,7 +60,9 @@ import { useAuthUser } from '../hooks/useAuthUser';
 import { useMasterBusChannel } from '../hooks/useMasterBusChannel';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import PushEnableBanner from '../components/notifications/PushEnableBanner';
-import AccountSurfaceHeader from '../components/account/AccountSurfaceHeader';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import PageBar from '../components/help/PageBar';
+import '../components/ops/ArenaOps.css';
 import './NotificationsPage.css';
 import { leaveForHub, openInBrowser } from '../lib/openExternal';
 import { isChatMessageNotificationType } from '../lib/notificationFilters';
@@ -691,10 +693,19 @@ function NotificationFeed({ userId }: { userId: string | null }) {
   const showSkeleton = loading && notifications.length === 0;
 
   return (
-    <div className="ca-notif">
-      <AccountSurfaceHeader
+    <div className="ca-notif arena-workspace">
+      {/* #SmarterDesign (Dan 2026-11-27): the arena mast carries the title and
+          the chrome "?", whose panel holds the page description; the page bar
+          under it keeps only the live status. */}
+      <ArenaWorkspaceHeader
+        area="reports"
         title="Notifications"
-        description="Seat Calls, Tournament Starts, Settlements, Messages And Club Announcements. Tap A Signal To Go Straight To It."
+        summary="Seat Calls, Tournament Starts, Settlements, Messages And Club Announcements. Tap A Signal To Go Straight To It."
+      />
+      <PageBar
+        titleAs={false}
+        showHelp={false}
+        title="Notifications"
         status={
           error
             ? 'Refresh Needed'
@@ -706,8 +717,12 @@ function NotificationFeed({ userId }: { userId: string | null }) {
         }
       />
 
-      <div className="ca-notif__bar">
-        <div className="ca-notif__filters" role="group" aria-label="Filter Notifications">
+      <div className="ca-notif__bar arena-case arena-ops-case">
+        <div
+          className="ca-notif__filters arena-switch arena-ops-keys"
+          role="group"
+          aria-label="Filter Notifications"
+        >
           <button type="button" aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>
             All <span>{notifications.length}</span>
           </button>
@@ -719,7 +734,7 @@ function NotificationFeed({ userId }: { userId: string | null }) {
             Unread <span>{unreadCount}</span>
           </button>
         </div>
-        <div className="ca-notif__actions">
+        <div className="ca-notif__actions arena-switch arena-ops-keys">
           <button type="button" onClick={() => navigate('/settings?tab=notifications')}>
             Alert Controls
           </button>
@@ -739,7 +754,7 @@ function NotificationFeed({ userId }: { userId: string | null }) {
       <PushEnableBanner />
 
       {actionError && (
-        <div className="ca-notif__actionError" role="alert">
+        <div className="ca-notif__actionError arena-case arena-ops-case" role="alert">
           <p>{actionError}</p>
           <button type="button" onClick={() => setActionError(null)}>
             Close Message
@@ -748,7 +763,7 @@ function NotificationFeed({ userId }: { userId: string | null }) {
       )}
 
       {error && (
-        <div className="ca-notif__empty" role="alert">
+        <div className="ca-notif__empty arena-case arena-ops-case" role="alert">
           <p>{error}</p>
           <button
             type="button"
@@ -760,10 +775,10 @@ function NotificationFeed({ userId }: { userId: string | null }) {
           </button>
         </div>
       )}
-      <div className="ca-notif__list">
+      <div className="ca-notif__list arena-case arena-ops-case">
         {showSkeleton ? (
           [0, 1, 2, 3, 4].map((i) => (
-            <div className="ca-notif__skelRow" key={i} aria-hidden="true">
+            <div className="ca-notif__skelRow arena-ledger-row" key={i} aria-hidden="true">
               <div className="ca-notif__skelAvatar" />
               <div className="ca-notif__skelLines">
                 <div className="ca-notif__skelLine ca-notif__skelLine--long" />
@@ -793,7 +808,7 @@ function NotificationFeed({ userId }: { userId: string | null }) {
             const clickable = !!destinationOf(n);
             const { glyph, bg } = categorise(n.type, n.message);
             const rowClass = [
-              'ca-notif__row',
+              'ca-notif__row arena-ledger-row',
               unread ? 'ca-notif__row--unread' : '',
               deletingIds.has(n.id) ? 'ca-notif__row--deleting' : '',
             ]
@@ -807,7 +822,10 @@ function NotificationFeed({ userId }: { userId: string | null }) {
             return (
               <Fragment key={n.id}>
                 {showHeading && (
-                  <h2 className="ca-notif__day" aria-label={`${bucket} Notifications`}>
+                  <h2
+                    className="ca-notif__day arena-section-title"
+                    aria-label={`${bucket} Notifications`}
+                  >
                     {bucket}
                   </h2>
                 )}

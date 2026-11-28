@@ -1,7 +1,7 @@
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- *  DISPUTE MANAGEMENT PAGE — Club Owner/Admin Dispute Dashboard
+ *  DISPUTE MANAGEMENT PAGE - Club Owner/Admin Dispute Dashboard
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  * Full dispute lifecycle management:
@@ -11,13 +11,13 @@ import { usePlayerPreference } from '../hooks/usePlayerPreference';
  * - Open count badge for unresolved disputes
  * - Real-time updates via Supabase subscription
  *
- * #ClubArenaConsole: the shared integrity header stays (it carries its own
- * approved club art and the section navigation); the docket beneath it is one
- * console - the status filters as lit words, the search printed on the glass,
- * every case a row between engraved rules, and the review / resolve /
- * escalate controls as lit words inside the expanded case. Every loader
- * guard, realtime channel, bus listener, keyboard handler and aria contract of
- * the generic page is kept; only the paint changed.
+ * #SmarterDesign (Dan 2026-11-27): the shared integrity header carries the
+ * chrome mast, the live counts and the casework switch; the docket beneath it
+ * is one thin chrome case - the status filters as a chrome switch that lights
+ * the selected tab, the search in a dark well, every case a chrome ledger row,
+ * and the review / resolve / escalate controls as chrome keys inside the
+ * expanded case. Every loader guard, realtime channel, bus listener, keyboard
+ * handler and aria contract of the page is kept; only the paint changed.
  */
 
 import {
@@ -41,12 +41,9 @@ import {
   type DisputeResolution,
 } from '../services/DisputeService';
 import './DisputeManagementPage.css';
-/* #SmarterDesign (Dan 2026-11-27): the painted console is the old style for a
-   page section; the docket prints in the thin chrome case under the arena
-   integrity mast. */
-import { ClubPageSection as SpadeConsole } from '../components/club/ClubPageSection';
-import '../components/console/SpadeConsole.css';
+import { ArenaState } from '../components/ops/ArenaOps';
 import '../components/lobby/ArenaWorkspace.css';
+import '../components/ops/ArenaOps.css';
 import { titleCase } from '../utils/titleCase';
 import { resolveClubUUID } from '../utils/clubIdResolver';
 import { compactChips } from '../utils/format';
@@ -350,20 +347,14 @@ export default function DisputeManagementPage() {
     escalated: disputes.filter((d) => d.status === 'escalated').length,
   };
 
-  /* The status prints in the master's own ink rather than in a drawn badge:
-     gold while it waits, blue under review, green once resolved, red when
-     escalated, muted when withdrawn. */
-  const getStatusBadge = (status: DisputeStatus) => {
-    const map: Record<DisputeStatus, string> = {
-      open: 'sc-ink--gold',
-      under_review: 'sc-ink--blue',
-      resolved: 'sc-ink--green',
-      escalated: 'sc-ink--red',
-      withdrawn: 'sc-ink--muted',
-    };
-    const ink = map[status] || map.open;
-    return <span className={`dmp__status ${ink}`}>{titleCase(status.replace('_', ' '))}</span>;
-  };
+  /* The status prints as a word in the smarter.poker inks rather than in a
+     drawn badge: gold while it waits, blue under review, chrome once
+     resolved, red when escalated, muted when withdrawn. */
+  const getStatusBadge = (status: DisputeStatus) => (
+    <span className="dmp__status" data-status={status}>
+      {titleCase(status.replace('_', ' '))}
+    </span>
+  );
 
   const handleTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, current: FilterTab) => {
     const currentIndex = FILTER_TABS.indexOf(current);
@@ -381,7 +372,7 @@ export default function DisputeManagementPage() {
   };
 
   return (
-    <>
+    <div className="dispute-management-page arena-workspace">
       <ClubIntegrityHeader
         clubId={clubId}
         active="disputes"
@@ -405,255 +396,248 @@ export default function DisputeManagementPage() {
           },
         ]}
       />
-      <div className="dispute-management-page arena-workspace">
-        <SpadeConsole
-          arena
-          className="dmp__console"
-          family="spade"
-          eyebrow="Live Case Docket"
-          title={clubId ? 'Club Disputes' : 'Account Disputes'}
-          titleId="dispute-docket-title"
-          pill={statusCounts.open > 0 ? `${statusCounts.open} Open` : 'Clear'}
-          pillInk={statusCounts.open > 0 ? 'gold' : 'green'}
-          foot="foot"
+      <section
+        className="arena-case arena-ops-case dmp__docket"
+        aria-labelledby="dispute-docket-name"
+      >
+        <p className="arena-ops-eyebrow">Live Case Docket</p>
+        {/* The heading and the docket region are named by the title alone. The
+            status pill sat inside the h2, so both were announced as "Club
+            Disputes Clear" / "Club Disputes 2 Open", a name that changed with
+            the count; post-deploy financial-admin-deep could no longer find the
+            "Club Disputes" heading (run 46128787571). The pill stays readable
+            content right after the name. */}
+        <h2
+          id="dispute-docket-title"
+          className="arena-section-title"
+          aria-labelledby="dispute-docket-name"
         >
-          {/* Filter Tabs */}
-          <div
-            className="dmp__tabs arena-switch arena-ops-keys"
-            role="tablist"
-            aria-label="Filter Disputes By Status"
-          >
-            {FILTER_TABS.map((tab) => (
-              <button
-                key={tab}
-                id={`dispute-filter-${tab}`}
-                type="button"
-                role="tab"
-                aria-selected={activeTab === tab}
-                aria-controls="dispute-case-panel"
-                tabIndex={activeTab === tab ? 0 : -1}
-                className="dmp-word dmp__tab"
-                onClick={() => setActiveTab(tab)}
-                onKeyDown={(event) => handleTabKeyDown(event, tab)}
-              >
-                {tab === 'under_review' ? 'Reviewing' : tab.charAt(0).toUpperCase() + tab.slice(1)}
-                {statusCounts[tab] > 0 && (
-                  <span className="dmp__tab-count sc-ink--blue">{statusCounts[tab]}</span>
-                )}
-              </button>
-            ))}
-          </div>
+          <span id="dispute-docket-name">{clubId ? 'Club Disputes' : 'Account Disputes'}</span>
+          <small className="dmp__pill" data-open={statusCounts.open > 0 || undefined}>
+            {statusCounts.open > 0 ? `${statusCounts.open} Open` : 'Clear'}
+          </small>
+        </h2>
 
-          {/* Search */}
-          <div className="dmp__search">
-            <label htmlFor="dispute-search" className="dmp__search-label sc-label sc-ink--blue">
-              Search Cases
-            </label>
-            <input
-              id="dispute-search"
-              type="text"
-              className="dmp__field"
-              placeholder="Player, Reason, Target, Or Amount"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+        {/* Filter Tabs */}
+        <div
+          className="arena-switch arena-ops-keys dmp__tabs"
+          role="tablist"
+          aria-label="Filter Disputes By Status"
+        >
+          {FILTER_TABS.map((tab) => (
+            <button
+              key={tab}
+              id={`dispute-filter-${tab}`}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab}
+              aria-controls="dispute-case-panel"
+              tabIndex={activeTab === tab ? 0 : -1}
+              onClick={() => setActiveTab(tab)}
+              onKeyDown={(event) => handleTabKeyDown(event, tab)}
+            >
+              {tab === 'under_review' ? 'Reviewing' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {statusCounts[tab] > 0 && <span className="dmp__tab-count">{statusCounts[tab]}</span>}
+            </button>
+          ))}
+        </div>
+
+        {/* Search */}
+        <div className="dmp__search">
+          <label htmlFor="dispute-search" className="arena-ops-eyebrow">
+            Search Cases
+          </label>
+          <input
+            id="dispute-search"
+            type="text"
+            className="arena-ops-well"
+            placeholder="Player, Reason, Target, Or Amount"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+
+        {/* Disputes List */}
+        <div
+          id="dispute-case-panel"
+          className="dmp__panel"
+          role="tabpanel"
+          aria-labelledby={`dispute-filter-${activeTab}`}
+        >
+          {loading ? (
+            <ArenaState tone="loading" title="Loading Disputes..." />
+          ) : loadError ? (
+            <ArenaState
+              tone="error"
+              title="Dispute Docket Unavailable"
+              message="The Live Case Feed Could Not Be Loaded. No Dispute Records Were Changed."
+              actions={
+                <button type="button" onClick={() => void loadDisputes()}>
+                  Retry Case Feed
+                </button>
+              }
             />
-          </div>
-
-          {/* Disputes List */}
-          <div
-            id="dispute-case-panel"
-            className="dmp__panel"
-            role="tabpanel"
-            aria-labelledby={`dispute-filter-${activeTab}`}
-          >
-            {loading ? (
-              <p className="sc-copy sc-copy--center dmp__state" aria-busy="true">
-                Loading Disputes...
-              </p>
-            ) : loadError ? (
-              <div className="dmp__state" role="alert">
-                <strong className="dmp__state-title sc-ink--red">Dispute Docket Unavailable</strong>
-                <p className="sc-copy">
-                  The Live Case Feed Could Not Be Loaded. No Dispute Records Were Changed.
-                </p>
-                <span className="arena-switch arena-ops-keys arena-ops-primary dmp__keys">
+          ) : filtered.length === 0 ? (
+            <ArenaState
+              tone="empty"
+              title="Docket Clear"
+              message={
+                activeTab === 'all'
+                  ? 'No Disputes Have Been Filed.'
+                  : titleCase(`No ${activeTab.replace('_', ' ')} Disputes Match This View.`)
+              }
+            />
+          ) : (
+            <ul className="arena-ops-rows arena-ops-rows--single">
+              {filtered.map((dispute) => (
+                <li key={dispute.id} className="arena-ledger-row dmp__case">
                   <button
                     type="button"
-                    className="dmp-word sc-ink--white"
-                    onClick={() => void loadDisputes()}
+                    className="dmp__case-head"
+                    aria-expanded={expandedId === dispute.id}
+                    aria-controls={`dispute-case-${dispute.id}`}
+                    onClick={() => {
+                      const newId = expandedId === dispute.id ? null : dispute.id;
+                      setExpandedId(newId);
+                      // Reset form state when switching cards to prevent stale data carry-over
+                      if (newId !== expandedId) {
+                        setResolutionText('');
+                        setAdjustmentAmount('');
+                        setAdjustmentType('none');
+                      }
+                    }}
                   >
-                    Retry Case Feed
+                    <span className="dmp__case-meta">
+                      {getStatusBadge(dispute.status)}
+                      <span className="dmp__amount">{compactChips(dispute.amount)} Chips</span>
+                    </span>
+                    <span className="dmp__case-target">
+                      <span className="dmp__target-type">
+                        {titleCase(dispute.targetType.replace('_', ' '))}
+                      </span>
+                      <span className="dmp__submitter" data-player-name>
+                        By {titleCase(dispute.submitterName)}
+                      </span>
+                    </span>
+                    <span className="dmp__case-date">
+                      {new Date(dispute.createdAt).toLocaleDateString(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                      {(dispute.status === 'open' || dispute.status === 'under_review') &&
+                        (() => {
+                          const sla = getSlaRemaining(dispute.createdAt);
+                          if (!sla) return null;
+                          return (
+                            <span className="dmp__sla" data-urgent={sla.urgent || undefined}>
+                              {sla.text}
+                            </span>
+                          );
+                        })()}
+                    </span>
                   </button>
-                </span>
-              </div>
-            ) : filtered.length === 0 ? (
-              <div className="dmp__state">
-                <strong className="dmp__state-title sc-ink--green">Docket Clear</strong>
-                <p className="sc-copy sc-copy--center">
-                  {activeTab === 'all'
-                    ? 'No Disputes Have Been Filed.'
-                    : titleCase(`No ${activeTab.replace('_', ' ')} Disputes Match This View.`)}
-                </p>
-              </div>
-            ) : (
-              <ul className="dmp__list">
-                {filtered.map((dispute) => (
-                  <li key={dispute.id} className="dmp__case arena-ledger-row">
-                    <button
-                      type="button"
-                      className="dmp__case-head"
-                      aria-expanded={expandedId === dispute.id}
-                      aria-controls={`dispute-case-${dispute.id}`}
-                      onClick={() => {
-                        const newId = expandedId === dispute.id ? null : dispute.id;
-                        setExpandedId(newId);
-                        // Reset form state when switching cards to prevent stale data carry-over
-                        if (newId !== expandedId) {
-                          setResolutionText('');
-                          setAdjustmentAmount('');
-                          setAdjustmentType('none');
-                        }
-                      }}
-                    >
-                      <span className="dmp__case-meta">
-                        {getStatusBadge(dispute.status)}
-                        <span className="dmp__amount sc-ink--silver">
-                          {compactChips(dispute.amount)} Chips
-                        </span>
-                      </span>
-                      <span className="dmp__case-target">
-                        <span className="dmp__target-type sc-ink--blue">
-                          {titleCase(dispute.targetType.replace('_', ' '))}
-                        </span>
-                        <span className="dmp__submitter sc-ink--muted" data-player-name>
-                          By {titleCase(dispute.submitterName)}
-                        </span>
-                      </span>
-                      <span className="dmp__case-date sc-ink--muted">
-                        {new Date(dispute.createdAt).toLocaleDateString(undefined, {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                        {(dispute.status === 'open' || dispute.status === 'under_review') &&
-                          (() => {
-                            const sla = getSlaRemaining(dispute.createdAt);
-                            if (!sla) return null;
-                            return (
-                              <span
-                                className={`dmp__sla ${sla.urgent ? 'sc-ink--red' : 'sc-ink--gold'}`}
-                              >
-                                {sla.text}
-                              </span>
-                            );
-                          })()}
-                      </span>
-                    </button>
 
-                    <p className="sc-copy dmp__reason">
-                      <span className="dmp__reason-label sc-ink--blue">Reason:</span>{' '}
-                      {titleCase(dispute.reason)}
+                  <p className="arena-ops-copy dmp__reason">
+                    <span className="dmp__reason-label">Reason:</span> {titleCase(dispute.reason)}
+                  </p>
+
+                  {dispute.resolution && (
+                    <p className="arena-ops-copy dmp__reason">
+                      <span className="dmp__reason-label">Resolution:</span>{' '}
+                      {titleCase(dispute.resolution)}
                     </p>
+                  )}
 
-                    {dispute.resolution && (
-                      <p className="sc-copy dmp__reason">
-                        <span className="dmp__reason-label sc-ink--green">Resolution:</span>{' '}
-                        {titleCase(dispute.resolution)}
-                      </p>
-                    )}
-
-                    {/* Expanded Actions */}
-                    {expandedId === dispute.id &&
-                      (dispute.status === 'open' || dispute.status === 'under_review') && (
-                        <div className="dmp__actions" id={`dispute-case-${dispute.id}`}>
-                          {clubId ? (
-                            <div className="dmp__form">
-                              {dispute.status === 'open' && (
-                                <span className="arena-switch arena-ops-keys arena-ops-primary dmp__keys">
-                                  <button
-                                    type="button"
-                                    className="dmp-word sc-ink--white"
-                                    onClick={() => handleStartReview(dispute.id)}
-                                    disabled={reviewing === dispute.id}
-                                  >
-                                    {reviewing === dispute.id ? 'Reviewing...' : 'Start Review'}
-                                  </button>
-                                </span>
+                  {/* Expanded Actions */}
+                  {expandedId === dispute.id &&
+                    (dispute.status === 'open' || dispute.status === 'under_review') && (
+                      <div className="dmp__actions" id={`dispute-case-${dispute.id}`}>
+                        {clubId ? (
+                          <div className="dmp__form">
+                            {dispute.status === 'open' && (
+                              <div className="arena-switch arena-ops-keys">
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartReview(dispute.id)}
+                                  disabled={reviewing === dispute.id}
+                                >
+                                  {reviewing === dispute.id ? 'Reviewing...' : 'Start Review'}
+                                </button>
+                              </div>
+                            )}
+                            <textarea
+                              className="arena-ops-well"
+                              aria-label="Resolution Notes"
+                              placeholder="Enter Resolution Notes..."
+                              value={resolutionText}
+                              onChange={(e) => setResolutionText(e.target.value)}
+                              rows={2}
+                            />
+                            <div className="dmp__adjust">
+                              <select
+                                className="arena-ops-well"
+                                aria-label="Balance Adjustment Type"
+                                value={adjustmentType}
+                                onChange={(e) => setAdjustmentType(e.target.value as any)}
+                              >
+                                <option value="none">No Adjustment</option>
+                                <option value="credit">Credit Player</option>
+                                <option value="debit">Debit Player</option>
+                              </select>
+                              {adjustmentType !== 'none' && (
+                                <input
+                                  className="arena-ops-well"
+                                  aria-label="Balance Adjustment Amount"
+                                  type="number"
+                                  inputMode="decimal"
+                                  min="0.01"
+                                  step="0.01"
+                                  placeholder="Amount"
+                                  value={adjustmentAmount}
+                                  onChange={(e) => setAdjustmentAmount(e.target.value)}
+                                />
                               )}
-                              <textarea
-                                className="dmp__field dmp__field--area"
-                                aria-label="Resolution Notes"
-                                placeholder="Enter Resolution Notes..."
-                                value={resolutionText}
-                                onChange={(e) => setResolutionText(e.target.value)}
-                                rows={2}
-                              />
-                              <div className="dmp__adjust">
-                                <select
-                                  className="dmp__field dmp__field--select"
-                                  aria-label="Balance Adjustment Type"
-                                  value={adjustmentType}
-                                  onChange={(e) => setAdjustmentType(e.target.value as any)}
-                                >
-                                  <option value="none">No Adjustment</option>
-                                  <option value="credit">Credit Player</option>
-                                  <option value="debit">Debit Player</option>
-                                </select>
-                                {adjustmentType !== 'none' && (
-                                  <input
-                                    className="dmp__field"
-                                    aria-label="Balance Adjustment Amount"
-                                    type="number"
-                                    inputMode="decimal"
-                                    min="0.01"
-                                    step="0.01"
-                                    placeholder="Amount"
-                                    value={adjustmentAmount}
-                                    onChange={(e) => setAdjustmentAmount(e.target.value)}
-                                  />
-                                )}
-                              </div>
-                              <div className="dmp__form-actions arena-switch arena-ops-keys">
-                                <button
-                                  type="button"
-                                  className="dmp-word sc-ink--green"
-                                  onClick={() => handleResolve(dispute.id)}
-                                  disabled={resolving === dispute.id}
-                                >
-                                  {resolving === dispute.id ? 'Resolving...' : 'Resolve Dispute'}
-                                </button>
-                                <button
-                                  type="button"
-                                  className="dmp-word sc-ink--red"
-                                  onClick={() => handleEscalate(dispute.id)}
-                                  disabled={escalating === dispute.id}
-                                >
-                                  {escalating === dispute.id ? 'Escalating...' : 'Escalate'}
-                                </button>
-                              </div>
                             </div>
-                          ) : (
-                            <span className="arena-switch arena-ops-keys dmp__keys">
+                            <div className="arena-switch arena-ops-keys arena-ops-primary">
                               <button
                                 type="button"
-                                className="dmp-word sc-ink--red"
-                                onClick={() => handleWithdraw(dispute.id)}
-                                disabled={withdrawing === dispute.id}
+                                onClick={() => handleResolve(dispute.id)}
+                                disabled={resolving === dispute.id}
                               >
-                                {withdrawing === dispute.id ? 'Withdrawing...' : 'Withdraw Dispute'}
+                                {resolving === dispute.id ? 'Resolving...' : 'Resolve Dispute'}
                               </button>
-                            </span>
-                          )}
-                        </div>
-                      )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </SpadeConsole>
-      </div>
-    </>
+                              <button
+                                type="button"
+                                className="dmp__danger"
+                                onClick={() => handleEscalate(dispute.id)}
+                                disabled={escalating === dispute.id}
+                              >
+                                {escalating === dispute.id ? 'Escalating...' : 'Escalate'}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="arena-switch arena-ops-keys">
+                            <button
+                              type="button"
+                              className="dmp__danger"
+                              onClick={() => handleWithdraw(dispute.id)}
+                              disabled={withdrawing === dispute.id}
+                            >
+                              {withdrawing === dispute.id ? 'Withdrawing...' : 'Withdraw Dispute'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+    </div>
   );
 }

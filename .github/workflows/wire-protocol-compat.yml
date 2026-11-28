@@ -1,0 +1,35 @@
+name: Client-engine wire-protocol compatibility
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'server/src/**'
+      - 'scripts/ci/check-wire-protocol-compat.mjs'
+      - '.github/workflows/wire-protocol-compat.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wire-protocol-compat-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  wire_protocol_compat:
+    name: Wire-protocol compatibility (additive-only vs main)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check client-engine wire-protocol compatibility
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha || 'origin/main' }}
+        run: node scripts/ci/check-wire-protocol-compat.mjs --base "$BASE_REF"

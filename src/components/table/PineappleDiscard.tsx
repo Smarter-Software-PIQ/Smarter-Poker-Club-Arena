@@ -119,7 +119,7 @@ export function PineappleDiscard({
       // Do not close. The engine will auto-discard when the timer runs out, and
       // silently closing here would take the choice away exactly like the old
       // no-UI behaviour did.
-      setError('The server did not accept that discard - try again.');
+      setError('The Server Did Not Accept That Discard - Try Again.');
       setBusy(false);
       return;
     }

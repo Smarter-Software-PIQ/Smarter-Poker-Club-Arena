@@ -1191,6 +1191,17 @@ describe('ThemeSettingsModal hardening', () => {
       'data-table-theme',
       'classic_green'
     );
+    // Opening reads the row once, and once more when the appearance channel
+    // reports SUBSCRIBED (the catch-up read for anything missed while it
+    // connected). Under a loaded CI runner that second read could start after
+    // the row below was swapped, so it read 'ocean_blue' inside the window that
+    // asserts nothing is read (Client Unit Tests shard 3, PRs #12341 and #12346,
+    // 2026-11-28; measured: 1 read at the swap in the failing run, 2 otherwise).
+    // Swap the row only once both opening reads are done.
+    await waitFor(() => expect(mocks.themeReads).toBe(2));
+    await act(async () => {
+      await mocks.themeResult;
+    });
 
     mocks.themeResult = Promise.resolve({
       data: [

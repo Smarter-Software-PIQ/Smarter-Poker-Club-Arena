@@ -1,0 +1,25 @@
+/* WEEKLY ACCOUNTING in #SmarterDesign (Dan 2026-11-27).
+
+   The mast, case, switch and state come from ArenaWorkspace.css and
+   ArenaOps.css. WeeklyAccountingWorkspace is shared with the Settlement
+   Dashboard, so it keeps its own stylesheet; this sheet only gives it a
+   container to size against and recolours its state lines inside the case.
+   Nothing reacts to a pointer resting on it. */
+
+.settlement-page.arena-workspace {
+  min-height: 100dvh;
+  padding-bottom: max(var(--bottom-nav-clearance, 74px), env(safe-area-inset-bottom));
+  overflow-x: clip;
+}
+
+.arena-workspace .settlement-page__case {
+  container-type: inline-size;
+}
+
+.arena-workspace .settlement-page__case p[role='alert'] {
+  color: #ff5a6a;
+}
+
+.arena-workspace .settlement-page__case p[role='status'] {
+  color: #9aabba;
+}
