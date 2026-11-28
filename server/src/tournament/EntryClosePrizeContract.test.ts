@@ -115,3 +115,57 @@ describe('entry close adopts a readable financial contract before repricing', ()
     }
   );
 });
+
+describe('registration closes before the pool while rebuys run longer (owner law 2026-11-14)', () => {
+  it('announces registration closed once and leaves the pool open and unfunded', async () => {
+    const report = vi.fn();
+    const rpc = vi.fn(async () => ({
+      data: {
+        ok: true,
+        entry_closed: false,
+        window_mode: 'levels',
+        retry_after_ms: null,
+        reason: 'rebuy_window_open',
+      },
+      error: null,
+    }));
+    const Subject = new Function(
+      'supabase',
+      'reportError',
+      'TournamentManagerBase',
+      'readTournamentPrizePool',
+      'parsePayoutStructure',
+      compiled
+    )(
+      { rpc },
+      report,
+      { UNRESOLVED_BUST_RETRY_MS: 1000 },
+      readTournamentPrizePool,
+      parsePayoutStructure
+    );
+    const lifecycle = {};
+    const broadcast = vi.fn(async () => undefined);
+    const subject = Object.assign(new Subject(), {
+      tournamentId: 'event',
+      tournamentEntryCloseAnnounced: false,
+      tournamentEntryWindowClosed: false,
+      prizePoolFinalized: false,
+      tournamentCache: { prize_pool: 600, prize_pool_finalized: false },
+      captureLifecycleToken: () => lifecycle,
+      lifecycleIsCurrent: (candidate: unknown) => candidate === lifecycle,
+      clearTournamentEntryCloseTimer: vi.fn(),
+      armTournamentEntryCloseTimer: vi.fn(),
+      requestUrgentEliminationSweepAfter: vi.fn(),
+      recalculateEliminatedPrizes: vi.fn(),
+      broadcast,
+    });
+    expect(await subject.reconcileTournamentEntryWindowOnce('blind')).toBe(true);
+    expect(await subject.reconcileTournamentEntryWindowOnce('blind')).toBe(true);
+    expect(broadcast).toHaveBeenCalledTimes(1);
+    expect(broadcast).toHaveBeenCalledWith('late_reg_closed', { prizePool: 600, rebuysOpen: true });
+    expect(subject.prizePoolFinalized).toBe(false);
+    expect(subject.tournamentEntryWindowClosed).toBe(false);
+    expect(subject.recalculateEliminatedPrizes).not.toHaveBeenCalled();
+    expect(report).not.toHaveBeenCalled();
+  });
+});
