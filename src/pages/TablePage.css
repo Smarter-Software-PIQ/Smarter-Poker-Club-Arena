@@ -1434,7 +1434,10 @@
   font-size: calc(0.67 * clamp(0.6875rem, 6cqw, 0.8125rem));
   font-weight: 600;
   letter-spacing: 0.035em;
-  text-transform: uppercase;
+  /* No uppercase transform (2026-11-28): club and union names are Title Cased
+     at the print site (titleCaseName), and every other line is a Title Case
+     literal. The short game code (NLH, PLO4) is upper case in the source. */
+  text-transform: none;
   color: #a6a6a6;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
   white-space: normal;

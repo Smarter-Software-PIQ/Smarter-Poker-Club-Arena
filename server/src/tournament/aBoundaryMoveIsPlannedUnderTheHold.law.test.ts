@@ -1189,5 +1189,208 @@ describe('a boundary move is planned under the hold', () => {
       expect(readsAtTheBoundary()).toBe(0);
       expect(m.executePlayerMoves).toHaveBeenCalledTimes(1);
     });
+
+    it('parallelizes distinct-destination moves from one source under one boundary guard while keeping same-destination moves strictly serialized (1e532243 Phase 5)', async () => {
+      const src = table(0, 9);
+      const destA = table(1, 4);
+      const destB = table(2, 4);
+      const { m, engines } = manager([src, destA, destB]);
+      const srcEngine: any = engines.get(src.tableId)!;
+      // Simulate the real ServerTableEngineBase single-op-per-owner barrier:
+      // overlapping direct executeTournamentMoveAtBoundary calls MUST throw.
+      let activeBoundaryOps = 0;
+      let boundaryEntries = 0;
+      srcEngine.executeTournamentMoveAtBoundary = vi.fn(
+        async (_owner: string, op: () => Promise<unknown>) => {
+          if (activeBoundaryOps > 0) {
+            throw new Error('tournament move source owner already has an operation in flight');
+          }
+          boundaryEntries++;
+          activeBoundaryOps++;
+          try {
+            return await op();
+          } finally {
+            activeBoundaryOps--;
+          }
+        }
+      );
+
+      m.redrivePendingTournamentSeatMoveOutcomesOwned = vi.fn(async () => true);
+      m.claimTournamentMoveBoundary = vi.fn(async () => ({
+        engine: srcEngine,
+        sourceMode: 'live_source',
+      }));
+      const inFlight: Array<{ input: any; resolve: (r: any) => void }> = [];
+      const startedDestinations: string[] = [];
+      m.requestTournamentSeatMoveAtBoundary = vi.fn(
+        (input: any, boundary: any) =>
+          new Promise((resolve) => {
+            startedDestinations.push(input.destinationTableId);
+            // Distinct-dest wave enters the physical boundary guard once for the wave.
+            if (boundary?.boundaryGuardEntered) {
+              expect(activeBoundaryOps).toBe(1);
+            }
+            inFlight.push({ input, resolve });
+          })
+      );
+      const movedSpy = vi.spyOn(m.committedSeatShow, 'moved').mockImplementation(() => {});
+      m.runWithTournamentSeatMoveAuthority = async (fn: () => Promise<number>) => fn();
+      m.executePlayerMoves = (TournamentManager.prototype as any).executePlayerMoves.bind(m);
+
+      // Move 1 -> destA, Move 2 -> destB (Wave 1, distinct destinations),
+      // Move 3 -> destA (Wave 2, same destination as Move 1 -> MUST serialize after Wave 1).
+      const runPromise = m.executePlayerMoves([
+        {
+          fromTableId: src.tableId,
+          toTableId: destA.tableId,
+          playerId: src.players[0].userId,
+          toSeat: 5,
+        },
+        {
+          fromTableId: src.tableId,
+          toTableId: destB.tableId,
+          playerId: src.players[1].userId,
+          toSeat: 5,
+        },
+        {
+          fromTableId: src.tableId,
+          toTableId: destA.tableId,
+          playerId: src.players[2].userId,
+          toSeat: 6,
+        },
+      ]);
+      await settle();
+
+      // Both distinct-destination moves in Wave 1 MUST be concurrently in flight,
+      // while the second destA move MUST NOT have started yet.
+      expect(startedDestinations).toEqual([destA.tableId, destB.tableId]);
+      expect(inFlight).toHaveLength(2);
+      expect(boundaryEntries).toBe(1);
+
+      // Resolve Wave 1 in reverse order to prove independent settlement.
+      for (const entry of inFlight.splice(0).reverse()) {
+        entry.resolve({
+          requestId: entry.input.requestId,
+          sourceSeatNumber: 1,
+          destinationSeatNumber: entry.input.destinationSeatNumber,
+        });
+      }
+      await settle();
+
+      // Now Wave 2 (the serialized second destA move) starts.
+      expect(startedDestinations).toEqual([destA.tableId, destB.tableId, destA.tableId]);
+      expect(inFlight).toHaveLength(1);
+      const wave2 = inFlight.shift()!;
+      wave2.resolve({
+        requestId: wave2.input.requestId,
+        sourceSeatNumber: 2,
+        destinationSeatNumber: wave2.input.destinationSeatNumber,
+      });
+
+      await expect(runPromise).resolves.toBe(3);
+      expect(movedSpy).toHaveBeenCalledTimes(3);
+      expect(srcEngine.releaseTournamentMovePause).toHaveBeenCalledTimes(1);
+    });
+
+    it('retains the source fence and halts later waves when any move in a parallel distinct-destination wave returns an unknown outcome (1e532243 Phase 5)', async () => {
+      const { TournamentSeatMoveOutcomeUnknownError } = await import('./tournamentSeatMoveRpc.js');
+      const src = table(0, 9);
+      const destA = table(1, 4);
+      const destB = table(2, 4);
+      const { m, engines } = manager([src, destA, destB]);
+      const srcEngine: any = engines.get(src.tableId)!;
+      srcEngine.executeTournamentMoveAtBoundary = vi.fn(
+        async (_owner: string, op: () => Promise<unknown>) => op()
+      );
+      m.redrivePendingTournamentSeatMoveOutcomesOwned = vi.fn(async () => true);
+      m.claimTournamentMoveBoundary = vi.fn(async () => ({
+        engine: srcEngine,
+        sourceMode: 'live_source',
+      }));
+      const attemptedPlayers: string[] = [];
+      m.requestTournamentSeatMoveAtBoundary = vi.fn(async (input: any) => {
+        attemptedPlayers.push(input.userId);
+        if (input.destinationTableId === destA.tableId) {
+          throw new TournamentSeatMoveOutcomeUnknownError('network timeout');
+        }
+        return {
+          requestId: input.requestId,
+          sourceSeatNumber: 2,
+          destinationSeatNumber: input.destinationSeatNumber,
+        };
+      });
+      vi.spyOn(m.committedSeatShow, 'moved').mockImplementation(() => {});
+      m.runWithTournamentSeatMoveAuthority = async (fn: () => Promise<number>) => fn();
+      m.executePlayerMoves = (TournamentManager.prototype as any).executePlayerMoves.bind(m);
+
+      const movedCount = await m.executePlayerMoves([
+        {
+          fromTableId: src.tableId,
+          toTableId: destA.tableId,
+          playerId: src.players[0].userId,
+          toSeat: 5,
+        },
+        {
+          fromTableId: src.tableId,
+          toTableId: destB.tableId,
+          playerId: src.players[1].userId,
+          toSeat: 5,
+        },
+        {
+          fromTableId: src.tableId,
+          toTableId: destA.tableId,
+          playerId: src.players[2].userId,
+          toSeat: 6,
+        },
+      ]);
+
+      expect(movedCount).toBe(1);
+      // Wave 2 (player[2]) MUST NOT start after Wave 1 recorded an unknown outcome.
+      expect(attemptedPlayers).toEqual([src.players[0].userId, src.players[1].userId]);
+      expect(m.pendingTournamentSeatMoveOutcomes.size).toBe(1);
+      // Source fence MUST stay held until the unknown outcome is replayed.
+      expect(srcEngine.releaseTournamentMovePause).not.toHaveBeenCalled();
+    });
+
+    it('proactively re-prepares the boundary plan while a fenced source sits in its hold after an unrelated bust or seat-move batch advances balanceBoardEpoch (1e532243 Phase 5)', async () => {
+      const big = table(0, 9);
+      const short = table(1, 5);
+      const mid = table(2, 7);
+      const { m, park, settleHand, readsAtTheBoundary } = manager([big, short, mid]);
+      await m.checkTableBalance();
+      settleHand(big);
+      await settle();
+      expect(m.preparedBoundaryPlan).not.toBeNull();
+      const firstEpoch = m.preparedBoundaryPlan.epoch;
+
+      // Another unfenced table busts while `big` still sits in its 5-7s hold.
+      m.loadBalancerTables.mockClear();
+      settleHand(mid, [id(7777)]);
+      await settle();
+
+      // The manager proactively re-prepared the board for the new epoch under the hold.
+      expect(m.loadBalancerTables).toHaveBeenCalledWith(expect.any(Array), 'balancePrepared');
+      expect(m.preparedBoundaryPlan).not.toBeNull();
+      expect(m.preparedBoundaryPlan.epoch).toBe(m.balanceBoardEpoch);
+      expect(m.preparedBoundaryPlan.epoch).toBeGreaterThan(firstEpoch);
+
+      // A seat-move batch finishing while `big` is still in its hold also re-prepares.
+      const postBustEpoch = m.balanceBoardEpoch;
+      m.loadBalancerTables.mockClear();
+      m.runWithTournamentSeatMoveAuthority = vi.fn(async () => 0);
+      await (TournamentManager.prototype as any).executePlayerMoves.call(m, []);
+      await settle();
+      expect(m.loadBalancerTables).toHaveBeenCalledWith(expect.any(Array), 'balancePrepared');
+      expect(m.preparedBoundaryPlan.epoch).toBe(m.balanceBoardEpoch);
+      expect(m.preparedBoundaryPlan.epoch).toBeGreaterThan(postBustEpoch);
+
+      // When `big` later parks, it consumes the fresh prepared plan with ZERO boundary read.
+      m.loadBalancerTables.mockClear();
+      park(big.tableId);
+      expect(m.claimGapBalanceAtBoundary(big.tableId)).toBe(true);
+      await settle();
+      expect(readsAtTheBoundary()).toBe(0);
+      expect(m.executePlayerMoves).toHaveBeenCalledTimes(1);
+    });
   });
 });

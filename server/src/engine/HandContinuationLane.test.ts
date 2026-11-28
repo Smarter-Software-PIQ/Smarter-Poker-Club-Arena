@@ -498,3 +498,92 @@ it('uses captureAccounting and skips redundant structuredClone when engineCaptur
     cloneSpy.mockRestore();
   }
 });
+
+it('forwards pre-captured controller metadata alongside batch without mutating durable batch keys and skips JSON.parse in retainOriginalBatch (1e532243 Phase 5)', async () => {
+  const controller = new HandController(
+    {
+      tableId: 't1',
+      handNumber: 77,
+      gameVariant: 'nlh',
+      smallBlind: 10,
+      bigBlind: 20,
+      ante: 0,
+      rakeConfig: { percent: 0, cap: 0, noFlopNoDrop: true },
+    },
+    [
+      {
+        seat: 1,
+        user_id: 'u1',
+        username: 'A',
+        stack: 1000,
+        bet: 0,
+        totalInvested: 0,
+        cards: [],
+        is_folded: false,
+        is_all_in: false,
+        is_sitting_out: false,
+      },
+      {
+        seat: 2,
+        user_id: 'u2',
+        username: 'B',
+        stack: 1000,
+        bet: 0,
+        totalInvested: 0,
+        cards: [],
+        is_folded: false,
+        is_all_in: false,
+        is_sitting_out: false,
+      },
+    ],
+    1
+  );
+
+  // Pre-start metadata matches JSON.parse(serializeRecoveryState()) with deck: [] and stays detached.
+  const preStartJson = controller.serializeRecoveryState();
+  const preStartParsed = JSON.parse(preStartJson);
+  const preStartMeta = (controller as any).capturePublicContinuationMetadata();
+  expect(preStartMeta.handStarted).toBe(false);
+  expect(preStartMeta.publicState).toEqual({ ...preStartParsed.state, deck: [] });
+
+  // Mutating controller (starting the hand) MUST NOT mutate the pre-captured metadata snapshot.
+  const observedBatches: HandContinuationBatch[] = [];
+  const observedMeta: unknown[] = [];
+  const lane = new HandContinuationLane(
+    0,
+    () => controller.serializeRecoveryState(),
+    () => ({ fields: {}, timeBankMeta: new Map(), timeBankDebits: new Map() }),
+    async (batch, meta?: unknown) => {
+      observedBatches.push(batch);
+      observedMeta.push(meta);
+    },
+    async () => {},
+    () => true,
+    () => {},
+    undefined,
+    undefined,
+    undefined,
+    {
+      captureControllerMetadata: () => (controller as any).capturePublicContinuationMetadata(),
+    } as any
+  );
+  controller.onEvent((event) => lane.enqueue(event));
+  controller.start();
+  await lane.join();
+
+  expect(preStartMeta.publicState.stage).toBe(preStartParsed.state.stage);
+  expect(observedBatches).toHaveLength(1);
+  // Durable batch shape is strictly unchanged — no extra metadata key leaks onto the persisted batch.
+  expect(Object.keys(observedBatches[0]).sort()).toEqual([
+    'controller',
+    'engine',
+    'events',
+    'sequence',
+    'version',
+  ]);
+  const liveParsed = JSON.parse(observedBatches[0].controller);
+  expect(observedMeta[0]).toEqual({
+    handStarted: true,
+    publicState: { ...liveParsed.state, deck: [] },
+  });
+});

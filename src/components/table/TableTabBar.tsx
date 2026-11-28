@@ -131,9 +131,9 @@ export interface TabInfo {
 
 /** What a pending decision is called on the pill. Short: it shares ~100px. */
 const DECISION_LABEL: Record<string, string> = {
-  discard: 'DISCARD',
-  insurance: 'INSURE',
-  rit: 'RUN IT',
+  discard: 'Discard',
+  insurance: 'Insure',
+  rit: 'Run It',
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -978,7 +978,7 @@ export function TableTabBar({
                     sitOutUrgent ? ' table-tab-bar__tab-label--seat-urgent' : ''
                   }`}
                 >
-                  <span className="table-tab-bar__tab-name">SEAT</span>
+                  <span className="table-tab-bar__tab-name">Seat</span>
                   <span className="table-tab-bar__tab-sub">{sitOutLeft}</span>
                 </span>
               ) : timeBankLeft !== undefined ? (
@@ -986,7 +986,7 @@ export function TableTabBar({
                    kicks in, it should display TIME BANK with a countdown
                    clock in the box." */
                 <span className="table-tab-bar__tab-label">
-                  <span className="table-tab-bar__tab-name">TIME BANK</span>
+                  <span className="table-tab-bar__tab-name">Time Bank</span>
                   <span className="table-tab-bar__tab-sub">{timeBankLeft}s</span>
                 </span>
               ) : (

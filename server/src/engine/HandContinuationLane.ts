@@ -38,6 +38,16 @@ export interface HandContinuationAccounting {
   timeBankDebits: unknown;
 }
 
+/**
+ * Lightweight detached controller metadata captured synchronously alongside
+ * `captureController()` so live retention skips `JSON.parse(batch.controller)`
+ * on the main thread without altering persisted batch bytes (1e532243 Phase 5).
+ */
+export interface HandContinuationControllerMetadata {
+  handStarted: boolean;
+  publicState: unknown;
+}
+
 export interface HandContinuationLaneOptions {
   /**
    * Optional narrowed accounting capture that skips control-only fields
@@ -51,6 +61,11 @@ export interface HandContinuationLaneOptions {
    * `structuredClone` on the same snapshot tree.
    */
   engineCaptureDetached?: boolean;
+  /**
+   * Optional detached controller metadata captured on the same synchronous turn
+   * as `captureController()` and passed alongside `batch` to `persist`.
+   */
+  captureControllerMetadata?: () => HandContinuationControllerMetadata;
 }
 
 /**
@@ -111,7 +126,10 @@ export class HandContinuationLane {
     sequence: number,
     private readonly captureController: () => string,
     private readonly captureEngine: () => Record<string, unknown>,
-    private readonly persist: (batch: Readonly<HandContinuationBatch>) => Promise<void>,
+    private readonly persist: (
+      batch: Readonly<HandContinuationBatch>,
+      controllerMeta?: Readonly<HandContinuationControllerMetadata>
+    ) => Promise<void>,
     private readonly dispatch: (
       event: ContinuationEvent,
       identity: ContinuationEventIdentity
@@ -158,6 +176,7 @@ export class HandContinuationLane {
       if (this.failed || this.closed || !this.current())
         throw new Error('Hand Continuation Is Fenced');
       const controller = this.captureController();
+      const controllerMeta = this.options?.captureControllerMetadata?.();
       const rawControl = this.captureEngine();
       const control = this.options?.engineCaptureDetached
         ? rawControl
@@ -199,7 +218,7 @@ export class HandContinuationLane {
                 : structuredClone(accounting.timeBankDebits),
             },
           };
-          await this.persist(batch);
+          await this.persist(batch, controllerMeta);
           if (this.closed || !this.current()) throw new Error('Hand Continuation Is Fenced');
           this.unretainedBatches--;
           this.retainedSequence = sequence;

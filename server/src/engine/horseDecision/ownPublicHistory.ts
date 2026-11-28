@@ -349,7 +349,7 @@ export class HorseOwnPublicHistoryCache {
     string,
     {
       packet?: HorseOwnPublicHistoryPacket;
-      serialized?: { json: string; digest: string; availableAtMs: number; utf8Bytes: number };
+      serialized?: { payload: Buffer; digest: string; availableAtMs: number; utf8Bytes: number };
       readRefusal?: { cutoffMs: number; reason: HorseHistoryReadReason };
       acknowledged: boolean;
       settled: boolean;
@@ -405,7 +405,7 @@ export class HorseOwnPublicHistoryCache {
           })
         )
           return undefined;
-        return JSON.parse(known.serialized.json) as HorseOwnPublicHistoryPacket;
+        return JSON.parse(known.serialized.payload.toString('utf8')) as HorseOwnPublicHistoryPacket;
       }
       return undefined;
     }
@@ -423,7 +423,7 @@ export class HorseOwnPublicHistoryCache {
     if (known) this.retentionBudget.release(known);
     const entry: {
       packet?: HorseOwnPublicHistoryPacket;
-      serialized?: { json: string; digest: string; availableAtMs: number; utf8Bytes: number };
+      serialized?: { payload: Buffer; digest: string; availableAtMs: number; utf8Bytes: number };
       readRefusal?: { cutoffMs: number; reason: HorseHistoryReadReason };
       acknowledged: boolean;
       settled: boolean;
@@ -598,11 +598,14 @@ export class HorseOwnPublicHistoryCache {
     ) {
       // Keep the exact original window for a worker's later null ACK (eviction
       // or restart), but stop retaining its decoded graph after delivery.
+      // Store serialized UTF-8 bytes in an off-heap Node Buffer rather than a
+      // V8 heap string so retained history stays outside V8's old-space GC scan
+      // (incident 1e532243 Phase 5).
       // Each client owns its ACK; another worker never acknowledges this one.
-      const json = JSON.stringify(entry.packet);
+      const payload = Buffer.from(JSON.stringify(entry.packet), 'utf8');
       entry.serialized = {
-        json,
-        utf8Bytes: Buffer.byteLength(json),
+        payload,
+        utf8Bytes: payload.byteLength,
         digest: entry.packet.digest,
         availableAtMs: entry.packet.availableAtMs,
       };

@@ -1,0 +1,4 @@
+{
+  "_owner": "fix/report-error-ignores-the-pages-own-cancelled-reads - errorReporter.ts is first paint and now asks leavingDocument.ts whether a transport failure is the page's own reload cancelling its reads, so every catch block stops logging that as an error. leavingDocument.ts is about 90 lines with no imports and must register its beforeunload/pagehide listeners before the first read, so first paint is where it belongs",
+  "modules": ["src/lib/leavingDocument.ts"]
+}
