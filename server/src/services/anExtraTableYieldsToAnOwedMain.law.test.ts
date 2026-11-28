@@ -24,6 +24,7 @@ import { supabase } from './supabase.js';
 import {
   __resetVarietyDrain,
   drainCycleOutcome,
+  varietyOwedSince,
   mayAddDrainTable,
   VARIETY_DRAIN_PACE_SLACK_MS,
   owedStartsFit,
@@ -262,49 +263,139 @@ describe('which extra table yields', () => {
     expect(fleet).toContain('beat.cashRoom = room;');
     expect(fleet).toContain('cash_room: beat.cashRoom,');
     const { readHandsOwedByTable } = await import('./supabase/cashHourlyTables.js');
+    const owes = { hr_engine_ack: true, hr_completed: false, baseline: 100, closed_at: null };
     fakeDb({
       cash_player_session: [
+        { ...owes, table_id: 'x', player_id: 'h1', hr_hands_required: 10, hr_hands_played: 2 },
+        { ...owes, table_id: 'x', player_id: 'h2', hr_hands_required: 10, hr_hands_played: 10 },
         {
-          table_id: 'x',
-          hr_hands_required: 10,
-          hr_hands_played: 2,
-          hr_completed: false,
-          closed_at: null,
-        },
-        {
-          table_id: 'x',
-          hr_hands_required: 10,
-          hr_hands_played: 10,
-          hr_completed: false,
-          closed_at: null,
-        },
-        {
+          ...owes,
           table_id: 'y',
+          player_id: 'h3',
           hr_hands_required: 10,
           hr_hands_played: 1,
           hr_completed: true,
-          closed_at: null,
         },
         {
+          ...owes,
           table_id: 'y',
+          player_id: 'h4',
           hr_hands_required: 10,
           hr_hands_played: 1,
-          hr_completed: false,
           closed_at: '2026-11-26T00:00:00Z',
         },
-        {
-          table_id: 'z',
-          hr_hands_required: 10,
-          hr_hands_played: 0,
-          hr_completed: false,
-          closed_at: null,
-        },
+        { ...owes, table_id: 'z', player_id: 'h5', hr_hands_required: 10, hr_hands_played: 0 },
+      ],
+      table_seats: [
+        { table_id: 'x', user_id: 'h1', stack: 150, left_at: null },
+        { table_id: 'x', user_id: 'h2', stack: 150, left_at: null },
+        { table_id: 'y', user_id: 'h3', stack: 150, left_at: null },
+        { table_id: 'y', user_id: 'h4', stack: 150, left_at: null },
+        { table_id: 'z', user_id: 'h5', stack: 150, left_at: null },
       ],
     });
     const owed = await readHandsOwedByTable(['x', 'y']);
     expect(owed && Object.fromEntries(owed)).toEqual({ x: 1 });
     expect(await readHandsOwedByTable([])).toEqual(new Map());
     vi.restoreAllMocks();
+  });
+
+  it('review follow-up 2026-11-27: the tie-break counts only seats the engine treats as owing', async () => {
+    const { readHandsOwedByTable, sessionHandsOwed } =
+      await import('./supabase/cashHourlyTables.js');
+    const row = {
+      hr_engine_ack: true,
+      hr_completed: false,
+      baseline: 100,
+      hr_hands_required: 10,
+      hr_hands_played: 3,
+      closed_at: null,
+    };
+    /* the engine's rule (fn_cash_session_hands_owed): acknowledged, in profit */
+    expect(sessionHandsOwed(row, 150)).toBe(7);
+    expect(sessionHandsOwed(row, 100)).toBe(0);
+    expect(sessionHandsOwed(row, 80)).toBe(0);
+    expect(sessionHandsOwed({ ...row, hr_engine_ack: false }, 150)).toBe(0);
+    expect(sessionHandsOwed({ ...row, hr_completed: true }, 150)).toBe(0);
+    /* the Charles big-win count binds with chips at the table, in profit or not */
+    const big = { ...row, hr_completed: true, hr_big_win_required: 10, hr_big_win_played: 4 };
+    expect(sessionHandsOwed(big, 80)).toBe(6);
+    expect(sessionHandsOwed(big, 0)).toBe(0);
+    expect(sessionHandsOwed({ ...big, hr_engine_ack: false }, 80)).toBe(0);
+    fakeDb({
+      cash_player_session: [
+        { ...row, table_id: 'below', player_id: 'h1' },
+        { ...row, table_id: 'noack', player_id: 'h2', hr_engine_ack: false },
+        { ...row, table_id: 'owing', player_id: 'h3' },
+        { ...big, table_id: 'bigwin', player_id: 'h4' },
+        { ...row, table_id: 'gone', player_id: 'h5' },
+      ],
+      table_seats: [
+        { table_id: 'below', user_id: 'h1', stack: 60, left_at: null },
+        { table_id: 'noack', user_id: 'h2', stack: 150, left_at: null },
+        { table_id: 'owing', user_id: 'h3', stack: 150, left_at: null },
+        { table_id: 'bigwin', user_id: 'h4', stack: 60, left_at: null },
+        { table_id: 'gone', user_id: 'h5', stack: 150, left_at: '2026-11-27T00:00:00Z' },
+      ],
+    });
+    const owed = await readHandsOwedByTable(['below', 'noack', 'owing', 'bigwin', 'gone']);
+    /* a table whose only owing Horse is below its baseline counts 0 */
+    expect(owed?.get('below') ?? 0).toBe(0);
+    expect(owed && Object.fromEntries(owed)).toEqual({ owing: 1, bigwin: 1 });
+    /* a failed read is still no preference */
+    vi.restoreAllMocks();
+    vi.spyOn(supabase, 'from').mockImplementation((() => {
+      throw new Error('down');
+    }) as never);
+    expect(await readHandsOwedByTable(['owing'])).toBeNull();
+    vi.restoreAllMocks();
+  });
+
+  it('review follow-up 2026-11-27: the heartbeat carries when each owed game was first seen owed', () => {
+    const T0 = '2026-11-27T10:00:00.000Z';
+    const T1 = '2026-11-27T10:00:30.000Z';
+    const T2 = '2026-11-27T10:01:00.000Z';
+    /* a newly owed game is stamped now */
+    const c1 = varietyOwedSince({
+      withheld: false,
+      owedGames: ['A', 'B'],
+      previous: {},
+      nowIso: T0,
+    });
+    expect(c1).toEqual({ A: T0, B: T0 });
+    /* the memory survives across cycles; a new game gets its own time */
+    const c2 = varietyOwedSince({
+      withheld: false,
+      owedGames: ['A', 'B', 'C'],
+      previous: c1,
+      nowIso: T1,
+    });
+    expect(c2).toEqual({ A: T0, B: T0, C: T1 });
+    /* a withheld cycle publishes no owed games and forgets nothing */
+    const c3 = varietyOwedSince({ withheld: true, owedGames: [], previous: c2, nowIso: T2 });
+    expect(c3).toEqual(c2);
+    expect(c3).not.toBe(c2);
+    /* a game a seating cycle no longer publishes is forgotten; owed again later, it starts again */
+    const c4 = varietyOwedSince({
+      withheld: false,
+      owedGames: ['A', 'C'],
+      previous: c3,
+      nowIso: T2,
+    });
+    expect(c4).toEqual({ A: T0, C: T1 });
+    expect(
+      varietyOwedSince({ withheld: false, owedGames: ['B'], previous: c4, nowIso: T2 })
+    ).toEqual({
+      B: T2,
+    });
+    expect(varietyOwedSince({ withheld: false, owedGames: [], previous: c4, nowIso: T2 })).toEqual(
+      {}
+    );
+    /* the fleet keeps one memory, assigned only from the pure function, and the beat writes it */
+    const fleet = read('./HorseFleetManager.ts');
+    expect(fleet.match(/this\.varietyOwedSinceByGame = /g)?.length).toBe(1);
+    expect(fleet).toContain('this.varietyOwedSinceByGame = varietyOwedSince({');
+    expect(fleet).toContain('variety_owed_since: beat.varietyOwedSince,');
   });
 
   it('the shortfall is every owed start at a cap with no free slot, and zero whenever the starts fit', () => {

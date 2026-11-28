@@ -99,6 +99,7 @@ import {
   publishVarietyDrain,
   varietyDrainDecision,
   drainCycleOutcome,
+  varietyOwedSince,
   drainWhyForBeat,
   mayAddDrainTable,
   type VarietyDrainBeatWhy,
@@ -322,6 +323,10 @@ interface CycleBeat {
    *  not take the slot an owed Main 1 needs (fn_cash_hourly_feeder_admissible,
    *  20261124072701). Empty in a cycle that holds nothing. */
   varietyOwedGames: string[];
+  /** When each owed game was first seen owed ({gameId: ISO time}), kept across
+   *  cycles by HorseVarietyFirst.varietyOwedSince (detail.variety_owed_since):
+   *  the live check times a wait that began before the release from it. */
+  varietyOwedSince: Record<string, string>;
   /** The first extra table this cycle releases for an owed Main 1 (HorseVarietyFirst.varietyDrainTables). */
   varietyDrainTable: string | null;
   /** Every extra table this cycle releases (the drain scales with the backlog, 2026-11-26). */
@@ -805,6 +810,8 @@ export class HorseFleetManager {
   private varietyHeldStarts: ReadonlySet<string> = new Set();
   /** The extra table released for an owed Main 1 last cycle, kept while it is a candidate. */
   private varietyDrainTableIds: string[] = [];
+  /** First-seen owed time per game (HorseVarietyFirst.varietyOwedSince). */
+  private varietyOwedSinceByGame: Record<string, string> = {};
   /** When the drain last added a NEW table (the ramp runs at the rotator's pace). */
   private varietyDrainNewAtMs = 0;
   /* Last time a failed fleet-state publish was reported. The engine can ship
@@ -1503,6 +1510,7 @@ export class HorseFleetManager {
       bookedOut: 0,
       openingFeeders: [],
       varietyOwedGames: [],
+      varietyOwedSince: {},
       varietyDrainTable: null,
       varietyDrainTables: [],
       cashRoom: null,
@@ -3185,6 +3193,13 @@ export class HorseFleetManager {
       beat.varietyOwedGames = varietyOwedGamesThisCycle(variety, {
         withheld: !!cycleWithheld,
       });
+      this.varietyOwedSinceByGame = varietyOwedSince({
+        withheld: !!cycleWithheld,
+        owedGames: beat.varietyOwedGames,
+        previous: this.varietyOwedSinceByGame,
+        nowIso: new Date().toISOString(),
+      });
+      beat.varietyOwedSince = this.varietyOwedSinceByGame;
       this.varietyHeldStarts = varietyHeld;
       publishVarietyHolds(varietyHeld, horseIdSet, Date.now());
       /* AN EXTRA TABLE YIELDS TO AN OWED MAIN (2026-11-24, HorseVarietyFirst.
@@ -5657,6 +5672,7 @@ export class HorseFleetManager {
             gates: beat.gates,
             opening_feeders: beat.openingFeeders,
             variety_owed_games: beat.varietyOwedGames,
+            variety_owed_since: beat.varietyOwedSince,
             variety_drain_table: beat.varietyDrainTable,
             variety_drain_tables: beat.varietyDrainTables,
             cash_room: beat.cashRoom,

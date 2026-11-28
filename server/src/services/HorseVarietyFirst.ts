@@ -593,6 +593,29 @@ export function drainCycleOutcome(input: {
 }
 
 /**
+ * WHEN EACH OWED GAME WAS FIRST SEEN OWED (review follow-up 2026-11-27). PURE.
+ *
+ * The heartbeat carries it as detail.variety_owed_since ({gameId: ISO time}),
+ * so the live check times a wait that began before the release from its true
+ * start instead of labelling it a minimum. The memory survives across cycles.
+ * A seating (not withheld) cycle keeps the first-seen time of every game it
+ * publishes as owed, stamps `nowIso` on a game newly owed, and forgets a game
+ * it no longer publishes. A withheld cycle publishes no owed games and
+ * forgets nothing (the same rule as drainCycleOutcome).
+ */
+export function varietyOwedSince(input: {
+  withheld: boolean;
+  owedGames: ReadonlyArray<string>;
+  previous: Readonly<Record<string, string>>;
+  nowIso: string;
+}): Record<string, string> {
+  if (input.withheld) return { ...input.previous };
+  const out: Record<string, string> = {};
+  for (const game of input.owedGames) out[game] = input.previous[game] ?? input.nowIso;
+  return out;
+}
+
+/**
  * The reason a beat carries (detail.variety_drain_why): the decision's own
  * reason, plus the cycle states the decision never sees.
  *   withheld        seating withheld this cycle
