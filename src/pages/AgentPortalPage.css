@@ -202,6 +202,17 @@
   container-type: inline-size;
 }
 
+/* On a wide screen a case's key keeps a key's width, not the case's. */
+@media (min-width: 720px) {
+  .arena-workspace .agent-portal__case .arena-switch.arena-ops-keys {
+    justify-content: center;
+  }
+
+  .arena-workspace .agent-portal__case .arena-switch.arena-ops-keys > button {
+    flex: 0 1 280px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .arena-workspace .agent-portal__reveal {
     transition-duration: 1ms;

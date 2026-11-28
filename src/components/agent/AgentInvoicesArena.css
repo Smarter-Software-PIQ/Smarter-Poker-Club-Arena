@@ -117,6 +117,27 @@
   margin: 2px 0 0;
 }
 
+/* On a wide screen Pay Now sits beside the figures and Retry keeps a key's
+   width, rather than spanning the case. */
+@media (min-width: 720px) {
+  .arena-workspace .agent-invoices-arena__row {
+    grid-template-columns: minmax(0, 1fr) auto 200px;
+  }
+
+  .arena-workspace .arena-switch.agent-invoices-arena__pay {
+    grid-column: auto;
+    margin: 0;
+  }
+
+  .arena-workspace .agent-invoices-arena__state .arena-switch.arena-ops-keys {
+    justify-content: center;
+  }
+
+  .arena-workspace .agent-invoices-arena__state .arena-switch.arena-ops-keys > button {
+    flex: 0 1 280px;
+  }
+}
+
 /* ── Inks ────────────────────────────────────────────────────────────── */
 .arena-workspace .agent-invoices-arena .agent-invoices-arena__ink--gold {
   color: #ffe98a;

@@ -65,13 +65,18 @@ for (const w of widthsArg.split(',').map(Number)) {
     const errors = [];
     page.on('pageerror', (e) => errors.push(String(e).slice(0, 200)));
     // The first-visit welcome modal would cover the page.
-    await page.addInitScript(() => {
+    // HARNESS_STORAGE='{"key":"value"}' seeds more local storage, for a page
+    // that reads a persisted choice (the Agent Portal reads the selected club
+    // from club-arena-user).
+    const seed = JSON.parse(process.env.HARNESS_STORAGE || '{}');
+    await page.addInitScript((extra) => {
       try {
         localStorage.setItem('club_arena_welcome_accepted', 'true');
+        for (const [key, value] of Object.entries(extra)) localStorage.setItem(key, value);
       } catch {
         /* storage unavailable */
       }
-    });
+    }, seed);
     const path = route.startsWith('/') ? route : `/clubs/kings-club/${route}`;
     await page.goto(`${base}/hub/club-arena${path}`, { waitUntil: 'load', timeout: 90000 });
     await settle(page);
