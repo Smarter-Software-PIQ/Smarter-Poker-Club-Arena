@@ -1526,6 +1526,28 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaMultiwayRiverBluffIsPricedOnBlockers',
+    "PLO-OWNER lead-9 lane underbluff 2026-11-27. PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot, river with exactly two opponents live (three-way), nothing to call and no river wager; default off (read === true). A final check becomes the best-priced bet only when the bet, scored as lost whenever anybody continues, beats the check by more than the error of the opponents' fold rates (each opponent: his own lifetime public multiway river fold record -> people's multiway population -> the multiway equilibrium) AND the Horse's cards raise the share of the field that folds AND the Horse beats under half of the hands each opponent folds. Only a check into a bet (HorseOmahaMultiwayRiverBluff.ts).",
+    'V94'
+  ),
+  receipt(
+    'omaha_multiway_river_bluff_priced_on_blockers',
+    'HorseLogic wager_rules (omahaMultiwayRiverBluffRule, omahaMultiwayRiverBluffIsPricedOnBlockers)',
+    'a PLO4/PLO5 cash river decision, exactly two opponents live, nothing to call, in which the final check became a bluff priced above the check on the opponents card-removed fold rates where the Horse cards raise the share of the field that folds',
+    'V94'
+  ),
+  flag(
+    'omahaFourWayPlusRiverBluffIsPricedOnBlockers',
+    "PLO-OWNER lead-9 lane underbluff 2026-11-27. PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot, river with three or more opponents live (four-way and wider), nothing to call and no river wager; default off (read === true). A final check becomes the best-priced bet only when the bet, scored as lost whenever anybody continues, beats the check by more than the error of the opponents' fold rates (each opponent: his own lifetime public multiway river fold record -> people's multiway population -> the multiway equilibrium) AND the Horse's cards raise the share of the field that folds AND the Horse beats under half of the hands each opponent folds. Only a check into a bet (HorseOmahaMultiwayRiverBluff.ts).",
+    'V94'
+  ),
+  receipt(
+    'omaha_four_way_plus_river_bluff_priced_on_blockers',
+    'HorseLogic wager_rules (omahaMultiwayRiverBluffRule, omahaFourWayPlusRiverBluffIsPricedOnBlockers)',
+    'a PLO4/PLO5 cash river decision, three or more opponents live, nothing to call, in which the final check became a bluff priced above the check on the opponents card-removed fold rates where the Horse cards raise the share of the field that folds',
+    'V94'
+  ),
+  flag(
     'omahaRiverCheckedToBetIsMeasured',
     "EMERG lane OFFENCE-BUILD 2026-11-20. PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot; default off (read === true). Replaces the kind-keyed omahaCheckedToBetIsPriced family in its heads-up river spot: the opponent checked the river and the Horse closes; the final check is priced beside the engine's sizes with the card-impact model and the measured pooled curve of heads-up river bets after a check (Nov 13-17, every player pooled, responder cap 20%), the check at the higher of the model's and the kind-free calibrated showdown share, the called branch at the lower of the model's and the calibrated continue equity; the bet only when it beats the check by more than its standard error. No identity. HorseOmahaRiverCheckedToBet.ts",
     'V94'

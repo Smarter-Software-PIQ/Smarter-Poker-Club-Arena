@@ -588,6 +588,12 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaRiverBluffIsPricedOnBlockers: priced(
     "a heads-up river check with nothing to call and no value bet becomes the best-priced bluff only where it beats the check on his card-removed fold rate by more than that rate's error AND the Horse's cards raise his fold share (default OFF; PLO-OWNER lead-7 2026-11-26)"
   ),
+  omahaMultiwayRiverBluffIsPricedOnBlockers: priced(
+    "a three-way river check (two opponents) with nothing to call and no river wager becomes the best-priced bluff only where the bet, scored as lost whenever anybody continues, beats the check by more than the error of the opponents' fold rates (each his own record, then people's multiway population, then equilibrium) AND the Horse's cards raise the field's fold share AND the Horse beats under half of the hands each opponent folds (default OFF; PLO-OWNER lead-9 2026-11-27)"
+  ),
+  omahaFourWayPlusRiverBluffIsPricedOnBlockers: priced(
+    "a four-way or wider river check (three or more opponents) with nothing to call and no river wager becomes the best-priced bluff only where the bet, scored as lost whenever anybody continues, beats the check by more than the error of the opponents' fold rates (each his own record, then people's multiway population, then equilibrium) AND the Horse's cards raise the field's fold share AND the Horse beats under half of the hands each opponent folds (default OFF; PLO-OWNER lead-9 2026-11-27)"
+  ),
   omahaRiverBluffIsPricedOnRangeAdvantage: priced(
     "a heads-up river check with nothing to call and no value bet becomes the best-priced bluff only where it beats the check on his card-removed fold rate by more than that rate's error AND the Horse's measured range beats his on this texture with the hand in the weakest share of the Horse's range that its value carries at the size (default OFF; PLO-OWNER lead-7 2026-11-26)"
   ),

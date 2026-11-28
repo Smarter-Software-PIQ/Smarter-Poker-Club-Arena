@@ -1,0 +1,66 @@
+# omahaMultiwayRiverBluffIsPricedOnBlockers: Authority For The Live Switch
+
+**Evidence MET for PLO4 and PLO5 (2026-11-27, lead-9 lanes l9-underbluff and UB3).** Every card at or above its floor in both games on the fixed harness after the UB3 fix (his own heads-up river answers are now read; below); gain not significant, people evidence thin. No game scope is needed for a switch-on; shadow first, then on. The first build (head 3d86c8545b3f) failed the PLO5 calling-station card (-1.28 +/- 0.48 bb/100, -2.7 SE): that head must not be switched on. Default OFF (read `=== true`), switchable `off / shadow / on_shadow / on`, scopable per game (`horse.omahaGameScope.omahaMultiwayRiverBluffIsPricedOnBlockers`). Built 2026-11-27 by PLO-OWNER lead-9 worker UB (lane l9-underbluff) on Dan's orders (under-bluffing is priority one with over-folding; late-street bluffs are "MATH DEPENDANT, AND BLOCKER DEPENDANT, OR HAVE THE RANGE ADVANTAGE"; "the stats need to be used against human players, not horses"). This file does not authorize switching the option on: switches are made only through the shadow stage and the live-switch procedure.
+
+## What It Does
+
+PLO4/PLO5 cash (tables and Lightning), high only, one board, no bomb pot, on the river with exactly two opponents live (three-way) (none all in), nothing to call and no river wager yet: a final CHECK becomes the best-priced bet only when BOTH hold. The math: the bet, scored as lost every time anybody continues (a raise costs the same), is worth more than the check by more than the binomial error of the opponents' fold rates. The blockers: the Horse's cards take more of the opponents' continuing hands than of their folding hands (the share of the field that folds given the Horse's cards is above the share without them). And it must be a BLUFF: the Horse beats less than half of the hands each opponent folds to that size, so the folds it buys are of better hands; a bet that mostly folds out worse hands is value or protection and is left to the engine (lead-9 ruling 2026-11-27 on a replay of the first build over 823 real multiway river nodes, which moved 77 medium and 25 value-class checks: those are excluded, not justified). It changes only a check into a bet, never a raise or a fold (owner rule: a hand that is not nut class never raises the turn or river). Heads-up spots, PLO6, hold'em and tournaments are untouched (`server/src/engine/HorseOmahaMultiwayRiverBluff.ts`; law `anOmahaMultiwayRiverBluffIsPriced.law.test.ts`; cost law `anOmahaMultiwayRiverBluffIsFast.law.test.ts`).
+
+Each opponent's fold is one estimate, the same function for every opponent: his own lifetime public river fold record, his multiway AND his heads-up answers to a river first wager, each answer compared to its own field's equilibrium (heads-up B / (P + B), multiway (B / (P + B)) ^ (1 / N)), then people's multiway population, then the multiway equilibrium, each shrunk to the next by k = 75.9 river answers. Nothing is keyed on an account, a name or a person/Horse flag. The folds are multiplied (taken as independent). His range is the measured people-only river range of a player who checked, or who has not acted (`HorseOmahaRiverOpeningRangeTables.json`), with exact card removal; it was measured heads-up, and a multiway river range is no weaker, so the check is never under-valued by it.
+
+## Why (The Measured Node)
+
+Lane node map (`plo-lead7-01TLQer8/l9-underbluff/NODES.md`): 25,944 PLO4/PLO5 cash hands with a person and a Horse, 2026-10-28 to 2026-11-27, public actions only. On a multiway river after a checked-through turn Horses bet 10.9% of the time in PLO5 against people's 15.9% (z -3.2) and 12.5% against 18.9% in PLO4 (z -2.2); people folded 92% of 158 answers (PLO5) and 90% of 59 (PLO4) to those Horse bets; a zero-equity bet there was worth +20.2 +/- 5.0 bb (PLO5, 171 bets) and +8.1 +/- 3.4 bb (PLO4, 59 bets) against the field (people and Horses). The priced river bluffs (omahaRiverBluffIsPricedOnBlockers, omahaRiverBluffIsPricedOnRangeAdvantage) are heads-up and omahaMultiwayCheckedToBetIsPriced prices the flop and turn only; the one thing that bluffs a multiway river today is the baseline riverBluffMultiway of 2026-11-06 (`HorseMultiwayRiverBluff.ts`: a nut blocker, a capped line and a frequency draw, not a price on anybody's fold), and the gap above was measured with it on. This option runs after it and prices the checks it leaves. Limits of that measurement: the field's fold-through includes Horse opponents; in PLO5 one person gave 67% of the people answers.
+
+## The Two Fields
+
+The rule is switched by field (lead-9 ruling 2026-11-27: three-way first): `omahaMultiwayRiverBluffIsPricedOnBlockers` acts with exactly two opponents (three-way), `omahaFourWayPlusRiverBluffIsPricedOnBlockers` with three or more. People's cells are measured by field (`w3`, `w4`); each size cell shrinks to the equilibrium anchor by k = 75.9 answers, so a thin four-way cell (PLO4 four-way: 5 and 7 answers) stays at the anchor, where a bet scored as lost when continued is never worth more than the check.
+
+## Rollback Trigger
+
+Switch this option off (row off; nothing else to undo) when, counted on its own receipt against people only (a bet whose every opponent is a person, or the people answers of mixed pots): after 30 bets the realised all-fold share is below the break-even B / (P + B) of those bets by 2 standard errors, OR the realised chips of those bets are below zero by 2 standard errors. Also off on any decision over 50 ms or any horse_error_log row naming its receipt.
+
+## Dependency
+
+Each opponent's own record moves his fold only at k = 75.9 answers: too slow to notice a person who starts calling. Worker RV (lane `l9-river`) is building a faster public-evidence record; once it exists this option's `recordOf` reads it, and until then the rollback trigger above is the guard.
+
+## Grades (2026-11-27, UB3 head 47d890a42dbf: own record reads heads-up and multiway answers)
+
+Fixed harness (`server/scripts/horse-grade.ts`), base = the live switch rows of 2026-11-27 (flop cap and both river bluffs on), 100 bb, every figure ON minus the same-seed no-op in bb/100 pooled over two seeds (probes 261 + 262, mirrors 361 + 362: the same seeds and cards as the first build); the no-op arm read 0.00 with 0 divergent deals on all 24 runs. Bars were written in the lane's BUILD.md before the runs: people responder and both mirrors not below -1 SE, station / over-folder / balanced not below -2 SE, at least 30 changed deals over the people card and mirrors, people point estimate not negative, flag-off 0 differences, cost law.
+
+| game | card                        | seats | seeds | ON minus same-seed no-op, bb/100 | SE units | changed deals | floor | result |
+| ---- | --------------------------- | ----- | ----- | -------------------------------- | -------- | ------------- | ----- | ------ |
+| PLO4 | mirror (all Horses)         | 3     | 2     | +1.44 +/- 1.81                   | +0.8     | 472           | -1 SE | PASS   |
+| PLO4 | mirror (all Horses)         | 6     | 2     | +0.43 +/- 0.79                   | +0.5     | 112           | -1 SE | PASS   |
+| PLO4 | balanced bettor             | 3     | 2     | +0.86 +/- 0.44                   | +1.9     | 6             | -2 SE | PASS   |
+| PLO4 | calling station             | 3     | 2     | -0.23 +/- 0.20                   | -1.2     | 2             | -2 SE | PASS   |
+| PLO4 | over-folder                 | 3     | 2     | +0.82 +/- 0.42                   | +2.0     | 7             | -2 SE | PASS   |
+| PLO4 | people-calibrated responder | 3     | 2     | +0.69 +/- 0.41                   | +1.7     | 7             | -1 SE | PASS   |
+| PLO5 | mirror (all Horses)         | 3     | 2     | -1.00 +/- 1.35                   | -0.7     | 276           | -1 SE | PASS   |
+| PLO5 | mirror (all Horses)         | 6     | 2     | +0.47 +/- 0.64                   | +0.7     | 117           | -1 SE | PASS   |
+| PLO5 | balanced bettor             | 3     | 2     | +0.00 +/- 0.10                   | +0.0     | 2             | -2 SE | PASS   |
+| PLO5 | calling station             | 3     | 2     | +0.00 +/- 0.00                   | +0.0     | 0             | -2 SE | PASS   |
+| PLO5 | over-folder                 | 3     | 2     | +0.20 +/- 0.17                   | +1.2     | 6             | -2 SE | PASS   |
+| PLO5 | people-calibrated responder | 3     | 2     | +0.12 +/- 0.15                   | +0.8     | 5             | -1 SE | PASS   |
+
+- Both games: every card at or above its floor. PLO5 calling station 0.00 (0 changed deals; first build -1.28 +/- 0.48, -2.7 SE, 13 changed deals); PLO4 calling station -0.23 +/- 0.20 (first build -1.59 +/- 0.94). PLO5 three-way mirror -1.00 +/- 1.35 (-0.7 SE; first build -1.54 +/- 1.60, -1.0 SE). Acts: PLO4 591, PLO5 398 changed deals over the people card and mirrors.
+- The gain is not significant on any card and the people cards rest on 7 (PLO4) and 5 (PLO5) changed deals: the harness shows no harm, not a win.
+- Root of the first build's failure (UB3 diagnostic, PLO5 station, seed 261): both bluffs were made into a station whose multiway record was 0 folds in 5 and 6 answers while his heads-up river record was 0 folds in 92 and in 184; only the multiway cells were read (and against the heads-up equilibrium), so he was priced at people's 0.98 three-way fold.
+- Flag-off: 0 differences in 28,000 decisions (`scripts/ops/horse-flag-off-check.sh origin/main HEAD --set full`, head 47d890a42dbf against main b5f712d6e4f9).
+- Cost: `anOmahaMultiwayRiverBluffIsFast.law.test.ts` ratio 1.00 against the exact bins alone (limit 3); about 1.5 ms a decision where it applies. Not measured on 500 live spots: the shadow stage reads it.
+- First build grades (head 3d86c8545b3f): PLO4 all PASS; PLO5 station FAIL as above; kept in the lane's grade/table-3way.md.
+- Audited replay: 0 of 869 and 0 of 2,697 audited decisions change (rows below): the audited sets hold no evidence for or against.
+- Real multiway river nodes (lane l9-zerobluff's replay tool and its 823 recorded Horse river decisions with nothing to call, the deciding Horse's own cards only; 297 Horse-only + 526 with a person; engine code of head 3d86c8545b3f; not re-run on the UB3 head): 71 checks become bets (PLO4 38, PLO5 33), against 200 for the first build of both fields together. By that lane's hand classes (own cards against random holdings): 47 air, 24 medium, 0 value-class (first build: 98 / 77 / 25). The medium ones are bluffs by this option's own test: the Horse beats under half of what each opponent folds. The counts say how often it acts, not what the bets win.
+- Not measured: chips against real people (none has played PLO cash since the build).
+
+## Prior anchor
+
+- Baseline: the multiway equilibrium. The bettor is indifferent when all N opponents fold B / (P + B) of the time, so one opponent of N folds (B / (P + B)) ^ (1 / N); a thin people cell reads it, and at the anchor a bet scored as lost when called is never worth more than a check.
+- Population weight: the PEOPLE-ONLY multiway river fold multiplier for the game, the turn line and the size (`HorseOmahaMultiwayRiverFoldTables.json` v1-2026-11-27-people, fit by `scripts/ops/omaha-multiway-river-fold-fit.mjs` on 26,399 hands of 2026-10-28 to 2026-11-27: answers by people only to a river first wager made with two or more opponents live; a Horse's answer never enters a cell; no HUD population rows), the size cell shrunk to equilibrium and the line cell to the size cell by k = 75.9 answers.
+- Own record: the opponent's own lifetime public river fold record, multiway and heads-up cells together (OPPONENT-HUD first-wager fold record, `HorseMind.omahaStrongHandCheckRecordsOf` with the number of opponents and with one opponent), each answer against its own field's equilibrium (`omahaMultiwayRiverOwnFoldMultiplier`), shrunk to the people multiplier by the same k, so his own record dominates as it grows; opponents who never fold are never bluffed, and one who never folds a heads-up river bet is never bluffed multiway (law items 3 and 3b). Until 2026-11-27 (UB3) only his multiway cells were read, against the heads-up equilibrium: a calling station with 0 folds in 92 heads-up river answers but 5 multiway answers was priced at people's 0.98 multiway fold (the PLO5 station failure below).
+- No unshown cards: the fold table is fitted on public actions only (the pull has no hole-card column); his range is the people-only river range table fitted on hands shown at showdown; at decision time the option reads the public table state, the deciding Horse's own cards and the opponents' public records.
+
+## Replay
+
+- Replay: fixed 0; newlyWrong 0; changed 0; unchanged 869; unjudged 0; set PLO-hand-audit-daily-2026-11-25T230000Z; scorer 5302af2ab3e; source placed verdict-only; arm M3 vs off; replayed 869 of 869
+- Replay: fixed 0; newlyWrong 0; changed 0; unchanged 2697; unjudged 0; set PLO-hand-audit-2026-11-20-to-24; scorer 5302af2ab3e; source placed verdict-only; arm M3 vs off; replayed 2697 of 2697

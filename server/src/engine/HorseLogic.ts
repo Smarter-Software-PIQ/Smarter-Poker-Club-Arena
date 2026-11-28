@@ -147,6 +147,7 @@ import { omahaRiverFirstToActBetRule } from './HorseOmahaRiverFirstToActBet.js';
 import { omahaRiverCheckedToBetRule } from './HorseOmahaRiverCheckedToBet.js';
 import { omahaRiverOpeningBetRule } from './HorseOmahaRiverOpeningBet.js';
 import { omahaOpeningBluffRule } from './HorseOmahaOpeningBluff.js';
+import { omahaMultiwayRiverBluffRule } from './HorseOmahaMultiwayRiverBluff.js';
 import { omahaPeopleFoldLineOf, omahaPeopleRiverCurve } from './HorseOmahaPeopleFold.js';
 import { omahaTripsBoardBoatRule } from './HorseOmahaTripsBoardBoat.js';
 import { omahaFlopRaisePricedRule } from './HorseOmahaFlopRaisePriced.js';
@@ -4048,6 +4049,20 @@ export interface HorseDecideOpts {
    * (HorseOmahaOpeningBluff.ts). Only a check into a bet.
    */
   omahaTurnBluffIsPricedOnRangeAdvantage?: boolean;
+  /**
+   * PLO-OWNER lead-9 lane underbluff 2026-11-27 (default off, read `=== true`): PLO4/PLO5 cash river, two or more
+   * opponents live, nothing to call and no river wager: a final check becomes the best-priced bet only when the bet,
+   * scored as lost whenever anybody continues, beats the check by more than the error of the opponents' fold rates
+   * (each his own record -> people's multiway population -> equilibrium) AND the Horse's cards raise the field's fold
+   * share (HorseOmahaMultiwayRiverBluff.ts). Only a check into a bet.
+   */
+  omahaMultiwayRiverBluffIsPricedOnBlockers?: boolean;
+  /**
+   * PLO-OWNER lead-9 lane underbluff 2026-11-27 (default off, read `=== true`): the same rule and price as
+   * omahaMultiwayRiverBluffIsPricedOnBlockers (which acts three-way only: exactly two opponents) for THREE OR MORE
+   * opponents, on its own switch and its own people cells (HorseOmahaMultiwayRiverBluff.ts). Only a check into a bet.
+   */
+  omahaFourWayPlusRiverBluffIsPricedOnBlockers?: boolean;
   /**
    * PLO-OWNER lead-7 lane plo-bluffs 2026-11-26 (default off, read `=== true`): PLO4/PLO5 cash river, heads-up,
    * nothing to call: the price of omahaRiverBluffIsPricedOnBlockers with the range advantage as the second leg
@@ -21147,6 +21162,49 @@ export class HorseLogic {
           );
         }
       }
+      // PLO-OWNER lead-9 lane underbluff 2026-11-27 (omahaMultiwayRiverBluffIsPricedOnBlockers, default off): a final
+      // multiway river check with nothing to call and no river wager becomes the best-priced bluff only when the bet,
+      // scored as lost whenever anybody continues, beats the check by more than the error of the opponents' fold
+      // rates AND the Horse's cards raise the field's fold share (HorseOmahaMultiwayRiverBluff.ts). Off: the same
+      // object. It changes only a check into a bet.
+      const multiwayRiverBluffOn = {
+        threeWay: opts.omahaMultiwayRiverBluffIsPricedOnBlockers === true,
+        fourWayPlus: opts.omahaFourWayPlusRiverBluffIsPricedOnBlockers === true,
+      };
+      const multiwayRiverBluffAny =
+        multiwayRiverBluffOn.threeWay || multiwayRiverBluffOn.fourWayPlus;
+      const multiwayRiverBluff = omahaMultiwayRiverBluffRule(
+        openingBluff.decision,
+        player,
+        gs,
+        multiwayRiverBluffOn,
+        multiwayRiverBluffAny ? omahaPricedDeps(player, gs).rake : 0,
+        (d) => this.legalize(d, player, gs, vi),
+        (opponent, opponents) =>
+          HorseMind.omahaStrongHandCheckRecordsOf(
+            opponent.user_id,
+            String(gs.gameVariant ?? ''),
+            'river',
+            opponents
+          )
+      );
+      if (multiwayRiverBluff.changed && tele) {
+        if (multiwayRiverBluff.field === 'w4') {
+          noteFire('omaha_four_way_plus_river_bluff_priced_on_blockers');
+          noteDecisionRuleReceipt(
+            'omaha_four_way_plus_river_bluff_priced_on_blockers',
+            openingBluff.decision,
+            multiwayRiverBluff.decision
+          );
+        } else {
+          noteFire('omaha_multiway_river_bluff_priced_on_blockers');
+          noteDecisionRuleReceipt(
+            'omaha_multiway_river_bluff_priced_on_blockers',
+            openingBluff.decision,
+            multiwayRiverBluff.decision
+          );
+        }
+      }
       // PLO-OWNER lead-7 lane plo-postflop 2026-11-26 (omahaRiverTripsBoardBoatIsNotNutClass, default off): a river
       // full house on a trips board that quads or a straight flush can beat may call, never raise
       // (HorseOmahaTripsBoardBoat.ts). Off: the same object.
@@ -21155,7 +21213,7 @@ export class HorseLogic {
       // (HorseOmahaFlopRaisePriced.ts). It changes only a raise (its size, or into the call or the fold).
       const flopRaiseOn = opts.omahaFlopRaiseIsPriced === true;
       const flopRaise = omahaFlopRaisePricedRule(
-        openingBluff.decision,
+        multiwayRiverBluff.decision,
         player,
         gs,
         flopRaiseOn,

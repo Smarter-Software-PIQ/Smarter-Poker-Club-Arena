@@ -472,6 +472,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaTurnBluffIsPricedOnBlockers',
   'omahaTurnBluffIsPricedOnRangeAdvantage',
   'omahaRiverBluffIsPricedOnRangeAdvantage',
+  // 2026-11-27 PLO-OWNER lead-9 lane underbluff: the multiway river opening bluff: the price and blockers (ships dark)
+  'omahaMultiwayRiverBluffIsPricedOnBlockers',
+  'omahaFourWayPlusRiverBluffIsPricedOnBlockers',
   // 2026-11-26 PLO-OWNER lead-7 (lead decision on job 5): a river full house on a trips board that quads or a
   // straight flush can beat may call, never raise (ships dark)
   'omahaRiverTripsBoardBoatIsNotNutClass',

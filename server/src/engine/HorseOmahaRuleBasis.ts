@@ -363,6 +363,28 @@ export const OMAHA_OPTION_BASIS: Readonly<Record<string, OmahaRuleBasis>> = Obje
     price:
       'the bluff against the check by more than his fold rate error, and only where the Horse cards raise his fold share',
   },
+  omahaMultiwayRiverBluffIsPricedOnBlockers: {
+    kind: 'priced',
+    range:
+      'the measured people-only river range of each opponent (after his check, or before he acts), exact card removal',
+    equity:
+      'exact share of the hand against each range for the check; the bet is scored as lost whenever anybody continues',
+    realization:
+      "each opponent's card-removed fold share: the multiway equilibrium (B / (P + B)) ^ (1 / N) moved by people's multiway population and his own lifetime public river fold record; the folds multiplied",
+    price:
+      'the bluff against the check by more than the error of the fold rates, and only where the Horse cards raise the share of the field that folds',
+  },
+  omahaFourWayPlusRiverBluffIsPricedOnBlockers: {
+    kind: 'priced',
+    range:
+      'the measured people-only river range of each opponent (after his check, or before he acts), exact card removal',
+    equity:
+      'exact share of the hand against each range for the check; the bet is scored as lost whenever anybody continues',
+    realization:
+      "each opponent's card-removed fold share: the multiway equilibrium (B / (P + B)) ^ (1 / N) moved by people's multiway population and his own lifetime public river fold record; the folds multiplied",
+    price:
+      'the bluff against the check by more than the error of the fold rates, and only where the Horse cards raise the share of the field that folds',
+  },
   omahaRiverBluffIsPricedOnRangeAdvantage: {
     kind: 'priced',
     range:
@@ -1036,6 +1058,24 @@ export const OMAHA_REFERENCE_RULE_BASIS: Readonly<Record<string, OmahaRuleBasis>
       'his card-removed fold share: equilibrium moved by his own lifetime public river fold record',
     price:
       'the bluff against the check by more than his fold rate error, with a positive blocker effect',
+  },
+  omaha_multiway_river_bluff_priced_on_blockers: {
+    kind: 'priced',
+    range: 'the measured people-only river range of each opponent, exact card removal',
+    equity: 'exact share of the hand against each range; a continued bet is scored as lost',
+    realization:
+      "each opponent's card-removed fold share: multiway equilibrium moved by people's multiway population and his own record",
+    price:
+      'the bluff against the check by more than the fold rates error, with a positive blocker effect on the field',
+  },
+  omaha_four_way_plus_river_bluff_priced_on_blockers: {
+    kind: 'priced',
+    range: 'the measured people-only river range of each opponent, exact card removal',
+    equity: 'exact share of the hand against each range; a continued bet is scored as lost',
+    realization:
+      "each opponent's card-removed fold share: multiway equilibrium moved by people's multiway population and his own record",
+    price:
+      'the bluff against the check by more than the fold rates error, with a positive blocker effect on the field',
   },
   omaha_river_bluff_priced_on_range: {
     kind: 'priced',
