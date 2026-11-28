@@ -79,9 +79,17 @@ Dashboard and needs its own pass with its figure hooks pinned first.
 | --- | ---------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 14  | Blacklist (body) | `src/pages/BlacklistManagerPage.tsx` | Cut-corner panels became chrome cases; every control a chrome key (Add Exclusion lit; Apply Exclusion, Confirm, Remove From Play and Remove Access Control keep red ink); fields dark wells; each exclusion and roster match a chrome ledger row. |
 
-Diamond Wheel ops, Diamond Games ops and Financials are in progress as one
-full pass (with `DiamondGamesMoney` and the Financials embeds), so no page
-ships with painted and chrome frames mixed on one screen.
+## Batch 4b: the money pages, one full pass
+
+| #   | Surface           | File                                                | What changed                                                                                                                                                                                                                                                       |
+| --- | ----------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 15  | Financials        | `src/pages/ClubFinancialsPage.tsx`                  | All ten frames, `ClubFinancialDashboard`, `RakeReports` and `ChipStatement` in chrome cases (the last two by an opt-in arena prop, so the Cashier Rake Treasury dialog and wallet pages keep painted); `DynamicWallet` in a chrome case with its approved row art. |
+| 16  | Diamond Wheel ops | `src/pages/club/ClubWheelOperationsPage.tsx`        | Every section in a chrome case, `DiamondGamesMoney`, Daily Diamond Statements and Owner Agreement included; the 640px column kept.                                                                                                                                 |
+| 17  | Diamond Games ops | `src/pages/club/ClubDiamondGamesOperationsPage.tsx` | Same pass on the shared sheet; the player-facing game pages that share `diamondGames.module.css` are untouched.                                                                                                                                                    |
+
+Every printed figure and data hook on these pages was pinned against the old
+painted components first with `tests/helpers/moneyFigures.ts` and is unchanged
+(PR #12304, merge `f3a649b62`).
 
 ## Ranked backlog
 
@@ -101,17 +109,17 @@ ships with painted and chrome frames mixed on one screen.
 
 ### Tier 2: high traffic, more work
 
-| Rank | Surface                                    | File                                                | Today                                                                                               |
-| ---- | ------------------------------------------ | --------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| 10   | Disputes (body) (done, batch 3)            | `src/pages/DisputeManagementPage.tsx`               | Integrity mast already arena; case list still sits in painted `SpadeConsole`.                       |
-| 11   | Blacklist (body) (done, batch 4)           | `src/pages/BlacklistManagerPage.tsx`                | Integrity mast already arena; form and ledger are its own module dress (rounded panels, gradients). |
-| 12   | Anti-Cheat                                 | `src/pages/AntiCheatPage.tsx`                       | 1,547 lines, own module dress, 1 e2e spec.                                                          |
-| 13   | Agent Network                              | `src/pages/SuperAgentDashboard.tsx`                 | Rounded stat cards with glyph icons, gradient tabs (10 radius, 13 gradients).                       |
-| 14   | Promo Vault                                | `src/pages/PromoVaultPage.tsx`                      | Own rounded dress (17 radius, 11 gradients), 1,241 lines.                                           |
-| 15   | Financials (in progress, full pass)        | `src/pages/ClubFinancialsPage.tsx`                  | Heavy painted `SpadeConsole` use (21 references), 11 tests.                                         |
-| 16   | Diamond Wheel ops (in progress, full pass) | `src/pages/club/ClubWheelOperationsPage.tsx`        | Painted `SpadeConsole` on the shared `diamondGames.module.css`.                                     |
-| 17   | Diamond Games ops (in progress, full pass) | `src/pages/club/ClubDiamondGamesOperationsPage.tsx` | Same shared sheet as Diamond Wheel ops; convert together.                                           |
-| 18   | Agent Team                                 | `src/pages/AgentManagementPage.tsx`                 | 1,839 lines, painted `SpadeConsole` (11), 9 tests.                                                  |
+| Rank | Surface                            | File                                                | Today                                                                                               |
+| ---- | ---------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| 10   | Disputes (body) (done, batch 3)    | `src/pages/DisputeManagementPage.tsx`               | Integrity mast already arena; case list still sits in painted `SpadeConsole`.                       |
+| 11   | Blacklist (body) (done, batch 4)   | `src/pages/BlacklistManagerPage.tsx`                | Integrity mast already arena; form and ledger are its own module dress (rounded panels, gradients). |
+| 12   | Anti-Cheat                         | `src/pages/AntiCheatPage.tsx`                       | 1,547 lines, own module dress, 1 e2e spec.                                                          |
+| 13   | Agent Network                      | `src/pages/SuperAgentDashboard.tsx`                 | Rounded stat cards with glyph icons, gradient tabs (10 radius, 13 gradients).                       |
+| 14   | Promo Vault                        | `src/pages/PromoVaultPage.tsx`                      | Own rounded dress (17 radius, 11 gradients), 1,241 lines.                                           |
+| 15   | Financials (done, batch 4b)        | `src/pages/ClubFinancialsPage.tsx`                  | Heavy painted `SpadeConsole` use (21 references), 11 tests.                                         |
+| 16   | Diamond Wheel ops (done, batch 4b) | `src/pages/club/ClubWheelOperationsPage.tsx`        | Painted `SpadeConsole` on the shared `diamondGames.module.css`.                                     |
+| 17   | Diamond Games ops (done, batch 4b) | `src/pages/club/ClubDiamondGamesOperationsPage.tsx` | Same shared sheet as Diamond Wheel ops; convert together.                                           |
+| 18   | Agent Team                         | `src/pages/AgentManagementPage.tsx`                 | 1,839 lines, painted `SpadeConsole` (11), 9 tests.                                                  |
 
 ### Tier 3: risky (shared or heavily pinned), later batches
 
@@ -147,8 +155,6 @@ Financial Admin, Engine) are internal tools. The front door
 
 ## Recommended Batch 5
 
-The money pages as one full pass: Diamond Wheel ops and Diamond Games ops with
-`DiamondGamesMoney`, and Financials with every embed (`ClubFinancialDashboard`,
-`RakeReports`, `TransactionLedgerView`, `ChipStatement`, `DynamicWallet`),
-their figure hooks pinned by tests first. Then the Settlement body
-(`WeeklyAccountingWorkspace`), Agent Team and Agent Network.
+The Settlement body (`WeeklyAccountingWorkspace`), its figures and hooks
+pinned first with `tests/helpers/moneyFigures.ts`. Then Agent Team and Agent
+Network, then Anti-Cheat and Promo Vault, each in its own pass.
