@@ -400,3 +400,66 @@ passing one.
       same PR.
 - [ ] Before/after at 393px, every state, shown to Dan before the push.
 - [ ] Gates green; changelog under `docs/changelog/`; merged SHA verified live.
+
+---
+
+## 8. Whole pages: the Club Operations pages and their shared kit (2026-11-27)
+
+Dan ordered the Club Operations bar and every page it opens upgraded ("THAT NEEDS TO BE ENHANCED WITH THE #SMARTERDESIGN, AS WELL AS EVERY SINGLE ONE OF THESE PAGES"), and rejected a pass built from the painted plates: "THAT IS NOT THE #SMARTERDESIGN. WTF?!". A whole routed page wears the same language as a section, plus a mast at the top. These pages are the worked examples, and `tests/club-operations-pages-stay-smarterdesign.law.test.ts` keeps them there.
+
+| Page                         | File                                                                              |
+| ---------------------------- | --------------------------------------------------------------------------------- |
+| Player Management            | `src/pages/ClubMembersPage.tsx`, `src/components/club/RosterRecords.tsx` + `.css` |
+| Cashier                      | `src/pages/CashierPage.tsx`                                                       |
+| Club Data                    | `src/pages/club/ClubDataSimplePage.tsx`                                           |
+| Club Operations Overview     | `src/pages/club/ClubOperationsPage.tsx`                                           |
+| Finance and Control Overview | `src/pages/workspaces/ArenaWorkspacePages.tsx`                                    |
+| Reports, Hand Review         | `src/pages/ReportReviewPage.tsx`, `src/pages/ClubHandReviewPage.tsx`              |
+| Dashboard                    | `src/pages/club/ClubDashboard.tsx`                                                |
+| Settings                     | `src/pages/ClubSettingsPage.tsx`                                                  |
+
+Stylesheet: `src/components/lobby/ArenaWorkspace.css`. Shared kit: `src/components/ops/ArenaOps.tsx` + `.css`. Changelogs: `docs/changelog/2026-11-27-player-management-bottom-smarterdesign.md`, `docs/changelog/2026-11-27-club-operations-smarterdesign.md`.
+
+### Whole-page pieces
+
+- **Page root:** class `arena-workspace` (dark #050d17, chrome art variables).
+- **Mast:** `<ArenaWorkspaceHeader area title context subtitle summary steps emblem />` from `src/components/lobby/ArenaWorkspaceHeader.tsx`. It draws the illustrated scene, the chrome medallion, Barlow italic title and the chrome "?" top right, so a page never renders a second PageHelp. Areas: members, record, cashier, data, stats, operations, dashboard, reports, integrity, handreview, finance, control, settings. A "Back" button goes above the mast, never inside it. `context` is the club name, never a placeholder such as "Club Arena".
+- **Live line and meters under the mast:** `<PageBar titleAs={false} showHelp={false} title status metrics />`; inside a Club Operations page its metrics render as one even row of chrome meters.
+- **Sections:** `<section className="arena-case arena-ops-case"><h2 className="arena-section-title">Title<small>note</small></h2>...</section>`, or `ClubPageSection` with `arena`.
+- **Readouts:** `ArenaReadings` (chrome `arena-meter` tiles; tones live, attention, danger).
+- **Keys, tabs, filters:** `<div className="arena-switch">` with direct-child buttons or links. `aria-pressed="true"`, `aria-selected="true"`, `aria-current="page"` or class `active` lights a key blue. `arena-ops-keys` wraps two per row on a phone; `arena-ops-primary` lights the first key as the primary action. Never one full-width bulky key per line on a phone.
+- **Rows:** `ArenaRow` (numeral, title, line, gold or red signal, chevron) inside `ul.arena-ops-rows`, or `className="arena-ledger-row"` on a row of your own.
+- **Fields:** `arena-ops-well`.
+- **Empty, loading, error:** `ArenaState` with the page's own wording.
+
+### Traps from the page rebuilds
+
+- The CLAUDE.md redesign pointer used to send every agent to the painted plates. That pass was rejected outright. Start from section 1, not from a master PNG.
+- Do not rebuild Players or Club Data; they were the reference.
+- `PageBar` requires `title` even with `titleAs={false}`; it labels the meters.
+- `ArenaRow` puts `signalLabel` in `aria-label`; when a test reads "9 Waiting" as text, keep the text visible.
+- A python `str.replace` patch fails silently after Prettier rewraps a line: assert every replacement.
+- The lint job has a hard warning ceiling: an unused import or binding fails it.
+
+## 9. Full-page before/after render harness (`harness/`)
+
+It serves the real app (router, layout, guards, the rail) with four modules swapped for offline stand-ins: `src/lib/supabase.ts`, `ClubWorkspaceContext`, `useClubNavigationAccess` and `useAuthUser`. Every route then renders as Kings Club's owner with fixture data (`harness/fixtures.ts`: rake `403.3814552027556`, 174 members, alerts). Nothing here is imported by the app or shipped.
+
+```bash
+# after: this checkout
+bash .claude/skills/smarter-design/harness/run.sh 5199
+node .claude/skills/smarter-design/harness/shot.mjs http://127.0.0.1:5199 /tmp/after operations,dashboard-full,members 393,1280
+
+# before: main, in a detached worktree on another port
+git worktree add --detach /tmp/before origin/main && ln -s "$PWD/node_modules" /tmp/before/node_modules
+bash /tmp/before/.claude/skills/smarter-design/harness/run.sh 5198   # if main lacks the harness, copy this folder there first
+node .claude/skills/smarter-design/harness/shot.mjs http://127.0.0.1:5198 /tmp/before operations,dashboard-full,members 393,1280
+
+python3 .claude/skills/smarter-design/harness/sheet.py /tmp/before /tmp/after /tmp/sheets operations,dashboard-full,members 393 2600 0.75
+```
+
+Requirements: `playwright-core` (already a dependency) and Chrome at `/usr/bin/google-chrome` or `CHROME_PATH`. Notes:
+
+- A page that waits on a read the fixtures lack shows its empty or error state. Add the RPC or table to `fixtures.ts` (shapes are in the page's own tests).
+- The server runs with no file watcher, so restart it (`run.sh`) after editing source.
+- Fixture keys must match what the page reads (the activity series uses `d` for the day).
