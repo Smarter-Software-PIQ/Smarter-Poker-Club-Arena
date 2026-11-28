@@ -75,9 +75,12 @@ describe('Support And Trust Workspace', () => {
     // 2026-10-17: the hero (eyebrow, summary, metadata, seal) is gone; the
     // document code prints once, with the effective date, in the footer.
     expect(screen.getByText(new RegExp(`^${documentCode} · Effective `))).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 1, name: title })).toHaveClass(
-      'ca-page-bar__title'
-    );
+    // #SmarterDesign (2026-11-28): the title is the arena mast's h1, and the
+    // mast carries the page's one chrome "?".
+    expect(
+      screen.getByRole('heading', { level: 1, name: title }).closest('.arena-workspace-mast')
+    ).not.toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Page Help' })).toHaveLength(1);
     expect(screen.getByRole('navigation', { name: `${title} Sections` })).toBeInTheDocument();
     expect(screen.getByRole('article', { name: title })).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Legal Documents' })).toBeInTheDocument();
