@@ -1,0 +1,13 @@
+{
+  "money": {
+    "figures": [],
+    "hooks": [
+      "data-hand-id=",
+      "data-hand-number=77",
+      "data-clip=1"
+    ]
+  },
+  "text": "Hand Replay Surface",
+  "regions": [],
+  "controls": []
+}

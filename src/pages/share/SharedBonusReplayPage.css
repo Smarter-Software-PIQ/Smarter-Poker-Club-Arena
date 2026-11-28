@@ -1,0 +1,73 @@
+/*
+ * SHARED BONUS REPLAY — #SmarterDesign Arena Workspace (Batch T2, 2026-11-28)
+ *
+ * Every selector is scoped under `.arena-workspace.bonus-replay-workspace`.
+ * BonusReplayPlayer keeps its shared BonusReplay.module.css for non-arena
+ * hosts; this sheet frames the public share route cleanly with no gradients,
+ * radii, shadows or :hover rules.
+ */
+
+.arena-workspace.bonus-replay-workspace {
+  min-height: 100dvh;
+  padding-bottom: max(72px, env(safe-area-inset-bottom));
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+.arena-workspace.bonus-replay-workspace .bonus-replay-shell {
+  width: 100%;
+  max-width: 1000px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.arena-workspace.bonus-replay-workspace .bonus-replay-nav {
+  margin: 0;
+  max-width: 280px;
+}
+
+.arena-workspace.bonus-replay-workspace .bonus-replay-back {
+  text-decoration: none;
+}
+
+.arena-workspace.bonus-replay-workspace .bonus-replay-case {
+  margin: 0;
+}
+
+.arena-workspace.bonus-replay-workspace .bonus-replay-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 8px;
+  text-align: center;
+}
+
+.arena-workspace.bonus-replay-workspace .bonus-replay-error {
+  margin: 0;
+  color: #ff5b6e;
+  font:
+    600 13px/1.45 Arial,
+    sans-serif;
+}
+
+.arena-workspace.bonus-replay-workspace .bonus-replay-status {
+  margin: 0;
+  padding: 18px 8px;
+  color: #9fbacc;
+  font:
+    13px/1.45 Arial,
+    sans-serif;
+  text-align: center;
+}
+
+.arena-workspace.bonus-replay-workspace .bonus-replay-actions {
+  margin: 0;
+  width: min(100%, 240px);
+}
+
+.arena-workspace.bonus-replay-workspace .bonus-replay-retry {
+  cursor: pointer;
+}

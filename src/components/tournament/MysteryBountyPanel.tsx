@@ -50,7 +50,7 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
  * browsing figure to abbreviate.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ComponentProps } from 'react';
 import { supabase } from '../../lib/supabase';
 import { reportError } from '../../utils/errorReporter';
 import { runWithRequestDeadline } from '../../utils/requestDeadline';
@@ -69,8 +69,10 @@ import {
 import { isHeadlineTier, mysteryBountyTierLabel } from '../../config/mysteryBountyTiers';
 import { moneyAdjectiveAtUnit } from '../../utils/format';
 import { SpadeConsole } from '../console/SpadeConsole';
+import { ClubPageSection } from '../club/ClubPageSection';
 import { useMysteryBountyPoolSoFar } from '../../hooks/useMysteryBountyPoolSoFar';
 import styles from './MysteryBountyPanel.module.css';
+import './MysteryBountyArena.css';
 
 export interface MysteryBountyPanelProps {
   tournamentId: string;
@@ -103,6 +105,16 @@ export interface MysteryBountyPanelProps {
    * handed a view of the bounty RPCs and never sees a club row.
    */
   unitCents: number;
+  /** #SmarterDesign (Batch T2, 2026-11-28): opt-in arena workspace dress for
+   *  arena hosts (TournamentPage). Non-arena hosts (BountiesTab in
+   *  TournamentDetails) leave this off and keep the painted SpadeConsole. */
+  arena?: boolean;
+}
+
+/** The arena case accepts the console's props so both frames render identical
+ *  headings, pills and sections. */
+function ArenaCase(props: ComponentProps<typeof SpadeConsole>) {
+  return <ClubPageSection {...props} arena />;
 }
 
 /** How many awards to list before "Show All". */
@@ -136,7 +148,12 @@ export default function MysteryBountyPanel({
   currentUserId,
   isCompleted,
   unitCents,
+  arena = false,
 }: MysteryBountyPanelProps) {
+  const Frame = arena ? ArenaCase : SpadeConsole;
+  const frameClass = arena ? `${styles.panel} mbp--arena` : styles.panel;
+  const painted = (cls: string) => (arena ? '' : ` ${cls}`);
+  const rowCls = (base: string) => (arena ? `${base} arena-ledger-row mbp-row` : base);
   const { inventory, awards, awardsTotal, leaderboard, isLoading, isUnavailable, pendingReveals } =
     data;
 
@@ -258,28 +275,30 @@ export default function MysteryBountyPanel({
   if (!isMysteryBounty) return null;
   if (isLoading || isUnavailable) {
     return (
-      <SpadeConsole
+      <Frame
         as="div"
-        className={styles.panel}
+        className={frameClass}
         eyebrow="Mystery Bounty"
         title="Bounties"
         pill={isLoading ? 'Loading' : 'Unavailable'}
         pillInk="muted"
         foot="foot"
       >
-        <div className={`${styles.empty} sc-copy sc-copy--center`}>
+        <div className={`${styles.empty}${painted('sc-copy sc-copy--center')} mbp-empty`}>
           {isLoading ? 'Loading The Mystery Bounty Ladder' : 'Mystery Bounty Data Unavailable'}
         </div>
         {!isLoading && (
-          <button
-            type="button"
-            className={`${styles.collapseBtn} sc-ink--blue`}
-            onClick={data.refresh}
-          >
-            Try Again
-          </button>
+          <div className={arena ? 'arena-switch arena-ops-keys mbp-keys' : 'mbp-keys'}>
+            <button
+              type="button"
+              className={arena ? 'mbp-key' : `${styles.collapseBtn} sc-ink--blue`}
+              onClick={data.refresh}
+            >
+              Try Again
+            </button>
+          </div>
         )}
-      </SpadeConsole>
+      </Frame>
     );
   }
 
@@ -316,9 +335,9 @@ export default function MysteryBountyPanel({
   const selectedEarnings = selectedBoardRow?.earningsCents ?? selectedTotals?.earningsCents ?? 0;
 
   return (
-    <SpadeConsole
+    <Frame
       as="div"
-      className={styles.panel}
+      className={frameClass}
       eyebrow="Mystery Bounty"
       title="Bounties"
       pill={stagePill}
@@ -327,14 +346,14 @@ export default function MysteryBountyPanel({
     >
       {/* ── Section 10: the advertised top bounty, derived from real chests ── */}
       {top > 0 && (
-        <div className={styles.headline}>
-          <span className={`${styles.headlineLabel} sc-label sc-ink--blue`}>
+        <div className={`${styles.headline} mbp-headline`}>
+          <span className={`${styles.headlineLabel}${painted('sc-label sc-ink--blue')} mbp-label`}>
             Top Mystery Bounty
           </span>
-          <span className={`${styles.headlineValue} sc-ink--gold`}>
+          <span className={`${styles.headlineValue}${painted('sc-ink--gold')} mbp-gold`}>
             {formatCents(top, unitCents)}
           </span>
-          <span className={styles.headlineSub}>
+          <span className={`${styles.headlineSub} mbp-sub`}>
             {counts.original.toLocaleString('en-US')} Mystery Bounties Drawn From A{' '}
             {formatCents(inventory?.poolCents ?? 0, unitCents)} {moneyAdjectiveAtUnit(unitCents)}{' '}
             Pool
@@ -343,7 +362,7 @@ export default function MysteryBountyPanel({
       )}
 
       {/* ── Section 73: before it opens, say why ── */}
-      <div className={styles.status}>
+      <div className={`${styles.status} mbp-status`}>
         {stage === 'active' && <span className={styles.livePulse} aria-hidden="true" />}
         <span>{activationStatusLine(inventory)}</span>
       </div>
@@ -352,7 +371,7 @@ export default function MysteryBountyPanel({
           opened the list below is the sealed ladder, cut from the finalized
           pool. Say so, with the time, so nobody reads it as an estimate. */}
       {stage === 'pending' && tiers.length > 0 && (
-        <div className={styles.status} data-testid="mystery-prizes-set">
+        <div className={`${styles.status} mbp-status`} data-testid="mystery-prizes-set">
           <span>
             {inventory?.sealedAt
               ? `Prizes Set At Entry Close, ${shortWhen(inventory.sealedAt)}. They Open When The Mystery Phase Starts`
@@ -367,7 +386,7 @@ export default function MysteryBountyPanel({
           that must move on a reveal without a refresh. Derived from the award
           rows, so a reload rebuilds it exactly. */}
       {biggest && (
-        <div className={styles.status}>
+        <div className={`${styles.status} mbp-status`}>
           <span>
             Largest Mystery Bounty Won: {formatCents(biggest.amountCents, unitCents)} By{' '}
             {winnerNames(biggest.award)}
@@ -376,28 +395,28 @@ export default function MysteryBountyPanel({
       )}
 
       {inventory && (
-        <div className={styles.rows}>
-          <div className={styles.figure}>
-            <span className="sc-label sc-ink--blue">Bounty Pool</span>
-            <span className={`${styles.figureValue} sc-ink--silver`}>
+        <div className={`${styles.rows} mbp-rows`}>
+          <div className={rowCls(styles.figure)}>
+            <span className={arena ? 'mbp-label' : 'sc-label sc-ink--blue'}>Bounty Pool</span>
+            <span className={`${styles.figureValue}${painted('sc-ink--silver')} mbp-value`}>
               {formatCents(showPoolSoFar ? (poolSoFar ?? 0) : inventory.poolCents, unitCents)}
             </span>
           </div>
-          <div className={styles.figure}>
-            <span className="sc-label sc-ink--blue">Awarded</span>
-            <span className={`${styles.figureValue} sc-ink--silver`}>
+          <div className={rowCls(styles.figure)}>
+            <span className={arena ? 'mbp-label' : 'sc-label sc-ink--blue'}>Awarded</span>
+            <span className={`${styles.figureValue}${painted('sc-ink--silver')} mbp-value`}>
               {formatCents(awardedCents(inventory), unitCents)}
             </span>
           </div>
-          <div className={styles.figure}>
-            <span className="sc-label sc-ink--blue">Still In Play</span>
-            <span className={`${styles.figureValue} sc-ink--silver`}>
+          <div className={rowCls(styles.figure)}>
+            <span className={arena ? 'mbp-label' : 'sc-label sc-ink--blue'}>Still In Play</span>
+            <span className={`${styles.figureValue}${painted('sc-ink--silver')} mbp-value`}>
               {formatCents(showPoolSoFar ? (poolSoFar ?? 0) : remainingCents(inventory), unitCents)}
             </span>
           </div>
-          <div className={styles.figure}>
-            <span className="sc-label sc-ink--blue">Chests Left</span>
-            <span className={`${styles.figureValue} sc-ink--silver`}>
+          <div className={rowCls(styles.figure)}>
+            <span className={arena ? 'mbp-label' : 'sc-label sc-ink--blue'}>Chests Left</span>
+            <span className={`${styles.figureValue}${painted('sc-ink--silver')} mbp-value`}>
               {notDrawnYet
                 ? 'Not Drawn Yet'
                 : `${counts.remaining.toLocaleString('en-US')} Of ${counts.original.toLocaleString('en-US')}`}
@@ -407,21 +426,25 @@ export default function MysteryBountyPanel({
       )}
 
       {/* ══ A. PRIZES (sections 31, 32, 33, 47) ══ */}
-      <section className={styles.section}>
-        <div className={styles.sectionHead}>
-          <h4 className={`${styles.sectionTitle} sc-ink--silver`}>Mystery Bounty Prizes</h4>
+      <section className={`${styles.section} mbp-section`}>
+        <div className={`${styles.sectionHead} mbp-section-head`}>
+          <h4 className={`${styles.sectionTitle}${painted('sc-ink--silver')} mbp-section-title`}>
+            Mystery Bounty Prizes
+          </h4>
           {pendingReveals > 0 ? (
-            <span className={`${styles.sectionNote} sc-ink--blue`}>Updating</span>
+            <span className={`${styles.sectionNote}${painted('sc-ink--blue')} mbp-section-note`}>
+              Updating
+            </span>
           ) : null}
         </div>
-        <div className={styles.rows}>
+        <div className={`${styles.rows} mbp-rows`}>
           {showPoolSoFar ? (
-            <div className={`${styles.empty} sc-copy sc-copy--center`}>
+            <div className={`${styles.empty}${painted('sc-copy sc-copy--center')} mbp-empty`}>
               {formatCents(poolSoFar ?? 0, unitCents)} In The Mystery Bounty Pool So Far. Every
               Mystery Bounty Prize Is Shown Here Once The Prize Pool Is Finalized
             </div>
           ) : tiers.length === 0 ? (
-            <div className={`${styles.empty} sc-copy sc-copy--center`}>
+            <div className={`${styles.empty}${painted('sc-copy sc-copy--center')} mbp-empty`}>
               {isLoading
                 ? 'Loading The Mystery Bounty Ladder'
                 : stage === 'pending'
@@ -435,38 +458,52 @@ export default function MysteryBountyPanel({
               return (
                 <div
                   key={`${t.tier}:${t.amountCents}`}
-                  className={`${styles.tierRow} ${exhausted ? styles.tierRowExhausted : ''}`}
+                  className={`${rowCls(styles.tierRow)} ${exhausted ? styles.tierRowExhausted : ''}`}
                 >
-                  <span className={styles.tierMain}>
+                  <span className={`${styles.tierMain} mbp-main`}>
                     <span
                       className={`${styles.tierAmount} ${
-                        exhausted
-                          ? 'sc-ink--muted'
-                          : isHeadlineTier(t.tier)
-                            ? 'sc-ink--gold'
-                            : 'sc-ink--silver'
+                        arena
+                          ? exhausted
+                            ? 'mbp-muted'
+                            : isHeadlineTier(t.tier)
+                              ? 'mbp-gold'
+                              : 'mbp-value'
+                          : exhausted
+                            ? 'sc-ink--muted'
+                            : isHeadlineTier(t.tier)
+                              ? 'sc-ink--gold'
+                              : 'sc-ink--silver'
                       }`}
                     >
                       {formatCents(t.amountCents, unitCents)} x{t.original.toLocaleString('en-US')}
                     </span>
-                    <span className={`${styles.tierName} sc-label sc-ink--blue`}>
+                    <span
+                      className={`${styles.tierName}${painted('sc-label sc-ink--blue')} mbp-live`}
+                    >
                       {mysteryBountyTierLabel(t.tier)}
                     </span>
                     {winners.length > 0 && (
-                      <span className={`${styles.tierWonBy} sc-ink--muted`}>
+                      <span className={`${styles.tierWonBy}${painted('sc-ink--muted')} mbp-muted`}>
                         Won By {winners.join(', ')}
                       </span>
                     )}
                   </span>
-                  <span className={styles.tierCounts}>
+                  <span className={`${styles.tierCounts} mbp-side`}>
                     <span
                       className={`${styles.tierRemaining} ${
-                        exhausted ? 'sc-ink--muted' : 'sc-ink--silver'
+                        arena
+                          ? exhausted
+                            ? 'mbp-muted'
+                            : 'mbp-value'
+                          : exhausted
+                            ? 'sc-ink--muted'
+                            : 'sc-ink--silver'
                       }`}
                     >
                       {t.remaining.toLocaleString('en-US')} Available
                     </span>
-                    <span className={`${styles.tierOriginal} sc-ink--muted`}>
+                    <span className={`${styles.tierOriginal}${painted('sc-ink--muted')} mbp-muted`}>
                       {t.awarded.toLocaleString('en-US')} Paid Out Of{' '}
                       {t.original.toLocaleString('en-US')}
                     </span>
@@ -479,46 +516,60 @@ export default function MysteryBountyPanel({
       </section>
 
       {/* ══ B. AWARDED (sections 34, 35) ══ */}
-      <section className={styles.section}>
-        <div className={styles.sectionHead}>
-          <h4 className={`${styles.sectionTitle} sc-ink--silver`}>Mystery Bounties Awarded</h4>
-          <span className={`${styles.sectionNote} sc-ink--blue`}>
+      <section className={`${styles.section} mbp-section`}>
+        <div className={`${styles.sectionHead} mbp-section-head`}>
+          <h4 className={`${styles.sectionTitle}${painted('sc-ink--silver')} mbp-section-title`}>
+            Mystery Bounties Awarded
+          </h4>
+          <span className={`${styles.sectionNote}${painted('sc-ink--blue')} mbp-section-note`}>
             {Math.max(awards.length, awardsTotal ?? 0).toLocaleString('en-US')} Revealed
           </span>
         </div>
-        <div className={styles.rows}>
+        <div className={`${styles.rows} mbp-rows`}>
           {awards.length === 0 ? (
-            <div className={`${styles.empty} sc-copy sc-copy--center`}>
+            <div className={`${styles.empty}${painted('sc-copy sc-copy--center')} mbp-empty`}>
               {stage === 'pending'
                 ? 'No Mystery Bounties Have Been Opened Yet'
                 : 'The First Chest Has Not Been Opened Yet'}
             </div>
           ) : (
             visibleAwards.map((a) => (
-              <div key={a.awardId} className={styles.awardRow}>
-                <span className={styles.awardMain}>
-                  <span className={`${styles.awardWinners} sc-ink--silver`}>{winnerNames(a)}</span>
+              <div key={a.awardId} className={rowCls(styles.awardRow)}>
+                <span className={`${styles.awardMain} mbp-main`}>
+                  <span className={`${styles.awardWinners}${painted('sc-ink--silver')} mbp-value`}>
+                    {winnerNames(a)}
+                  </span>
                   <span
-                    className={`${styles.awardTier} sc-label ${
-                      isHeadlineTier(a.tier) ? 'sc-ink--gold' : 'sc-ink--blue'
+                    className={`${styles.awardTier} ${
+                      arena
+                        ? isHeadlineTier(a.tier)
+                          ? 'mbp-gold'
+                          : 'mbp-live'
+                        : `sc-label ${isHeadlineTier(a.tier) ? 'sc-ink--gold' : 'sc-ink--blue'}`
                     }`}
                   >
                     {mysteryBountyTierLabel(a.tier)}
                   </span>
-                  <span className={`${styles.awardMeta} sc-ink--muted`}>
+                  <span className={`${styles.awardMeta}${painted('sc-ink--muted')} mbp-muted`}>
                     Knocked Out {a.eliminated.username}
                     {a.handId ? ` / Hand ${a.handId}` : ''}
                   </span>
                 </span>
-                <span className={styles.awardSide}>
+                <span className={`${styles.awardSide} mbp-side`}>
                   <span
                     className={`${styles.awardAmount} ${
-                      isHeadlineTier(a.tier) ? 'sc-ink--gold' : 'sc-ink--silver'
+                      arena
+                        ? isHeadlineTier(a.tier)
+                          ? 'mbp-gold'
+                          : 'mbp-value'
+                        : isHeadlineTier(a.tier)
+                          ? 'sc-ink--gold'
+                          : 'sc-ink--silver'
                     }`}
                   >
                     {formatCents(a.amountCents, unitCents)}
                   </span>
-                  <span className={`${styles.awardWhen} sc-ink--muted`}>
+                  <span className={`${styles.awardWhen}${painted('sc-ink--muted')} mbp-muted`}>
                     {shortWhen(a.revealedAt)}
                   </span>
                 </span>
@@ -527,29 +578,35 @@ export default function MysteryBountyPanel({
           )}
         </div>
         {awards.length > COLLAPSED_AWARD_LIMIT && (
-          <button
-            type="button"
-            className={`${styles.collapseBtn} sc-ink--blue`}
-            onClick={() => setShowAllAwards((v) => !v)}
-          >
-            {showAllAwards
-              ? 'Show Recent Only'
-              : `Show All ${awards.length.toLocaleString('en-US')} Awards`}
-          </button>
+          <div className={arena ? 'arena-switch arena-ops-keys mbp-keys' : 'mbp-keys'}>
+            <button
+              type="button"
+              className={arena ? 'mbp-key' : `${styles.collapseBtn} sc-ink--blue`}
+              onClick={() => setShowAllAwards((v) => !v)}
+            >
+              {showAllAwards
+                ? 'Show Recent Only'
+                : `Show All ${awards.length.toLocaleString('en-US')} Awards`}
+            </button>
+          </div>
         )}
       </section>
 
       {/* ══ C. LEADERBOARD (section 36) ══
           Every button inside this section is a leaderboard ROW - the test reads
           them by role and indexes them. Do not add a control here. */}
-      <section className={styles.section}>
-        <div className={styles.sectionHead}>
-          <h4 className={`${styles.sectionTitle} sc-ink--silver`}>Mystery Bounty Leaderboard</h4>
-          <span className={`${styles.sectionNote} sc-ink--blue`}>By Bounty Earnings</span>
+      <section className={`${styles.section} mbp-section`}>
+        <div className={`${styles.sectionHead} mbp-section-head`}>
+          <h4 className={`${styles.sectionTitle}${painted('sc-ink--silver')} mbp-section-title`}>
+            Mystery Bounty Leaderboard
+          </h4>
+          <span className={`${styles.sectionNote}${painted('sc-ink--blue')} mbp-section-note`}>
+            By Bounty Earnings
+          </span>
         </div>
-        <div className={styles.rows}>
+        <div className={`${styles.rows} mbp-rows`}>
           {leaderboard.length === 0 ? (
-            <div className={`${styles.empty} sc-copy sc-copy--center`}>
+            <div className={`${styles.empty}${painted('sc-copy sc-copy--center')} mbp-empty`}>
               Nobody Has Won A Mystery Bounty Yet
             </div>
           ) : (
@@ -557,20 +614,22 @@ export default function MysteryBountyPanel({
               <button
                 type="button"
                 key={row.userId}
-                className={`${styles.lbRow} ${row.userId === currentUserId ? styles.lbRowMe : ''}`}
+                className={`${rowCls(styles.lbRow)} ${row.userId === currentUserId ? `${styles.lbRowMe} mbp-lb-me` : ''}`}
                 onClick={() =>
                   setSelectedUserId((prev) => (prev === row.userId ? null : row.userId))
                 }
               >
-                <span className={`${styles.lbRank} sc-ink--blue`}>{i + 1}</span>
-                <span className={`${styles.lbName} sc-ink--silver`}>
+                <span className={`${styles.lbRank}${painted('sc-ink--blue')} mbp-live`}>
+                  {i + 1}
+                </span>
+                <span className={`${styles.lbName}${painted('sc-ink--silver')} mbp-value`}>
                   {row.username}
-                  <span className={`${styles.lbCount} sc-ink--muted`}>
+                  <span className={`${styles.lbCount}${painted('sc-ink--muted')} mbp-muted`}>
                     {row.bountiesWon.toLocaleString('en-US')} Bount
                     {row.bountiesWon === 1 ? 'y' : 'ies'} Won
                   </span>
                 </span>
-                <span className={`${styles.lbEarnings} sc-ink--silver`}>
+                <span className={`${styles.lbEarnings}${painted('sc-ink--silver')} mbp-value`}>
                   {formatCents(row.earningsCents, unitCents)}
                 </span>
               </button>
@@ -581,44 +640,48 @@ export default function MysteryBountyPanel({
 
       {/* ══ Section 41: one player's payout, public ══ */}
       {selectedUserId && (
-        <div className={styles.playerCard}>
-          <div className={styles.playerHead}>
-            <span className={`${styles.playerName} sc-ink--white`}>
+        <div className={`${styles.playerCard} mbp-player-card`}>
+          <div className={`${styles.playerHead} mbp-section-head`}>
+            <span className={`${styles.playerName}${painted('sc-ink--white')} mbp-section-title`}>
               {selectedBoardRow?.username ?? selectedTotals?.username ?? 'Player'}
             </span>
-            <button
-              type="button"
-              className={`${styles.playerClose} sc-ink--blue`}
-              onClick={() => setSelectedUserId(null)}
-              aria-label="Close Player Payout"
-            >
-              Close
-            </button>
+            <div className={arena ? 'arena-switch mbp-close-wrap' : 'mbp-keys'}>
+              <button
+                type="button"
+                className={arena ? 'mbp-key' : `${styles.playerClose} sc-ink--blue`}
+                onClick={() => setSelectedUserId(null)}
+                aria-label="Close Player Payout"
+              >
+                Close
+              </button>
+            </div>
           </div>
-          <div className={styles.rows}>
-            <div className={styles.figure}>
-              <span className="sc-label sc-ink--blue">Bounties Won</span>
-              <span className={`${styles.figureValue} sc-ink--silver`}>
+          <div className={`${styles.rows} mbp-rows`}>
+            <div className={rowCls(styles.figure)}>
+              <span className={arena ? 'mbp-label' : 'sc-label sc-ink--blue'}>Bounties Won</span>
+              <span className={`${styles.figureValue}${painted('sc-ink--silver')} mbp-value`}>
                 {selectedBounties.toLocaleString('en-US')}
               </span>
             </div>
-            <div className={styles.figure}>
-              <span className="sc-label sc-ink--blue">Bounty Earnings</span>
-              <span className={`${styles.figureValue} sc-ink--silver`}>
+            <div className={rowCls(styles.figure)}>
+              <span className={arena ? 'mbp-label' : 'sc-label sc-ink--blue'}>Bounty Earnings</span>
+              <span className={`${styles.figureValue}${painted('sc-ink--silver')} mbp-value`}>
                 {formatCents(selectedEarnings, unitCents)}
               </span>
             </div>
-            <div className={styles.figure}>
-              <span className="sc-label sc-ink--blue">Largest Bounty</span>
-              <span className={`${styles.figureValue} sc-ink--silver`}>
+            <div className={rowCls(styles.figure)}>
+              <span className={arena ? 'mbp-label' : 'sc-label sc-ink--blue'}>Largest Bounty</span>
+              <span className={`${styles.figureValue}${painted('sc-ink--silver')} mbp-value`}>
                 {formatCents(selectedTotals?.largestCents ?? 0, unitCents)}
               </span>
             </div>
             {isCompleted && (
               <>
-                <div className={styles.figure}>
-                  <span className="sc-label sc-ink--blue">Final Position</span>
-                  <span className={`${styles.figureValue} sc-ink--silver`}>
+                <div className={rowCls(styles.figure)}>
+                  <span className={arena ? 'mbp-label' : 'sc-label sc-ink--blue'}>
+                    Final Position
+                  </span>
+                  <span className={`${styles.figureValue}${painted('sc-ink--silver')} mbp-value`}>
                     {payoutMessage
                       ? payoutMessage
                       : playerPayout?.position
@@ -626,9 +689,11 @@ export default function MysteryBountyPanel({
                         : 'Not Finished'}
                   </span>
                 </div>
-                <div className={styles.figure}>
-                  <span className="sc-label sc-ink--blue">Tournament Prize</span>
-                  <span className={`${styles.figureValue} sc-ink--silver`}>
+                <div className={rowCls(styles.figure)}>
+                  <span className={arena ? 'mbp-label' : 'sc-label sc-ink--blue'}>
+                    Tournament Prize
+                  </span>
+                  <span className={`${styles.figureValue}${painted('sc-ink--silver')} mbp-value`}>
                     {payoutMessage
                       ? payoutMessage
                       : formatCents(Math.round((playerPayout?.prize ?? 0) * 100), unitCents)}
@@ -636,9 +701,9 @@ export default function MysteryBountyPanel({
                 </div>
               </>
             )}
-            <div className={styles.figure}>
-              <span className="sc-label sc-ink--blue">Total Payout</span>
-              <span className={`${styles.figureValue} sc-ink--gold`}>
+            <div className={rowCls(styles.figure)}>
+              <span className={arena ? 'mbp-label' : 'sc-label sc-ink--blue'}>Total Payout</span>
+              <span className={`${styles.figureValue}${painted('sc-ink--gold')} mbp-gold`}>
                 {payoutMessage
                   ? payoutMessage
                   : formatCents(
@@ -650,7 +715,7 @@ export default function MysteryBountyPanel({
           </div>
         </div>
       )}
-    </SpadeConsole>
+    </Frame>
   );
 }
 

@@ -1,0 +1,25 @@
+{
+  "money": {
+    "figures": [
+      "2",
+      "110 (100 + 10)",
+      "12",
+      "1,200",
+      "110 (100 + 10)",
+      "27",
+      "26,000"
+    ],
+    "hooks": []
+  },
+  "text": "Tournaments | 2 | NLH | Kings Nightly MTT | Open Registration | Buy-In | 110 (100 + 10) | Entries | 12 | Prize Pool | 1,200 | NLH | Mystery Bounty Live | Late Reg Open | Buy-In | 110 (100 + 10) | Entries | 27 | Prize Pool | 26,000 | Select A Tournament | Tap A Tournament To View Details And Register.",
+  "regions": [
+    "nav||Stake Filters"
+  ],
+  "controls": [
+    "button|button|All Stakes|aria-pressed=true",
+    "button|button|Create Tournament|",
+    "button|button|Freerolls|aria-pressed=false",
+    "button|button|High Roller|aria-pressed=false",
+    "button|button|Micro|aria-pressed=false"
+  ]
+}

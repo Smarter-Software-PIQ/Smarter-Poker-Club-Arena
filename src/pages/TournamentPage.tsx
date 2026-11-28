@@ -31,6 +31,8 @@ import { CHIP_UNIT_CENTS, normalizeUnitCents } from '../../server/src/tournament
 import type { Tournament } from '../types/database.types';
 import CreateTournamentModal from '../components/club/CreateTournamentModal';
 import './TournamentPage.css';
+import '../components/ops/ArenaOps.css';
+import './TournamentPageArena.css';
 import { supabase } from '../lib/supabase';
 import { masterBus } from '../core/MasterBus';
 import { useAuthUser } from '../hooks/useAuthUser';
@@ -84,8 +86,9 @@ import {
 // through compactChips, which is the lobby rule Dan set on 2026-09-08.
 import { formatBuyIn, money, moneyExact, totalBuyIn } from '../utils/buyIn';
 import { compactChips, ordinal } from '../utils/format';
-import { SpadeConsole, type ConsoleInk } from '../components/console/SpadeConsole';
-import PageBar from '../components/help/PageBar';
+import { type ConsoleInk } from '../components/console/SpadeConsole';
+import { ClubPageSection } from '../components/club/ClubPageSection';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
 import { relayTournamentEvent } from '../services/tournamentEventBridge';
 import { useTournamentRegistration } from '../hooks/useTournamentRegistration';
 import { gameInviteText, shareLink, tournamentShareUrl } from '../lib/share';
@@ -1482,14 +1485,19 @@ export default function TournamentPage() {
 
   if (isLoading) {
     return (
-      <div className="tournament-page">
-        <SpadeConsole as="div" className="tournament-console" title="Tournaments" foot="foot">
+      <div className="tournament-page arena-workspace">
+        <ArenaWorkspaceHeader
+          area="dashboard"
+          title="Tournaments"
+          summary="Upcoming And Live Tournaments For This Club. Tap A Tournament To View Details And Register."
+        />
+        <ClubPageSection as="div" arena className="tournament-console" title="Tournaments">
           <div className="tourn-skeleton" aria-hidden="true">
             {['60%', '40%', '75%', '55%'].map((w) => (
               <div key={w} className="skel-line" style={{ width: w }} />
             ))}
           </div>
-        </SpadeConsole>
+        </ClubPageSection>
       </div>
     );
   }
@@ -1539,13 +1547,10 @@ export default function TournamentPage() {
   })();
 
   return (
-    <div className="tournament-page">
-      {/* Dan, 2026-10-17: "PAGES DON'T NEED TITLES LIKE THIS". The eyebrow and
-          the descriptive subtitle moved behind the painted "?"; the head keeps
-          its title and its live pill. */}
-      <PageBar
+    <div className="tournament-page arena-workspace">
+      <ArenaWorkspaceHeader
+        area="dashboard"
         title="Tournaments"
-        titleAs={false}
         summary="Upcoming And Live Tournaments For This Club. Tap A Tournament To View Details And Register."
         steps={[
           {
@@ -1556,15 +1561,15 @@ export default function TournamentPage() {
         ]}
       />
       {/* ── The lobby head: the filters, and the owner's one control ────── */}
-      <SpadeConsole
+      <ClubPageSection
         as="section"
+        arena
         className="tournament-console tourn-head"
         title="Tournaments"
         pill={`${filteredTournaments.length}`}
         pillInk="blue"
-        foot="foot"
       >
-        <nav className="tourn-filters" aria-label="Stake Filters">
+        <nav className="arena-switch arena-ops-keys tourn-filters" aria-label="Stake Filters">
           {[
             { value: 'all', label: 'All Stakes' },
             { value: 'freeroll', label: 'Freerolls' },
@@ -1583,39 +1588,33 @@ export default function TournamentPage() {
           ))}
         </nav>
 
-        {/* ONE ACTION, SO NO PLATES: the foot paints both plates or neither,
-            and a painted plate with nothing on it reads as broken. */}
         {isOwner && !isInUnion && (
-          <p className="tourn-words">
-            <button
-              type="button"
-              className="tourn-word sc-ink--blue"
-              onClick={() => setShowCreateModal(true)}
-            >
+          <div className="arena-switch arena-ops-keys arena-ops-primary tourn-words">
+            <button type="button" className="tourn-word" onClick={() => setShowCreateModal(true)}>
               Create Tournament
             </button>
-          </p>
+          </div>
         )}
-      </SpadeConsole>
+      </ClubPageSection>
 
       {/* ── The tournaments ──────────────────────────────────────────────── */}
       {filteredTournaments.length === 0 ? (
-        <SpadeConsole as="div" className="tournament-console" title="No Tournaments" foot="foot">
-          <p className="sc-copy sc-copy--center">No Tournaments Match Your Filters</p>
-        </SpadeConsole>
+        <ClubPageSection as="div" arena className="tournament-console" title="No Tournaments">
+          <p className="tourn-copy">No Tournaments Match Your Filters</p>
+        </ClubPageSection>
       ) : (
         sortedTournaments.map((tourn) => {
           const pill = statePill(tourn);
           return (
-            <SpadeConsole
+            <ClubPageSection
               key={tourn.id}
               as="div"
+              arena
               className={`tournament-console tournament-card ${selectedTournament?.id === tourn.id ? 'selected' : ''} ${visibleTournaments.has(tourn.id) ? 'fadeInUp' : 'hidden'}`}
               eyebrow={gameLabel(tourn)}
               title={tourn.name}
               pill={pill.label}
               pillInk={pill.ink}
-              foot="foot"
               style={
                 visibleTournaments.has(tourn.id)
                   ? { cursor: 'pointer' }
@@ -1630,35 +1629,37 @@ export default function TournamentPage() {
               }}
             >
               <div className="tourn-rows">
-                <div className="tourn-row">
-                  <span className="sc-label sc-ink--blue">Buy-In</span>
+                <div className="tourn-row arena-ledger-row">
+                  <span className="sc-label">Buy-In</span>
                   {/* Whole chips, and EXACT: this is what the server charges. */}
-                  <span className="tourn-value sc-ink--silver">
+                  <span className="tourn-value">
                     {formatBuyIn(tourn.buy_in_amount, tourn.buy_in_fee, tourn)}
                   </span>
                 </div>
-                <div className="tourn-row">
-                  <span className="sc-label sc-ink--blue">Entries</span>
-                  <span className="tourn-value sc-ink--silver">
+                <div className="tourn-row arena-ledger-row">
+                  <span className="sc-label">Entries</span>
+                  <span className="tourn-value">
                     {tourn.current_players}
                     {getTournamentEntryCapacity(tourn) !== null ? `/${tourn.max_players}` : ''}
                   </span>
                 </div>
-                <div className="tourn-row">
-                  <span className="sc-label sc-ink--blue">Prize Pool</span>
-                  <span className="tourn-value sc-ink--gold">{compactChips(tourn.prize_pool)}</span>
+                <div className="tourn-row arena-ledger-row">
+                  <span className="sc-label">Prize Pool</span>
+                  <span className="tourn-value tourn-value--gold">
+                    {compactChips(tourn.prize_pool)}
+                  </span>
                 </div>
                 {tourn.status === 'REGISTERING' && tournamentStartsWhenFull(tourn) ? (
-                  <div className="tourn-row">
-                    <span className="sc-label sc-ink--blue">Starts</span>
-                    <span className="tourn-value sc-ink--silver">When Full</span>
+                  <div className="tourn-row arena-ledger-row">
+                    <span className="sc-label">Starts</span>
+                    <span className="tourn-value">When Full</span>
                   </div>
                 ) : (
                   countdownStr[tourn.id] && (
-                    <div className="tourn-row">
-                      <span className="sc-label sc-ink--blue">Starts In</span>
+                    <div className="tourn-row arena-ledger-row">
+                      <span className="sc-label">Starts In</span>
                       <span
-                        className={`tourn-value ${countdownStr[tourn.id] === 'Starting...' ? 'sc-ink--red' : 'sc-ink--silver'}`}
+                        className={`tourn-value ${countdownStr[tourn.id] === 'Starting...' ? 'tourn-value--danger' : ''}`}
                       >
                         {countdownStr[tourn.id]}
                       </span>
@@ -1667,21 +1668,22 @@ export default function TournamentPage() {
                 )}
                 {/* SWEEP #6: live blind level + countdown for RUNNING tournaments */}
                 {tourn.status === 'RUNNING' && levelChip[tourn.id] && (
-                  <div className="tourn-row">
-                    <span className="sc-label sc-ink--blue">Level</span>
-                    <span className="tourn-value sc-ink--blue">{levelChip[tourn.id]}</span>
+                  <div className="tourn-row arena-ledger-row">
+                    <span className="sc-label">Level</span>
+                    <span className="tourn-value tourn-value--live">{levelChip[tourn.id]}</span>
                   </div>
                 )}
               </div>
-            </SpadeConsole>
+            </ClubPageSection>
           );
         })
       )}
 
       {/* ── The selected tournament ──────────────────────────────────────── */}
       {selectedTournament ? (
-        <SpadeConsole
+        <ClubPageSection
           as="section"
+          arena
           className="tournament-console tourn-detail"
           eyebrow={gameLabel(selectedTournament)}
           title={selectedTournament.name}
@@ -1695,9 +1697,9 @@ export default function TournamentPage() {
           plates={detailPlates}
         >
           <div className="tourn-rows">
-            <div className="tourn-row">
-              <span className="sc-label sc-ink--blue">Buy-In</span>
-              <span className="tourn-value sc-ink--silver">
+            <div className="tourn-row arena-ledger-row">
+              <span className="sc-label">Buy-In</span>
+              <span className="tourn-value">
                 {formatBuyIn(
                   selectedTournament.buy_in_amount,
                   selectedTournament.buy_in_fee,
@@ -1705,26 +1707,26 @@ export default function TournamentPage() {
                 )}
               </span>
             </div>
-            <div className="tourn-row">
-              <span className="sc-label sc-ink--blue">Starting Stack</span>
-              <span className="tourn-value sc-ink--silver">
+            <div className="tourn-row arena-ledger-row">
+              <span className="sc-label">Starting Stack</span>
+              <span className="tourn-value">
                 {selectedTournament.starting_chips
                   ? compactChips(selectedTournament.starting_chips)
                   : '-'}
               </span>
             </div>
-            <div className="tourn-row">
-              <span className="sc-label sc-ink--blue">Entries</span>
-              <span className="tourn-value sc-ink--silver">
+            <div className="tourn-row arena-ledger-row">
+              <span className="sc-label">Entries</span>
+              <span className="tourn-value">
                 {selectedTournament.current_players}
                 {getTournamentEntryCapacity(selectedTournament) !== null
                   ? `/${selectedTournament.max_players}`
                   : ''}
               </span>
             </div>
-            <div className="tourn-row">
-              <span className="sc-label sc-ink--blue">Prize Pool</span>
-              <span className="tourn-value sc-ink--gold">
+            <div className="tourn-row arena-ledger-row">
+              <span className="sc-label">Prize Pool</span>
+              <span className="tourn-value tourn-value--gold">
                 {compactChips(selectedTournament.prize_pool)}
               </span>
             </div>
@@ -1733,9 +1735,9 @@ export default function TournamentPage() {
             {selectedTournament.is_bounty &&
               !selectedTournament.is_pko &&
               !selectedTournament.is_mystery_bounty && (
-                <div className="tourn-row">
-                  <span className="sc-label sc-ink--blue">Bounty</span>
-                  <span className="tourn-value sc-ink--silver">
+                <div className="tourn-row arena-ledger-row">
+                  <span className="sc-label">Bounty</span>
+                  <span className="tourn-value">
                     {selectedHeadFigure} {moneyWordAtUnit(selectedUnitCents)}
                   </span>
                 </div>
@@ -1743,17 +1745,17 @@ export default function TournamentPage() {
 
             {/* PKO Info */}
             {selectedTournament.is_pko && (
-              <div className="tourn-row">
-                <span className="sc-label sc-ink--blue">PKO</span>
-                <span className="tourn-value sc-ink--silver">
+              <div className="tourn-row arena-ledger-row">
+                <span className="sc-label">PKO</span>
+                <span className="tourn-value">
                   {selectedHeadFigure} {moneyWordAtUnit(selectedUnitCents)} Starting Bounty
                 </span>
               </div>
             )}
             {selectedTournament.is_pko && (
-              <div className="tourn-row">
-                <span className="sc-label sc-ink--blue">PKO Payout</span>
-                <span className="tourn-value sc-ink--muted">
+              <div className="tourn-row arena-ledger-row">
+                <span className="sc-label">PKO Payout</span>
+                <span className="tourn-value tourn-value--muted">
                   50% To Knocker / 50% Added To Your Bounty
                 </span>
               </div>
@@ -1768,17 +1770,17 @@ export default function TournamentPage() {
                 exists, from fn_mystery_bounty_inventory. */}
             {selectedIsMystery && (
               <>
-                <div className="tourn-row">
-                  <span className="sc-label sc-ink--blue">Top Mystery Bounty</span>
-                  <span className="tourn-value sc-ink--gold">
+                <div className="tourn-row arena-ledger-row">
+                  <span className="sc-label">Top Mystery Bounty</span>
+                  <span className="tourn-value tourn-value--gold">
                     {topBountyCents(mysteryBounty.inventory) > 0
                       ? `${formatCents(topBountyCents(mysteryBounty.inventory), selectedUnitCents)}${moneySuffixAtUnit(selectedUnitCents)}`
                       : 'Shown When The Prize Pool Is Finalized'}
                   </span>
                 </div>
-                <div className="tourn-row">
-                  <span className="sc-label sc-ink--blue">Mystery Status</span>
-                  <span className="tourn-value sc-ink--silver">
+                <div className="tourn-row arena-ledger-row">
+                  <span className="sc-label">Mystery Status</span>
+                  <span className="tourn-value">
                     {activationStatusLine(mysteryBounty.inventory)}
                   </span>
                 </div>
@@ -1787,9 +1789,9 @@ export default function TournamentPage() {
 
             {/* Spin Info */}
             {getTournamentFormatKind(selectedTournament) === 'spin' && (
-              <div className="tourn-row">
-                <span className="sc-label sc-ink--blue">Multiplier</span>
-                <span className="tourn-value sc-ink--gold">
+              <div className="tourn-row arena-ledger-row">
+                <span className="sc-label">Multiplier</span>
+                <span className="tourn-value tourn-value--gold">
                   {spinMultiplierLabel(selectedTournament as any) ?? 'TBD'}
                 </span>
               </div>
@@ -1800,33 +1802,33 @@ export default function TournamentPage() {
             String(selectedTournament.status || '').toUpperCase()
           ) && (
             <div className="tourn-invite-bar">
-              <button
-                type="button"
-                className="tourn-invite-btn"
-                data-testid="club-tournaments-invite-btn"
-                onClick={() => void handleInviteSelectedTournament()}
-              >
-                <InviteLinkIcon />
-                <span>Invite To Game</span>
-              </button>
+              <div className="arena-switch arena-ops-keys tourn-invite-switch">
+                <button
+                  type="button"
+                  className="tourn-invite-btn"
+                  data-testid="club-tournaments-invite-btn"
+                  onClick={() => void handleInviteSelectedTournament()}
+                >
+                  <InviteLinkIcon />
+                  <span>Invite To Game</span>
+                </button>
+              </div>
               {inviteFallbackUrl && (
                 <ShareLinkFallback url={inviteFallbackUrl} label="Game Invite Link" />
               )}
             </div>
           )}
 
-          {/* The money actions that are not the main one. The foot paints
-              exactly two plates, so these are lit words on the glass. */}
           {(canRebuyNow ||
             canAddOnNow ||
             (isOwner &&
               (selectedTournament.status === 'REGISTERING' ||
                 selectedTournament.status === 'ANNOUNCED'))) && (
-            <p className="tourn-words">
+            <div className="arena-switch arena-ops-keys tourn-words">
               {canRebuyNow && (
                 <button
                   type="button"
-                  className="tourn-word sc-ink--gold"
+                  className="tourn-word tourn-word--gold"
                   onClick={handleRebuy}
                   disabled={isProcessingRebuy}
                 >
@@ -1846,7 +1848,7 @@ export default function TournamentPage() {
               {canAddOnNow && (
                 <button
                   type="button"
-                  className="tourn-word sc-ink--green"
+                  className="tourn-word tourn-word--green"
                   onClick={handleAddOn}
                   disabled={isProcessingRebuy}
                 >
@@ -1864,7 +1866,7 @@ export default function TournamentPage() {
                   selectedTournament.status === 'ANNOUNCED') && (
                   <button
                     type="button"
-                    className="tourn-word sc-ink--red"
+                    className="tourn-word tourn-word--danger"
                     onClick={handleStart}
                     /* TOURNEY-AUDIT 2026-07-24: minimum is 3 — the service
                        AUTO-CANCELS at start with < 3 registered, so enabling
@@ -1875,7 +1877,7 @@ export default function TournamentPage() {
                     Start Tournament
                   </button>
                 )}
-            </p>
+            </div>
           )}
 
           {/* Live pane, RUNNING only. Until now, opening a tournament
@@ -1888,22 +1890,22 @@ export default function TournamentPage() {
               <TournamentClock tournamentId={selectedTournament.id} compact />
 
               <div className="tourney-live-section">
-                <h3 className="tourn-heading sc-ink--silver">Ranking</h3>
+                <h3 className="tourn-heading">Ranking</h3>
                 {/* THREE STATES, NOT TWO. `RankingTab` prints "No Players
                     Yet" for an empty list, which is a claim about the
                     tournament - so an unanswered query must never reach it
                     as an empty array. It is held back until the first read
                     settles, and a read that failed says so instead. */}
                 {entriesLoading && liveEntries.length === 0 ? (
-                  <p className="tourney-live-empty sc-copy sc-copy--center">Loading The Ranking.</p>
+                  <p className="tourney-live-empty tourn-copy">Loading The Ranking.</p>
                 ) : entriesFailed && liveEntries.length === 0 ? (
-                  <p className="tourney-live-empty sc-copy sc-copy--center" role="status">
+                  <p className="tourney-live-empty tourn-copy" role="status">
                     The Ranking Is Unavailable Right Now. Retrying.
                   </p>
                 ) : (
                   <>
                     {entriesFailed && (
-                      <p className="tourney-live-empty sc-copy sc-copy--center" role="status">
+                      <p className="tourney-live-empty tourn-copy" role="status">
                         The Ranking Has Stopped Updating. Retrying.
                       </p>
                     )}
@@ -1921,14 +1923,12 @@ export default function TournamentPage() {
               </div>
 
               <div className="tourney-live-section">
-                <h3 className="tourn-heading sc-ink--silver">Tables ({tourneyTables.length})</h3>
+                <h3 className="tourn-heading">Tables ({tourneyTables.length})</h3>
                 {tablesState === 'unknown' && (
-                  <p className="tourney-live-empty sc-copy sc-copy--center">
-                    Tables Could Not Be Refreshed.
-                  </p>
+                  <p className="tourney-live-empty tourn-copy">Tables Could Not Be Refreshed.</p>
                 )}
                 {tourneyTables.length === 0 ? (
-                  <p className="tourney-live-empty sc-copy sc-copy--center">
+                  <p className="tourney-live-empty tourn-copy">
                     {tablesState === 'loading'
                       ? 'Loading The Tables.'
                       : tablesState === 'unknown'
@@ -1938,14 +1938,12 @@ export default function TournamentPage() {
                 ) : (
                   <div className="tourn-rows">
                     {tourneyTables.map((tb) => (
-                      <div key={tb.id} className="tourn-row tourn-row--triple">
-                        <span className="tourn-table-name sc-ink--silver">
-                          {tb.name || 'Table'}
-                        </span>
-                        <span className="tourn-value sc-ink--blue">
+                      <div key={tb.id} className="tourn-row tourn-row--triple arena-ledger-row">
+                        <span className="tourn-table-name">{tb.name || 'Table'}</span>
+                        <span className="tourn-value tourn-value--live">
                           {tb.small_blind ?? 0}/{tb.big_blind ?? 0}
                         </span>
-                        <span className="tourn-value sc-ink--muted">
+                        <span className="tourn-value tourn-value--muted">
                           {tb.current_players ?? 0}/{tb.max_players ?? 9}
                         </span>
                       </div>
@@ -1957,29 +1955,29 @@ export default function TournamentPage() {
           )}
 
           {/* Blind Structure */}
-          <h3 className="tourn-heading sc-ink--silver">Blind Structure</h3>
+          <h3 className="tourn-heading">Blind Structure</h3>
           <div className="tourn-rows">
             {(() => {
               const blinds = asRows(selectedTournament.blind_structure);
               if (blinds.length === 0) {
-                return <p className="sc-copy sc-copy--center">No Blind Structure Recorded.</p>;
+                return <p className="tourn-copy">No Blind Structure Recorded.</p>;
               }
               return (
                 <>
                   {blinds.slice(0, 5).map((level: any, i: number) => (
-                    <div key={i} className="tourn-row tourn-row--triple">
-                      <span className="sc-label sc-ink--blue">Level {level.level}</span>
-                      <span className="tourn-value sc-ink--silver">
+                    <div key={i} className="tourn-row tourn-row--triple arena-ledger-row">
+                      <span className="sc-label">Level {level.level}</span>
+                      <span className="tourn-value">
                         {level.smallBlind || level.small_blind}/{level.bigBlind || level.big_blind}
                       </span>
-                      <span className="tourn-value sc-ink--muted">
+                      <span className="tourn-value tourn-value--muted">
                         {level.ante || '-'} /{' '}
                         {level.durationMinutes || level.duration_minutes || 15} Min
                       </span>
                     </div>
                   ))}
                   {blinds.length > 5 && (
-                    <p className="sc-copy sc-copy--center">+ {blinds.length - 5} More Levels</p>
+                    <p className="tourn-copy">+ {blinds.length - 5} More Levels</p>
                   )}
                 </>
               );
@@ -1987,7 +1985,7 @@ export default function TournamentPage() {
           </div>
 
           {/* Payout Structure */}
-          <h3 className="tourn-heading sc-ink--silver">Payouts</h3>
+          <h3 className="tourn-heading">Payouts</h3>
           <div className="tourn-rows">
             {selectedPayouts.slice(0, 5).map((payout, i) => {
               const pos = payout.place;
@@ -1999,16 +1997,16 @@ export default function TournamentPage() {
                   ? null
                   : placePrize(selectedPlaceLadderPool, selectedPayouts, pos, selectedUnitCents);
               return (
-                <div key={i} className="tourn-row tourn-row--triple">
+                <div key={i} className="tourn-row tourn-row--triple arena-ledger-row">
                   {/* The top three used to print NOTHING: an emoji had been
                       stripped from each branch and the empty strings stayed. */}
-                  <span className="sc-label sc-ink--blue">{ordinal(pos)}</span>
-                  <span className="tourn-value sc-ink--muted">
+                  <span className="sc-label">{ordinal(pos)}</span>
+                  <span className="tourn-value tourn-value--muted">
                     {payoutSharePercent(payout.percentage, selectedPayouts)}%
                   </span>
                   {/* Whole chips. This printed `Math.trunc(x * 100) / 100`,
                       a decimal, on a forward-facing page. */}
-                  <span className="tourn-value sc-ink--silver">
+                  <span className="tourn-value">
                     {amount === null ? '-' : compactChips(amount)}
                   </span>
                 </div>
@@ -2027,13 +2025,14 @@ export default function TournamentPage() {
               currentUserId={currentUser.id === 'guest' ? null : currentUser.id}
               isCompleted={selectedTournament.status === 'COMPLETED'}
               unitCents={selectedUnitCents}
+              arena
             />
           )}
 
           {/* Final standings (Initiative 13) */}
           {selectedTournament.status === 'COMPLETED' && (
             <>
-              <h3 className="tourn-heading sc-ink--silver">Final Standings</h3>
+              <h3 className="tourn-heading">Final Standings</h3>
               <div className="tourn-rows">
                 {selectedPayouts.slice(0, 3).map((p, i) => {
                   /* The prize the engine actually recorded for that place wins;
@@ -2051,9 +2050,9 @@ export default function TournamentPage() {
                             selectedUnitCents
                           );
                   return (
-                    <div key={i} className="tourn-row">
-                      <span className="sc-label sc-ink--blue">{ordinal(p.place)}</span>
-                      <span className="tourn-value sc-ink--gold">
+                    <div key={i} className="tourn-row arena-ledger-row">
+                      <span className="sc-label">{ordinal(p.place)}</span>
+                      <span className="tourn-value tourn-value--gold">
                         {amount === null ? '-' : compactChips(amount)}
                       </span>
                     </div>
@@ -2062,16 +2061,11 @@ export default function TournamentPage() {
               </div>
             </>
           )}
-        </SpadeConsole>
+        </ClubPageSection>
       ) : (
-        <SpadeConsole
-          as="div"
-          className="tournament-console"
-          title="Select A Tournament"
-          foot="foot"
-        >
-          <p className="sc-copy sc-copy--center">Tap A Tournament To View Details And Register.</p>
-        </SpadeConsole>
+        <ClubPageSection as="div" arena className="tournament-console" title="Select A Tournament">
+          <p className="tourn-copy">Tap A Tournament To View Details And Register.</p>
+        </ClubPageSection>
       )}
 
       {/* Create Modal */}

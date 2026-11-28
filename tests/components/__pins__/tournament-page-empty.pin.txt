@@ -1,0 +1,19 @@
+{
+  "money": {
+    "figures": [
+      "0"
+    ],
+    "hooks": []
+  },
+  "text": "Tournaments | 0 | No Tournaments | No Tournaments Match Your Filters | Select A Tournament | Tap A Tournament To View Details And Register.",
+  "regions": [
+    "nav||Stake Filters"
+  ],
+  "controls": [
+    "button|button|All Stakes|aria-pressed=true",
+    "button|button|Create Tournament|",
+    "button|button|Freerolls|aria-pressed=false",
+    "button|button|High Roller|aria-pressed=false",
+    "button|button|Micro|aria-pressed=false"
+  ]
+}

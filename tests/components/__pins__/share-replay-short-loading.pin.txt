@@ -1,0 +1,9 @@
+{
+  "money": {
+    "figures": [],
+    "hooks": []
+  },
+  "text": "Loading The Hand",
+  "regions": [],
+  "controls": []
+}

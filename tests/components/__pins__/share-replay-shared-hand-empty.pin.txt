@@ -1,0 +1,13 @@
+{
+  "money": {
+    "figures": [],
+    "hooks": [
+      "data-discover=true"
+    ]
+  },
+  "text": "This Replay Link Is Not Readable | The Link May Have Been Truncated When It Was Copied. Ask For It Again, Or Open The Hand From Your Own Hand History.",
+  "regions": [],
+  "controls": [
+    "a||Go To The Lobby|"
+  ]
+}

@@ -62,7 +62,9 @@ import HandReplay, { type ReplaySource } from '../../components/replay/HandRepla
 import { replayFromShareable, shareUserId } from '../../lib/shareHandModel';
 import { clipSourceFrom, readClipPayload, type ClipPayload } from '../../lib/clipMode';
 import { reportError } from '../../utils/errorReporter';
-import { SpadeConsole } from '../../components/console/SpadeConsole';
+import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
+import '../../components/ops/ArenaOps.css';
+import '../../components/club/ClubPageSection.css';
 import { normalizeInviteCode } from '../../lib/inviteCode';
 import { hasLocalSession } from '../../lib/authUtils';
 import { signInUrl, toWebPath } from '../../lib/signIn';
@@ -162,15 +164,28 @@ export default function SharedHandReplayPage({
 
   if (!source) {
     return (
-      <div className="shared-replay shared-replay--empty">
-        <h1 className="shared-replay__title">This Replay Link Is Not Readable</h1>
-        <p className="shared-replay__body">
-          The Link May Have Been Truncated When It Was Copied. Ask For It Again, Or Open The Hand
-          From Your Own Hand History.
-        </p>
-        <Link className="shared-replay__link" to="/">
-          Go To The Lobby
-        </Link>
+      <div className="arena-workspace shared-replay-workspace">
+        <div className="shared-replay-shell">
+          <ArenaWorkspaceHeader
+            area="handreview"
+            title="Hand Replay"
+            summary="Watch A Shared Poker Hand Replay From Smarter Poker."
+          />
+          <section className="arena-case arena-ops-case shared-replay shared-replay--empty">
+            <h2 className="arena-section-title shared-replay__title">
+              This Replay Link Is Not Readable
+            </h2>
+            <p className="shared-replay__body">
+              The Link May Have Been Truncated When It Was Copied. Ask For It Again, Or Open The
+              Hand From Your Own Hand History.
+            </p>
+            <div className="arena-switch arena-ops-keys arena-ops-primary shared-replay__actions">
+              <Link className="shared-replay__link" to="/">
+                Go To The Lobby
+              </Link>
+            </div>
+          </section>
+        </div>
       </div>
     );
   }
@@ -213,33 +228,43 @@ export default function SharedHandReplayPage({
       : `/auth/signup?redirect=${encodeURIComponent(toWebPath(here))}`;
 
   return (
-    <div className="shared-replay">
-      <HandReplay source={source} />
-      {showJoin && (
-        <SpadeConsole
-          className="shared-replay__join"
-          eyebrow="Smarter.Poker"
-          title="Play This Game"
-          titleAs="h2"
-          subtitle={hero ? `${hero.name} Invited You` : 'Private Poker Clubs'}
-          pill="Join"
-          pillInk="blue"
-          plates={{
-            secondary: {
-              label: 'Sign In',
-              href: signInUrl(here),
-            },
-            primary: { label: 'Create Account', href: signupHref },
-          }}
-        >
-          <p className="shared-replay__join-body">
-            Cash Games, Tournaments And Spins With Your Friends.
-          </p>
-        </SpadeConsole>
-      )}
-      <footer className="shared-replay__footer">
-        {hero ? `Shared From ${hero.name}'s Hand History · ` : ''}Smarter Poker
-      </footer>
+    <div className="arena-workspace shared-replay-workspace">
+      <div className="shared-replay-shell">
+        <ArenaWorkspaceHeader
+          area="handreview"
+          title="Hand Replay"
+          summary="Watch A Shared Poker Hand Replay From Smarter Poker."
+        />
+        <div className="arena-case arena-ops-case shared-replay">
+          <HandReplay source={source} />
+        </div>
+        {showJoin && (
+          <section className="arena-case arena-ops-case shared-replay__join">
+            <p className="arena-ops-eyebrow">Smarter.Poker</p>
+            <div className="shared-replay__join-head">
+              <div className="shared-replay__join-titles">
+                <h2 className="arena-section-title shared-replay__join-title">Play This Game</h2>
+                <p className="arena-ops-copy shared-replay__join-sub">
+                  {hero ? `${hero.name} Invited You` : 'Private Poker Clubs'}
+                </p>
+              </div>
+              <span className="shared-replay__join-pill">Join</span>
+            </div>
+            <p className="shared-replay__join-body">
+              Cash Games, Tournaments And Spins With Your Friends.
+            </p>
+            <div className="arena-switch arena-ops-keys club-page-keys">
+              <a href={signInUrl(here)}>Sign In</a>
+              <a href={signupHref} className="club-page-key--primary">
+                Create Account
+              </a>
+            </div>
+          </section>
+        )}
+        <footer className="shared-replay__footer">
+          {hero ? `Shared From ${hero.name}'s Hand History · ` : ''}Smarter Poker
+        </footer>
+      </div>
     </div>
   );
 }

@@ -3,7 +3,9 @@ import { Link, useParams } from 'react-router-dom';
 import { DiamondReplayService, type BonusReplay } from '../../services/DiamondReplayService';
 import { reportError } from '../../utils/errorReporter';
 import BonusReplayPlayer from '../../components/games/BonusReplayPlayer';
-import styles from '../../components/games/BonusReplay.module.css';
+import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
+import '../../components/ops/ArenaOps.css';
+import './SharedBonusReplayPage.css';
 
 export default function SharedBonusReplayPage() {
   const { shareId } = useParams<{ shareId: string }>();
@@ -27,27 +29,42 @@ export default function SharedBonusReplayPage() {
     };
   }, [shareId, attempt]);
   return (
-    <main className={styles.page}>
-      <div>
-        <Link to="/" className={styles.action}>
-          Smarter.Poker Club Arena
-        </Link>
-        {replay ? (
-          <BonusReplayPlayer key={shareId} replay={replay} />
-        ) : error ? (
-          <p role="alert">
-            {error}
-            <button
-              className={styles.action}
-              type="button"
-              onClick={() => setAttempt((n) => n + 1)}
-            >
-              Try Again
-            </button>
-          </p>
-        ) : (
-          <p role="status">Loading Bonus Replay</p>
-        )}
+    <main className="arena-workspace bonus-replay-workspace">
+      <div className="bonus-replay-shell">
+        <div className="arena-switch arena-ops-keys bonus-replay-nav">
+          <Link to="/" className="bonus-replay-back">
+            Smarter.Poker Club Arena
+          </Link>
+        </div>
+        <ArenaWorkspaceHeader
+          area="handreview"
+          title="Bonus Replay"
+          summary="Watch A Recorded Diamond Bonus Replay From Smarter Poker."
+        />
+        <section className="arena-case arena-ops-case bonus-replay-case">
+          {replay ? (
+            <BonusReplayPlayer key={shareId} replay={replay} />
+          ) : error ? (
+            <div className="bonus-replay-state">
+              <p role="alert" className="bonus-replay-error">
+                {error}
+              </p>
+              <div className="arena-switch arena-ops-keys arena-ops-primary bonus-replay-actions">
+                <button
+                  className="bonus-replay-retry"
+                  type="button"
+                  onClick={() => setAttempt((n) => n + 1)}
+                >
+                  Try Again
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p role="status" className="bonus-replay-status">
+              Loading Bonus Replay
+            </p>
+          )}
+        </section>
       </div>
     </main>
   );

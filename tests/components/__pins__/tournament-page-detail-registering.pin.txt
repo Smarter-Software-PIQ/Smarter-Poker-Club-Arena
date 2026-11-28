@@ -1,0 +1,53 @@
+{
+  "money": {
+    "figures": [
+      "2",
+      "110 (100 + 10)",
+      "12",
+      "1,200",
+      "110 (100 + 10)",
+      "27",
+      "26,000",
+      "110 (100 + 10)",
+      "10,000",
+      "12",
+      "1,200",
+      "25",
+      "1",
+      "25",
+      "50",
+      "5",
+      "12",
+      "2",
+      "50",
+      "100",
+      "10",
+      "12",
+      "1st",
+      "60",
+      "720",
+      "2nd",
+      "40",
+      "480"
+    ],
+    "hooks": [
+      "data-testid=club-tournaments-invite-btn"
+    ]
+  },
+  "text": "Tournaments | 2 | NLH | Kings Nightly MTT | Open Registration | Buy-In | 110 (100 + 10) | Entries | 12 | Prize Pool | 1,200 | NLH | Mystery Bounty Live | Late Reg Open | Buy-In | 110 (100 + 10) | Entries | 27 | Prize Pool | 26,000 | NLH | Kings Nightly MTT | Open Registration | Buy-In | 110 (100 + 10) | Starting Stack | 10,000 | Entries | 12 | Prize Pool | 1,200 | Bounty | 25 | Chips | Blind Structure | Level | 1 | 25 | / | 50 | 5 | / | 12 | Min | Level | 2 | 50 | / | 100 | 10 | / | 12 | Min | Payouts | 1st | 60 | % | 720 | 2nd | 40 | % | 480",
+  "regions": [
+    "nav||Stake Filters",
+    "button||Back To The Tournament List"
+  ],
+  "controls": [
+    "button|button|All Stakes|aria-pressed=true",
+    "button|button|Back To The Tournament List|",
+    "button|button|Create Tournament|",
+    "button|button|Entry Unavailable|disabled",
+    "button|button|Freerolls|aria-pressed=false",
+    "button|button|High Roller|aria-pressed=false",
+    "button|button|Invite To Game|",
+    "button|button|Micro|aria-pressed=false",
+    "button|button|Start Tournament|"
+  ]
+}

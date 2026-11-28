@@ -1,0 +1,16 @@
+{
+  "money": {
+    "figures": [],
+    "hooks": [
+      "data-discover=true"
+    ]
+  },
+  "text": "Replay Could Not Be Loaded",
+  "regions": [
+    "p|alert|"
+  ],
+  "controls": [
+    "a||Smarter.Poker Club Arena|",
+    "button|button|Try Again|"
+  ]
+}

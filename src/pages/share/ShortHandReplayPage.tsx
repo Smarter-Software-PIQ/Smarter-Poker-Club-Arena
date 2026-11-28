@@ -9,6 +9,8 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import SharedHandReplayPage from './SharedHandReplayPage';
+import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
+import '../../components/ops/ArenaOps.css';
 import { openSharedHand, type OpenedSharedHand } from '../../services/SharedHandLinkService';
 import './SharedHandReplayPage.css';
 
@@ -48,8 +50,20 @@ export default function ShortHandReplayPage() {
 
   if (!opened) {
     return (
-      <div className="shared-replay shared-replay--empty" aria-busy="true">
-        <p className="shared-replay__body">Loading The Hand</p>
+      <div className="arena-workspace shared-replay-workspace">
+        <div className="shared-replay-shell">
+          <ArenaWorkspaceHeader
+            area="handreview"
+            title="Hand Replay"
+            summary="Watch A Shared Poker Hand Replay From Smarter Poker."
+          />
+          <section
+            className="arena-case arena-ops-case shared-replay shared-replay--empty"
+            aria-busy="true"
+          >
+            <p className="shared-replay__body">Loading The Hand</p>
+          </section>
+        </div>
       </div>
     );
   }
@@ -58,12 +72,23 @@ export default function ShortHandReplayPage() {
   }
   const m = MESSAGES[opened.status];
   return (
-    <div className="shared-replay shared-replay--empty">
-      <h1 className="shared-replay__title">{m.title}</h1>
-      <p className="shared-replay__body">{m.body}</p>
-      <Link className="shared-replay__link" to="/">
-        Go To The Lobby
-      </Link>
+    <div className="arena-workspace shared-replay-workspace">
+      <div className="shared-replay-shell">
+        <ArenaWorkspaceHeader
+          area="handreview"
+          title="Hand Replay"
+          summary="Watch A Shared Poker Hand Replay From Smarter Poker."
+        />
+        <section className="arena-case arena-ops-case shared-replay shared-replay--empty">
+          <h2 className="arena-section-title shared-replay__title">{m.title}</h2>
+          <p className="shared-replay__body">{m.body}</p>
+          <div className="arena-switch arena-ops-keys arena-ops-primary shared-replay__actions">
+            <Link className="shared-replay__link" to="/">
+              Go To The Lobby
+            </Link>
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

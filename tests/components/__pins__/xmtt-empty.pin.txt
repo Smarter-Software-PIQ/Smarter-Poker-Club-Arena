@@ -1,0 +1,29 @@
+{
+  "money": {
+    "figures": [
+      "0",
+      "(0)",
+      "(0)",
+      "(0)"
+    ],
+    "hooks": [
+      "data-xmtt-total=0",
+      "data-discover=true",
+      "data-discover=true",
+      "data-discover=true"
+    ]
+  },
+  "text": "XMTT Lobby | 0 | No Tournaments | No MTT Tournaments Found For This Filter.",
+  "regions": [
+    "nav||Tournament Filters"
+  ],
+  "controls": [
+    "a||All Tournaments|",
+    "a||Go To Lobby|",
+    "a||Lobby|",
+    "button|button|All|aria-pressed=true",
+    "button|button|Completed (0)|aria-pressed=false",
+    "button|button|Registering (0)|aria-pressed=false",
+    "button|button|Running (0)|aria-pressed=false"
+  ]
+}

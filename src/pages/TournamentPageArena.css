@@ -1,0 +1,220 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   CLUB TOURNAMENTS — #SmarterDesign Arena Workspace (Batch T2, 2026-11-28)
+
+   Every selector is scoped under `.arena-workspace.tournament-page`. The
+   shared CreateTournamentModal chassis in TournamentPage.css is untouched.
+   No gradients, radii, shadows, or :hover rules here.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.arena-workspace.tournament-page {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 100%;
+  padding-bottom: max(var(--bottom-nav-clearance, 74px), env(safe-area-inset-bottom));
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+.arena-workspace.tournament-page .tournament-console {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.arena-workspace.tournament-page .tournament-card.selected {
+  filter: brightness(1.08);
+}
+
+.arena-workspace.tournament-page .tourn-filters {
+  margin: 0;
+  padding: 0;
+}
+
+.arena-workspace.tournament-page .tourn-filter {
+  text-transform: none;
+  letter-spacing: normal;
+  cursor: pointer;
+}
+
+.arena-workspace.tournament-page .tourn-filter.is-active {
+  text-shadow: none;
+}
+
+.arena-workspace.tournament-page .tourn-words {
+  margin: 4px 0 0;
+  padding: 0;
+  border-top: 0;
+  box-shadow: none;
+}
+
+.arena-workspace.tournament-page .tourn-word {
+  text-transform: none;
+  letter-spacing: normal;
+  cursor: pointer;
+}
+
+.arena-workspace.tournament-page .tourn-word--gold {
+  color: #ffd700;
+}
+
+.arena-workspace.tournament-page .tourn-word--green {
+  color: #c8ffd2;
+}
+
+.arena-workspace.tournament-page .tourn-word--danger {
+  color: #ff5b6e;
+}
+
+.arena-workspace.tournament-page .tourn-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.arena-workspace.tournament-page .tourn-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 10px;
+  box-shadow: none;
+}
+
+.arena-workspace.tournament-page .tourn-row--triple {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.arena-workspace.tournament-page .sc-label {
+  color: #9fbacc;
+  font:
+    700 12px/1.25 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  text-shadow: none;
+}
+
+.arena-workspace.tournament-page .tourn-value {
+  justify-self: end;
+  min-width: 0;
+  color: #f1f5fc;
+  font:
+    800 14px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arena-workspace.tournament-page .tourn-value--gold {
+  color: #ffd700;
+}
+
+.arena-workspace.tournament-page .tourn-value--live {
+  color: #74dfff;
+}
+
+.arena-workspace.tournament-page .tourn-value--muted {
+  color: #9fbacc;
+}
+
+.arena-workspace.tournament-page .tourn-value--danger {
+  color: #ff5b6e;
+}
+
+.arena-workspace.tournament-page .tourn-table-name {
+  min-width: 0;
+  color: #f1f5fc;
+  font:
+    700 13px/1.25 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arena-workspace.tournament-page .tourn-heading {
+  margin: 10px 0 4px;
+  padding: 0 3px 5px;
+  border-bottom: 1px solid #253e57;
+  color: #f1f5fc;
+  font:
+    800 16px/1.1 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
+  text-transform: none;
+}
+
+.arena-workspace.tournament-page .tourn-copy {
+  margin: 0;
+  padding: 8px 4px;
+  color: #9fbacc;
+  font:
+    13px/1.45 Arial,
+    sans-serif;
+  text-align: center;
+}
+
+.arena-workspace.tournament-page .tourn-invite-bar {
+  margin: 6px 0 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.arena-workspace.tournament-page .tourn-invite-switch {
+  margin: 0;
+}
+
+.arena-workspace.tournament-page .tourn-invite-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 14px;
+  border: 0;
+  color: #74dfff;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.arena-workspace.tournament-page .tourney-live-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 6px;
+}
+
+.arena-workspace.tournament-page .tourney-live-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.arena-workspace.tournament-page .tourney-live-empty {
+  padding: 8px 4px;
+}
+
+.arena-workspace.tournament-page .tourn-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 4px;
+}
+
+.arena-workspace.tournament-page .skel-line {
+  height: 12px;
+}

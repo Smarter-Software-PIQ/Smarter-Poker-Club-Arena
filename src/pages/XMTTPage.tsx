@@ -51,12 +51,10 @@ import {
   readXmttWaitlistPositions,
   type XmttTournament as Tournament,
 } from '../services/xmttLobbyReads';
-import {
-  SpadeConsole,
-  type ConsoleInk,
-  type PlateButtonProps,
-} from '../components/console/SpadeConsole';
-import PageBar from '../components/help/PageBar';
+import { type ConsoleInk, type PlateButtonProps } from '../components/console/SpadeConsole';
+import { ClubPageSection } from '../components/club/ClubPageSection';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import '../components/ops/ArenaOps.css';
 
 const formatDate = (ts: string | null) => {
   if (!ts) return '';
@@ -449,13 +447,10 @@ export default function XMTTPage() {
   };
 
   return (
-    <div className={styles.page} data-xmtt-total={lobby.total ?? undefined}>
-      {/* Dan, 2026-10-17: "PAGES DON'T NEED TITLES LIKE THIS". The eyebrow and
-          the descriptive subtitle moved behind the painted "?"; the head keeps
-          its title and its live pill. */}
-      <PageBar
+    <div className={`${styles.page} arena-workspace`} data-xmtt-total={lobby.total ?? undefined}>
+      <ArenaWorkspaceHeader
+        area="dashboard"
         title="XMTT Lobby"
-        titleAs={false}
         summary="Cross Club Multi-Table Tournaments. Filter By Status, Then Tap A Tournament To See Its Details And Register."
         steps={[
           {
@@ -466,15 +461,18 @@ export default function XMTTPage() {
         ]}
       />
       {/* ── The lobby head: title, filters, and the two ways out ─────────── */}
-      <SpadeConsole
+      <ClubPageSection
         as="section"
+        arena
         className={styles.head}
         title="XMTT Lobby"
         pill={lobby.total === null ? 'Unknown' : lobby.total.toLocaleString()}
         pillInk="blue"
-        foot="foot"
       >
-        <nav className={styles.filters} aria-label="Tournament Filters">
+        <nav
+          className={`arena-switch arena-ops-keys ${styles.filters}`}
+          aria-label="Tournament Filters"
+        >
           {(['all', 'registering', 'running', 'completed'] as const).map((f) => (
             <button
               key={f}
@@ -489,29 +487,29 @@ export default function XMTTPage() {
           ))}
         </nav>
 
-        <p className={styles.links}>
-          <Link to="/tournaments" className={`${styles.link} sc-ink--blue`}>
+        <div className={`arena-switch arena-ops-keys ${styles.links}`}>
+          <Link to="/tournaments" className={styles.link}>
             All Tournaments
           </Link>
-          <Link to="/" className={`${styles.link} sc-ink--blue`}>
+          <Link to="/" className={styles.link}>
             Lobby
           </Link>
-        </p>
+        </div>
 
         {lobby.error && (
-          <p role="alert" className="sc-copy">
-            {lobby.error}{' '}
-            <button type="button" className={styles.link} onClick={lobby.refresh}>
+          <p role="alert" className={`arena-ledger-row ${styles.notice}`}>
+            <span className={styles.actionError}>{lobby.error}</span>{' '}
+            <button type="button" className={styles.inlineAction} onClick={lobby.refresh}>
               Try Again
             </button>
           </p>
         )}
         {waitlistState?.scope === viewScope && waitlistState.error && (
-          <p role="status" className="sc-copy">
-            Waitlist Status Unavailable.{' '}
+          <p role="status" className={`arena-ledger-row ${styles.notice}`}>
+            <span className={styles.copy}>Waitlist Status Unavailable.</span>{' '}
             <button
               type="button"
-              className={styles.link}
+              className={styles.inlineAction}
               onClick={() => setWaitlistRetry((value) => value + 1)}
             >
               Try Again
@@ -519,47 +517,48 @@ export default function XMTTPage() {
           </p>
         )}
         {actionError && (
-          <div className={styles.error} role="alert">
+          <div className={`arena-ledger-row ${styles.error}`} role="alert">
             <span className={styles.actionError}>{actionError}</span>
             <button
               type="button"
               onClick={() => setActionError(null)}
-              className={`${styles.link} sc-ink--muted`}
+              className={styles.inlineAction}
             >
               Dismiss
             </button>
           </div>
         )}
-      </SpadeConsole>
+      </ClubPageSection>
 
       {/* ── The tournaments ──────────────────────────────────────────────── */}
       {filtered.length === 0 ? (
-        <SpadeConsole
+        <ClubPageSection
           as="div"
+          arena
           className={styles.card}
           title={lobby.error ? 'Tournaments Unavailable' : 'No Tournaments'}
-          foot="foot"
         >
-          <p className="sc-copy sc-copy--center">
+          <p className={styles.copy}>
             {lobby.error
               ? 'Tournament List Unavailable.'
               : 'No MTT Tournaments Found For This Filter.'}
           </p>
-          <p className={styles.links}>
-            <Link to="/" className={`${styles.link} sc-ink--blue`}>
+          <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.links}`}>
+            <Link to="/" className={styles.link}>
               Go To Lobby
             </Link>
-          </p>
-        </SpadeConsole>
+          </div>
+        </ClubPageSection>
       ) : (
         filtered.map((t) => {
           const s = statusInk(t.status);
           const inLine = waitlistPositions[t.id];
           return (
-            <SpadeConsole
+            <ClubPageSection
               key={t.id}
               data-tournament-id={t.id}
               as="div"
+              arena
               className={`${styles.card} ${selectedTournament === t.id ? styles.cardSelected : ''}`}
               eyebrow="Tournament"
               title={t.name || 'Tournament'}
@@ -573,86 +572,86 @@ export default function XMTTPage() {
               plates={platesFor(t)}
             >
               <div className={styles.rows}>
-                <div className={styles.row}>
-                  <span className="sc-label sc-ink--blue">Buy-In</span>
+                <div className={`arena-ledger-row ${styles.row}`}>
+                  <span className={styles.label}>Buy-In</span>
                   {/* The advertised buy-in is the TOTAL (prize + fee), as whole
                       chips, and EXACT: it is what the server charges.
                       buy_in_amount alone understated it by the fee and could
                       print a decimal on legacy rows. */}
-                  <span className={`${styles.value} sc-ink--silver`}>
-                    {money(totalBuyIn(t.buy_in, t.buy_in_fee))}
-                  </span>
+                  <span className={styles.value}>{money(totalBuyIn(t.buy_in, t.buy_in_fee))}</span>
                 </div>
-                <div className={styles.row}>
-                  <span className="sc-label sc-ink--blue">Entries</span>
-                  <span className={`${styles.value} sc-ink--silver`}>
+                <div className={`arena-ledger-row ${styles.row}`}>
+                  <span className={styles.label}>Entries</span>
+                  <span className={styles.value}>
                     {(t.registered_count || 0).toLocaleString()}
                     {t.max_players ? ` / ${t.max_players.toLocaleString()}` : ' / Open'}
                   </span>
                 </div>
-                <div className={styles.row}>
-                  <span className="sc-label sc-ink--blue">Starts</span>
-                  <span className={`${styles.value} sc-ink--silver`}>
+                <div className={`arena-ledger-row ${styles.row}`}>
+                  <span className={styles.label}>Starts</span>
+                  <span className={styles.value}>
                     {tournamentStartsWhenFull(t)
                       ? 'When Full'
                       : formatDate(t.start_time || t.created_at)}
                   </span>
                 </div>
                 {inLine ? (
-                  <div className={styles.row}>
-                    <span className="sc-label sc-ink--blue">Waitlist</span>
-                    <span className={`${styles.value} sc-ink--gold`}>Position #{inLine}</span>
+                  <div className={`arena-ledger-row ${styles.row}`}>
+                    <span className={styles.label}>Waitlist</span>
+                    <span className={`${styles.value} ${styles.valueGold}`}>
+                      Position #{inLine}
+                    </span>
                   </div>
                 ) : null}
               </div>
-            </SpadeConsole>
+            </ClubPageSection>
           );
         })
       )}
 
       {lobby.hasMore && (
-        <SpadeConsole as="section" className={styles.card} title="More Events" foot="foot">
-          <p className="sc-copy sc-copy--center" role="status">
+        <ClubPageSection as="section" arena className={styles.card} title="More Events">
+          <p className={styles.copy} role="status">
             Showing {tournaments.length.toLocaleString()} Of {lobby.total?.toLocaleString()}
           </p>
-          <p className={styles.links}>
+          <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.links}`}>
             <button
               type="button"
-              className={`${styles.link} sc-ink--blue`}
+              className={styles.link}
               disabled={lobby.pending}
               onClick={lobby.loadMore}
             >
               {lobby.pending ? 'Loading...' : 'Load More'}
             </button>
-          </p>
-        </SpadeConsole>
+          </div>
+        </ClubPageSection>
       )}
 
       {/* ── The detail pane ──────────────────────────────────────────────── */}
       {selectedTournament && (
-        <SpadeConsole
+        <ClubPageSection
           as="div"
+          arena
           className={styles.card}
           eyebrow="Tournament"
           title={detail?.tournament?.name || 'Tournament Details'}
           pill={detail ? statusInk(detail.tournament?.status).label : undefined}
           pillInk={detail ? statusInk(detail.tournament?.status).ink : 'muted'}
-          foot="foot"
         >
           {detailLoading ? (
-            <p className="sc-copy sc-copy--center">Loading Details...</p>
+            <p className={styles.copy}>Loading Details...</p>
           ) : detail ? (
             <>
               <div className={styles.rows}>
-                <div className={styles.row}>
-                  <span className="sc-label sc-ink--blue">Buy-In</span>
-                  <span className={`${styles.value} sc-ink--silver`}>
+                <div className={`arena-ledger-row ${styles.row}`}>
+                  <span className={styles.label}>Buy-In</span>
+                  <span className={styles.value}>
                     {formatBuyIn(detail.tournament?.buy_in ?? 0, detail.tournament?.buy_in_fee)}
                   </span>
                 </div>
-                <div className={styles.row}>
-                  <span className="sc-label sc-ink--blue">Prize Pool</span>
-                  <span className={`${styles.value} sc-ink--gold`}>
+                <div className={`arena-ledger-row ${styles.row}`}>
+                  <span className={styles.label}>Prize Pool</span>
+                  <span className={`${styles.value} ${styles.valueGold}`}>
                     {compactChips(
                       displayTotalPool(
                         detail.tournament?.prize_pool,
@@ -664,25 +663,25 @@ export default function XMTTPage() {
                     )}
                   </span>
                 </div>
-                <div className={styles.row}>
-                  <span className="sc-label sc-ink--blue">Registered</span>
-                  <span className={`${styles.value} sc-ink--silver`}>
+                <div className={`arena-ledger-row ${styles.row}`}>
+                  <span className={styles.label}>Registered</span>
+                  <span className={styles.value}>
                     {(detail.registrations?.length || 0).toLocaleString()}
                   </span>
                 </div>
               </div>
 
-              <h4 className={`${styles.sectionTitle} sc-ink--silver`}>Registered Players</h4>
+              <h4 className={styles.sectionTitle}>Registered Players</h4>
               <div className={styles.rows}>
                 {(detail.registrations || []).length === 0 ? (
-                  <p className="sc-copy sc-copy--center">No Registrations Yet</p>
+                  <p className={styles.copy}>No Registrations Yet</p>
                 ) : (
                   (detail.registrations || []).map((r, i) => (
-                    <div key={r.user_id || i} className={styles.row}>
-                      <span className={`${styles.player} sc-ink--silver`}>
+                    <div key={r.user_id || i} className={`arena-ledger-row ${styles.row}`}>
+                      <span className={styles.player}>
                         {r.display_name || r.username || 'Player'}
                       </span>
-                      <span className={`${styles.value} sc-ink--blue`}>
+                      <span className={`${styles.value} ${styles.valueLive}`}>
                         {fmtChips(r.chips ?? 0)}
                       </span>
                     </div>
@@ -691,9 +690,9 @@ export default function XMTTPage() {
               </div>
             </>
           ) : (
-            <p className="sc-copy sc-copy--center">Select A Tournament</p>
+            <p className={styles.copy}>Select A Tournament</p>
           )}
-        </SpadeConsole>
+        </ClubPageSection>
       )}
     </div>
   );

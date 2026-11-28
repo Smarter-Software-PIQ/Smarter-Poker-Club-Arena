@@ -1,0 +1,15 @@
+{
+  "money": {
+    "figures": [],
+    "hooks": [
+      "data-discover=true"
+    ]
+  },
+  "text": "Loading Bonus Replay",
+  "regions": [
+    "p|status|"
+  ],
+  "controls": [
+    "a||Smarter.Poker Club Arena|"
+  ]
+}
