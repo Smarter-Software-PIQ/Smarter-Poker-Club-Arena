@@ -212,42 +212,43 @@ REVOKE ALL ON FUNCTION smarter_private.reliability_ingest_alert(bigint, text, te
 REVOKE ALL ON FUNCTION smarter_private.reliability_apply_signal(text, boolean, text, text, text, text, text, text, jsonb, jsonb, text, text, boolean, timestamptz, bigint, text, timestamptz, timestamptz) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.fn_ca_hand_gap_watch(timestamptz) FROM PUBLIC, anon, authenticated;
 
--- Rolled-back behavioral probe: prove nested financial_alerts & engine_alerts
--- releaseSha attribution reaches reliability_incidents on open and recovery.
+-- Rolled-back behavioral probe: prove nested financial_alerts releaseSha
+-- attribution reaches reliability_incidents on open and recovery without
+-- inserting into public.operational_alert_events (whose AFTER INSERT trigger
+-- would double-ingest the same (inbox_event_id, delivery_count, status) key)
+-- or colliding with any live open incident (isolated via context.scope_id).
 DO $probe$
 DECLARE
   v_open_sha constant text := 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
   v_rec_sha  constant text := 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
   v_key      constant text := 'probe-release-sha-' || md5(clock_timestamp()::text);
-  v_id       bigint;
+  v_id       constant bigint := -9223372036854775001;
+  v_now      constant timestamptz := clock_timestamp();
   v_inc_id   uuid;
   v_rel      text;
   v_ev_rel   text;
 BEGIN
   BEGIN
-    INSERT INTO public.operational_alert_events (source, event_key, alertname, status, severity, payload)
-    VALUES (
-      'financial-alerts-backfill',
-      v_key,
-      'fn_ca_hand_gap_watch',
-      'firing',
-      'critical',
+    v_inc_id := smarter_private.reliability_ingest_alert(
+      v_id, 'financial-alerts-backfill', v_key, 'fn_ca_hand_gap_watch', 'firing', 'critical',
       jsonb_build_object(
         'target_task_id', '01a09b86-5ba8-7290-8657-1041f13dd3ca',
         'original_event', jsonb_build_object(
           'id', v_key,
           'source', 'fn_ca_hand_gap_watch',
-          'context', jsonb_build_object('kind', 'tournament', 'shape', 'probe_shape', 'releaseSha', v_open_sha)
+          'context', jsonb_build_object(
+            'scope_id', v_key,
+            'kind', 'tournament',
+            'shape', 'probe_shape',
+            'releaseSha', v_open_sha
+          )
         )
-      )
-    )
-    RETURNING id INTO v_id;
-
-    v_inc_id := smarter_private.reliability_ingest_alert(
-      v_id, 'financial-alerts-backfill', v_key, 'fn_ca_hand_gap_watch', 'firing', 'critical',
-      (SELECT payload FROM public.operational_alert_events WHERE id = v_id),
-      clock_timestamp(), clock_timestamp(), 1, 'new', 'INSERT'
+      ),
+      v_now, v_now, 1, 'new', 'INSERT'
     );
+    IF v_inc_id IS NULL THEN
+      RAISE EXCEPTION 'probe failed: open reliability_ingest_alert returned NULL';
+    END IF;
     SELECT engine_release INTO v_rel FROM smarter_private.reliability_incidents WHERE id = v_inc_id;
     IF v_rel IS DISTINCT FROM v_open_sha THEN
       RAISE EXCEPTION 'probe failed: expected open engine_release %, got %', v_open_sha, v_rel;
@@ -261,11 +262,19 @@ BEGIN
           'id', v_key,
           'source', 'fn_ca_hand_gap_watch',
           'resolved', true,
-          'context', jsonb_build_object('kind', 'tournament', 'shape', 'probe_shape', 'releaseSha', v_rec_sha)
+          'context', jsonb_build_object(
+            'scope_id', v_key,
+            'kind', 'tournament',
+            'shape', 'probe_shape',
+            'releaseSha', v_rec_sha
+          )
         )
       ),
-      clock_timestamp(), clock_timestamp() + interval '1 second', 1, 'new', 'STATUS_CHANGE'
+      v_now, v_now + interval '1 second', 1, 'new', 'STATUS_CHANGE'
     );
+    IF v_inc_id IS NULL THEN
+      RAISE EXCEPTION 'probe failed: recovery reliability_ingest_alert returned NULL';
+    END IF;
     SELECT engine_release INTO v_rel FROM smarter_private.reliability_incidents WHERE id = v_inc_id;
     IF v_rel IS DISTINCT FROM v_rec_sha THEN
       RAISE EXCEPTION 'probe failed: expected recovery engine_release %, got %', v_rec_sha, v_rel;
@@ -273,7 +282,7 @@ BEGIN
 
     SELECT e.detail->>'engine_release' INTO v_ev_rel
       FROM smarter_private.reliability_incident_events e
-     WHERE e.incident_id = v_inc_id AND e.detail->>'kind' = 'resolved_signal'
+     WHERE e.incident_id = v_inc_id AND e.kind = 'resolved_signal'
      ORDER BY e.id DESC LIMIT 1;
     IF v_ev_rel IS DISTINCT FROM v_rec_sha THEN
       RAISE EXCEPTION 'probe failed: expected resolved_signal engine_release %, got %', v_rec_sha, v_ev_rel;
