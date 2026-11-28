@@ -23,9 +23,24 @@ name: Migration merge window
 # best-effort backstops. A keeper reads 25 s before each minute and writes on
 # the minute, ready and recently updated pull requests first, each verdict at
 # its own write time (scripts/ci/migration-merge-window.mjs, 2026-11-27).
+#
+# A ONE-SHOT SWEEP NEVER OPENS A WINDOW (2026-11-27): every mode goes through
+# the keeper, so a run that writes "window open" also closes it, including one
+# started in a window's last minute and a hand dispatch of mode=sweep. A draft
+# is never opened (GitHub will not merge it); marking it ready is an event here.
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
+    types:
+      [
+        opened,
+        synchronize,
+        reopened,
+        labeled,
+        unlabeled,
+        edited,
+        ready_for_review,
+        converted_to_draft,
+      ]
     branches: [main]
   push:
     branches: [main]
@@ -35,7 +50,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'sweep (every open pull request, once) or keep (hold the next window)'
+        description: 'sweep or keep: both hold a window that is open or opens within 25 minutes, and are one sweep otherwise'
         required: true
         default: sweep
         type: choice

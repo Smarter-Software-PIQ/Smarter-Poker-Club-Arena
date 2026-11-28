@@ -97,8 +97,12 @@ import {
   varietyOwedGamesThisCycle,
   drainShortfall,
   publishVarietyDrain,
-  varietyDrainTables,
-  VARIETY_DRAIN_NEW_TABLE_MS,
+  varietyDrainDecision,
+  drainCycleOutcome,
+  drainWhyForBeat,
+  mayAddDrainTable,
+  type VarietyDrainBeatWhy,
+  type VarietyDrainWhy,
   VarietyStartMemory,
 } from './HorseVarietyFirst.js';
 import {
@@ -326,6 +330,12 @@ interface CycleBeat {
    *  read): the live check judges the cap at every beat, not only at the moment
    *  it runs (detail.cash_room, 2026-11-26). */
   cashRoom: { cap: number; counted: number } | null;
+  /** Why the drain released what it did this cycle (2026-11-27, detail.
+   *  variety_drain_why): the decision's own reason, 'undecided' when an owed
+   *  cycle could not read what the decision needs, 'room_unknown' when the cap or
+   *  census read failed, 'withheld' when seating was
+   *  withheld, null before the drain runs. */
+  varietyDrainWhy: VarietyDrainBeatWhy | null;
   /** Horses holding a seat on the open CASH floor this cycle. `horsesSeated`
    *  counts every open seat on the platform, tournament chairs included, so
    *  on a day the tournaments are stuck it reads 654 while the cash floor
@@ -1496,6 +1506,7 @@ export class HorseFleetManager {
       varietyDrainTable: null,
       varietyDrainTables: [],
       cashRoom: null,
+      varietyDrainWhy: null,
       horsesSeatedCash: null,
       gates: null,
       rows: [],
@@ -3185,6 +3196,9 @@ export class HorseFleetManager {
          A failed read of the cap, the census or the Lightning games releases
          nothing. */
       let varietyDrain: string[] = [];
+      let varietyWhy: VarietyDrainWhy | null = null;
+      let drainRoom: { cap: number; counted: number } | null = null;
+      let owedStartAdmitted = false;
       // A table is released only on a fully read waiting list: an unread list
       // must never be taken for "no person waiting" (fail closed).
       if (
@@ -3195,6 +3209,10 @@ export class HorseFleetManager {
         const room = await readHourlyCashRoom();
         if (!readIsCurrent()) return;
         beat.cashRoom = room;
+        drainRoom = room;
+        owedStartAdmitted = [...variety.owedStarts.keys()].some((tableId) =>
+          hourlyAdmissions.has(tableId)
+        );
         const personWaitingGames = new Set<string>();
         for (const t of tables) {
           if (t.cluster_id && (humansWaitingByTable.get(t.id) ?? 0) > 0)
@@ -3211,11 +3229,9 @@ export class HorseFleetManager {
               (seatsByTable.get(t.id) ?? []).length === 0
           ).length,
           owedStarts: beat.varietyOwedGames.length,
-          anOwedStartAdmitted: [...variety.owedStarts.keys()].some((tableId) =>
-            hourlyAdmissions.has(tableId)
-          ),
+          anOwedStartAdmitted: owedStartAdmitted,
         });
-        const mayAddNew = Date.now() - this.varietyDrainNewAtMs >= VARIETY_DRAIN_NEW_TABLE_MS;
+        const mayAddNew = mayAddDrainTable(Date.now(), this.varietyDrainNewAtMs);
         /* A TABLE THAT EMPTIES IN ONE SWEEP GOES FIRST (2026-11-26): only when a
            new table may be added, the hands still owed in profit at the
            Horse-only cluster tables are read once; a failed read is no
@@ -3235,7 +3251,7 @@ export class HorseFleetManager {
               )
             : null;
         if (!readIsCurrent()) return;
-        varietyDrain = varietyDrainTables({
+        const decision = varietyDrainDecision({
           tables,
           seatedAt: (tableId) => (seatsByTable.get(tableId) ?? []).length,
           personSeatedAt: (tableId) =>
@@ -3248,37 +3264,50 @@ export class HorseFleetManager {
           mayAddNew,
           owingAt: owing ? (tableId) => owing.get(tableId) ?? 0 : undefined,
         });
+        varietyDrain = decision.tables;
+        /* The beat's reason is drainWhyForBeat below: an unread room is "fits"
+           to the decision (nothing drains) and is reported as unknown, never
+           as a free slot. */
+        varietyWhy = decision.why;
         if (varietyDrain.some((id) => !this.varietyDrainTableIds.includes(id)))
           this.varietyDrainNewAtMs = Date.now();
       }
-      const drainDecided = !!(cashPlanLightningGames && this.humansWaitingReadComplete);
-      /* AN UNDECIDED CYCLE KEEPS THE RELEASED TABLES CLOSED TO SEATING (review
-         2026-11-26). With an unread waiting list (or Lightning set) nothing is
-         stood up, because an unread list is never "no person waiting"; but the
-         tables already being released stay out of the walk and the seat calls,
-         or the walk refills a half-emptied table (the 2026-11-26 churn through
-         another door). A table with a person seated is never held this way. The
-         held tables stay published, so a Horse move onto one still waits and the
-         heartbeat still names them. */
-      const holdOnly =
-        !drainDecided && beat.varietyOwedGames.length > 0
-          ? this.varietyDrainTableIds.filter(
-              (id) => !(seatsByTable.get(id) ?? []).some((x) => !horseIdSet.has(x.user_id))
-            )
-          : [];
+      /* ONE PURE OUTCOME FOR THE CYCLE (review 2026-11-27, HorseVarietyFirst.
+         drainCycleOutcome). A cycle decides only when it is seating and both
+         reads are complete. A cycle that does not decide (an unread waiting
+         list or Lightning set, or SEATING WITHHELD) releases nothing new, but
+         while a start is owed it keeps the tables already being released out
+         of the walk and the seat calls, keeps them published (a Horse move
+         onto one still waits, the rotator keeps walking them, the heartbeat
+         still names them) and forgets none of them. A withheld cycle publishes
+         no owed games, so it is judged on the plan's own owed starts. Before
+         this, a withheld cycle with good reads counted as decided: it cleared
+         the memory and un-published every released table. A table with a
+         person seated is never held this way. */
+      const drainCycle = drainCycleOutcome({
+        withheld: !!cycleWithheld,
+        readsComplete: !!(cashPlanLightningGames && this.humansWaitingReadComplete),
+        owedThisCycle: beat.varietyOwedGames.length,
+        owedInPlan: variety.owedStarts.size,
+        decision: varietyDrain,
+        remembered: this.varietyDrainTableIds,
+        personSeatedAt: (tableId) =>
+          (seatsByTable.get(tableId) ?? []).some((x) => !horseIdSet.has(x.user_id)),
+      });
+      const holdOnly = drainCycle.held;
       for (const tableId of holdOnly) surplusTableIds.add(tableId);
-      const released = drainDecided ? varietyDrain : holdOnly;
-      /* A cycle that could not decide (an unread list, cap or Lightning set)
-         releases nothing but does not forget which table was being released:
-         the next readable cycle keeps that one instead of picking another. */
-      /* A WITHHELD CYCLE FORGETS NOTHING (review 2026-11-26): a withheld cycle
-         publishes no owed games, which is not "nothing is owed". The memory is
-         replaced only by a decided cycle, or cleared when a seating cycle finds
-         nothing owed. */
-      if (drainDecided || (beat.varietyOwedGames.length === 0 && !cycleWithheld))
-        this.varietyDrainTableIds = varietyDrain;
+      const released = drainCycle.released;
+      this.varietyDrainTableIds = drainCycle.memory;
       beat.varietyDrainTable = released[0] ?? null;
       beat.varietyDrainTables = released;
+      beat.varietyDrainWhy = drainWhyForBeat({
+        withheld: !!cycleWithheld,
+        owedThisCycle: beat.varietyOwedGames.length,
+        decided: drainCycle.decided,
+        why: varietyWhy,
+        room: drainRoom,
+        anOwedStartAdmitted: owedStartAdmitted,
+      });
       for (const tableId of varietyDrain) surplusTableIds.add(tableId);
       if (varietyDrain.length > 0) {
         console.log(
@@ -5631,6 +5660,7 @@ export class HorseFleetManager {
             variety_drain_table: beat.varietyDrainTable,
             variety_drain_tables: beat.varietyDrainTables,
             cash_room: beat.cashRoom,
+            variety_drain_why: beat.varietyDrainWhy,
           },
         },
       });

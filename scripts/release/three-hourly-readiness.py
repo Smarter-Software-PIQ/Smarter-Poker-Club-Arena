@@ -64,7 +64,31 @@ INSTALLED_MIGRATIONS_HELPER_PATH = "server/scripts/engine-release-installed-migr
 # The applier prints "[apply] <file>" before an attempt and "[apply] APPLIED" when it committed it
 # (scripts/ci/apply-recorded-migration.mjs); ALREADY-APPLIED, QUEUED and refusals commit nothing.
 APPLY_FILE_LINE_RE = re.compile(r"^\[apply\] (\d{14}_[A-Za-z0-9_.-]+\.sql)\s*$")
+# The applier's own outcome lines (scripts/ci/apply-recorded-migration.mjs). The transaction is
+# durable from "[apply] committed in <n>ms"; "[apply] APPLIED" follows only when the history
+# read-back also answers, so a file is counted from the first of the two. An UNKNOWN outcome
+# before either is an install nobody has read. tests/operations/three-hourly-readiness.test.py
+# reads the applier and the window installer and fails when one of these strings is renamed.
+APPLY_COMMITTED_RE = re.compile(r"^\[apply\] committed in \d+ms$")
 APPLY_COMMITTED_LINE = "[apply] APPLIED"
+APPLY_UNKNOWN_PREFIX = "[apply] UNKNOWN"
+APPLY_REFUSED_PREFIX = "[apply] REFUSED"
+APPLY_DRY_RUN_PREFIX = "[apply] DRY RUN"
+WINDOW_UNKNOWN_PREFIX = "[window] result: UNKNOWN "
+# A Stage run reserves its cycle up to five hours before the cutoff (the reservation bound and
+# LOOKBACK_SECONDS in stage-engine-release.yml) and installs window migrations only after that
+# wait, so the run that installs after a copy can have been created long before the copy.
+STAGE_RESERVATION_LOOKBACK = timedelta(hours=6)
+# A re-run of an Apply run keeps the run's original created_at, so the Apply list reaches two
+# days behind the copy (about 35 runs a day measured 2026-11-27: one page). A run not touched
+# since the copy costs no further read. A re-run of an older run is outside this list.
+APPLY_RERUN_LOOKBACK = timedelta(hours=48)
+RUN_PAGE_SIZE = 100
+RUN_PAGE_LIMIT = 10
+# A run's updated_at is the completion of its last job; one updated this long before the copy
+# was restored can hold no job that completed after it.
+RUN_UNTOUCHED_MARGIN = timedelta(minutes=5)
+JOB_NOT_STARTED_STATUSES = frozenset({"queued", "waiting", "pending", "requested"})
 LOG_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z ?")
 BACKUP_STATUS_CONTEXT = "backup-engine/certified"
 
@@ -717,15 +741,33 @@ def gh_api_get(path, timeout=30):
         raise ReadError(f"gh api GET {path} returned invalid JSON: {exc}") from exc
 
 
-def gh_api_get_text(path, timeout=60):
-    """Read-only GitHub REST GET returning raw text (job logs)."""
+GH_ALLOW_ESCAPES_FLAG = "--allow-escape-sequences"
+ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*\x07?|[@-Z^_])")
+
+
+def _gh_refused_the_flag(proc):
+    """True when this gh is too old to know GH_ALLOW_ESCAPES_FLAG. cobra refuses an
+    unknown flag before any request is made, so asking again without it repeats nothing."""
+    err = proc.stderr or ""
+    return proc.returncode != 0 and "unknown flag" in err and GH_ALLOW_ESCAPES_FLAG in err
+
+
+def gh_api_get_text(path, timeout=60, run=subprocess.run):
+    """Read-only GitHub REST GET returning raw text (job logs).
+
+    A job log carries terminal colour codes. gh from 2.97 refuses to print a
+    non-JSON body that holds them unless told the reader is not a terminal
+    (GH_ALLOW_ESCAPES_FLAG); older gh prints them and does not know the flag.
+    On 2026-11-27 the hosted runner's gh refused both readiness posts of the
+    16:00 cycle (T-90m, T-45m), which therefore said UNKNOWN for a044fa566044,
+    a candidate that was fresh and sealed. The log is parsed here as data and
+    never written to a terminal, so the flag is always asked for, and the one
+    answer "unknown flag" selects the old form."""
+    base = ["gh", "api", "--method", "GET", path]
     try:
-        proc = subprocess.run(
-            ["gh", "api", "--method", "GET", path],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+        proc = run(base + [GH_ALLOW_ESCAPES_FLAG], capture_output=True, text=True, timeout=timeout)
+        if _gh_refused_the_flag(proc):
+            proc = run(base, capture_output=True, text=True, timeout=timeout)
     except (subprocess.SubprocessError, OSError) as exc:
         raise ReadError(f"gh api GET {path} failed: {exc}") from exc
     if proc.returncode != 0:
@@ -1231,17 +1273,29 @@ def _active_run_targets(candidates, active_backup):
 
 
 def committed_files_in_log(text):
-    """Migration files the applier COMMITTED in one job log, in order."""
+    """Migration files the applier COMMITTED in one job log, in order.
+
+    A file line opens an attempt. The attempt is committed at the applier's
+    "[apply] committed in <n>ms" (or "[apply] APPLIED"), is not committed at
+    REFUSED or DRY RUN, and raises ReadError at an UNKNOWN outcome that comes
+    before either: the applier, or the window installer that ran it, could not
+    tell whether the transaction is durable, so neither can this reader."""
     committed = []
     current = None
     for raw in (text or "").splitlines():
-        line = LOG_TIMESTAMP_RE.sub("", raw.strip())
+        line = LOG_TIMESTAMP_RE.sub("", ANSI_ESCAPE_RE.sub("", raw).strip()).strip()
         m = APPLY_FILE_LINE_RE.match(line)
         if m:
             current = m.group(1)
             continue
-        if line == APPLY_COMMITTED_LINE and current:
+        if current is None:
+            continue
+        if APPLY_COMMITTED_RE.match(line) or line == APPLY_COMMITTED_LINE:
             committed.append(current)
+            current = None
+        elif line.startswith(APPLY_UNKNOWN_PREFIX) or line.startswith(WINDOW_UNKNOWN_PREFIX):
+            raise ReadError(f"the applier could not tell whether {current} committed")
+        elif line.startswith(APPLY_REFUSED_PREFIX) or line.startswith(APPLY_DRY_RUN_PREFIX):
             current = None
     return committed
 
@@ -1253,43 +1307,75 @@ def _jobs_of(repo, run_id, gh_get):
     return data["jobs"]
 
 
-def _runs_since(repo, workflow, since_utc, gh_get):
-    since = format_utc(since_utc - timedelta(hours=1))
-    data = gh_get(
-        f"repos/{repo}/actions/workflows/{workflow}/runs?branch=main&per_page=100&created=%3E%3D{since}"
-    )
-    if not isinstance(data, dict) or not isinstance(data.get("workflow_runs"), list):
-        raise ReadError(f"unexpected workflow_runs response for {workflow}")
-    if int(data.get("total_count") or 0) > len(data["workflow_runs"]):
-        raise ReadError(f"more {workflow} runs since {since} than one page holds")
-    return data["workflow_runs"]
+def _runs_since(repo, workflow, since_utc, gh_get, lookback):
+    """Every main run of `workflow` created from `lookback` before since_utc, all pages.
+    ReadError when the list cannot be read whole within RUN_PAGE_LIMIT pages."""
+    since = format_utc(since_utc - lookback)
+    base = f"repos/{repo}/actions/workflows/{workflow}/runs?branch=main&per_page={RUN_PAGE_SIZE}&created=%3E%3D{since}"
+    runs, seen, total = [], set(), None
+    for page in range(1, RUN_PAGE_LIMIT + 1):
+        data = gh_get(base if page == 1 else f"{base}&page={page}")
+        if not isinstance(data, dict) or not isinstance(data.get("workflow_runs"), list):
+            raise ReadError(f"unexpected workflow_runs response for {workflow}")
+        if total is None:
+            total = int(data.get("total_count") or 0)
+        batch = [r for r in data["workflow_runs"] if isinstance(r, dict)]
+        for run in batch:
+            if run.get("id") not in seen:
+                seen.add(run.get("id"))
+                runs.append(run)
+        if len(runs) >= total:
+            return runs
+        if not batch:
+            raise ReadError(f"the list of {workflow} runs since {since} ended before all {total} were read")
+    raise ReadError(f"more {workflow} runs since {since} than {RUN_PAGE_LIMIT} pages hold")
+
+
+def _untouched_since(run, since_utc):
+    """True when the run was last updated before the copy, so no job of it completed after."""
+    updated = run.get("updated_at")
+    return bool(updated) and parse_iso_utc(updated) < since_utc - RUN_UNTOUCHED_MARGIN
 
 
 def production_installs_after(repo, since_utc, gh_get, gh_text):
     """Migration files production COMMITTED after since_utc, read from the applier's own job logs
     (Apply Merged Migration runs and the daily-maintenance window installer). Raises ReadError when
-    any log cannot be read: an unread install is not an absent one (CLAUDE.md 10.86)."""
+    any log cannot be read or an install may still be running: an unread install is not an absent
+    one (CLAUDE.md 10.86)."""
     installed = []
-    for run in _runs_since(repo, APPLY_WORKFLOW, since_utc, gh_get):
+
+    def read(run, job):
+        done = job.get("completed_at")
+        if not done or parse_iso_utc(done) < since_utc:
+            return
+        for f in committed_files_in_log(gh_text(f"repos/{repo}/actions/jobs/{job['id']}/logs")):
+            installed.append({"file": f, "at": done, "runId": run["id"]})
+
+    for run in _runs_since(repo, APPLY_WORKFLOW, since_utc, gh_get, APPLY_RERUN_LOOKBACK):
         if run.get("status") != "completed":
+            raise ReadError(f"Apply Merged Migration run {run.get('id')} has not finished")
+        if _untouched_since(run, since_utc):
             continue
         for job in _jobs_of(repo, run["id"], gh_get):
-            done = job.get("completed_at")
-            if not done or parse_iso_utc(done) < since_utc:
-                continue
-            for f in committed_files_in_log(gh_text(f"repos/{repo}/actions/jobs/{job['id']}/logs")):
-                installed.append({"file": f, "at": done, "runId": run["id"]})
-    for run in _runs_since(repo, STAGE_WORKFLOW, since_utc, gh_get):
-        if run.get("status") != "completed":
+            if job.get("status") not in (None, "completed"):
+                raise ReadError(f"a job of Apply Merged Migration run {run['id']} has not finished")
+            read(run, job)
+    for run in _runs_since(repo, STAGE_WORKFLOW, since_utc, gh_get, STAGE_RESERVATION_LOOKBACK):
+        # The window installer finishes long before its run does (2026-11-27: job done 10:00:30Z,
+        # run open until 10:25:25Z), so the job is judged by its own state, never the run's.
+        if run.get("status") == "completed" and _untouched_since(run, since_utc):
             continue
         for job in _jobs_of(repo, run["id"], gh_get):
-            done = job.get("completed_at")
-            if job.get("name") != WINDOW_INSTALL_JOB or job.get("conclusion") in ("skipped", None):
+            if job.get("name") != WINDOW_INSTALL_JOB:
                 continue
-            if not done or parse_iso_utc(done) < since_utc:
+            status = job.get("status")
+            if status in JOB_NOT_STARTED_STATUSES:
+                continue  # nothing sent yet; a later read sees it
+            if status not in (None, "completed") or job.get("conclusion") is None:
+                raise ReadError(f"the window installer of Stage run {run['id']} has not finished")
+            if job.get("conclusion") == "skipped":
                 continue
-            for f in committed_files_in_log(gh_text(f"repos/{repo}/actions/jobs/{job['id']}/logs")):
-                installed.append({"file": f, "at": done, "runId": run["id"]})
+            read(run, job)
     return installed
 
 
@@ -1305,23 +1391,29 @@ def gh_api_get_bytes(path, timeout=60):
     return proc.stdout
 
 
-def certificate_copy_time(repo, sha, backup_info, gh_get, gh_bytes):
+def certificate_copy_time(repo, sha, backup_info, gh_get, gh_bytes, run_attempts=None):
     """When the certified copy was restored: database.restoredAt in the run's own certificate.
-    A run that reuses a copy certifies data restored earlier than the run itself."""
+    A run that reuses a copy certifies data restored earlier than the run itself. The certificate
+    is the one the selector takes (scripts/ci/select-daily-engine.py): the artifact named for the
+    run's current attempt, exactly one, unexpired. run_attempts ({run id: attempt}) carries the
+    attempts of runs this report already listed; any other run is read."""
     run_id = backup_info.get("runId")
     if not run_id:
         raise ReadError("certificate names no Backup run")
+    attempt = (run_attempts or {}).get(run_id)
+    if attempt is None:
+        run = gh_get(f"repos/{repo}/actions/runs/{run_id}")
+        attempt = run.get("run_attempt") if isinstance(run, dict) else None
+    if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt < 1:
+        raise ReadError(f"Backup run {run_id} names no attempt")
     data = gh_get(f"repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100")
     if not isinstance(data, dict) or not isinstance(data.get("artifacts"), list):
         raise ReadError(f"unexpected artifacts response for run {run_id}")
-    names = [
-        a
-        for a in data["artifacts"]
-        if str(a.get("name", "")).startswith(f"backup-certificate-{sha}-") and not a.get("expired")
-    ]
-    if not names:
-        raise ReadError(f"Backup run {run_id} kept no certificate for {sha[:12]}")
-    archive = gh_bytes(f"repos/{repo}/actions/artifacts/{names[-1]['id']}/zip")
+    name = f"backup-certificate-{sha}-{attempt}"
+    matches = [a for a in data["artifacts"] if a.get("name") == name and not a.get("expired")]
+    if len(matches) != 1:
+        raise ReadError(f"Backup run {run_id} kept {len(matches)} unexpired certificate(s) named {name}")
+    archive = gh_bytes(f"repos/{repo}/actions/artifacts/{matches[0]['id']}/zip")
     try:
         with zipfile.ZipFile(io.BytesIO(archive)) as zf:
             cert = json.loads(zf.read("certificate.json"))
@@ -1330,44 +1422,66 @@ def certificate_copy_time(repo, sha, backup_info, gh_get, gh_bytes):
         raise ReadError(f"certificate of run {run_id} names no copy restore time: {exc}") from exc
 
 
-def load_engine_inert(repo_root):
-    """engine_inert() from the installed-migrations helper (O33), or None when unreadable."""
+def load_inert_helper(repo_root):
+    """The installed-migrations helper the selector judges with (O33), or None when unreadable."""
     path = Path(repo_root) / INSTALLED_MIGRATIONS_HELPER_PATH
     try:
         spec = importlib.util.spec_from_file_location("_ca_installed_migrations", path)
         module = importlib.util.module_from_spec(spec)
         with open(os.devnull, "w") as sink, contextlib.redirect_stdout(sink):
             spec.loader.exec_module(module)
-        return module.engine_inert
+        if not callable(module.inert_versions) or not callable(module.bounded_inert):
+            return None
+        return module
     except Exception:  # noqa: BLE001 - unreadable helper means no carve-out
         return None
 
 
+def inert_carve_out(helper, repo_root, control_sha, target_sha):
+    """The versions the selector leaves out as engine-inert for this exact target, from the
+    helper's own inert_versions(control, target) and bounded_inert: never a version the target
+    ships, and nothing above the helper's limit. Readiness does not read production's set, so the
+    bound counts every inert version of the tree, which is at least what production holds: the
+    carve-out here is never wider than the selector's. No helper or any failure leaves nothing out."""
+    if helper is None:
+        return frozenset()
+    try:
+        inert = frozenset(helper.inert_versions(str(repo_root), control_sha, target_sha))
+        return frozenset(helper.bounded_inert(inert, inert))
+    except Exception:  # noqa: BLE001 - no carve-out is the safe answer
+        return frozenset()
+
+
 def judge_copy_freshness(
-    candidate, repo, repo_root, control_sha, gh_get, gh_text, git_fn, engine_inert, gh_bytes=None
+    candidate, repo, repo_root, control_sha, gh_get, gh_text, inert_helper, gh_bytes=None, install_cache=None,
+    run_attempts=None,
 ):
     """O36: a certificate is selectable only while its copy holds every non-inert migration
-    production committed. Returns ("fresh"|"stale"|"unread", detail)."""
+    production committed. Returns ("fresh"|"stale"|"unread", detail). "fresh" means only that no
+    install was seen in the applier's job logs since the copy: contents are never compared here.
+    install_cache ({copy time: installs}) lets a second certificate of the same copy re-read nothing."""
     try:
         copy_at = certificate_copy_time(
-            repo, candidate["sha"], candidate["backup"], gh_get, gh_bytes or gh_api_get_bytes
+            repo, candidate["sha"], candidate["backup"], gh_get, gh_bytes or gh_api_get_bytes, run_attempts
         )
-        installs = production_installs_after(repo, copy_at, gh_get, gh_text)
+        key = format_utc(copy_at) + copy_at.strftime(".%f")
+        if install_cache is not None and key in install_cache:
+            installs = install_cache[key]
+        else:
+            installs = production_installs_after(repo, copy_at, gh_get, gh_text)
+            if install_cache is not None:
+                install_cache[key] = installs
     except ReadError as exc:
         return ("unread", str(exc))
-    missing = []
-    for item in installs:
-        inert = False
-        if engine_inert is not None:
-            try:
-                text = git_fn(repo_root, "show", f"{control_sha}:supabase/migrations/{item['file']}")
-                inert = bool(engine_inert(text + "\n"))
-            except ReadError:
-                inert = False
-        if not inert:
-            missing.append(item)
+    inert = inert_carve_out(inert_helper, repo_root, control_sha, candidate["sha"]) if installs else frozenset()
+    missing = [item for item in installs if item["file"][:14] not in inert]
     if not missing:
-        return ("fresh", f"copy current as of {format_chicago(copy_at)}")
+        left = sorted({item["file"][:14] for item in installs})
+        note = f" (left out as engine-inert: {', '.join(left)})" if left else ""
+        return (
+            "fresh",
+            f"no install seen in the applier's job logs since the copy was restored {format_chicago(copy_at)}{note}",
+        )
     versions = sorted({m["file"][:14] for m in missing})
     return (
         "stale",
@@ -1398,6 +1512,8 @@ def determine_verdict(health, candidates, active_backup, git_info):
         idx = candidates.index(selectable)
         newer_pending = [c for c in candidates[:idx] if c["status"] == "PENDING"]
         extra = f"; {len(newer_pending)} newer commit(s) still pending" if newer_pending else ""
+        if selectable.get("copyFreshness") == "fresh" and selectable.get("copyFreshnessDetail"):
+            extra += f"; {selectable['copyFreshnessDetail']}"
         return (
             VERDICT_READY,
             selectable["sha"],
@@ -1460,7 +1576,7 @@ def collect_readiness(
     git_fn=None,
     projection_fn=None,
     gh_text_fn=None,
-    engine_inert_fn=None,
+    inert_helper=None,
     gh_bytes_fn=None,
 ):
     """Collect live readiness state across health, schedule, GitHub workflows and git."""
@@ -1473,13 +1589,26 @@ def collect_readiness(
     checked_at = (now_utc or datetime.now(timezone.utc)).astimezone(timezone.utc)
     health_reader = health_fn or (lambda: fetch_health(health_url))
     gh_reader = gh_get_fn or gh_api_get
-    _log_cache = {}
 
-    def gh_text_reader(path, _read=gh_text_fn or gh_api_get_text):
-        # One read per job log per report: a second stale candidate re-reads nothing.
-        if path not in _log_cache:
-            _log_cache[path] = _read(path)
-        return _log_cache[path]
+    def _once_per_path(read):
+        # One read per path per report: a second stale candidate re-reads nothing. A failed
+        # read is not kept, so it is never answered from memory.
+        kept = {}
+
+        def reader(path):
+            if path not in kept:
+                kept[path] = read(path)
+            return kept[path]
+
+        return reader
+
+    # The copy-freshness reads (run lists, jobs, artifacts, job logs, certificate archives) are
+    # the ones repeated for every judged certificate; measured 2026-11-27 at 59 calls and about
+    # 35 s per stale candidate against the 120 s the readiness post allows.
+    gh_text_reader = _once_per_path(gh_text_fn or gh_api_get_text)
+    freshness_gh_reader = _once_per_path(gh_reader)
+    freshness_bytes_reader = _once_per_path(gh_bytes_fn or gh_api_get_bytes)
+    install_cache = {}
     git_reader = git_fn or git_read
 
     report = {
@@ -1598,15 +1727,16 @@ def collect_readiness(
                 "reason": reason,
             }
 
-        inert_fn = engine_inert_fn if engine_inert_fn is not None else load_engine_inert(resolved_root)
+        helper = inert_helper if inert_helper is not None else load_inert_helper(resolved_root)
+        backup_attempts = {r["id"]: r["attempt"] for r in recent_backup if r.get("id") and r.get("attempt")}
 
         def _judge_freshness(cand):
             """O36: a SELECTABLE certificate whose copy production has moved past is not selectable."""
             if cand["status"] != "SELECTABLE":
                 return cand
             verdict, detail = judge_copy_freshness(
-                cand, repo, resolved_root, control_sha, gh_reader, gh_text_reader, git_reader, inert_fn,
-                gh_bytes_fn,
+                cand, repo, resolved_root, control_sha, freshness_gh_reader, gh_text_reader, helper,
+                freshness_bytes_reader, install_cache, backup_attempts,
             )
             cand["copyFreshness"] = verdict
             cand["copyFreshnessDetail"] = detail
