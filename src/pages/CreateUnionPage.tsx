@@ -130,11 +130,11 @@ export default function CreateUnionPage() {
     switch (step) {
       case 1:
         if (!form.name.trim()) {
-          setError('Union name is required');
+          setError('Union Name Is Required');
           return false;
         }
         if (form.name.length < 3) {
-          setError('Union name must be at least 3 characters');
+          setError('Union Name Must Be At Least 3 Characters');
           return false;
         }
         break;

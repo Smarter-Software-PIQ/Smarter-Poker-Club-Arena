@@ -341,7 +341,7 @@ function PromotionsAccount({
     } catch (error) {
       if (!ownsAccount() || (getIsMounted && !getIsMounted())) return;
       reportError(error, 'PromotionsPage.Failed_to_load_promotions');
-      setLoadError('Promotions could not be loaded. Existing offers have not been changed.');
+      setLoadError('Promotions Could Not Be Loaded. Existing Offers Have Not Been Changed.');
       toast.error('Failed to load promotions');
     }
     if (!ownsAccount() || (getIsMounted && !getIsMounted())) return;

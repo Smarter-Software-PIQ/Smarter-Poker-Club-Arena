@@ -168,7 +168,7 @@ export default function FriendActivityFeed({ friends }: { friends: FeedFriend[] 
       if (isMounted.current) setActivities(feed.slice(0, 30));
     } catch (loadError) {
       reportError(loadError, 'FriendActivityFeed.load_error');
-      if (isMounted.current) setError('Live friend activity could not be reached.');
+      if (isMounted.current) setError('Live Friend Activity Could Not Be Reached.');
     } finally {
       if (isMounted.current) setLoading(false);
     }

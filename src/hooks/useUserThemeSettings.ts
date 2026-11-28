@@ -921,7 +921,7 @@ export function useUserThemeSettings(
         if (queryError) {
           // A failed read is NOT "no theme saved". Say so and keep the
           // defaults on screen rather than reporting them as a selection.
-          setError(queryError.message || 'Could not load theme settings');
+          setError(queryError.message || 'Could Not Load Theme Settings');
           setLoading(false);
           return;
         }
@@ -960,7 +960,7 @@ export function useUserThemeSettings(
       } catch (err) {
         if (!mounted) return;
         console.warn('[useUserThemeSettings] Failed:', err);
-        setError(err instanceof Error ? err.message : 'Could not load theme settings');
+        setError(err instanceof Error ? err.message : 'Could Not Load Theme Settings');
       }
       if (mounted) setLoading(false);
     };

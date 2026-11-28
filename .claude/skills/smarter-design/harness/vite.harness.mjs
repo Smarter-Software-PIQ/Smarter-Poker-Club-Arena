@@ -14,6 +14,8 @@ const swaps = [
   [/\/src\/contexts\/ClubWorkspaceContext\.tsx$/, path.join(HERE, 'workspace-stub.ts')],
   [/\/src\/hooks\/useClubNavigationAccess\.ts$/, path.join(HERE, 'access-stub.ts')],
   [/\/src\/hooks\/useAuthUser\.ts$/, path.join(HERE, 'auth-stub.ts')],
+  [/\/src\/hooks\/useCashoutScope\.ts$/, path.join(HERE, 'cashout-scope-stub.ts')],
+  [/\/src\/services\/CashoutService\.ts$/, path.join(HERE, 'cashout-service-stub.ts')],
 ];
 const stubs = {
   name: 'smarter-design-harness-stubs',

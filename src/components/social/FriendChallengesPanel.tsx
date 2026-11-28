@@ -92,7 +92,7 @@ export default function FriendChallengesPanel({ userId }: { userId: string }) {
       }
     } catch (loadError) {
       reportError(loadError, 'FriendChallengesPanel.load');
-      if (isMounted.current) setError('Challenge records could not be reached.');
+      if (isMounted.current) setError('Challenge Records Could Not Be Reached.');
     } finally {
       if (isMounted.current) setLoading(false);
     }

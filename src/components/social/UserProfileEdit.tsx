@@ -156,7 +156,7 @@ export function UserProfileEdit({
       });
       onClose();
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : 'Profile could not be saved.');
+      setSaveError(error instanceof Error ? error.message : 'Profile Could Not Be Saved.');
     } finally {
       setSaving(false);
     }
