@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      MAX_WARNINGS: '1089'
+      MAX_WARNINGS: '1087'
     steps:
       - uses: actions/checkout@v4
         with:
