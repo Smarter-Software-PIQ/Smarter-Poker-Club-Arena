@@ -93,6 +93,26 @@ export const NO_VARIETY_PLAN: VarietyFirstPlan = { owedStarts: new Map(), heldSt
 const open = (t: VarietyTable): boolean => t.lifecycle !== 'closed' && t.lifecycle !== 'breaking';
 
 /** PURE. Which starts are owed this cycle and which wait behind them. */
+/**
+ * The games being played now: every game with a table that has a player on
+ * it. PURE. One rule for the plan (such a game is owed no start) and for the
+ * first-owed memory (such a game is not waiting, whatever else is remembered
+ * about it: varietyOwedSince).
+ */
+export function varietyOccupiedGames<T extends VarietyTable>(
+  tables: ReadonlyArray<T>,
+  seatedAt: (tableId: string) => number
+): Set<string> {
+  const occupied = new Set<string>();
+  for (const t of tables) {
+    if (typeof t.id !== 'string' || typeof t.cluster_id !== 'string' || !t.cluster_id) continue;
+    const n = seatedAt(String(t.id));
+    /* A breaking table with players on it is still that game being played. */
+    if (Number.isFinite(n) && n > 0 && t.lifecycle !== 'closed') occupied.add(t.cluster_id);
+  }
+  return occupied;
+}
+
 export function varietyFirstPlan<T extends VarietyTable>(
   input: VarietyFirstInput<T>
 ): VarietyFirstPlan {
@@ -100,15 +120,11 @@ export function varietyFirstPlan<T extends VarietyTable>(
     const n = input.seatedAt(String(t.id));
     return Number.isFinite(n) && n > 0 ? n : 0;
   };
-  const occupiedGames = new Set<string>();
+  const occupiedGames = varietyOccupiedGames(input.tables, input.seatedAt);
   const emptyByGame = new Map<string, T[]>();
   for (const t of input.tables) {
     if (typeof t.id !== 'string' || typeof t.cluster_id !== 'string' || !t.cluster_id) continue;
-    /* A breaking table with players on it is still that game being played. */
-    if (seated(t) > 0) {
-      if (t.lifecycle !== 'closed') occupiedGames.add(t.cluster_id);
-      continue;
-    }
+    if (seated(t) > 0) continue;
     if (!open(t)) continue;
     const list = emptyByGame.get(t.cluster_id);
     if (list) list.push(t);
@@ -666,8 +682,22 @@ export function drainCycleOutcome(input: {
  * start instead of labelling it a minimum. The memory survives across cycles.
  * A seating (not withheld) cycle keeps the first-seen time of every game it
  * publishes as owed, stamps `nowIso` on a game newly owed, and forgets a game
- * it no longer publishes. A withheld cycle publishes no owed games and
+ * that is no longer waiting. A withheld cycle publishes no owed games and
  * forgets nothing (the same rule as drainCycleOutcome).
+ *
+ * A RESTING GAME IS STILL WAITING (2026-11-28). Why it broke: "owed" here was
+ * the published list, and a game whose start failed for a reason of its own
+ * leaves that list for its rest (VARIETY_START_REST_MS, so depth may
+ * proceed). The memory forgot it, and when the rest ended it was stamped as
+ * newly owed: the two 5/10 fixed-limit games no Horse can fund, waiting since
+ * the process began, never read more than a few minutes. Leaving the
+ * published list is not a start. The clock is now kept for a game that is
+ * owed, OR resting, OR carries the cannot-start mark (`stillWaiting`: the set
+ * VarietyStartMemory.forgetAllBut keeps), and cleared when the game is none
+ * of those or is being played (`occupiedGames`: a table with a player on it,
+ * whoever started it). A game in `stillWaiting` never gets a NEW time here;
+ * it only keeps one it has. The mark is dropped by forgetAllBut, so nothing
+ * is kept for ever.
  */
 export function varietyOwedSince(input: {
   withheld: boolean;
@@ -676,12 +706,22 @@ export function varietyOwedSince(input: {
   /** Times carried over a restart (carriedOwedSince). The process's own
    *  memory wins; a game no longer owed keeps nothing. */
   carried?: Readonly<Record<string, string>>;
+  /** Games not published as owed this cycle that still wait for a start:
+   *  resting after a failed start, or carrying the cannot-start mark. */
+  stillWaiting?: Iterable<string>;
+  /** Games with a player at a table now (varietyOccupiedGames). */
+  occupiedGames?: ReadonlySet<string>;
   nowIso: string;
 }): Record<string, string> {
   if (input.withheld) return { ...input.previous };
   const out: Record<string, string> = {};
   for (const game of input.owedGames) {
     out[game] = input.previous[game] ?? input.carried?.[game] ?? input.nowIso;
+  }
+  for (const game of input.stillWaiting ?? []) {
+    if (out[game] !== undefined || input.occupiedGames?.has(game)) continue;
+    const since = input.previous[game] ?? input.carried?.[game];
+    if (since !== undefined) out[game] = since;
   }
   return out;
 }

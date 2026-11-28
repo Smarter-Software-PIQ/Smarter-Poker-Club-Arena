@@ -13,6 +13,15 @@
  * started, and the first seating cycle keeps that beat's first-owed time for
  * every game still owed (HorseVarietyFirst.carriedOwedSince, guarded by an
  * age bound and a ceiling). It feeds the heartbeat only: no decision reads it.
+ *
+ * Two more ways the same clock was lost, fixed with it (2026-11-28):
+ *   - a game whose start failed for its own reason leaves the published owed
+ *     list for its 5-minute rest, and the memory forgot it: the two 5/10
+ *     fixed-limit games no Horse can fund never read more than minutes. A
+ *     resting or marked game is still waiting; only a game that is being
+ *     played, or is neither owed, resting nor marked, loses its clock;
+ *   - a cycle that ended before the first-owed step published {} though it
+ *     had forgotten nothing. Every beat now carries the memory as it stands.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -26,7 +35,11 @@ import {
   drainWhyForBeat,
   VARIETY_OWED_CARRY_CEILING_MS,
   VARIETY_OWED_CARRY_MAX_AGE_MS,
+  VARIETY_START_REST_MS,
+  VarietyStartMemory,
   varietyDrainDecision,
+  varietyFirstPlan,
+  varietyOccupiedGames,
   varietyOwedSince,
   type DrainTable,
 } from './HorseVarietyFirst.js';
@@ -236,8 +249,10 @@ describe('the carried time changes no decision', () => {
     /* the carried times: declared once, read once, as varietyOwedSince's `carried` */
     expect(count('owedSinceCarried')).toBe(2);
     expect(fleet).toContain('carried: owedSinceCarried,');
-    /* the memory: one assignment (from the pure function), its own `previous`, and the beat */
-    expect(count('this.varietyOwedSinceByGame')).toBe(3);
+    /* the memory: one assignment (from the pure function), its own `previous`, and the beat
+       (the beat's starting value and the value after the first-owed step) */
+    expect(count('this.varietyOwedSinceByGame')).toBe(4);
+    expect(fleet).toContain('varietyOwedSince: this.varietyOwedSinceByGame,');
     expect(fleet).toContain('this.varietyOwedSinceByGame = varietyOwedSince({');
     expect(fleet).toContain('previous: this.varietyOwedSinceByGame,');
     expect(fleet).toContain('beat.varietyOwedSince = this.varietyOwedSinceByGame;');
@@ -254,6 +269,7 @@ describe('the carried time changes no decision', () => {
       'export function varietyOwedSince(input: {',
       'carried?: Readonly<Record<string, string>>;',
       'out[game] = input.previous[game] ?? input.carried?.[game] ?? input.nowIso;',
+      'const since = input.previous[game] ?? input.carried?.[game];',
       'export function carriedOwedSince(input: {',
       'heartbeat: { beatAt: unknown; owedSince: unknown } | null;',
       'const map = hb.owedSince;',
@@ -378,5 +394,229 @@ describe('one read per boot', () => {
     expect(fleet).toContain(
       'const read = this.owedSinceBeforeBoot;\n    this.owedSinceBeforeBoot = null;'
     );
+  });
+});
+
+describe('a resting game is still waiting', () => {
+  const T0 = Date.parse('2026-11-28T02:00:00.000Z');
+  const iso = (ms: number) => new Date(ms).toISOString();
+  /* FIVE is a 5/10 fixed-limit game no Horse can fund; CAP is blocked only by the cap. */
+  const step = (input: {
+    memory: VarietyStartMemory;
+    previous: Record<string, string>;
+    owedIfNotResting: string[];
+    occupied?: string[];
+    nowMs: number;
+  }) => {
+    /* the fleet's own order: resting, the plan's owed games, forgetAllBut, then the clock */
+    const resting = input.memory.resting(input.nowMs);
+    const owedGames = input.owedIfNotResting.filter((g) => !resting.has(g));
+    input.memory.forgetAllBut([...owedGames, ...resting]);
+    return varietyOwedSince({
+      withheld: false,
+      owedGames,
+      previous: input.previous,
+      stillWaiting: [...resting, ...input.memory.cannotStart()],
+      occupiedGames: new Set(input.occupied ?? []),
+      nowIso: iso(input.nowMs),
+    });
+  };
+
+  it('the 5/10 games: the clock runs through every rest, for as long as the game waits', () => {
+    const memory = new VarietyStartMemory();
+    let since = step({ memory, previous: {}, owedIfNotResting: ['FIVE', 'CAP'], nowMs: T0 });
+    expect(since).toEqual({ FIVE: iso(T0), CAP: iso(T0) });
+    /* three rounds of: the walk fails for the game's own reason, it rests, the rest ends */
+    let now = T0;
+    for (let round = 0; round < 3; round++) {
+      memory.noteCouldNotStart('FIVE', now, 'own_reason');
+      now += 30_000;
+      since = step({ memory, previous: since, owedIfNotResting: ['FIVE', 'CAP'], nowMs: now });
+      /* resting: off the published list, still waiting */
+      expect(memory.resting(now).has('FIVE')).toBe(true);
+      expect(since).toEqual({ CAP: iso(T0), FIVE: iso(T0) });
+      now += VARIETY_START_REST_MS;
+      since = step({ memory, previous: since, owedIfNotResting: ['FIVE', 'CAP'], nowMs: now });
+      /* owed again, marked: the same clock, not a new one */
+      expect(memory.resting(now).has('FIVE')).toBe(false);
+      expect(memory.cannotStart().has('FIVE')).toBe(true);
+      expect(since).toEqual({ FIVE: iso(T0), CAP: iso(T0) });
+    }
+  });
+
+  it('a game that starts loses its clock, whoever started it', () => {
+    /* a Horse start: the walk notes it, the game has an occupied table */
+    const byHorse = new VarietyStartMemory();
+    byHorse.noteCouldNotStart('FIVE', T0, 'own_reason');
+    byHorse.noteStarted('FIVE');
+    expect(
+      step({
+        memory: byHorse,
+        previous: { FIVE: iso(T0), CAP: iso(T0) },
+        owedIfNotResting: ['CAP'],
+        occupied: ['FIVE'],
+        nowMs: T0 + 30_000,
+      })
+    ).toEqual({ CAP: iso(T0) });
+    /* a person sits down while the game rests: the start memory still says resting */
+    const byPerson = new VarietyStartMemory();
+    byPerson.noteCouldNotStart('FIVE', T0, 'own_reason');
+    expect(byPerson.resting(T0 + 30_000).has('FIVE')).toBe(true);
+    const playing = step({
+      memory: byPerson,
+      previous: { FIVE: iso(T0), CAP: iso(T0) },
+      owedIfNotResting: ['CAP'],
+      occupied: ['FIVE'],
+      nowMs: T0 + 30_000,
+    });
+    expect(playing).toEqual({ CAP: iso(T0) });
+    /* emptied and owed again later: a new wait, a new clock */
+    const LATER = T0 + VARIETY_START_REST_MS + 60_000;
+    expect(
+      step({
+        memory: byPerson,
+        previous: playing,
+        owedIfNotResting: ['FIVE', 'CAP'],
+        nowMs: LATER,
+      })
+    ).toEqual({ FIVE: iso(LATER), CAP: iso(T0) });
+  });
+
+  it('nothing is kept for ever: the clock goes by the rule that drops the mark', () => {
+    const memory = new VarietyStartMemory();
+    memory.noteCouldNotStart('FIVE', T0, 'own_reason');
+    /* the rest is over and the game is no longer owed (off the plan, say): neither owed nor resting */
+    const now = T0 + VARIETY_START_REST_MS + 1;
+    const since = step({ memory, previous: { FIVE: iso(T0) }, owedIfNotResting: [], nowMs: now });
+    expect(memory.cannotStart().size).toBe(0);
+    expect(since).toEqual({});
+    /* a still-waiting game never gets a NEW time: it only keeps one it has */
+    expect(
+      varietyOwedSince({
+        withheld: false,
+        owedGames: [],
+        previous: {},
+        stillWaiting: ['X'],
+        nowIso: iso(now),
+      })
+    ).toEqual({});
+    /* a carried time survives a first cycle that finds the game resting */
+    expect(
+      varietyOwedSince({
+        withheld: false,
+        owedGames: [],
+        previous: {},
+        carried: { X: OWED_AT_10PM },
+        stillWaiting: ['X'],
+        nowIso: iso(now),
+      })
+    ).toEqual({ X: OWED_AT_10PM });
+    /* a withheld cycle forgets nothing, as before */
+    expect(
+      varietyOwedSince({
+        withheld: true,
+        owedGames: [],
+        previous: { FIVE: iso(T0) },
+        stillWaiting: [],
+        occupiedGames: new Set(['FIVE']),
+        nowIso: iso(now),
+      })
+    ).toEqual({ FIVE: iso(T0) });
+  });
+
+  it('"being played" is the plan\'s own rule: a player at any table of the game that is not closed', () => {
+    const t = (id: string, game: string, lifecycle: string) => ({
+      id,
+      cluster_id: game,
+      role: 'main' as const,
+      main_index: 1,
+      lifecycle,
+    });
+    const tables = [
+      t('a1', 'A', 'live'),
+      t('b1', 'B', 'breaking'),
+      t('c1', 'C', 'closed'),
+      t('d1', 'D', 'live'),
+      t('e1', 'E', 'live'),
+    ];
+    const seats: Record<string, number> = { a1: 2, b1: 3, c1: 4, d1: 0, e1: Number.NaN };
+    const seatedAt = (id: string) => seats[id] ?? 0;
+    expect([...varietyOccupiedGames(tables, seatedAt)].sort()).toEqual(['A', 'B']);
+    /* and the plan owes a start to exactly the open games it does not name */
+    const plan = varietyFirstPlan({
+      tables,
+      seatedAt,
+      startGames: new Set(['A', 'B', 'C', 'D', 'E']),
+      neverHeldGames: new Set(),
+      mayStart: () => true,
+    });
+    expect([...plan.owedStarts.values()].sort()).toEqual(['D', 'E']);
+  });
+
+  it('the fleet hands the clock the resting and marked games and the games being played', () => {
+    const fleet = read('./HorseFleetManager.ts');
+    const count = (needle: string) => fleet.split(needle).length - 1;
+    expect(fleet).toContain(
+      'stillWaiting: [...varietyResting, ...this.varietyStarts.cannotStart()],\n' +
+        '        occupiedGames: varietyOccupiedGames(\n' +
+        '          tables,\n' +
+        '          (tableId) => (seatsByTable.get(tableId) ?? []).length\n' +
+        '        ),'
+    );
+    /* the same resting set the plan and forgetAllBut use, read after both */
+    expect(count('varietyResting')).toBe(4);
+    const forget = fleet.indexOf(
+      'this.varietyStarts.forgetAllBut([...variety.owedStarts.values(), ...varietyResting]);'
+    );
+    expect(forget).toBeGreaterThan(-1);
+    expect(fleet.indexOf('stillWaiting: [...varietyResting')).toBeGreaterThan(forget);
+    /* it reaches the clock and nothing else */
+    expect(count('varietyOccupiedGames(')).toBe(1);
+    expect(count('stillWaiting')).toBe(1);
+  });
+});
+
+describe('every beat carries the memory as it stands', () => {
+  it('a cycle that ends before the first-owed step publishes what is remembered, not {}', async () => {
+    const fleet = new HorseFleetManager() as unknown as {
+      varietyOwedSinceByGame: Record<string, string>;
+      seedAllTables: () => Promise<void>;
+    };
+    fleet.varietyOwedSinceByGame = { A: OWED_AT_10PM, B: OWED_AT_MIDNIGHT };
+    /* the database is down: the cycle's first read fails and the cycle ends early */
+    const down: unknown = new Proxy(
+      {},
+      {
+        get: (_t, key) =>
+          key === 'then'
+            ? (ok: (v: unknown) => unknown, bad: (e: unknown) => unknown) =>
+                Promise.resolve({ data: null, error: { message: 'down' } }).then(ok, bad)
+            : () => down,
+      }
+    );
+    const from = vi.spyOn(supabase, 'from').mockImplementation((() => down) as never);
+    const beats: Array<{ detail: Record<string, unknown> }> = [];
+    vi.spyOn(supabase, 'rpc').mockImplementation(((name: string, args: { p_beat?: never }) => {
+      if (name === 'fn_ca_fleet_state_upsert' && args?.p_beat) beats.push(args.p_beat);
+      return Promise.resolve({ data: null, error: null });
+    }) as never);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    await fleet.seedAllTables();
+    expect(beats).toHaveLength(1);
+    /* it never reached the first-owed step: nothing was owed, read or decided */
+    expect(beats[0].detail.variety_owed_games).toEqual([]);
+    expect(beats[0].detail.variety_drain_why).toBeNull();
+    expect(beats[0].detail.variety_owed_since).toEqual({ A: OWED_AT_10PM, B: OWED_AT_MIDNIGHT });
+    /* and the cycle forgot nothing, and asked the heartbeat table nothing */
+    expect(fleet.varietyOwedSinceByGame).toEqual({ A: OWED_AT_10PM, B: OWED_AT_MIDNIGHT });
+    expect(from.mock.calls.map((c) => c[0])).not.toContain('ca_horse_fleet_heartbeat');
+  }, 60_000);
+
+  it('the beat starts from the memory, and the empty default is gone', () => {
+    const fleet = read('./HorseFleetManager.ts');
+    expect(fleet).toContain('      varietyOwedSince: this.varietyOwedSinceByGame,\n');
+    expect(fleet).not.toContain('varietyOwedSince: {},');
   });
 });

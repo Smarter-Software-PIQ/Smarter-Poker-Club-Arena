@@ -77,14 +77,19 @@
 --                         heartbeat (detail.variety_owed_since, review follow-up
 --                         2026-11-27), never before the game's last dealt hand,
 --                         and only when that time is at or before the release.
---                         The fleet keeps first-owed times in memory and restarts
---                         with the release, so a time after the release is the
---                         restarted fleet's first cycle, not when the game began
---                         to wait (2026-11-28: after the 1 AM CST seal all nine
---                         owed games carried the same instant, 1:05:15 AM, and
---                         the rows dropped the label though every true wait was
---                         unknown). Such a wait, and one with no first-owed time
---                         at all, is counted by both rows: those are minimums.
+--                         The fleet restarts with the release and carries its
+--                         first-owed times over the restart from its own last
+--                         heartbeat (HorseVarietyFirst.carriedOwedSince), so a
+--                         carried time is at or before the release. A time after
+--                         the release on a wait already running at the release
+--                         means nothing was carried (a build from before the
+--                         carry, a stop longer than 20 minutes, a failed read):
+--                         it is the restarted fleet's first cycle, not when the
+--                         game began to wait (2026-11-28: after the 1 AM CST
+--                         seal, before the carry, all nine owed games read the
+--                         same instant, 1:05:15 AM). Such a wait, and one with
+--                         no first-owed time at all, is counted by both rows:
+--                         those are minimums.
 --   drain_why             why the drain released what it did, counted over the
 --                         beats with a start owed, plus the withheld beats
 --                         (detail.variety_drain_why; "not recorded" until a

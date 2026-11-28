@@ -100,6 +100,7 @@ import {
   varietyDrainDecision,
   drainCycleOutcome,
   varietyOwedSince,
+  varietyOccupiedGames,
   carriedOwedSince,
   drainWhyForBeat,
   drainOwedGames,
@@ -1557,7 +1558,9 @@ export class HorseFleetManager {
       bookedOut: 0,
       openingFeeders: [],
       varietyOwedGames: [],
-      varietyOwedSince: {},
+      /* The memory as it stands (2026-11-28): a cycle that ends before the
+         first-owed step has forgotten nothing, so its beat must not say {}. */
+      varietyOwedSince: this.varietyOwedSinceByGame,
       varietyDrainTable: null,
       varietyDrainTables: [],
       cashRoom: null,
@@ -3257,6 +3260,12 @@ export class HorseFleetManager {
         owedGames: beat.varietyOwedGames,
         previous: this.varietyOwedSinceByGame,
         carried: owedSinceCarried,
+        /* A resting or marked game left the published list, not the wait. */
+        stillWaiting: [...varietyResting, ...this.varietyStarts.cannotStart()],
+        occupiedGames: varietyOccupiedGames(
+          tables,
+          (tableId) => (seatsByTable.get(tableId) ?? []).length
+        ),
         nowIso: new Date().toISOString(),
       });
       beat.varietyOwedSince = this.varietyOwedSinceByGame;
