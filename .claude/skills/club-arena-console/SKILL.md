@@ -1,18 +1,26 @@
 ---
 name: club-arena-console
 description: >
-  The #ClubArenaConsole painted-chassis standard: how to rebuild a generic Club
-  Arena page, popup, card, frame or button on Dan's approved master art, verify
-  it in a headless render at 393px, and ship it. Use when the user writes
-  "#ClubArenaConsole", says a surface is "still generic", "boring", "needs to be
-  on the master" or "needs upgrading", asks to redesign or restyle anything in
-  Club Arena, or asks for before/after screenshots of a Club Arena surface.
+  The #ClubArenaConsole painted-chassis standard: how to rebuild a Club Arena
+  popup, modal, sheet or dialog, or any surface Dan names #ClubArenaConsole or a
+  specific painted master for, on his approved master art. For redesigning,
+  upgrading or restyling a routed page, sub page, section or workspace, use the
+  smarter-design skill (#SmarterDesign) instead: Dan ruled on 2026-11-27 that
+  the painted plates are the old style on pages.
   Every agent or subagent doing the work must read this file in full and pass it
   to any subagent it spawns.
 version: 1.5.0
 ---
 
 # #ClubArenaConsole — The Painted-Chassis Standard
+
+> **Read first (owner ruling, 2026-11-27).** Dan rejected a Club Operations
+> rebuild made from these painted plates: "THAT IS NOT THE #SMARTERDESIGN.
+> WTF?!" and "DO NOT USE THOSE BULKY FRAMES, THATS THE OLD STYLE... USE THE
+> #SMARTERDESIGN STYLE". For a routed page, sub page or workspace, follow
+> `.claude/skills/smarter-design/SKILL.md`. This standard governs popups,
+> modals, sheets and dialogs, and any surface Dan names #ClubArenaConsole or a
+> specific painted master for.
 
 The Club Arena counterpart to `#SmarterCasinoRealism`. That standard governs the
 Marketplace / Diamonds language. **This one governs Club Arena**, where the rule
