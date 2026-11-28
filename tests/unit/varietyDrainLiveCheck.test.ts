@@ -53,10 +53,8 @@ describe('the variety drain live check', () => {
   });
 
   it('review 2026-11-26: judges every naming, not one first-to-last block, and fails closed with no release', () => {
-    /* a Horse re-joining after the LAST naming (the walk refilling an un-named table) is counted */
-    expect(body).toMatch(
-      /n\.beat_at < s\.joined_at AND n\.beat_at >= s\.joined_at - interval '10 minutes'/
-    );
+    /* every naming with a start owed is judged, each up to the join it may have covered */
+    expect(body).toContain('n.owed > 0 AND n.beat_at <= s.joined_at');
     /* only Horses count as re-joins; a person sitting down is the person rule, not churn */
     expect(body).toMatch(/is_horse, false\) = true/);
     expect(body).toMatch(/is_horse, false\) = false/);
@@ -70,6 +68,43 @@ describe('the variety drain live check', () => {
       "CASE WHEN (SELECT count(*) FROM rel) = 1 AND count(*) = 0 THEN 'PASS' ELSE 'FAIL' END"
     );
     expect(body).not.toMatch(/first_named AND|BETWEEN n\.first_named/);
+  });
+
+  it('review follow-up 2026-11-27: a Horse seat counts as a re-join only while the table was still named', () => {
+    /* The old form counted any Horse joining within 10 minutes after an owed
+       naming, so it failed after a drain ended legitimately or on a break move
+       (live 2026-11-28 01:02Z window: 16 by the old form, 0 by this one). */
+    expect(body).not.toContain("s.joined_at - interval '10 minutes'");
+    expect(body).not.toMatch(/interval '10 minutes'/);
+    /* no beat between the naming and the join un-named the table */
+    expect(body).toContain(
+      'SELECT 1 FROM hb q\n           WHERE q.beat_at > n.beat_at AND q.beat_at <= s.joined_at\n             AND NOT q.named @> to_jsonb(s.table_id::text)'
+    );
+    /* the publication was not stale at the join (VARIETY_DRAIN_FRESH_MS) */
+    expect(body).toContain(
+      "s.joined_at < (SELECT max(q.beat_at) FROM hb q WHERE q.beat_at <= s.joined_at) + interval '65 seconds'"
+    );
+    /* 7 PM CST seal 2026-11-27: a join seated by the cycle that un-names the
+       table is counted. The excuse "the first beat after the join must still
+       name it" hid the drain un-naming and refilling tables every ~8 minutes
+       for games that cannot start (the 11 joins it removed were those re-seats). */
+    expect(body).not.toContain('WHERE q.beat_at > s.joined_at ORDER BY q.beat_at LIMIT 1');
+    expect(body).not.toMatch(/q\.beat_at > s\.joined_at/);
+  });
+
+  it('review follow-up 2026-11-27: a wait that began before the window is timed from the first-owed time on the heartbeat', () => {
+    expect(body).toContain("h.detail -> 'variety_owed_since'");
+    expect(body).toContain('(hb.owed_since ->> g)::timestamptz END AS since');
+    expect(body).toContain('(array_agg(w.since ORDER BY w.ts))[1] AS since');
+    /* never earlier than the game's last dealt hand before this wait */
+    expect(body).toContain(
+      "THEN greatest(least(s, since), coalesce(after_deal, '-infinity'::timestamptz))"
+    );
+    expect(body).toContain(
+      '(SELECT d.ts FROM deals d WHERE d.game = w.game AND d.k = w.k) AS after_deal'
+    );
+    /* only a wait with no first-owed time keeps the minimum label */
+    expect(body).toContain('truncated AND since IS NULL AS truncated');
   });
 
   it('2026-11-26: judges the cap at every beat that carries it and measures how long owed games wait', () => {

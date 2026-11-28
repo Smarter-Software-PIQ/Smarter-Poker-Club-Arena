@@ -699,20 +699,20 @@ test.describe('LIVE E2E — the insurance dialog, on a short phone viewport', ()
       document.body.appendChild(overlay);
     });
 
-    /* Measure the dialog AT REST (2026-11-27). The dialog enters with
-       insuranceSlideUpModal (translateY(18px) scale(.98) to identity), and
-       this read used to land on the first frame of it: at 375x480 the INSURE
-       key's bottom then sat 0.46px past the viewport purely because of the
-       entry offset, and the check passed or failed on runner timing. The
-       contract is where the decision keys are painted once the dialog is
-       open, so wait for its finite entry animations (the animation itself
-       still plays; nothing here skips or shortens it). */
+    // The overlay fades in and the modal springs up from translateY(18px)
+    // scale(0.98) over 0.28s (InsuranceModal.css). Measuring inside that
+    // entrance read the buttons up to 18px low, plus the spring's overshoot,
+    // and failed on a slow runner (PR #12301, twice). The contract is about
+    // what the player sees once the dialog has arrived, so let every
+    // animation on the page finish, then measure. Nothing is disabled.
     await page.evaluate(() =>
       Promise.all(
         document
           .getAnimations()
-          .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
-          .map((a) => a.finished.catch(() => undefined))
+          // An infinite loop (an urgent timer pulse) never finishes; only the
+          // entrance has an end.
+          .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity)
+          .map((animation) => animation.finished)
       )
     );
 
