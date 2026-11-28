@@ -504,7 +504,7 @@ export default function AchievementsPage() {
     },
     onError: (error) => {
       reportError(error, 'AchievementsPage.Failed_to_load_achievements');
-      setLoadError('Achievement progress could not be loaded.');
+      setLoadError('Achievement Progress Could Not Be Loaded.');
       setLoading(false);
       setLoadedScope(userId);
       toast?.error('Failed to load achievements');

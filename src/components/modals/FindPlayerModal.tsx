@@ -165,7 +165,7 @@ export default function FindPlayerModal({
     async (query: string, offset = 0, append = false) => {
       const normalized = query.trim().slice(0, QUERY_MAX_CHARS).trim();
       if (normalized.length < 2) {
-        setError('Enter at least two characters.');
+        setError('Enter At Least Two Characters.');
         return;
       }
       searchAbortRef.current?.abort();
@@ -213,7 +213,7 @@ export default function FindPlayerModal({
         setError(
           searchError instanceof Error && searchError.message === SEARCH_UNAVAILABLE
             ? SEARCH_UNAVAILABLE
-            : 'Could not search right now. Please try again.'
+            : 'Could Not Search Right Now. Please Try Again.'
         );
       } finally {
         if (searchAbortRef.current === controller) {
@@ -379,13 +379,13 @@ export default function FindPlayerModal({
 
       setError(
         access.action === 'observers_restricted'
-          ? 'This table does not allow observers.'
-          : 'This game is not available to watch.'
+          ? 'This Table Does Not Allow Observers.'
+          : 'This Game Is Not Available To Watch.'
       );
     } catch (accessError) {
       if (!isCurrent()) return;
       reportError(accessError, 'FindPlayerModal.WatchAccess');
-      setError('Could not verify table access. Please try again.');
+      setError('Could Not Verify Table Access. Please Try Again.');
     } finally {
       if (isCurrent()) {
         watchBusyRef.current = false;

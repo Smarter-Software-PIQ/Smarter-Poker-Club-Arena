@@ -71,6 +71,10 @@ const COPY_TABLE_PROPERTIES = new Map([
 ]);
 const HTML_FILES = ['index.html', 'public/offline.html'];
 
+/** React state setters whose value a component prints as a message line. */
+const STATE_COPY_SETTER =
+  /^set(?:[A-Z][A-Za-z]*)?(?:Error|ErrorMessage|ErrorText|Message|StatusMessage|StatusText|Notice|Warning)$/;
+
 const UI_ATTRIBUTE_NAMES = new Set([
   'alt',
   'aria-description',
@@ -115,15 +119,72 @@ const UI_PROPERTY_NAMES = new Set([
 
 /** Initialisms that are shouted, not Title Cased. Mirrors src/utils/titleCase.ts. */
 const ACRONYMS = new Set([
-  'nlh', 'nlhe', 'plo', 'plo4', 'plo5', 'plo6', 'plo8', 'flh', 'flo', 'ofc',
-  'nl', 'pl', 'fl', 'sng', 'mtt', 'xmtt', 'pko', 'ko', 'gtd', 'hu', 'wsop',
-  'bbj', 'vip', 'id', 'utg', 'sb', 'bb', 'btn', 'co', 'mp', 'hj', 'lj',
-  'rit', 'gto', 'ev', 'roi', 'itm', 'usd', 'kyc', 'tos', 'faq', 'api', 'url',
-  'pc', 'ios', 'os', 'ui', 'ux', 'qr', 'sms', 'otp', '2fa',
+  'nlh',
+  'nlhe',
+  'plo',
+  'plo4',
+  'plo5',
+  'plo6',
+  'plo8',
+  'flh',
+  'flo',
+  'ofc',
+  'nl',
+  'pl',
+  'fl',
+  'sng',
+  'mtt',
+  'xmtt',
+  'pko',
+  'ko',
+  'gtd',
+  'hu',
+  'wsop',
+  'bbj',
+  'vip',
+  'id',
+  'utg',
+  'sb',
+  'bb',
+  'btn',
+  'co',
+  'mp',
+  'hj',
+  'lj',
+  'rit',
+  'gto',
+  'ev',
+  'roi',
+  'itm',
+  'usd',
+  'kyc',
+  'tos',
+  'faq',
+  'api',
+  'url',
+  'pc',
+  'ios',
+  'os',
+  'ui',
+  'ux',
+  'qr',
+  'sms',
+  'otp',
+  '2fa',
 ]);
 
 const PLURAL_OR_UNIT_FRAGMENTS = new Set([
-  's', 'es', 'ies', 'y', 'st', 'nd', 'rd', 'th', 'x', 'm', 'h',
+  's',
+  'es',
+  'ies',
+  'y',
+  'st',
+  'nd',
+  'rd',
+  'th',
+  'x',
+  'm',
+  'h',
 ]);
 
 const fix = process.argv.includes('--fix');
@@ -291,8 +352,7 @@ function stringChange(node, source, sf, context) {
   if (isMachineString(text)) return null;
   // A string reached through a render expression can be a branch that OPENS
   // with a suffix ("s are ..."); everywhere else the whole string is a word.
-  const cased =
-    context === 'render expression' ? titleCaseBranch(text) : titleCaseText(text);
+  const cased = context === 'render expression' ? titleCaseBranch(text) : titleCaseText(text);
   if (cased === text) return null;
 
   const nodeStart = node.getStart(sf);
@@ -405,8 +465,11 @@ function jsxTextNodes(source, sf) {
     const parent = node.parent;
     if (!parent || !parent.children) return false;
     const index = parent.children.indexOf(node);
-    return index >= 0 && index < parent.children.length - 1 &&
-      ts.isJsxExpression(parent.children[index + 1]);
+    return (
+      index >= 0 &&
+      index < parent.children.length - 1 &&
+      ts.isJsxExpression(parent.children[index + 1])
+    );
   };
 
   const visit = (node) => {
@@ -529,6 +592,20 @@ function staticCopyChanges(source, sf, file) {
           add(change);
         }
       }
+      /**
+       * STATE THAT A PAGE PRINTS (2026-11-28). `setError('Failed to load agent
+       * hierarchy')` is copy: the component stores it and renders it as the
+       * error line. A call argument is neither JSX text nor a UI attribute, so
+       * about fifty of these shipped lower case ("User not found", "Failed to
+       * send request"). Only setters named for player-facing messages are
+       * read, and only prose (text with a space), so a status value such as
+       * setFeedback('idle') or setMessage(code) is left alone.
+       */
+      if (STATE_COPY_SETTER.test(name) && node.arguments.length > 0) {
+        for (const change of copyValueChanges(node.arguments[0], source, sf, `${name}() copy`)) {
+          if (/\s/.test(change.text.trim())) add(change);
+        }
+      }
     }
 
     if (ts.isPropertyAssignment(node) && UI_PROPERTY_NAMES.has(propertyName(node.name))) {
@@ -588,7 +665,8 @@ function htmlTextNodes(source) {
  * on 2026-08-31 - so the run is gated behind "was I executed?" and the module
  * is importable.
  */
-const isMain = process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
+const isMain =
+  process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
 if (!isMain) {
   // Imported for its rules; the caller runs nothing.
 } else {
@@ -698,7 +776,9 @@ if (!isMain) {
 
   if (offenders.length > 0) {
     console.error('\ncheck-title-case FAILED: page copy is not Title Cased.\n');
-    console.error('The first letter of every word must be capitalized on every forward-facing page.');
+    console.error(
+      'The first letter of every word must be capitalized on every forward-facing page.'
+    );
     console.error('Run: node scripts/ci/check-title-case.mjs --fix\n');
     offenders.slice(0, 60).forEach((offender) => console.error('  ' + offender));
     if (offenders.length > 60) console.error(`  ... and ${offenders.length - 60} more`);
@@ -707,5 +787,4 @@ if (!isMain) {
   }
 
   console.log('check-title-case: OK - every static word on every page starts with a capital.');
-
 }

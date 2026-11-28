@@ -30,7 +30,7 @@ export default function GameCreationGuard({ children }: { children: ReactNode })
       setAccess(await fetchGameCreationAccess(resolvedClubId));
     } catch (cause) {
       setError(
-        cause instanceof Error ? cause.message : 'Game creation access could not be verified.'
+        cause instanceof Error ? cause.message : 'Game Creation Access Could Not Be Verified.'
       );
     }
   }, [clubId]);
