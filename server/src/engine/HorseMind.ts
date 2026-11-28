@@ -903,6 +903,19 @@ const styleSizeKey = (userId: string, variant: string, mode: string, size: strin
   `${variant}|${mode}|${size}|${userId.toLowerCase()}`;
 const EMPTY_EXPLOIT_ROWS: ReadonlyMap<string, ExploitCounters> = new Map();
 const MAX_SEEN_ACTIONS = 60_000;
+/**
+ * HOLD'EM FOLD-TO-RAISE READ (2026-11-28, HORSE DECISIONS; read only by the default-off option
+ * v78NoCommittingBluffRaiseIsPriced). One player's answers, per postflop street, when his own bet or raise was
+ * raised: [answers, folds], whole counts. Public actions only. Memory only: never persisted, never in a read
+ * frame; a second look and an exact replay carry none and price the population.
+ */
+export interface HoldemFoldToRaiseTallies {
+  flop: [number, number];
+  turn: [number, number];
+  river: [number, number];
+}
+/** The most players the Hold'em fold-to-raise read keeps; the least recently updated go first. */
+export const HOLDEM_FOLD_TO_RAISE_MAX_ROWS = MAX_TRACKED_PLAYERS;
 const MAX_HAND_FLAGS = 20_000;
 
 /**
@@ -964,6 +977,10 @@ export interface HorseMindSandbox {
   exploit: Map<string, ExploitCounters>;
   /** V86 flop-only checked-to stab counters, keyed `${scope}|${userId}`. */
   flopStab?: Map<string, FlopStabCounters>;
+  /** HOLD'EM FOLD-TO-RAISE READ (2026-11-28), keyed by player. Set on a sandbox only once a Hold'em hand observed
+   *  inside it has counted an answer; absent reads as no memory, never as the live map. Not carried by a read
+   *  frame. */
+  holdemFoldToRaise?: Map<string, HoldemFoldToRaiseTallies>;
   /** Items 21 and 23 (2026-11-05): the contender and stack-exposure
    *  fingerprint a planned barrel expects to meet on the next street, keyed
    *  like outlooks. Absent only on predecessor snapshots. */
@@ -1517,6 +1534,8 @@ export class HorseMind {
   private static exploitCounters = new Map<string, ExploitCounters>();
   /** V86: decayed flop-only checked-to stab counters, `${scope}|${userId}`. */
   private static flopStabCounters = new Map<string, FlopStabCounters>();
+  /** HOLD'EM FOLD-TO-RAISE READ (2026-11-28): per player, memory only, capped at HOLDEM_FOLD_TO_RAISE_MAX_ROWS. */
+  private static holdemFoldToRaise = new Map<string, HoldemFoldToRaiseTallies>();
   /** Boot-hydrated hand keys so repeated hydration calls are 100% idempotent. */
   private static hydratedHandKeys = new Set<string>();
   private static readonly MAX_HYDRATED_HAND_KEYS = 50_000;
@@ -1771,6 +1790,10 @@ export class HorseMind {
 
     // Limp-reraise read: players who limped and have not yet answered a raise.
     const limpedPending = new Set<string>();
+    // Hold'em fold-to-raise read: players whose own bet or raise on the current street has been raised and who
+    // have not yet answered. Counted only for a hand observed under a Hold'em scope.
+    const raisedPending = new Set<string>();
+    const foldToRaiseHand = (this.decisionScope ?? '').startsWith('holdem:');
     for (let controllerOrdinal = 0; controllerOrdinal < history.length; controllerOrdinal++) {
       const a = history[controllerOrdinal];
       // Preserve compatibility of individual legacy reads. The shared exploit
@@ -1784,6 +1807,7 @@ export class HorseMind {
       if (a.stage !== curStage) {
         curStage = a.stage;
         streetBettor = null;
+        raisedPending.clear();
       }
       const isAggr = isMindAggression(a);
       // V28 AUDIT FIX: "faced aggression" now means FACED AGGRESSION. The old
@@ -1900,6 +1924,23 @@ export class HorseMind {
             s.rFacedAggr++;
           }
         }
+      }
+
+      // HOLD'EM FOLD-TO-RAISE READ (2026-11-28): the first answer of a player whose own bet or raise on this
+      // street was raised. It writes its own map only, so counting it changes no other read and no decision.
+      if (foldToRaiseHand && !preflop) {
+        if (
+          raisedPending.has(a.userId) &&
+          (a.action === 'fold' ||
+            a.action === 'call' ||
+            a.action === 'raise' ||
+            a.action === 'all_in')
+        ) {
+          raisedPending.delete(a.userId);
+          if (isNew) this.noteHoldemFoldToRaise(a.userId, curStage, a.action === 'fold');
+        }
+        if (isAggr && streetBettor != null && streetBettor !== a.userId)
+          raisedPending.add(streetBettor);
       }
 
       // V12 ANTI-EXPLOIT ATTRIBUTION — who attacks whom. isNew-gated so a
@@ -4070,6 +4111,7 @@ export class HorseMind {
     this.dirtyScoped.clear();
     this.exploitCounters.clear();
     this.flopStabCounters.clear();
+    this.holdemFoldToRaise.clear();
     this.hydratedHandKeys.clear();
     this.styleBootHandKeys.clear();
     this.durableOpponentVersions.clear();
@@ -4618,6 +4660,9 @@ export class HorseMind {
     // knows the older fields) reads as "no exploit memory", never as live.
     this.exploitCounters = sandbox.exploit ?? new Map();
     this.flopStabCounters = sandbox.flopStab ?? new Map();
+    // The Hold'em fold-to-raise read: the sandbox's own, or none; never the live map.
+    const liveHoldemFoldToRaise = this.holdemFoldToRaise;
+    this.holdemFoldToRaise = sandbox.holdemFoldToRaise ?? new Map();
     this.scoped = sandbox.scoped;
     this.dirtyScoped = sandbox.dirtyScoped;
     this.seenActions = sandbox.seenActions;
@@ -4684,6 +4729,10 @@ export class HorseMind {
       this.dirtyScoped = live.dirtyScoped;
       this.exploitCounters = live.exploit;
       this.flopStabCounters = live.flopStab;
+      // A sandbox keeps the map only once it holds an answer, so one that never learned keeps its exact shape.
+      if (!sandbox.holdemFoldToRaise && this.holdemFoldToRaise.size > 0)
+        sandbox.holdemFoldToRaise = this.holdemFoldToRaise;
+      this.holdemFoldToRaise = liveHoldemFoldToRaise;
       this.sandboxDepth = 0;
       this.decisionScope = liveScope;
       this.decisionVariant = liveVariant;
@@ -5965,6 +6014,40 @@ export class HorseMind {
     const v = (this.decisionVariant ?? '').toLowerCase();
     if (v !== 'plo4' && v !== 'plo5') return null;
     return HUD_EV_FOLD_CALIBRATION[street] ?? null;
+  }
+
+  /**
+   * HOLD'EM FOLD-TO-RAISE READ (2026-11-28): how often this player folded, on one postflop street, when his own
+   * bet or raise was raised (whole counts of his first answers), or null outside a Hold'em decision and when no
+   * answer of his on that street has been seen. Counted by observe() from public actions; memory only. Pure read:
+   * no receipt, no write, no random draw. ONE CALLER: HorseLogic.v78CommitsWithoutJam, only with the default-off
+   * option v78NoCommittingBluffRaiseIsPriced on; with it off no decision reads it.
+   */
+  static holdemFoldToRaiseOf(
+    userId: string,
+    street: 'flop' | 'turn' | 'river'
+  ): { folds: number; opportunities: number } | null {
+    const scope = this.decisionScope;
+    if (!scope || !scope.startsWith('holdem:')) return null;
+    const cell = this.holdemFoldToRaise.get(userId)?.[street];
+    if (!cell || !(cell[0] > 0)) return null;
+    return { opportunities: cell[0], folds: Math.min(cell[1], cell[0]) };
+  }
+
+  /** Rows the Hold'em fold-to-raise read holds now (tests and the memory cap). */
+  static holdemFoldToRaiseRowCount(): number {
+    return this.holdemFoldToRaise.size;
+  }
+
+  private static noteHoldemFoldToRaise(userId: string, street: string, folded: boolean): void {
+    if (!userId || (street !== 'flop' && street !== 'turn' && street !== 'river')) return;
+    const row = this.holdemFoldToRaise.get(userId) ?? { flop: [0, 0], turn: [0, 0], river: [0, 0] };
+    row[street][0] += 1;
+    if (folded) row[street][1] += 1;
+    // Least recently updated first: an updated row moves to the end.
+    this.holdemFoldToRaise.delete(userId);
+    this.holdemFoldToRaise.set(userId, row);
+    evictOldest(this.holdemFoldToRaise, HOLDEM_FOLD_TO_RAISE_MAX_ROWS);
   }
 
   /**

@@ -1,6 +1,6 @@
 # v78NoCommittingBluffRaiseIsPriced: authority for the live switch
 
-**State: OFF in source (read `=== true`), held in `OPTION_SWITCH_REFUSED` (zero SQL migrations, zero switch rows; rename to `v78NoCommittingBluffRaiseIsPriced.md` only when a future registration PR moves it out of `OPTION_SWITCH_REFUSED`). Evidence NOT MET.** v2 (2026-11-22) prices on the Wave 5.4 NLH fold-to-raise priors of #11759. Mechanism, scope isolation, off-identity, public-info-only invariance, receipts, law tests, and hard safety (`0` illegal, `0` refusals, `0` errors across 8,090 deduplicated HVH48 AsOf-memory decisions) are met; the activation-evidence bar is NOT MET (`n = 0 < 20` people-only changed decisions across HVH48 D + E). Do not register or switch on until (a) a real-human sample reaches `n >= 20` changed decisions and passes, and (b) a per-opponent Hold'em fold-to-raise read is wired: today every opponent is priced on the population prior (see "Open limit").
+**State: OFF in source (read `=== true`), held in `OPTION_SWITCH_REFUSED` (zero SQL migrations, zero switch rows; rename to `v78NoCommittingBluffRaiseIsPriced.md` only when a future registration PR moves it out of `OPTION_SWITCH_REFUSED`). Evidence NOT MET.** v2 (2026-11-22) prices on the Wave 5.4 NLH fold-to-raise priors of #11759. Mechanism, scope isolation, off-identity, public-info-only invariance, receipts, law tests, and hard safety (`0` illegal, `0` refusals, `0` errors across 8,090 deduplicated HVH48 AsOf-memory decisions) are met; the activation-evidence bar is NOT MET (`n = 0 < 20` people-only changed decisions across HVH48 D + E). Do not register or switch on until (a) a real-human sample reaches `n >= 20` changed decisions and passes, (b) the honest harness grade passes (it FAILED on 2026-11-28 with the per-opponent read wired: 2 divergent deals in 336,000, pooled -0.11 +/- 0.51 bb/100; see "The per-opponent read"), and (c) the read is carried by the decision read frame. It stays OFF.
 
 Criteria declared before build or replay: `CRITERIA-V78-COMMITTING-BLUFF-RAISE-PRICED.md` (sha256 `fd504c6f3cac198dda396fbe8e9dba4e3db08087011302c1e9797af324c6b8f0`, 2026-11-22 03:52 CST, HORSE DECISIONS lead); v2 criteria `CRITERIA-V78-WAVE54-PRICED.md` (sha256 `6c997bf6dc1fcee3`..., 2026-11-22 13:43 CST, declared before the v2 edit or run).
 
@@ -24,7 +24,7 @@ Implemented in pure module `server/src/engine/HorseV78CommittingBluffRaisePriced
 - **Measured fold-to-raise probability (`F`):** `estimateHoldemFoldToRaisePrior` in `server/src/engine/holdemEmpiricalPriors.ts` (#11759): flop / turn / river fold-to-raise over raise-to-bet and raise-to-pot geometry, SPR, the bettor's commitment, the all-in shift and multiway tightening. Any opponent already all-in, or already matched, gives `F = 0`.
 - **Called equity:** `conditionEquityAgainstRaiseCallRange` conditions the Horse's equity on the range that continues against the raise.
 - **EV comparison:** `priceHoldemRaiseEv` (fold / call / 3-bet response) at the legalized commitment, capped to what the deepest live opponent can match, under true expected utility per outcome branch `E[u(X)]` with `u(x) = x < 0 ? x * bf : x` (`bf = max(1, heroBubbleFactor ?? 1)` in tournaments, `1` in cash). The raise is allowed only when its utility beats `max(0, e * pot - (1 - e) * bf * toCall)`; otherwise it is vetoed, and unpriceable inputs fail closed to the veto.
-- **Open limit:** the module accepts a per-opponent fold-to-raise sample (`opponentSample`) and a HUD packet (`hudOpp`), and `HorseLogic.ts` passes neither. `HorseMind` holds no Hold'em fold-to-raise counter (fold-to-bet counts are a different quantity and are deliberately not used), so live pricing is hand-, size- and stack-dependent but not player-dependent. Owed before activation, with the Horse SWITCH lane's NLH HUD.
+- **Per-opponent read (2026-11-28):** `HorseLogic.ts` passes the bettor's own record on the decision's street (`foldToRaiseRead`, from `HorseMind.holdemFoldToRaiseOf`) when the decision uses the mind. See "The per-opponent read" below. The module still accepts `opponentSample` and a HUD packet (`hudOpp`); `HorseLogic.ts` passes neither.
 - **Scope isolation:** OFF / unset / false is byte-identical to `origin/main`; Omaha (PLO4/PLO5/PLO6), Short Deck, Fixed Limit, Pot Limit, multi-board, and bomb pots are untouched even when ON.
 
 ## Receipts & Tests
@@ -60,4 +60,49 @@ Criteria `CRITERIA-V78-PRICED-SCOPE-R3.md` (sha256 `0e1beb2f0de4a9d28214d51c0bd4
 ### Why Evidence NOT MET
 
 1. **No people-only reach (`n = 0 < 20`):** of 8,090 replayed decisions, 932 faced people-only opponents and none changed action under v2.
-2. **Population prior only:** see "Open limit" above. A per-opponent fold-to-raise read is owed before any registration or switch-on.
+2. **The honest grade fails (2026-11-28):** with the per-opponent read wired the option reaches 2 divergent deals in 336,000 and its pooled result is -0.11 +/- 0.51 bb/100 (z -0.21, bar z >= 2). See below.
+3. **The read is not in the decision read frame:** a second look and an exact replay price the population. Owed before any switch-on.
+
+## The per-opponent read (2026-11-28)
+
+Changelog: `docs/changelog/2026-11-28-the-bluff-raise-price-reads-each-opponents-folds.md`.
+
+- **Collected:** `HorseMind.observe` counts, per player and postflop street, the first answer (fold, call, raise, all-in) of a player whose own bet or full raise on that street was raised by another player: `[answers, folds]`. Public actions only, each action once, Hold'em scopes only. Stored in its own map (`holdemFoldToRaise`), in memory only, at most 4,000 players, least recently updated dropped first. No table, no migration, no field on `OpponentStats`, nothing in a read frame.
+- **Shrunk:** toward people's measured rate on that street with `V78_FOLD_READ_PRIOR_STRENGTH = 20` pseudo-answers.
+- **Guarded:** not used below `V78_FOLD_READ_MIN_OPPORTUNITIES = 10` answers on that street (the price is then exactly the population price); priced at the one-sided 95% lower bound (`V78_FOLD_READ_LOWER_BOUND_Z = 1.645`), and the bettor's fold share is never above that bound: it is the smaller of the bound and the geometry model shifted by the bound's distance from people's rate.
+- **Prior and evidence (`V78_FOLD_READ_PEOPLE_PRIOR`, `V78_FOLD_READ_EVIDENCE`):** production, SELECT only, 2026-11-28 about 1:25 AM Chicago time; `has_human` NLH hands, one board, no bomb pot, 2026-10-01 to 2026-11-28 1:00 AM Chicago time; people only. Flop 78 / 198 = 0.394 (39 people), turn 67 / 167 = 0.401 (45), river 17 / 58 = 0.293 (26), all 162 / 423 = 0.383 (57). Without the person holding the most answers: 65 / 173, 57 / 148, 14 / 51, 136 / 372.
+- **Off identity:** the option's branch is the only reader; the count writes only its own map. `HorseHoldemFoldToRaiseRead.test.ts` and the harness no-op arm (0 divergent in 56 cells).
+
+### Honest harness grade with the read
+
+Criteria declared before any run: `CRITERIA-V78READ-01Gw7aDq.md` (sha256 `77aa63a83dde5cbf0ae395baa39c0929c95834cedde94c528d4b8ef1c374f6b9`). `server/scripts/horse-grade.ts`, base = all 80 live switch rows, 6,000 pairs or deals per cell, heads-up and 6-max, 100 bb and 40 bb; mirror, folder and never-folds at seeds 1, 7, 42; flop folder, caller, value only, balanced, over-bluffer at seed 1. The harness keeps each world's Horse memory for the whole cell, so the read learns inside a cell.
+
+All 56 cells finished: 0 illegal, 0 truncated, 0 no-op divergent deals in every cell (the no-op arm is the option off on both sides while the count collects).
+
+| Opponent profile                                         | Cells | Deals or pairs | Divergent deals | ON minus no-op, bb/100 |
+| -------------------------------------------------------- | ----- | -------------- | --------------- | ---------------------- |
+| Mirror (Horses against Horses), seeds 1, 7, 42           | 12    | 72,000         | 0               | 0.00 ± 0.00            |
+| Folder (over-folds turn and river), seeds 1, 7, 42       | 12    | 72,000         | 1               | -0.63 ± 0.63 (z -1.00) |
+| Flop folder (over-folds the flop), seed 1                | 4     | 24,000         | 1               | +0.85 ± 0.85 (z +1.00) |
+| Never folds postflop (bets, never folds), seeds 1, 7, 42 | 12    | 72,000         | 0               | 0.00 ± 0.00            |
+| Caller (calls every bet, never bets), seed 1             | 4     | 24,000         | 0               | 0.00 ± 0.00            |
+| Value only, seed 1                                       | 4     | 24,000         | 0               | 0.00 ± 0.00            |
+| Balanced, seed 1                                         | 4     | 24,000         | 0               | 0.00 ± 0.00            |
+| Over-bluffer, seed 1                                     | 4     | 24,000         | 0               | 0.00 ± 0.00            |
+| **Pooled (the two cells that diverged)**                 | 56    | 336,000        | 2               | -0.11 ± 0.51 (z -0.21) |
+
+The two cells that diverged are both heads-up at 100 bb, seed 1: folder -0.63 ± 0.63 and flop folder +0.85 ± 0.85, one deal each. Every 6-max cell and every 40 bb cell is 0.
+
+**Verdict: FAIL.** Reach is met (the option now diverges, which it never did before), and nothing is harmed, but the value test is not met: pooled z is -0.21 against a bar of 2. The option stays OFF.
+
+Why it fails, measured (a diagnostic run, not a graded cell: heads-up, 100 bb, 6,000 deals, seed 1, one ON world):
+
+| Profile     | Times the option's spot came up | His answers on record at those times | His fold rate there    | Lower bound priced           |
+| ----------- | ------------------------------- | ------------------------------------ | ---------------------- | ---------------------------- |
+| Folder      | 5                               | 28, 35, 57, 92, 80                   | 0.76 to 0.89           | 0.56, 0.61, 0.69, 0.62, 0.71 |
+| Flop folder | 4                               | 22, 23, 98, 56                       | 0.50, 0.52, 0.89, 0.55 | 0.33, 0.34, 0.74, 0.42       |
+| Never folds | 1                               | 24                                   | 0.00                   | 0.09                         |
+
+So the read works: it learns inside a cell (up to 98 answers), reads the folder as a folder and the player who never folds as one (lower bound 0.09, so the raise stays refused). What is missing is the spot. A legal non-jam bluff raise that adds 40% or more of the stack is proposed between one and five times in 6,000 heads-up deals. A price that is right about a spot that rare cannot move a win rate, with or without the read. That matches production, where the blanket rule fires about 250 times a day across the whole fleet.
+
+Evidence bar: NOT MET. The option stays OFF.

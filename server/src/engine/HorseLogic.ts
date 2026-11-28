@@ -37208,6 +37208,10 @@ export class HorseLogic {
         stack: Number.isFinite(o.stack) ? Math.max(0, o.stack) : 0,
         bet: Number.isFinite(o.bet) ? Math.max(0, o.bet) : 0,
         isAllIn: o.is_all_in === true,
+        // 2026-11-28: his own answers when his bet was raised on this street (HorseMind, memory only).
+        foldToRaiseRead: pricedCtx.useMind
+          ? HorseMind.holdemFoldToRaiseOf(o.user_id, pricedCtx.street)
+          : null,
       }));
       const priced = priceCommittingBluffRaise({
         street: pricedCtx.street,

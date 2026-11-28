@@ -28,6 +28,20 @@
  * Allows the raise iff `EV(bluffRaise) > baseline`; vetoes otherwise (and fails closed to veto
  * on any unpriceable input). Zero `fastRandom()` draw, zero opponent hole cards, zero direct
  * import of `opponentHud/` (preserving `TheHudProviderChangesNoDecision.law.test.ts`).
+ *
+ * THE PER-OPPONENT READ (2026-11-28): with population priors alone the price equalled the blanket
+ * rule on every one of about 108,000 graded deals, because nothing in it knew the bettor. The
+ * bettor's own answers when his bet was raised on this street (`foldToRaiseRead`, HorseMind's
+ * memory-only tallies) now move the fold share, under three guards, because a committing bluff
+ * raise that is wrong costs a stack:
+ *   1. fewer than `V78_FOLD_READ_MIN_OPPORTUNITIES` answers: the read is not used at all and the
+ *      price is exactly the population price;
+ *   2. the tallies are shrunk toward people's measured rate on that street
+ *      (`V78_FOLD_READ_PEOPLE_PRIOR`) with `V78_FOLD_READ_PRIOR_STRENGTH` pseudo-answers;
+ *   3. the price uses the LOWER bound of that estimate (`V78_FOLD_READ_LOWER_BOUND_Z` standard
+ *      deviations under the mean), never the mean, and never more than the bound itself: the
+ *      bettor's fold share is the smaller of the bound and the geometry model shifted by how far
+ *      the bound sits from people's rate.
  */
 import type { Card } from '../types.js';
 import {
@@ -43,6 +57,86 @@ import {
 
 const EPS = 1e-9;
 
+/**
+ * People's fold share when their own postflop bet or raise was raised, by street: the rate the
+ * per-opponent read is shrunk toward. Measured read-only on production hand_history (public
+ * actions, `publicNode` era rows; see `V78_FOLD_READ_EVIDENCE`).
+ */
+export const V78_FOLD_READ_PEOPLE_PRIOR: Readonly<Record<HoldemEmpiricalStreet, number>> =
+  Object.freeze({ flop: 78 / 198, turn: 67 / 167, river: 17 / 58 });
+export const V78_FOLD_READ_EVIDENCE = Object.freeze({
+  measuredAt: '2026-11-28 about 1:25 AM Chicago time, SELECT only',
+  scope:
+    'hand_history, has_human, game_variant nlh, one board, no bomb pot, 2026-10-01 to 2026-11-28 1:00 AM Chicago time; people only (profiles.is_horse false); an answer = the first action (fold, call, raise, all-in) of a player whose previous action on that street was a bet or full raise and who was raised by another player in between',
+  /** [folds, answers, distinct people] */
+  people: Object.freeze({
+    flop: [78, 198, 39],
+    turn: [67, 167, 45],
+    river: [17, 58, 26],
+    all: [162, 423, 57],
+  }),
+  /** [folds, answers] with the person holding the most answers left out */
+  peopleWithoutTheTopPerson: Object.freeze({
+    flop: [65, 173],
+    turn: [57, 148],
+    river: [14, 51],
+    all: [136, 372],
+  }),
+  /** [folds, answers] of Horses in the same hands, for scale only (never the prior) */
+  horses: Object.freeze({ flop: [486, 1233], turn: [292, 790], river: [86, 227] }),
+});
+/** Pseudo-answers of people's rate in the shrunk estimate: about a tenth of the measured flop sample. */
+export const V78_FOLD_READ_PRIOR_STRENGTH = 20;
+/** Answers on the street before the read may move the price at all. */
+export const V78_FOLD_READ_MIN_OPPORTUNITIES = 10;
+/** One-sided 95% lower bound (normal approximation of the Beta posterior). */
+export const V78_FOLD_READ_LOWER_BOUND_Z = 1.645;
+
+export interface CommittingBluffRaiseFoldRead {
+  /** Times the opponent folded when his own bet or raise on this street was raised. */
+  readonly folds: number;
+  /** Times he answered such a raise on this street. */
+  readonly opportunities: number;
+}
+
+export interface CommittingBluffRaiseFoldBound {
+  readonly opportunities: number;
+  /** Posterior mean of his fold share: (folds + k * prior) / (n + k). */
+  readonly mean: number;
+  /** mean - z * sd of the Beta posterior, floored at 0. */
+  readonly lowerBound: number;
+}
+
+/**
+ * The shrunk estimate of one opponent's fold-to-raise share on a street and its lower bound, or
+ * null when the read may not be used (absent, malformed, or fewer than
+ * `V78_FOLD_READ_MIN_OPPORTUNITIES` answers). Pure.
+ */
+export function committingBluffRaiseFoldBound(
+  street: HoldemEmpiricalStreet,
+  read: CommittingBluffRaiseFoldRead | null | undefined
+): CommittingBluffRaiseFoldBound | null {
+  if (!read) return null;
+  const n = read.opportunities;
+  const f = read.folds;
+  if (!Number.isFinite(n) || !Number.isFinite(f) || f < 0 || f > n) return null;
+  if (n < V78_FOLD_READ_MIN_OPPORTUNITIES) return null;
+  const prior = V78_FOLD_READ_PEOPLE_PRIOR[street];
+  if (!(prior > 0 && prior < 1)) return null;
+  const k = V78_FOLD_READ_PRIOR_STRENGTH;
+  const a = f + k * prior;
+  const b = n - f + k * (1 - prior);
+  const mean = a / (a + b);
+  const sd = Math.sqrt((a * b) / ((a + b) * (a + b) * (a + b + 1)));
+  const lowerBound = Math.max(0, mean - V78_FOLD_READ_LOWER_BOUND_Z * sd);
+  return { opportunities: n, mean, lowerBound };
+}
+
+const readLogit = (p: number): number => {
+  const q = Math.min(1 - 1e-6, Math.max(1e-6, p));
+  return Math.log(q / (1 - q));
+};
+
 export interface CommittingBluffRaiseOpponent {
   /** Remaining stack behind before responding to hero's raise. */
   readonly stack: number;
@@ -54,6 +148,9 @@ export interface CommittingBluffRaiseOpponent {
   readonly hudOpp?: HoldemHudPacketOpponent | null;
   /** Optional public fold-to-raise action-count sample for Empirical-Bayes shrinkage (zero hole cards). */
   readonly opponentSample?: HoldemFoldToRaiseOpponentSample | null;
+  /** Optional per-opponent read of this street (HorseMind.holdemFoldToRaiseOf): priced at its lower bound, and
+   *  only from `V78_FOLD_READ_MIN_OPPORTUNITIES` answers on. Absent or thin: the population price, unchanged. */
+  readonly foldToRaiseRead?: CommittingBluffRaiseFoldRead | null;
 }
 
 export interface CommittingBluffRaisePriceInput {
@@ -105,6 +202,8 @@ export interface CommittingBluffRaisePriceResult {
   readonly callAdd: number;
   readonly isAllInRaise: boolean;
   readonly foldPriorSource: HoldemRaisePriorSource | null;
+  /** Answers behind the per-opponent read that priced this verdict; 0 when the population priced it. */
+  readonly foldReadOpportunities: number;
   readonly reason: CommittingBluffRaiseReason;
 }
 
@@ -126,6 +225,7 @@ function vetoResult(
     callAdd: 0,
     isAllInRaise,
     foldPriorSource: null,
+    foldReadOpportunities: 0,
     reason,
   };
 }
@@ -266,6 +366,7 @@ export function priceCommittingBluffRaise(
   // Any already-all-in or already-matched opponent forces `F = 0` (cannot win pot without showdown).
   let foldProb = 0;
   let foldPriorSource: HoldemRaisePriorSource | null = null;
+  let foldReadOpportunities = 0;
   if (!hasAllInOpponent && !anyZeroCallAdd) {
     const bettorBet = primaryBettor.bet > EPS ? primaryBettor.bet : currentBet;
     const raiseToBetRatio = bettorBet > EPS ? effRaiseTo / bettorBet : undefined;
@@ -293,6 +394,19 @@ export function priceCommittingBluffRaise(
     });
     foldProb = priorEst.mean;
     foldPriorSource = priorEst.source;
+    // The bettor's own record on this street, at its lower bound (see the header). Thin or absent: unchanged.
+    const bound = committingBluffRaiseFoldBound(street, primaryBettor.foldToRaiseRead);
+    if (bound !== null) {
+      const z =
+        readLogit(priorEst.bettorPrior) +
+        readLogit(bound.lowerBound) -
+        readLogit(V78_FOLD_READ_PEOPLE_PRIOR[street]);
+      const shifted = 1 / (1 + Math.exp(-z));
+      const bettorFold = Math.max(0, Math.min(1, Math.min(bound.lowerBound, shifted)));
+      foldProb = Math.max(0, Math.min(1, bettorFold * priorEst.multiwayRetention));
+      foldPriorSource = 'opponent_sample';
+      foldReadOpportunities = bound.opportunities;
+    }
   }
 
   // Condition hero's called equity on villain's stronger raise-continuing range via Bayes power-law kernel.
@@ -360,6 +474,7 @@ export function priceCommittingBluffRaise(
     callAdd: pricedEv.villainCall,
     isAllInRaise,
     foldPriorSource,
+    foldReadOpportunities,
     reason: allow ? 'ev_positive' : 'ev_non_positive',
   };
 }
