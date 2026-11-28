@@ -73,6 +73,8 @@ jobs:
             scripts/ci/test-promo-play-through.py
             scripts/ci/test-promo-activation.py
             scripts/ci/test-promo-profit*.py
+            scripts/dev/test-lightning-phase6-settlement.sh
+            scripts/dev/fixtures/lightning-*.sql
             tests/fixtures/promo-profit-*/**
             scripts/ci/test-promo-principal-returns.py
             scripts/ci/test-promo-ticket-principal-returns.py
