@@ -252,7 +252,7 @@ describe('A Diamond seat tops up from the custody it sat with', () => {
     const toast = sliceMethod(TABLE_PAGE, 'if (!alreadyAnnounced) {');
     expect(toast, 'a Diamond seat is not told it received chips').toMatch(/Diamond/);
     expect(toast, 'and one Diamond is not "1 Diamonds"').toMatch(/landed === 1/);
-    expect(toast, 'a chip seat is unchanged').toMatch(/landed\.toFixed\(2\)\} Chips/);
+    expect(toast, 'a chip seat is unchanged').toMatch(/cutFixed\(landed, 2\)\} Chips/); // cut, never rounded (Dan 2026-11-27);
   });
 
   it('a felted Diamond seat is prompted, and rebuys through the Diamond door', () => {

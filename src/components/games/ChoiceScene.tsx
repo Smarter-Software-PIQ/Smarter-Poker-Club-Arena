@@ -36,6 +36,7 @@ import { mediaUrl } from '../../utils/mediaBase';
 import { reportError } from '../../utils/errorReporter';
 import { soundService } from '../../services/SoundService';
 import styles from './ChoiceScene.module.css';
+import { cutFixed } from '../../utils/format';
 
 /**
  * A beat of the crossing: the donkey landed on a street, the car reached it,
@@ -94,7 +95,7 @@ interface Props {
 }
 
 /** "1.10x" and "20.00x": a street's multiplier always reads with two decimals. */
-export const streetMultiplier = (cents: number) => `${(cents / 100).toFixed(2)}x`;
+export const streetMultiplier = (cents: number) => `${cutFixed(cents / 100, 2)}x`;
 /** How dangerous a street reads, 0 at the first street to 1 at the last. */
 export const streetHazard = (index: number, count: number) =>
   count <= 1 ? 0 : Math.max(0, Math.min(1, index / (count - 1)));

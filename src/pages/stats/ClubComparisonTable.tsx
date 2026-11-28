@@ -1,4 +1,4 @@
-import { compactChips } from '../../utils/format';
+import { compactChips, cutFixed } from '../../utils/format';
 import { titleCase } from '../../utils/titleCase';
 import { NOT_YET_MEASURED } from './format';
 import {
@@ -47,18 +47,18 @@ function ClubComparisonTable({ rows, tournament, changeClub }: Props) {
                     {compactChips(row.profit)}
                   </td>
                   <td data-label="BB/100 Hands">
-                    {row.hands ? row.bb100.toFixed(1) : NOT_YET_MEASURED}
+                    {row.hands ? cutFixed(row.bb100, 1) : NOT_YET_MEASURED}
                   </td>
                 </>
               )}
               <td data-label="VPIP">
-                {row.hands ? `${(row.vpip * 100).toFixed(1)}%` : NOT_YET_MEASURED}
+                {row.hands ? `${cutFixed(row.vpip * 100, 1)}%` : NOT_YET_MEASURED}
               </td>
               <td data-label="PFR">
-                {row.hands ? `${(row.pfr * 100).toFixed(1)}%` : NOT_YET_MEASURED}
+                {row.hands ? `${cutFixed(row.pfr * 100, 1)}%` : NOT_YET_MEASURED}
               </td>
               <td data-label="Hours">
-                {row.hours === null ? 'Unavailable' : row.hours.toFixed(1)}
+                {row.hours === null ? 'Unavailable' : cutFixed(row.hours, 1)}
               </td>
               {!tournament && <td data-label="Rake">{compactChips(row.rake)}</td>}
               {tournament && (

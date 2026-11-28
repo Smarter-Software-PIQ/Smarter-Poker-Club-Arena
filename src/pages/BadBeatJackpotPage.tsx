@@ -31,6 +31,7 @@ import BBJRulesPanel from '../components/bbj/BBJRulesPanel';
 import { ArenaJackpotDisplay } from '../components/club-buttons';
 import { playerDisplayName } from '../utils/playerDisplayName';
 import { SpadeConsole } from '../components/console/SpadeConsole';
+import { cutFixed } from '../utils/format';
 
 interface JackpotInfo {
   id: string;
@@ -748,7 +749,7 @@ export default function BadBeatJackpotPage() {
                 </span>
               </div>
               <p className="sc-copy bbj-page__row-note">
-                Every Raked Hand Sends {promoFacts.observedRatePct.toFixed(1)}% To Promo -{' '}
+                Every Raked Hand Sends {cutFixed(promoFacts.observedRatePct, 1)}% To Promo -{' '}
                 {jackpotChips(promoFacts.contributedAllTime)} Chips So Far. It Does Not Sit In This
                 Pool: It Is Swept To {promoFacts.purseKind === 'union' ? 'The Union' : 'The Club'}{' '}
                 Promo Wallet, Which Holds {jackpotChips(promoFacts.purseAvailable)} Chips Right Now.

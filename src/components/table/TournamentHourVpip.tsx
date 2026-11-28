@@ -7,6 +7,7 @@ import {
   tournamentHourVpip,
   type TournamentVpipHand,
 } from '../../services/readTournamentHourVpip';
+import { cutFixed } from '../../utils/format';
 
 export function TournamentHourVpip({
   tournamentId,
@@ -70,7 +71,7 @@ export function TournamentHourVpip({
             ? 'Unavailable'
             : result.percent === null
               ? 'No Recorded Hands'
-              : `${result.percent.toFixed(1)}%`}
+              : `${cutFixed(result.percent, 1)}%`}
         {result && result.hands > 0 && (
           <small>
             {result.hands.toLocaleString('en-US')} Settled {result.hands === 1 ? 'Hand' : 'Hands'}

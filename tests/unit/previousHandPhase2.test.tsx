@@ -254,7 +254,7 @@ describe('the rundown', () => {
     render(<HandDetailView model={m} currentUserId="h" viewerFacts={FACTS} />);
     const block = document.querySelector('.hdv__allin')!;
     expect(block.textContent).toContain('All In On The Flop');
-    expect(block.textContent).toContain('78.9%');
+    expect(block.textContent).toContain('78.8%'); // 78.88% is cut, never rounded (Dan 2026-11-27);
     expect(block.textContent).toContain('157.70');
     expect(block.textContent).toContain('+57.70');
     expect(block.textContent).toContain('+100.00');

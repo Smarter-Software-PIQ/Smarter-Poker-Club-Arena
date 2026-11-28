@@ -42,7 +42,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { haptic, soundService } from '../../services/SoundService';
 import { masterBus } from '../../core/MasterBus';
 import { serverNow } from '../../utils/serverClock';
-import { compactChips } from '../../utils/format';
+import { compactChips, cutFixed } from '../../utils/format';
 import {
   PlateButton,
   SPADE_CONSOLE_PLATES_H,
@@ -497,7 +497,7 @@ export function InsuranceModal({
                 {offer.heroName || 'You'}
               </span>
               <span className="insurance-modal__player-equity sc-ink--green">
-                {offer.equityPercent.toFixed(2)}%
+                {cutFixed(offer.equityPercent, 2)}%
               </span>
               <span className="insurance-modal__player-cards">
                 {offer.yourCards.map((card, i) => (
@@ -519,7 +519,7 @@ export function InsuranceModal({
                 <span className="insurance-modal__player-equity sc-ink--muted">
                   {/* Heads-up the villain's share is the complement; multiway
                     shows the leader's number only (server sends one equity). */}
-                  {arr.length === 1 ? `${(100 - offer.equityPercent).toFixed(2)}%` : ''}
+                  {arr.length === 1 ? `${cutFixed(100 - offer.equityPercent, 2)}%` : ''}
                 </span>
                 <span className="insurance-modal__player-cards">
                   {opp.cards.map((card, i) => (
@@ -537,7 +537,7 @@ export function InsuranceModal({
             <div className="insurance-modal__outs">
               <span className="insurance-modal__outs-label sc-label sc-ink--red">
                 Outs Against You ({offer.outs.length}
-                {offer.outPct ? ` • ${offer.outPct.toFixed(1)}%` : ''})
+                {offer.outPct ? ` • ${cutFixed(offer.outPct, 1)}%` : ''})
               </span>
               <div className="insurance-modal__outs-cards">
                 {offer.outs.map((card, i) => (
@@ -568,7 +568,7 @@ export function InsuranceModal({
                   {/* EXACT-RATE FIX 2026-08-28: 2 decimals so Fee x Rate matches
                     the Insured Pot readout instead of drifting ~1.4%. */}
                   <span className="insurance-modal__readout-value sc-ink--silver">
-                    {rate.toFixed(2)}
+                    {cutFixed(rate, 2)}
                   </span>
                 </div>
                 <div className="insurance-modal__readout">
@@ -690,7 +690,7 @@ export function InsuranceModal({
                   </div>
                   <div className="insurance-modal__summary-row">
                     <span className="insurance-modal__summary-label sc-label sc-ink--blue">
-                      Your Equity ({offer.equityPercent.toFixed(1)}%)
+                      Your Equity ({cutFixed(offer.equityPercent, 1)}%)
                     </span>
                     <span className="insurance-modal__summary-value sc-ink--silver">
                       {currency}

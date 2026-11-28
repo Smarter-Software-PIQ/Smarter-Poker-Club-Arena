@@ -59,7 +59,7 @@ import {
   type WheelCardVerdict,
   type WheelFairnessVerdict,
 } from '../utils/wheelFairness';
-import { compactChips, formatWalletChips, formatWalletDiamonds } from '../utils/format';
+import { compactChips, formatWalletChips, formatWalletDiamonds, cutFixed } from '../utils/format';
 import { tallyWheelRun, wheelRunSoFar, type WheelRun } from '../utils/autoRun';
 import { resolveClubUUID } from '../utils/clubIdResolver';
 import { preloadDiamondGame } from '../utils/diamondGamePreload';
@@ -104,7 +104,7 @@ function historyTime(iso: string): string {
 
 /** A prize's worth in chips: whole figures compact, a fraction exact (2.5 chips is 2.50 Chips, not 2). */
 function worth(valueChips: number): string {
-  return `${Number.isInteger(valueChips) ? compactChips(valueChips) : valueChips.toFixed(2)} Chips`;
+  return `${Number.isInteger(valueChips) ? compactChips(valueChips) : cutFixed(valueChips, 2)} Chips`;
 }
 
 const MAX_CLIENT_SEED = 64;

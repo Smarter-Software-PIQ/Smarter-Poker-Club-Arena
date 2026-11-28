@@ -18,7 +18,7 @@
 import { SpadeConsole } from '../console/SpadeConsole';
 import type { FloorWin } from '../../services/DiamondGamesService';
 import { multiplierLabel } from '../../utils/diamondGamesFairness';
-import { compactChips } from '../../utils/format';
+import { compactChips, cutFixed } from '../../utils/format';
 import { getAvatarWithFallback } from '../../utils/avatarGenerator';
 import { DIAMOND_GAME_TITLES } from '../../utils/diamondGameTitles';
 import styles from '../../pages/diamondGames.module.css';
@@ -31,7 +31,7 @@ const GAME_WORD: Record<FloorWin['game'], string> = {
 
 /** Chips as the player reads them: whole figures compact, a fractional prize exact (it IS the prize). */
 function chipsLabel(v: number): string {
-  return Number.isInteger(v) ? compactChips(v) : v.toFixed(2);
+  return Number.isInteger(v) ? compactChips(v) : cutFixed(v, 2);
 }
 
 export function timeAgo(iso: string, now = Date.now()): string {

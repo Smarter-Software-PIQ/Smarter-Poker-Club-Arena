@@ -38,7 +38,7 @@ import CasinoSurfaceHeader from '../components/rewards/RewardsSurfaceHeader';
 import { SpadeConsole } from '../components/console/SpadeConsole';
 import { useIsMounted } from '../hooks/useIsMounted';
 import { titleCase } from '../utils/titleCase';
-import { figureDigits, formatWalletChips } from '../utils/format';
+import { figureDigits, formatWalletChips, cutFixed } from '../utils/format';
 import {
   chicagoDayLabel,
   chicagoInstantLabel,
@@ -823,7 +823,7 @@ export default function UnionStatementsPage() {
         : []),
       ...unionEcoRows(c),
       ...(c.eco_components || []).map((eco): [string, number] => [
-        `${eco.activity === 'cash' ? 'Cash' : 'Tournament'} ECO Base (${(eco.rate * 100).toFixed(1)}%)`,
+        `${eco.activity === 'cash' ? 'Cash' : 'Tournament'} ECO Base (${cutFixed(eco.rate * 100, 1)}%)`,
         eco.base,
       ]),
       ['Combined ECO Adjustment (Negative Means The Club Pays)', c.eco_amount],

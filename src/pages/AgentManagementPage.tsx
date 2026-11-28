@@ -47,7 +47,7 @@ import { confirmDialog } from '../components/common/confirmDialog';
 import { AgentService, type Agent, type ReversibleDistribution } from '@/services/AgentService';
 import { MembershipService, type ClubMembership } from '@/services/MembershipService';
 import { exportToCSV } from '../lib/export';
-import { compactChips, fmt, fmtChips, timeAgo } from '../utils/format';
+import { compactChips, fmt, fmtChips, timeAgo, cutFixed } from '../utils/format';
 import { isAuthzError } from '../utils/clubDashboard';
 import { useAuthUser } from '@/hooks/useAuthUser';
 import { supabase } from '@/lib/supabase';
@@ -595,7 +595,7 @@ export default function AgentManagementPage() {
     amount.toLocaleString('en-US', { minimumFractionDigits: 2 });
   // Commission and rakeback are payment rates, not chip counts. Preserve the
   // contract's tenth instead of rounding 32.5% into a different deal.
-  const formatPercent = (rate: number) => `${(rate * 100).toFixed(1)}%`;
+  const formatPercent = (rate: number) => `${cutFixed(rate * 100, 1)}%`;
   /* Lifted verbatim out of the old header button so the foot's painted plate
      can call it. Same rows, same columns, same filename, same silent-catch. */
   const handleExportAgents = () => {

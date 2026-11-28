@@ -27,6 +27,7 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
 
 import { useMemo, useState } from 'react';
 import './PositionalRadar.css';
+import { cutFixed } from '../../utils/format';
 
 export interface PositionalRadarRow {
   position: string;
@@ -441,7 +442,7 @@ export default function PositionalRadar({ positions, minHands = 30 }: Props) {
                   {METRICS.filter((m) => visible[m.key]).map((m) => (
                     <td key={m.key} style={{ color: m.color }}>
                       {m.denom(r) > 0
-                        ? `${pct(m.count(r), m.denom(r)).toFixed(1)}%`
+                        ? `${cutFixed(pct(m.count(r), m.denom(r)), 1)}%`
                         : 'Not Yet Measured'}
                     </td>
                   ))}
@@ -455,10 +456,10 @@ export default function PositionalRadar({ positions, minHands = 30 }: Props) {
       {activeRow && (
         <p className="pos-radar-readout">
           <strong>{activeRow.position}</strong>: {activeRow.hands_played.toLocaleString()} Hands,
-          VPIP {pct(activeRow.vpip_count, activeRow.hands_played).toFixed(1)}%, PFR{' '}
-          {pct(activeRow.pfr_count, activeRow.hands_played).toFixed(1)}%, 3-Bet{' '}
+          VPIP {cutFixed(pct(activeRow.vpip_count, activeRow.hands_played), 1)}%, PFR{' '}
+          {cutFixed(pct(activeRow.pfr_count, activeRow.hands_played), 1)}%, 3-Bet{' '}
           {(activeRow.three_bet_opps ?? 0) > 0
-            ? `${pct(activeRow.three_bet_count, activeRow.three_bet_opps!).toFixed(1)}%`
+            ? `${cutFixed(pct(activeRow.three_bet_count, activeRow.three_bet_opps!), 1)}%`
             : 'Not Yet Measured'}
         </p>
       )}

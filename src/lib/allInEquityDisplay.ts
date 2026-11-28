@@ -1,3 +1,5 @@
+import { cutTo } from '../utils/format';
+
 /** Preserve strict endpoints: only mathematically zero/one print 0%/100%. */
 export function formatAllInEquity(percent: number, exact = true): string | null {
   if (!Number.isFinite(percent) || percent < 0 || percent > 100) return null;
@@ -6,7 +8,7 @@ export function formatAllInEquity(percent: number, exact = true): string | null 
   if (percent === 0 || percent === 100) return `${percent}%`;
   if (percent < 0.1) return '<0.1%';
   if (percent > 99.9) return '>99.9%';
-  return `${Math.round(percent * 10) / 10}%`;
+  return `${cutTo(percent, 1)}%`;
 }
 
 export interface AllInEquityEntry {

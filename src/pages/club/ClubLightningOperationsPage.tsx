@@ -42,7 +42,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ClubPageSection as SpadeConsole } from '../../components/club/ClubPageSection';
 import '../../components/console/SpadeConsole.css';
 import '../../components/lobby/ArenaWorkspace.css';
-import { compactChips } from '../../utils/format';
+import { compactChips, cutFixed } from '../../utils/format';
 import { titleCase } from '../../utils/titleCase';
 import { formatStakes } from '../../lib/utils';
 import { reportError } from '../../utils/errorReporter';
@@ -113,7 +113,7 @@ export function clusterNotices(c: LightningOverviewCluster): string[] {
 
 function signedOne(n: number | null | undefined): string {
   if (n === null || n === undefined) return '-';
-  return `${n > 0 ? '+' : ''}${n.toFixed(1)}`;
+  return `${n > 0 ? '+' : ''}${cutFixed(n, 1)}`;
 }
 
 export function ClusterRecord({

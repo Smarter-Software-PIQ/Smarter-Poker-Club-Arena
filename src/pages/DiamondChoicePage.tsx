@@ -62,7 +62,7 @@ import {
 import { diamondBonusFloor } from '../utils/diamondBonusPayout';
 import { diamondGameTitle } from '../utils/diamondGameTitles';
 import { randomClientSeed } from '../utils/wheelFairness';
-import { compactChips } from '../utils/format';
+import { compactChips, cutFixed } from '../utils/format';
 import { resolveClubUUID } from '../utils/clubIdResolver';
 import { reportError } from '../utils/errorReporter';
 import { triggerHaptic } from '../services/HapticService';
@@ -78,7 +78,7 @@ interface Ticket {
   hash: string;
 }
 /** "1.10x" and "20.00x": the road's multipliers always read with two decimals. */
-const multiplierCopy = (cents: number) => `${(cents / 100).toFixed(2)}x`;
+const multiplierCopy = (cents: number) => `${cutFixed(cents / 100, 2)}x`;
 /** The fixed road of contracts 4 and 5, for a quote that does not name the
  * coin contract. A round already on the board paints its own, from its receipt;
  * a contract-6 quote paints the ladder its own floor was dealt. */
@@ -1159,7 +1159,7 @@ function DiamondChoiceGame({ game }: { game: ChoiceGame }) {
                 ? [
                     {
                       title: 'Crossing Odds',
-                      body: `The Next Street Has A ${nextOdds.safe.toFixed(1)}% Chance Of A Safe Crossing.${guaranteedChips === null ? '' : ` A Hit Pays At Least ${gameChips(guaranteedChips)} Chips.`}`,
+                      body: `The Next Street Has A ${cutFixed(nextOdds.safe, 1)}% Chance Of A Safe Crossing.${guaranteedChips === null ? '' : ` A Hit Pays At Least ${gameChips(guaranteedChips)} Chips.`}`,
                     },
                   ]
                 : []),

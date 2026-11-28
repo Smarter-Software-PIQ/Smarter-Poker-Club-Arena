@@ -129,6 +129,7 @@ import {
   type StatsClubOption,
 } from './stats/playerStatsPageModel';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { cutFixed } from '../utils/format';
 /** ?statsClub=all: the player chose All Clubs while ?club= names a club. */
 const ALL_CLUBS_PARAM = 'all';
 
@@ -1433,7 +1434,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
       ratioOrUnmeasured(
         (overall.showdowns_won / overall.showdowns_total) * 100,
         overall.showdowns_total,
-        (v) => `${v.toFixed(1)}%`
+        (v) => `${cutFixed(v, 1)}%`
       ),
     [overall]
   );

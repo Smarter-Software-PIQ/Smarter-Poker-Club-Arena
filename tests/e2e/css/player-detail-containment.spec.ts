@@ -145,7 +145,8 @@ test('cash and tournament position numbers stay inside their own table viewport'
     for (const table of [tournament, cash]) {
       const row = table.getByRole('row').filter({ hasText: /^BB|Big Blind/ });
       await expect(row).toContainText('149');
-      await expect(row).toContainText('26.2%');
+      // 26.17% is cut, never rounded (Dan 2026-11-27): it reads 26.1%.
+      await expect(row).toContainText('26.1%');
       await expect(row).toContainText('10.7%');
       const fits = await table.evaluate((node) => {
         const wrap = node.parentElement!;

@@ -41,6 +41,7 @@ import { useMemo } from 'react';
 import { useSessionHandStats } from '../../hooks/useSessionHandStats';
 import type { SessionStats } from '../../services/SessionStatsService';
 import './SessionAnalytics.css';
+import { cutFixed } from '../../utils/format';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -116,7 +117,7 @@ export function SessionAnalytics({
             </span>
             <span className="sa-hero__bb">
               ({stats.bigBlindsWon >= 0 ? '+' : ''}
-              {stats.bigBlindsWon.toFixed(1)} BB)
+              {cutFixed(stats.bigBlindsWon, 1)} BB)
             </span>
           </div>
 
@@ -181,7 +182,7 @@ export function SessionAnalytics({
             <div className="sa-grid__item">
               <span className={`sa-grid__value ${plClass}`}>
                 {stats.handsPlayed > 0
-                  ? ((stats.bigBlindsWon / stats.handsPlayed) * 100).toFixed(1)
+                  ? cutFixed((stats.bigBlindsWon / stats.handsPlayed) * 100, 1)
                   : '0.0'}
               </span>
               <span className="sa-grid__label">BB/100</span>

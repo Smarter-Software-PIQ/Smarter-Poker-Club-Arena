@@ -14,9 +14,10 @@ import { useState } from 'react';
 import { UnionOpsService, type ExitBlockers } from '../../services/UnionOpsService';
 import { useToast } from '../common/Toast';
 import { reportError } from '../../utils/errorReporter';
+import { cutNumberFormat } from '../../utils/format';
 
 const money = (n: unknown) =>
-  new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(n) || 0);
+  cutNumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(n) || 0);
 
 interface Props {
   unionId: string;

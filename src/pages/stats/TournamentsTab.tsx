@@ -14,7 +14,7 @@ import { ratioOrUnmeasured } from './format';
 import { num, type FullStats, type OverallStats, type TournamentSummary } from './types';
 import StatsEvidenceLink from '../../components/stats/StatsEvidenceLink';
 import { buildStatsTournamentEvidencePath } from '../../lib/statsEvidenceNavigation';
-import { compactChips } from '../../utils/format';
+import { compactChips, cutFixed } from '../../utils/format';
 import { enumToTitleCase, titleCase } from '../../utils/titleCase';
 import type { ReactNode } from 'react';
 import { chipCents } from '../../utils/cashierAmount';
@@ -46,7 +46,7 @@ export default function TournamentsTab({ tourn, full, financialPanel }: Tourname
             value={ratioOrUnmeasured(
               tourn.itm_percent * 100,
               tourn.entries,
-              (v) => `${v.toFixed(1)}%`
+              (v) => `${cutFixed(v, 1)}%`
             )}
             color="#10b981"
           />
@@ -77,7 +77,7 @@ export default function TournamentsTab({ tourn, full, financialPanel }: Tourname
             value={ratioOrUnmeasured(
               tourn.roi * 100,
               tourn.total_buyins,
-              (v) => `${v.toFixed(1)}%`
+              (v) => `${cutFixed(v, 1)}%`
             )}
             // An unmeasured return has no sign, so it gets no win or loss colour.
             color={tourn.total_buyins > 0 ? (tourn.roi >= 0 ? '#22c55e' : '#ef4444') : '#94a3b8'}

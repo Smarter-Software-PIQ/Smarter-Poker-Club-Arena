@@ -17,6 +17,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import './BBJAdminAnalytics.css';
 import { money } from '../../utils/handFormat';
+import { cutFixed } from '../../utils/format';
 
 export interface BBJAdminAnalyticsProps {
   poolId: string | null;
@@ -248,9 +249,10 @@ export function BBJAdminAnalytics({ poolId }: BBJAdminAnalyticsProps) {
           </span>
           <span className="bbj-admin__stat-sub">
             {(data.main_avg_days_between_hits ?? data.avg_days_between_hits) != null
-              ? `Every ~${Number(
-                  data.main_avg_days_between_hits ?? data.avg_days_between_hits
-                ).toFixed(1)} Days`
+              ? `Every ~${cutFixed(
+                  Number(data.main_avg_days_between_hits ?? data.avg_days_between_hits),
+                  1
+                )} Days`
               : 'Not Enough History'}
           </span>
         </div>
@@ -265,7 +267,7 @@ export function BBJAdminAnalytics({ poolId }: BBJAdminAnalyticsProps) {
           <span className="bbj-admin__stat-label">Last Main Hit</span>
           <span className="bbj-admin__stat-value">
             {(data.main_days_since_last_hit ?? data.days_since_last_hit) != null
-              ? `${Number(data.main_days_since_last_hit ?? data.days_since_last_hit).toFixed(1)}d`
+              ? `${cutFixed(Number(data.main_days_since_last_hit ?? data.days_since_last_hit), 1)}d`
               : '-'}
           </span>
           <span className="bbj-admin__stat-sub">

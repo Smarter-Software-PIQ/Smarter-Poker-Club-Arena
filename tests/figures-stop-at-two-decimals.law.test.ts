@@ -69,15 +69,26 @@ describe('every figure on screen stops at two decimals', () => {
     expect(fmt(12345.6789)).toBe('12,345.67');
   });
 
-  it('leaves percent, compact, significant-digit and narrower calls alone', () => {
+  // Updated 2026-11-27 (display-figures-are-cut-never-rounded): these calls
+  // keep their own place counts, but they no longer ROUND. The old pin
+  // returned them untouched, which left `{ maximumFractionDigits: 2 }` and
+  // `{ maximumFractionDigits: 0 }` rounding 0.999 up.
+  it('keeps the place counts of percent, compact, significant-digit and narrower calls, and cuts them', () => {
     expect(twoDecimalOptions({ style: 'percent', maximumFractionDigits: 3 })).toEqual({
       style: 'percent',
       maximumFractionDigits: 3,
+      roundingMode: 'trunc',
     });
-    const narrow = { maximumFractionDigits: 1 };
-    expect(twoDecimalOptions(narrow)).toBe(narrow);
-    const sig = { maximumSignificantDigits: 5 };
-    expect(twoDecimalOptions(sig)).toBe(sig);
+    expect(twoDecimalOptions({ maximumFractionDigits: 1 })).toEqual({
+      maximumFractionDigits: 1,
+      roundingMode: 'trunc',
+    });
+    expect(twoDecimalOptions({ maximumSignificantDigits: 5 })).toEqual({
+      maximumSignificantDigits: 5,
+      roundingMode: 'trunc',
+    });
+    const chosen = { maximumFractionDigits: 1, roundingMode: 'halfExpand' };
+    expect(twoDecimalOptions(chosen)).toBe(chosen);
     expect(cutToPlaces(2.009, 2)).toBe(2);
   });
 

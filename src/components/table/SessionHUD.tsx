@@ -9,6 +9,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useMasterBusSubscription } from '../../hooks/useMasterBusSubscription';
 import { sessionStatsService, type SessionStats } from '../../services/SessionStatsService';
 import './SessionHUD.css';
+import { cutFixed } from '../../utils/format';
 
 interface SessionHUDProps {
   isOpen: boolean;
@@ -244,7 +245,7 @@ export const SessionHUD: React.FC<SessionHUDProps> = ({
           <div className="sh-qstat">
             <span className={`sh-qstat-value ${stats.handsPlayed > 0 ? plClass : ''}`}>
               {stats.handsPlayed > 0
-                ? ((stats.bigBlindsWon / stats.handsPlayed) * 100).toFixed(1)
+                ? cutFixed((stats.bigBlindsWon / stats.handsPlayed) * 100, 1)
                 : '0.0'}
             </span>
             <span className="sh-qstat-label">BB/100</span>
@@ -272,7 +273,7 @@ export const SessionHUD: React.FC<SessionHUDProps> = ({
           </div>
           <div className="sh-qstat">
             <span className={`sh-qstat-value ${bbPerHour >= 0 ? 'sh-pos' : 'sh-neg'}`}>
-              {bbPerHour.toFixed(1)}
+              {cutFixed(bbPerHour, 1)}
             </span>
             <span className="sh-qstat-label">BB/Hr</span>
           </div>

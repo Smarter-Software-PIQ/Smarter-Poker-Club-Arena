@@ -151,6 +151,7 @@ import {
 } from '../lightning/lightningSession';
 import { resolveLightningSeatRooms } from '../lightning/lightningSeatRecovery';
 import { anchorsShownByOpenRooms } from '../lightning/lightningAnchorTabs';
+import { cutFixed } from '../utils/format';
 
 // Lazy-load TablePage for code splitting
 const TablePage = lazyWithRetry(() => import('./TablePage'));
@@ -5996,7 +5997,7 @@ export default function MultiTablePage() {
                     const unit = sliderUnitFor(!!table.isTournament, bb, bb / 2 || 0.01);
                     const step = betSliderStep(minTo, maxTo, unit);
                     const fmt = (n: number) =>
-                      Number.isInteger(n) ? n.toLocaleString('en-US') : n.toFixed(2);
+                      Number.isInteger(n) ? n.toLocaleString('en-US') : cutFixed(n, 2);
                     return (
                       <div className="multi-table-grid__band" onClick={(e) => e.stopPropagation()}>
                         {sliderOpen && (

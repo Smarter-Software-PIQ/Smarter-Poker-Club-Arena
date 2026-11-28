@@ -27,7 +27,7 @@ describe('Stats presentation truth', () => {
 
   it('uses the shared ordinal formatter for benchmark pills', () => {
     const source = read('src/components/stats/BenchmarkPanel.tsx');
-    expect(source).toContain("import { ordinal } from '../../utils/format';");
+    expect(source).toContain("import { ordinal, cutFixed } from '../../utils/format';");
     expect(source).toContain('ordinal(Math.round(r.percentile))');
     expect(source).not.toContain('`${Math.round(r.percentile)}th`');
     expect(source).toContain("import { titleCase } from '../../utils/titleCase';");
@@ -36,7 +36,7 @@ describe('Stats presentation truth', () => {
 
   it('humanizes tournament variants instead of exposing database enums', () => {
     const source = read('src/pages/stats/TournamentsTab.tsx');
-    expect(source).toContain("import { compactChips } from '../../utils/format';");
+    expect(source).toContain("import { compactChips, cutFixed } from '../../utils/format';");
     expect(source).toContain("import { enumToTitleCase, titleCase } from '../../utils/titleCase';");
     expect(source).toContain('enumToTitleCase(t.variant)');
     expect(source).toContain('enumToTitleCase(t.status)');
@@ -56,7 +56,7 @@ describe('Stats presentation truth', () => {
 
   it('wires sample-qualified position rankings to an honest fallback', () => {
     const source = read('src/components/stats/PositionWinRates.tsx');
-    expect(source).toContain("import { compactChips } from '../../utils/format';");
+    expect(source).toContain("import { compactChips, cutFixed } from '../../utils/format';");
     expect(source).toContain('selectPositionCallouts(statsData)');
     expect(source).toContain('calloutEligibleCount < 2');
     expect(source).toContain('More Hands Needed');
@@ -280,7 +280,8 @@ describe('Stats presentation truth', () => {
     expect(source).toContain('compactChips(rakeStats.rake_paid)');
     expect(source).toContain('compactChips(rakeStats.rake_per_100)');
     expect(source).toContain('compactChips(rakeStats.avg_rake_per_raked_hand)');
-    expect(source).toContain('rakeStats.rake_in_bb.toFixed(1)');
+    // One decimal, cut and never rounded (2026-11-27); this pinned `.toFixed(1)`.
+    expect(source).toContain('cutFixed(rakeStats.rake_in_bb, 1)');
     for (const retired of [
       '#ffd700',
       '#f59e0b',

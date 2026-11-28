@@ -1,5 +1,6 @@
 import { parseTradeAmount, sumChips } from './cashierAmount';
 import { PLATFORM_FROZEN_MESSAGE } from './platformFrozen';
+import { cutFixed } from './format';
 
 export type CashierBatchOutcome =
   | 'Confirmed'
@@ -91,9 +92,9 @@ export function cashierBatchReceiptText(
     `Batch: ${batchId}`,
     ...rows.map(
       (row) =>
-        `${row.name}: ${row.amount.toFixed(2)} Chips | ${row.destination} | ${row.outcome} | Reference: ${row.reference}`
+        `${row.name}: ${cutFixed(row.amount, 2)} Chips | ${row.destination} | ${row.outcome} | Reference: ${row.reference}`
     ),
-    `Confirmed Total: ${sumChips(rows.filter((row) => row.outcome === 'Confirmed').map((row) => row.amount)).toFixed(2)} Chips`,
+    `Confirmed Total: ${cutFixed(sumChips(rows.filter((row) => row.outcome === 'Confirmed').map((row) => row.amount)), 2)} Chips`,
     'Unconfirmed Outcomes Must Be Verified Before Starting A New Transfer.',
   ].join('\n');
 }

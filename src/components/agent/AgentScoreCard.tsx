@@ -21,7 +21,7 @@ import { useIsMounted } from '../../hooks/useIsMounted';
 import { useMasterBusSubscription } from '../../hooks/useMasterBusSubscription';
 import { supabase } from '../../lib/supabase';
 import { SpadeConsole, type ConsoleInk } from '../console/SpadeConsole';
-import { compactChips } from '../../utils/format';
+import { compactChips, cutFixed } from '../../utils/format';
 import { titleCase } from '../../utils/titleCase';
 import './AgentScoreCard.css';
 import { reportError } from '../../utils/errorReporter';
@@ -255,7 +255,7 @@ export default function AgentScoreCard({ userId, clubId }: AgentScoreCardProps) 
           label="Clawback Health"
           score={data.clawbackScore}
           ink={getScoreInk(data.clawbackScore)}
-          detail={`${data.clawbackRate.toFixed(1)}% Rate`}
+          detail={`${cutFixed(data.clawbackRate, 1)}% Rate`}
         />
         <ScoreRow
           label="Network Activity"
@@ -278,7 +278,7 @@ export default function AgentScoreCard({ userId, clubId }: AgentScoreCardProps) 
           <span
             className={`asc__row-value ${data.clawbackRate > 10 ? 'sc-ink--red' : 'sc-ink--green'}`}
           >
-            {data.clawbackRate.toFixed(1)}%
+            {cutFixed(data.clawbackRate, 1)}%
           </span>
         </div>
         <div className="asc__row">
