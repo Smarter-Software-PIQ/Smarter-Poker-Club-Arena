@@ -7,7 +7,6 @@ import {
 } from '../helpers/dailyChallengesSources';
 
 const REWARD_PAGES = [
-  'src/pages/TransactionHistoryPage.tsx',
   'src/pages/VIPPage.tsx',
   'src/pages/RakebackPage.tsx',
   'src/pages/DailyBonusPage.tsx',
@@ -18,7 +17,6 @@ const REWARD_PAGES = [
 const PLAY_PAGES = [
   'src/pages/tournament/TournamentLobbyPage.tsx',
   'src/pages/tournament/TournamentResultsPage.tsx',
-  'src/pages/HandHistoryPage.tsx',
   'src/pages/SessionHistoryPage.tsx',
 ];
 
@@ -44,6 +42,16 @@ describe('cinematic retained route families', () => {
     expect(source).not.toContain('RewardsSurfaceHeader');
   });
 
+  it('Transaction History wears the arena workspace (#SmarterDesign, Dan 2026-11-27)', () => {
+    // "THE SAME #SMARTERDESIGN UPGRADE TO EVERY SINGLE PAGE" (Dan, 2026-11-27)
+    // supersedes the Rewards Circuit anchor for this page: the chrome mast and
+    // the arena case, never the painted console (player pages batch P4).
+    const source = readFileSync('src/pages/TransactionHistoryPage.tsx', 'utf8');
+    expect(source).toContain('className="transaction-history-page arena-workspace"');
+    expect(source).toContain('<ArenaWorkspaceHeader');
+    expect(source).not.toContain('RewardsSurfaceHeader');
+  });
+
   it('opens the wallet on the routed Cashier desk (Dan 2026-10-16)', () => {
     // "it needs a complete upgrade and enhancement to be like what you created
     // with the pages within this chat": the Cashier's workspace, not the
@@ -52,6 +60,17 @@ describe('cinematic retained route families', () => {
     // 2026-10-17: no eyebrow (Dan: "PAGES DON'T NEED TITLES LIKE THIS").
     expect(source).toMatch(/<CashierWorkspace\s+compact\s+title="Wallet"\s+summary="[^"]+"/);
     expect(source).toContain('data-arena-surface="wallet"');
+  });
+
+  it('Hand History wears the arena workspace (#SmarterDesign, Dan 2026-11-27)', () => {
+    // Dan's order of 2026-11-27 supersedes the Play & Review anchor for the
+    // Hand Archive: the chrome mast and the arena case (player pages batch P4).
+    // It left the Play Circuit surface, so it no longer carries its marker.
+    const source = readFileSync('src/pages/HandHistoryPage.tsx', 'utf8');
+    expect(source).toContain('className="hand-history-page arena-workspace"');
+    expect(source).toContain('<ArenaWorkspaceHeader');
+    expect(source).not.toContain('CasinoSurfaceHeader');
+    expect(source).not.toContain('data-arena-surface="play"');
   });
 
   it.each(PLAY_PAGES)('%s uses the Play & Review visual anchor', (path) => {

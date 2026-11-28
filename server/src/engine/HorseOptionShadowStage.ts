@@ -198,6 +198,10 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['turn']),
   }),
+  omahaRiverBetPriorIsPotTypeSplit: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['river']),
+  }),
   omahaMultiwayCallNeedsNutShare: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['flop', 'turn', 'river']),
@@ -205,6 +209,10 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
   omahaTurnFacingBetPriorIsLineSplit: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['turn']),
+  }),
+  omahaMultiwayRiverBetPriorIsPeopleMeasured: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['river']),
   }),
   omahaMultiwayValueBetIsPriced: Object.freeze({
     games: Object.freeze([4, 5] as const),
@@ -241,6 +249,15 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
     streets: Object.freeze(['turn']),
   }),
   omahaRiverBluffIsPricedOnRangeAdvantage: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['river']),
+  }),
+  // PLO-OWNER lead-9 lane underbluff 2026-11-27: acts only on a multiway river check with nothing to call
+  omahaMultiwayRiverBluffIsPricedOnBlockers: Object.freeze({
+    games: Object.freeze([4, 5] as const),
+    streets: Object.freeze(['river']),
+  }),
+  omahaFourWayPlusRiverBluffIsPricedOnBlockers: Object.freeze({
     games: Object.freeze([4, 5] as const),
     streets: Object.freeze(['river']),
   }),

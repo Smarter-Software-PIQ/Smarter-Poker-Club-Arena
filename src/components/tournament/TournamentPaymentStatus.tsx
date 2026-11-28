@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { SpadeConsole } from '../console/SpadeConsole';
+import { SpadeConsole as PaintedConsole } from '../console/SpadeConsole';
+import { ClubPageSection } from '../club/ClubPageSection';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import { useCashoutScope, useCashoutScopeKey } from '../../hooks/useCashoutScope';
 import { reportError } from '../../utils/errorReporter';
@@ -186,7 +187,9 @@ function PaymentRows({
   tournamentId,
   clubId,
   viewKey,
-}: TournamentPaymentFilter & { userId: string; viewKey: string }) {
+  arena = false,
+}: TournamentPaymentFilter & { userId: string; viewKey: string; arena?: boolean }) {
+  const SpadeConsole = (arena ? ClubPageSection : PaintedConsole) as typeof ClubPageSection;
   const [payments, setPayments] = useState<TournamentPayment[]>([]);
   const [next, setNext] = useState<TournamentPaymentCursor | null>(null);
   const [loading, setLoading] = useState(true);
@@ -285,6 +288,7 @@ function PaymentRows({
 
   return (
     <SpadeConsole
+      arena={arena || undefined}
       className="tournament-payments"
       family="shark"
       crest="spade"
@@ -378,7 +382,13 @@ function PaymentRows({
   );
 }
 
-export default function TournamentPaymentStatus(filter: TournamentPaymentFilter) {
+/** #SmarterDesign (Dan 2026-11-27): `arena` prints the payments in the arena
+ *  workspace's thin chrome case instead of the painted console. Only the
+ *  Transaction History page's chip statement passes it; the Tournament Results
+ *  page keeps the console. Frame only: every figure, word and hook is the same. */
+export default function TournamentPaymentStatus(
+  filter: TournamentPaymentFilter & { arena?: boolean }
+) {
   const { user } = useAuthUser();
   const viewIdentity = JSON.stringify([
     'tournament-payments',
@@ -394,6 +404,7 @@ export default function TournamentPaymentStatus(filter: TournamentPaymentFilter)
       tournamentId={filter.tournamentId}
       clubId={filter.clubId}
       viewKey={viewIdentity}
+      arena={filter.arena}
     />
   );
 }

@@ -129,10 +129,14 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaPeoplePriorCountsHiddenBets',
   // lead-9 lane HUOOP 2026-11-27: PLO4/PLO5 cash, default OFF
   'omahaHiddenBetsArePricedAsGiveUps',
+  // lead-9 lane RV2 2026-11-27: PLO4/PLO5 cash, default OFF
+  'omahaRiverBetPriorIsPotTypeSplit',
   // PLO-OWNER lead-7 2026-11-26: PLO4/PLO5 cash, default OFF
   'omahaFlopPressureCapIsPriced',
   // lead-8 lane OFB 2026-11-27: PLO4/PLO5 cash, default OFF
   'omahaTurnFacingBetPriorIsLineSplit',
+  // lead-9 lanes MWR + RV + RV2 2026-11-27: PLO4/PLO5 cash, default OFF
+  'omahaMultiwayRiverBetPriorIsPeopleMeasured',
   'omahaFacingBetFieldIsJoint',
   'omahaMultiwayCallNeedsNutShare',
   'omahaMultiwayValueBetIsPriced',
@@ -147,6 +151,9 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaTurnBluffIsPricedOnBlockers',
   'omahaTurnBluffIsPricedOnRangeAdvantage',
   'omahaRiverBluffIsPricedOnRangeAdvantage',
+  // PLO-OWNER lead-9 lane underbluff 2026-11-27: PLO4/PLO5 cash, default OFF
+  'omahaMultiwayRiverBluffIsPricedOnBlockers',
+  'omahaFourWayPlusRiverBluffIsPricedOnBlockers',
   'omahaRiverTripsBoardBoatIsNotNutClass',
   'omahaFlopRaiseIsPriced',
   // PLO-OWNER lead-4 lane LEAKS-RULES 2026-11-21: PLO4/PLO5 cash, default OFF (replaces #18 omahaBigBetIsPotShare)

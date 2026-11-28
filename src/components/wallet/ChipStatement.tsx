@@ -639,9 +639,10 @@ interface Props {
   pageSize?: number;
   title?: string;
   /** #SmarterDesign (Dan 2026-11-27): print in the arena workspace's thin
-   *  chrome case instead of the painted riveted console. The Financials page
-   *  opts in; the wallet and history pages keep the painted console. Frame
-   *  only: every figure, format and hook is the same either way. */
+   *  chrome case instead of the painted riveted console. The Transaction
+   *  History page opts in (and so do the Tournament Payments under it); the
+   *  wallet and the Financials page keep the painted console. Frame only:
+   *  every figure, format and hook is the same either way. */
   arena?: boolean;
 }
 
@@ -1010,7 +1011,9 @@ function ChipStatementRows({
           )}
         </footer>
       </SpadeConsole>
-      {scope === 'player' && <TournamentPaymentStatus clubId={clubId ?? null} />}
+      {scope === 'player' && (
+        <TournamentPaymentStatus clubId={clubId ?? null} arena={arena || undefined} />
+      )}
     </>
   );
 }

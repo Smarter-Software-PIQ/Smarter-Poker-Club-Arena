@@ -3584,9 +3584,32 @@ const PLO_OPENING_BLUFF_GRADE_CARDS: LeagueMatchup[] = (['plo4', 'plo5'] as cons
       }))
     )
 );
+/**
+ * 2026-11-27 PLO-OWNER lead-9 lane underbluff grade cards (development: dealt by name only, never nightly): the
+ * multiway river opening bluff (omahaMultiwayRiverBluffIsPricedOnBlockers) alone, 6-max: b is the live set of
+ * 2026-11-26, a adds the option. Same seeds both sides (duplicate pairs).
+ */
+const PLO_MULTIWAY_RIVER_BLUFF_GRADE_CARDS: LeagueMatchup[] = (['plo4', 'plo5'] as const).flatMap(
+  (variant) =>
+    (
+      [
+        ['three_way', { omahaMultiwayRiverBluffIsPricedOnBlockers: true }],
+        ['four_way_plus', { omahaFourWayPlusRiverBluffIsPricedOnBlockers: true }],
+      ] as ReadonlyArray<readonly [string, HorseDecideOpts]>
+    ).map(([part, on]) => ({
+      name: `${variant}_omaha_multiway_river_bluff_${part}_6max`,
+      variant,
+      seats: 6,
+      pairs: 6000,
+      productionStyles: true,
+      a: { ...OMAHA_LIVE_OPTIONS_20261126, ...on },
+      b: { ...OMAHA_LIVE_OPTIONS_20261126 },
+    }))
+);
 export const DEVELOPMENT_LEAGUE_CARDS: readonly LeagueMatchup[] = Object.freeze([
   ...PLO_RIVER_OPENING_GRADE_CARDS,
   ...PLO_OPENING_BLUFF_GRADE_CARDS,
+  ...PLO_MULTIWAY_RIVER_BLUFF_GRADE_CARDS,
   ...VALUE_LEADER_FIELD_CARDS,
   ...HOLDEM_BLANKET_OFF_CANDIDATE_CARDS,
   ...PLO_FACING_BET_PRICED_GRADE_CARDS,
@@ -5151,6 +5174,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     },
     b: { omahaFacingBetEv: true, omahaFacingBetPriorIsPeopleMeasured: true },
   })),
+  // 2026-11-27 lead-9 lanes MWR + RV + RV2 (default OFF, PLO4/PLO5 cash, 6-max): a multiway river first bet priced on
+  // the bettor's own shown river bets over the people-only multiway river cell.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_multiway_river_bet_prior_is_people_measured`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaMultiwayRiverBetPriorIsPeopleMeasured: true },
+    b: { omahaFacingBetEv: true },
+  })),
   // 2026-11-27 lead-9 lane HUOOP (default OFF, PLO4/PLO5 cash): the hidden part of the heads-up turn bettor's
   // non-value share priced as give-ups (weakest half, full realization), on top of the hidden-bets people prior.
   ...(['plo4', 'plo5'] as const).map((variant) => ({
@@ -5169,6 +5202,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       omahaFacingBetPriorIsPeopleMeasured: true,
       omahaPeoplePriorCountsHiddenBets: true,
     },
+  })),
+  // 2026-11-27 lead-9 lane RV2 (default OFF, PLO4/PLO5 cash): the heads-up river bet of a re-raised pot priced on
+  // people's re-raised-pot river bets, on top of the people-measured facing-bet prior.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_river_bet_prior_is_pot_type_split`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaFacingBetEv: true,
+      omahaFacingBetPriorIsPeopleMeasured: true,
+      omahaRiverBetPriorIsPotTypeSplit: true,
+    },
+    b: { omahaFacingBetEv: true, omahaFacingBetPriorIsPeopleMeasured: true },
   })),
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_facing_bet_field_is_joint`,

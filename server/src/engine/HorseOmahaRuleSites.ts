@@ -546,8 +546,14 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaTurnFacingBetPriorIsLineSplit: priced(
     'a turn first wager (never a raise), heads-up or multiway, is priced on the PEOPLE-ONLY measured non-value share of its flop line (checked through / wagered) and size, the balanced share weighting only a thin cell, moved by his own shown bets; Horse play never enters (default OFF; lead-8 lane OFB 2026-11-27)'
   ),
+  omahaMultiwayRiverBetPriorIsPeopleMeasured: priced(
+    "a river first wager (never a raise) with another player in the hand besides the bettor, outside re-raised pots, is priced on the bettor's OWN shown river bets over the PEOPLE-ONLY measured multiway river cell and regions, the balanced share weighting only a thin cell, in place of the old constant and the reads against the Horse mean; with no record of the bettor it prices people's multiway river bets and changes nothing for a first encounter (default OFF; lead-9 lanes MWR + RV + RV2 2026-11-27)"
+  ),
   omahaHiddenBetsArePricedAsGiveUps: priced(
     "inside the hidden-bets people prior's heads-up turn bet (never a raise, never a re-raised pot), the hidden part of the bettor's non-value share (people's bets that checked and folded later or mucked, the one-street balanced share behind a thin cell, moved by his own record) is priced as his weakest half of holdings at full realization; the rest of the share as before; Horse play never enters (default OFF; lead-9 lane HUOOP 2026-11-27)"
+  ),
+  omahaRiverBetPriorIsPotTypeSplit: priced(
+    "inside the people-measured heads-up river price, a river bet (never a raise) in a re-raised pot is priced on the PEOPLE-ONLY regions measured on people's shown river bets in re-raised pots, shrunk toward the pooled river cell and then the balanced share, moved by his own shown bets as today; single-raised and limped pots keep the pooled cell (default OFF; lead-9 lane RV2 2026-11-27)"
   ),
   omahaFacingBetFieldIsJoint: priced(
     'a multiway turn or river call is priced with the bettor, the callers, the earlier all-ins and the players behind (at their measured continue rate) dealt on the same cards from measured ranges (default OFF; PLO-OWNER lead-6 2026-11-24)'
@@ -587,6 +593,12 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   ),
   omahaRiverBluffIsPricedOnBlockers: priced(
     "a heads-up river check with nothing to call and no value bet becomes the best-priced bluff only where it beats the check on his card-removed fold rate by more than that rate's error AND the Horse's cards raise his fold share (default OFF; PLO-OWNER lead-7 2026-11-26)"
+  ),
+  omahaMultiwayRiverBluffIsPricedOnBlockers: priced(
+    "a three-way river check (two opponents) with nothing to call and no river wager becomes the best-priced bluff only where the bet, scored as lost whenever anybody continues, beats the check by more than the error of the opponents' fold rates (each his own record, then people's multiway population, then equilibrium) AND the Horse's cards raise the field's fold share AND the Horse beats under half of the hands each opponent folds (default OFF; PLO-OWNER lead-9 2026-11-27)"
+  ),
+  omahaFourWayPlusRiverBluffIsPricedOnBlockers: priced(
+    "a four-way or wider river check (three or more opponents) with nothing to call and no river wager becomes the best-priced bluff only where the bet, scored as lost whenever anybody continues, beats the check by more than the error of the opponents' fold rates (each his own record, then people's multiway population, then equilibrium) AND the Horse's cards raise the field's fold share AND the Horse beats under half of the hands each opponent folds (default OFF; PLO-OWNER lead-9 2026-11-27)"
   ),
   omahaRiverBluffIsPricedOnRangeAdvantage: priced(
     "a heads-up river check with nothing to call and no value bet becomes the best-priced bluff only where it beats the check on his card-removed fold rate by more than that rate's error AND the Horse's measured range beats his on this texture with the hand in the weakest share of the Horse's range that its value carries at the size (default OFF; PLO-OWNER lead-7 2026-11-26)"

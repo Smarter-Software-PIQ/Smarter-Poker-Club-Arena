@@ -116,6 +116,19 @@ export function omahaRiverOpeningCheckerHist(
   return s > 0 ? out.map((x) => x / s) : check;
 }
 
+/**
+ * The measured people-only river range of a role cell (bins, strong to weak), or null: `checkfirst` a player after
+ * his river check, `ipstart` a player before he acts, each by whether the turn had a wager. Read by the multiway
+ * river bluff (HorseOmahaMultiwayRiverBluff.ts) for each opponent; the same frozen arrays the heads-up price reads.
+ */
+export function omahaRiverOpeningCellHist(
+  variant: string,
+  role: 'checkfirst' | 'ipstart',
+  prev: 'bet' | 'check'
+): readonly number[] | null {
+  return T.cells[`${variant}|${role}|${prev}`]?.hist ?? null;
+}
+
 /** The equilibrium fold expectation the record is read against: small first wagers (<= 0.7 pot) and big ones. */
 export const OMAHA_RIVER_OPENING_EQ_FOLD = Object.freeze({ small: 1 / 3, big: 1 / 2, mean: 0.4 });
 

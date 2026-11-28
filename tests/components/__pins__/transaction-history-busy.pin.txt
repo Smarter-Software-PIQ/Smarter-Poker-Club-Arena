@@ -1,0 +1,15 @@
+money: {
+  "figures": [],
+  "hooks": []
+}
+text: Club Arena Your Chip Statement Loading Loading Your Statement... Refresh Earlier Movements
+regions: [
+  "section|||true",
+  "h2|||",
+  "button||Refresh The Statement|",
+  "button||Earlier Movements|"
+]
+controls: [
+  "button|Refresh The Statement|Refresh (disabled)",
+  "button|Earlier Movements|Earlier Movements (disabled)"
+]
