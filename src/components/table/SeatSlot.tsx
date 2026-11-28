@@ -3590,8 +3590,10 @@ export const SeatSlot = memo(
         </div>
 
         {/* Info Box — name + stack, with neon timer border when active.
-            The React `key` forces a fresh mount per turn so the CSS
-            countdown animation restarts for that turn. */}
+            Keep .seat__info mounted across turns so imperative mobile frame
+            properties (--sp-frame-*) and fitted name state stay intact;
+            ActionTimerRing carries the per-turn React `key` so all timer
+            animations restart cleanly on every turn. */}
         {/* ANIMATION AUDIT 2026-08-27: data-motion="keep" — the countdown ring
             IS duration-carrying CSS animation (spTimerRingShrink runs the whole
             turn; its length is the information). reducedMotion.css collapses
@@ -3602,14 +3604,13 @@ export const SeatSlot = memo(
         <div
           className="seat__info"
           style={timerStyle}
-          key={`info-${timerKey}`}
           data-motion="keep"
           inert={foldIdentityHidden}
           aria-hidden={foldIdentityHidden || undefined}
         >
           {/* Native transform clips drain stationary rounded ink. Timing is
               inherited from the same frozen engine-clock anchor above. */}
-          {isActingNow && <ActionTimerRing timing={timerStyle} />}
+          {isActingNow && <ActionTimerRing key={timerKey} timing={timerStyle} />}
           {/* Full names fit one line within the plate (owner 2026-11-01). */}
           <SeatPlayerName name={player.name?.trim() ?? ''} />
           <span
