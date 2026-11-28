@@ -239,3 +239,8 @@ graphify-out
 # npm cache written by npx runs inside a worktree (TMPDIR/npm_config_cache in the task dir); never commit it
 server/.npm-cache/
 **/.npm-cache/
+
+# The #SmarterDesign inventory, printed on demand by
+# `node scripts/smarterdesign-inventory.mjs --write`; never committed (the
+# ratchet in docs/club-operations/smarterdesign.d/ is the record).
+.smarterdesign/

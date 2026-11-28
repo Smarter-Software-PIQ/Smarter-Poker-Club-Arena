@@ -67,3 +67,28 @@ printf '%s\n' 20991231100001_window_rehearsal_creates_a_helper.sql > "$dir/chang
 rehearse onmain "$dir" 2> "$EVIDENCE_ROOT/3.log" || fail "a broken file already on main failed an unrelated pull request"
 grep -q "REFUSED (already on main)\*\* window \`$BAD\`" "$EVIDENCE_ROOT/onmain/summary.md" || fail 'the broken main file was not reported'
 pass 'a broken window file already on main is reported without failing an unrelated pull request'
+
+# 4 — incident 37a45c05 / PR #12325: a broken ordinary migration added by THIS pull request fails
+BAD_ORD=20991231100005_ordinary_rehearsal_broken_probe.sql
+EXEMPT_ORD=20991231100006_ordinary_rehearsal_schema_only_exempt.sql
+dir="$(case_db bad_ord "${GOOD[@]}" "$BAD_ORD")"
+printf '%s\n' "supabase/migrations/$BAD_ORD" > "$dir/changed.txt"
+set +e; rehearse bad_ord "$dir" 2> "$EVIDENCE_ROOT/4.log"; code=$?; set -e
+[ "$code" = 1 ] || fail "a pull request adding a broken ordinary migration exited $code, expected 1"
+grep -q "REFUSED\*\* ordinary \`$BAD_ORD\` (this pull request)" "$EVIDENCE_ROOT/bad_ord/summary.md" || fail 'the ordinary refusal did not name the file'
+grep -q 'simulated trigger double-ingest' "$EVIDENCE_ROOT/bad_ord/summary.md" || fail 'the ordinary refusal did not include the SQL error'
+pass 'a pull request adding a broken ordinary migration fails, naming the file and error'
+
+# 5 — the same broken ordinary file already on main warns and continues for an unrelated PR
+dir="$(case_db bad_ord_main "${GOOD[@]}" "$BAD_ORD")"
+printf '%s\n' 20991231100001_window_rehearsal_creates_a_helper.sql > "$dir/changed.txt"
+rehearse bad_ord_main "$dir" 2> "$EVIDENCE_ROOT/5.log" || fail "a broken ordinary file already on main failed an unrelated pull request"
+grep -q "prerequisite \`$BAD_ORD\`: did not install here" "$EVIDENCE_ROOT/bad_ord_main/summary.md" || fail 'the broken main ordinary prerequisite was not reported'
+pass 'a broken ordinary migration already on main is reported without failing an unrelated pull request'
+
+# 6 — an ordinary migration explicitly declaring @rehearsal-schema-only-exempt documents its reason and continues
+dir="$(case_db exempt_ord "${GOOD[@]}" "$EXEMPT_ORD")"
+printf '%s\n' "supabase/migrations/$EXEMPT_ORD" > "$dir/changed.txt"
+rehearse exempt_ord "$dir" 2> "$EVIDENCE_ROOT/6.log" || fail "an explicitly @rehearsal-schema-only-exempt ordinary migration failed"
+grep -q "ordinary \`$EXEMPT_ORD\` (this pull request, @rehearsal-schema-only-exempt:" "$EVIDENCE_ROOT/exempt_ord/summary.md" || fail 'the exemption reason was not recorded'
+pass 'an explicitly @rehearsal-schema-only-exempt ordinary migration documents its reason and continues'

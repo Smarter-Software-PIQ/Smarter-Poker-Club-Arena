@@ -16,6 +16,7 @@ import {
   pendingFloor,
   planRehearsal,
   rehearsalSQL,
+  rehearsalSchemaOnlyExemptReason,
 } from '../scripts/ci/window-queue-rehearsal.mjs';
 
 const ROOT = resolve(__dirname, '..');
@@ -142,5 +143,22 @@ describe('the window queue is rehearsed in the installer order before merge', ()
     expect(native).toContain(
       'a pull request adding a window file that calls a function production lacks fails'
     );
+    expect(native).toContain('20991231100005_ordinary_rehearsal_broken_probe.sql');
+    expect(native).toContain('a pull request adding a broken ordinary migration fails');
+  });
+
+  it('refuses a broken ordinary migration added or modified by the pull request unless explicitly schema-only exempt (incident 37a45c05 / PR #12325)', () => {
+    const sh = read('scripts/ci/rehearse-window-queue.sh');
+    expect(sh).toContain('REFUSED** ordinary');
+    expect(sh).toContain('schema-only-exempt');
+    expect(
+      rehearsalSchemaOnlyExemptReason(
+        '-- @rehearsal-schema-only-exempt: requires live production rows absent from empty schema dump\nBEGIN; SELECT 1; COMMIT;'
+      )
+    ).toBe('requires live production rows absent from empty schema dump');
+    expect(
+      rehearsalSchemaOnlyExemptReason('-- @rehearsal-schema-only-exempt: too short\nBEGIN; COMMIT;')
+    ).toBeNull();
+    expect(rehearsalSchemaOnlyExemptReason('BEGIN; SELECT 1; COMMIT;')).toBeNull();
   });
 });

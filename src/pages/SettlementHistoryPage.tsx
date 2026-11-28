@@ -3,7 +3,16 @@
  *  SETTLEMENT HISTORY PAGE — Historical Settlement Timeline & Trends
  * ═══════════════════════════════════════════════════════════════════════════════
  *  Shows past settlement cycles with trend comparison.
+ *
+ *  #SmarterDesign (batch O2, 2026-11-28): off the painted shark console onto
+ *  the arena workspace. Back is a chrome key above the finance mast, the cycle
+ *  count rides the live line, the three totals are chrome readout tiles, the
+ *  timeline and the cycles are chrome cases and every cycle is a chrome row.
+ *  Every figure, word, region and control is unchanged
+ *  (tests/components/settlementHistoryPageIsPinned.test.tsx).
  */
+
+const SUMMARY = 'Weekly Settlement Cycles And Revenue Trends For This Club.';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -11,7 +20,9 @@ import { supabase } from '../lib/supabase';
 import { masterBus } from '../core/MasterBus';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import { useToast } from '../components/common/Toast';
-import { SpadeConsole } from '../components/console/SpadeConsole';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import { ArenaReadings } from '../components/ops/ArenaOps';
+import { useClubStore } from '../stores/useClubStore';
 import PageBar from '../components/help/PageBar';
 import { useAuthUser } from '../hooks/useAuthUser';
 
@@ -23,7 +34,7 @@ import { clubScoped, useFinancialAdminScope } from '../hooks/useFinancialAdminSc
 import { compactChips } from '../utils/format';
 import { parseSettlementHistory, type SettlementHistoryCycle } from '../utils/settlementHistory';
 import { titleCase } from '../utils/titleCase';
-import styles from './SettlementHistoryPage.module.css';
+import './SettlementHistoryPage.css';
 import { chipCents } from '../utils/cashierAmount';
 
 export default function SettlementHistoryPage() {
@@ -213,6 +224,12 @@ export default function SettlementHistoryPage() {
     };
   }, [loadHistory, scopeStatus, scopeClubId, scopePlatformWide, scope.userId, user?.id]);
 
+  // The mast names the club the scope chose, from the membership already held;
+  // with none held the line stays blank rather than naming another club.
+  const clubName = useClubStore(
+    (state) => state.memberships.find((m) => m.club?.id === scopeClubId)?.club?.name
+  );
+
   const totalRakeAllTime = chipCents(cycles.reduce((s, c) => s + c.totalRake, 0));
   const totalSettled = chipCents(cycles.reduce((s, c) => s + c.netSettlement, 0));
   const maxRake = Math.max(...cycles.map((c) => c.totalRake), 1);
@@ -223,148 +240,182 @@ export default function SettlementHistoryPage() {
 
   if (!scopeClubId || scopePlatformWide) {
     return (
-      <main className={styles.page}>
-        <SpadeConsole
-          className={styles.console}
-          family="shark"
-          crest="flat"
+      <main className="settlement-history-page arena-workspace">
+        <div className="arena-switch arena-ops-keys settlement-history-page__back">
+          <button type="button" onClick={() => navigate(-1)}>
+            Back
+          </button>
+        </div>
+        <ArenaWorkspaceHeader
+          area="finance"
           title="Settlement History Needs A Club"
           subtitle="Open This Console From A Club Financial Scope"
-          pill="Club Required"
-          pillInk="gold"
-          plates={{ primary: { label: 'Back', onClick: () => navigate(-1) } }}
-        >
-          <p className="sc-copy sc-copy--center" role="status">
+          summary={SUMMARY}
+        />
+        <PageBar
+          title="Settlement History Needs A Club"
+          titleAs={false}
+          showHelp={false}
+          status="Club Required"
+          statusTone="attention"
+        />
+        <section className="arena-case arena-ops-case settlement-history-page__case">
+          <p className="settlement-history-page__state" role="status">
             Platform-Wide Rows Are Never Combined Into One Club Settlement History.
           </p>
-        </SpadeConsole>
+        </section>
       </main>
     );
   }
 
   return (
-    <main className={styles.page}>
-      {/* Dan, 2026-10-17: "PAGES DON'T NEED TITLES LIKE THIS". The eyebrow and
-          the descriptive subtitle moved behind the painted "?"; the head keeps
-          its title and its live pill. */}
+    <main className="settlement-history-page arena-workspace">
+      <div className="arena-switch arena-ops-keys settlement-history-page__back">
+        <button type="button" onClick={() => navigate(-1)}>
+          Back
+        </button>
+      </div>
+      {/* Dan, 2026-10-17: "PAGES DON'T NEED TITLES LIKE THIS". What this page
+          is lives behind the chrome "?"; the live line keeps the cycle count. */}
+      <ArenaWorkspaceHeader
+        area="finance"
+        title="Settlement History"
+        context={clubName || undefined}
+        summary={SUMMARY}
+      />
       <PageBar
         title="Settlement History"
         titleAs={false}
-        summary="Weekly Settlement Cycles And Revenue Trends For This Club."
+        showHelp={false}
+        status={loading ? 'Loading' : loadError ? 'Unavailable' : `${cycles.length} Cycles`}
+        statusTone={loadError ? 'danger' : loading ? 'default' : 'live'}
       />
-      <SpadeConsole
-        className={styles.console}
-        family="shark"
-        title="Settlement History"
-        pill={loading ? 'Loading' : loadError ? 'Unavailable' : `${cycles.length} Cycles`}
-        pillInk={loadError ? 'red' : loading ? 'blue' : 'green'}
-        plates={{ primary: { label: 'Back', onClick: () => navigate(-1) } }}
+      <section
+        className={
+          loadError
+            ? 'settlement-history-page__summary settlement-history-page__summary--failed'
+            : 'settlement-history-page__summary'
+        }
+        aria-label="Settlement Summary"
       >
-        <section className={styles.summary} aria-label="Settlement Summary">
-          <div className={styles.fact}>
-            <span className="sc-label sc-ink--blue">Total Rake</span>
-            <strong className="sc-ink--silver">
-              {loadError ? 'Unavailable' : compactChips(totalRakeAllTime)}
-            </strong>
+        <ArenaReadings
+          readings={[
+            {
+              id: 'rake',
+              label: 'Total Rake',
+              value: loadError ? 'Unavailable' : compactChips(totalRakeAllTime),
+            },
+            {
+              id: 'net',
+              label: 'Net Settled',
+              value: loadError ? 'Unavailable' : compactChips(totalSettled),
+            },
+            {
+              id: 'cycles',
+              label: 'Cycles',
+              value: loadError ? 'Unavailable' : compactChips(cycles.length),
+            },
+          ]}
+        />
+      </section>
+
+      {cycles.length > 0 && (
+        <section
+          className="arena-case arena-ops-case settlement-history-page__timeline"
+          aria-label="Revenue Timeline"
+        >
+          <h2 className="arena-section-title">Revenue Timeline</h2>
+          <div className="settlement-history-page__bars">
+            {cycles
+              .slice(0, 20)
+              .reverse()
+              .map((cycle) => (
+                <span
+                  key={cycle.id}
+                  className="settlement-history-page__bar"
+                  data-complete={String(cycle.status === 'completed')}
+                  style={{ height: `${Math.max(4, (cycle.totalRake / maxRake) * 60)}px` }}
+                  title={`Rake: ${compactChips(cycle.totalRake)}`}
+                />
+              ))}
           </div>
-          <div className={styles.fact}>
-            <span className="sc-label sc-ink--blue">Net Settled</span>
-            <strong className="sc-ink--green">
-              {loadError ? 'Unavailable' : compactChips(totalSettled)}
-            </strong>
-          </div>
-          <div className={styles.fact}>
-            <span className="sc-label sc-ink--blue">Cycles</span>
-            <strong className="sc-ink--silver">
-              {loadError ? 'Unavailable' : compactChips(cycles.length)}
-            </strong>
+          <div className="settlement-history-page__axis">
+            <span>Oldest</span>
+            <span>Most Recent</span>
           </div>
         </section>
+      )}
 
-        {cycles.length > 0 && (
-          <section className={styles.timeline} aria-label="Revenue Timeline">
-            <div className="sc-label sc-ink--blue">Revenue Timeline</div>
-            <div className={styles.bars}>
-              {cycles
-                .slice(0, 20)
-                .reverse()
-                .map((cycle) => (
-                  <span
-                    key={cycle.id}
-                    className={styles.bar}
-                    data-complete={String(cycle.status === 'completed')}
-                    style={{ height: `${Math.max(4, (cycle.totalRake / maxRake) * 60)}px` }}
-                    title={`Rake: ${compactChips(cycle.totalRake)}`}
-                  />
-                ))}
-            </div>
-            <div className={styles.timelineAxis}>
-              <span>Oldest</span>
-              <span>Most Recent</span>
-            </div>
-          </section>
-        )}
-
-        <div className={`${styles.sectionLabel} sc-label sc-ink--blue`}>Settlement Cycles</div>
+      <section className="arena-case arena-ops-case settlement-history-page__case">
+        <h2 className="arena-section-title">Settlement Cycles</h2>
         {loading && cycles.length === 0 && !loadError ? (
-          <div className={styles.state} role="status">
+          <div className="settlement-history-page__state" role="status">
             Loading Settlement Cycles...
           </div>
         ) : loadError ? (
-          <div className={`${styles.state} sc-ink--red`} role="alert">
+          <div className="settlement-history-page__state" role="alert">
             <div>{loadError}</div>
-            <button
-              type="button"
-              onClick={() => void loadHistory()}
-              className={`${styles.word} sc-ink--white`}
-            >
-              Retry
-            </button>
+            <div className="arena-switch arena-ops-keys arena-ops-primary settlement-history-page__retry">
+              <button type="button" onClick={() => void loadHistory()}>
+                Retry
+              </button>
+            </div>
           </div>
         ) : cycles.length === 0 ? (
-          <div className={`${styles.state} sc-ink--muted`}>No Settlement Cycles Yet</div>
+          <div className="settlement-history-page__state">No Settlement Cycles Yet</div>
         ) : (
-          <ol className={styles.cycles}>
+          <ol className="settlement-history-page__cycles">
             {cycles.map((cycle, idx) => (
               <li
                 key={cycle.id}
-                className={styles.cycle}
+                className="arena-ledger-row settlement-history-page__cycle"
                 data-visible={String(visibleRows.has(idx))}
               >
-                <div className={styles.cycleHead}>
+                <div className="settlement-history-page__cycle-head">
                   <div>
-                    <strong className="sc-ink--silver">
+                    <strong>
                       {cycle.periodNumber !== null
                         ? `Period ${cycle.periodNumber.toLocaleString()}`
                         : 'Settlement Cycle'}
                     </strong>
-                    <time className="sc-ink--muted" dateTime={cycle.createdAt}>
+                    <time dateTime={cycle.createdAt}>
                       {new Date(cycle.createdAt).toLocaleDateString()}
                     </time>
                   </div>
-                  <span className={cycle.status === 'completed' ? 'sc-ink--green' : 'sc-ink--gold'}>
+                  <span
+                    className={
+                      cycle.status === 'completed'
+                        ? 'settlement-history-page__status settlement-history-page__status--done'
+                        : 'settlement-history-page__status'
+                    }
+                  >
                     {titleCase(cycle.status)}
                   </span>
                 </div>
-                <div className={styles.amounts}>
+                <div className="settlement-history-page__amounts">
                   <span>
-                    Rake <strong className="sc-ink--silver">{compactChips(cycle.totalRake)}</strong>
+                    Rake <strong>{compactChips(cycle.totalRake)}</strong>
                   </span>
                   {cycle.unionTax > 0 && (
                     <span>
-                      Fee <strong className="sc-ink--red">-{compactChips(cycle.unionTax)}</strong>
+                      Fee{' '}
+                      <strong className="settlement-history-page__fee">
+                        -{compactChips(cycle.unionTax)}
+                      </strong>
                     </span>
                   )}
                   <span>
                     Net{' '}
-                    <strong className="sc-ink--green">{compactChips(cycle.netSettlement)}</strong>
+                    <strong className="settlement-history-page__net">
+                      {compactChips(cycle.netSettlement)}
+                    </strong>
                   </span>
                 </div>
               </li>
             ))}
           </ol>
         )}
-      </SpadeConsole>
+      </section>
     </main>
   );
 }

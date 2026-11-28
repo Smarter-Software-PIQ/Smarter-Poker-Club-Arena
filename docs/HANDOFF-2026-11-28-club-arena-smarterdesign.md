@@ -36,7 +36,7 @@ Armed and in CI at writing: #12359 (batch S1, Settlement Center) and #12360 (bat
 
 ## 3. Inventory (generated, enforced)
 
-`node scripts/smarterdesign-inventory.mjs --write` regenerates `docs/club-operations/SMARTERDESIGN-INVENTORY.md`; `tests/the-smarterdesign-inventory-matches-the-code.law.test.ts` fails CI when it drifts; `--claims` shows which pages another lane or open PR touches. At writing, before S1/T1 merge: 50 converted, 4 partial, 41 not converted.
+`node scripts/smarterdesign-inventory.mjs` prints the inventory from the code (since 2026-11-28 it is never committed; `--write` puts the document in the gitignored `.smarterdesign/`). Converted pages are recorded one file per page in `docs/club-operations/smarterdesign.d/` (`--ratchet` adds them), and `tests/the-smarterdesign-inventory-matches-the-code.law.test.ts` fails CI when a recorded page regresses or a converted page is unrecorded; the batch history is one file per batch in `docs/club-operations/smarterdesign-history.d/`; `--claims` shows which pages another lane or open PR touches. At writing, before S1/T1 merge: 50 converted, 4 partial, 41 not converted.
 
 Lanes in flight at writing: U1 (Unions, Union Detail, Union Dashboard, Union Games, Union Data, Create Union) and P5 (Settings, Profile, Friends, VIP, Daily Bonus, Search).
 
