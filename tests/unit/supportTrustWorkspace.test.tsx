@@ -106,11 +106,15 @@ describe('Support And Trust Workspace', () => {
   it('renders accurate help actions, live status, and stable searchable questions', () => {
     renderRoute(<HelpPage />, '/help');
 
-    // The hero is gone (Dan 2026-10-17): the title is a hidden h1 and its
-    // sentence sits behind the painted "?"; the support actions stay visible.
-    expect(screen.getByRole('heading', { level: 1, name: 'Help Center' })).toHaveClass(
-      'ca-page-bar__title'
-    );
+    // The hero is gone (Dan 2026-10-17) and the page wears #SmarterDesign
+    // (2026-11-28): the title is the arena mast's h1 and its sentence sits
+    // behind the mast's chrome "?"; the support actions stay visible.
+    expect(
+      screen
+        .getByRole('heading', { level: 1, name: 'Help Center' })
+        .closest('.arena-workspace-mast')
+    ).not.toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Page Help' })).toHaveLength(1);
     expect(screen.queryByText('Player Support Circuit')).not.toBeInTheDocument();
     expect(screen.queryByText(/Search Verified Poker Arena Guidance/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Send Support Request' })).toBeInTheDocument();

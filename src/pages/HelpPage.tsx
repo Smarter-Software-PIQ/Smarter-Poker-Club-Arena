@@ -5,6 +5,8 @@ import FeedbackForm from '../components/support/FeedbackForm';
 import SystemStatus from '../components/support/SystemStatus';
 import styles from './HelpPage.module.css';
 import PageBar from '../components/help/PageBar';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import '../components/ops/ArenaOps.css';
 import { FAQ_ITEMS, QUICK_LINKS } from './helpContent';
 
 /* The words the hero used to print. They live behind the "?" now; the
@@ -36,14 +38,18 @@ export default function HelpPage() {
   );
 
   return (
-    <article className={styles.page} aria-labelledby="help-title">
-      <PageBar
-        className={styles.bar}
+    <article className={`${styles.page} arena-workspace`} aria-labelledby="help-title">
+      {/* #SmarterDesign (Dan 2026-11-27): the arena mast carries the title and
+          the chrome "?", whose panel holds the page summary; the page bar
+          under it keeps only the two support actions. */}
+      <ArenaWorkspaceHeader
+        area="reports"
         title="Help Center"
-        titleId="help-title"
+        id="help-title"
         summary={HELP_SUMMARY}
-      >
-        <div className={styles.barActions}>
+      />
+      <PageBar className={styles.bar} title="Help Center" titleAs={false} showHelp={false}>
+        <div className={`${styles.barActions} arena-switch arena-ops-keys arena-ops-primary`}>
           <button type="button" onClick={() => setShowFeedbackForm(true)}>
             Send Support Request
           </button>
@@ -51,11 +57,17 @@ export default function HelpPage() {
         </div>
       </PageBar>
 
-      <section className={styles.statusDeck} aria-label="Live Platform Status">
+      <section
+        className={`${styles.statusDeck} arena-case arena-ops-case`}
+        aria-label="Live Platform Status"
+      >
         <SystemStatus />
       </section>
 
-      <nav className={styles.quickLinks} aria-label="Common Help Destinations">
+      <nav
+        className={`${styles.quickLinks} arena-switch arena-ops-keys`}
+        aria-label="Common Help Destinations"
+      >
         {QUICK_LINKS.map((item) => (
           <Link to={item.path} key={item.path}>
             {item.label}
@@ -64,13 +76,19 @@ export default function HelpPage() {
         ))}
       </nav>
 
-      <section className={styles.knowledge} aria-labelledby="faq-title">
+      <section
+        className={`${styles.knowledge} arena-case arena-ops-case`}
+        aria-labelledby="faq-title"
+      >
         <div className={styles.knowledgeHeader}>
-          <h2 id="faq-title">Frequently Asked Questions</h2>
+          <h2 id="faq-title" className="arena-section-title">
+            Frequently Asked Questions
+          </h2>
           <label className={styles.searchField}>
             <span>Search Help</span>
             <input
               type="search"
+              className="arena-ops-well"
               placeholder="Search Clubs, Rewards, Safety..."
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
@@ -84,7 +102,7 @@ export default function HelpPage() {
             const answerId = `faq-${item.question.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
             return (
               <article
-                className={`${styles.faqItem} ${isExpanded ? styles.expanded : ''}`}
+                className={`${styles.faqItem} arena-ledger-row ${isExpanded ? styles.expanded : ''}`}
                 key={item.question}
               >
                 <button
@@ -121,7 +139,7 @@ export default function HelpPage() {
 
       <footer className={styles.footer}>
         <span>Support@Smarter.Poker</span>
-        <nav aria-label="Support Policies">
+        <nav className="arena-switch arena-ops-keys" aria-label="Support Policies">
           <Link to="/legal">Legal Center</Link>
           <Link to="/legal/privacy">Privacy</Link>
           <Link to="/legal/tos">Terms</Link>
