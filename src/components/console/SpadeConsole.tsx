@@ -6,7 +6,7 @@ import type {
   ReactNode,
   Ref,
 } from 'react';
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useLayoutEffect, useRef, useState } from 'react';
 import { useFitText } from '../lobby/game-cards/useFitText';
 import './SpadeConsole.css';
 import { TapHaptic } from '../haptics/TapHaptic';
@@ -45,6 +45,38 @@ import { TapHaptic } from '../haptics/TapHaptic';
  * in the same ink the master paints its own words in. The content between
  * head and foot prints on the black glass; nothing else is drawn.
  */
+
+/* The skin lives in this file, not a module of its own: SpadeConsole is in the
+   entry chunk, and a new module imported from here would enter it too
+   (scripts/ci/entry-chunk-delta.mjs). */
+/**
+ * WHICH DRESS A CONSOLE WEARS (#SmarterDesign, Dan 2026-11-27).
+ *
+ * Dan, on the Player Management footer: "NO DO NOT USE THOSE BULKY FRAMES,
+ * THATS THE OLD STYLE... USE THE #SMARTERDESIGN STYLE". Then, on the table:
+ * "https://smarter.poker/hub/club-arena/table/... NEEDS THE SAME #SMARTERDESIGN
+ * UPGRADE TO EVERY SINGLE PAGE, SUBPAGE, BUTTON AND EVERYTHING ELSE".
+ *
+ * `painted` is the spade/shark/riveted master art (SpadeConsole's own
+ * measured zones). `smarterdesign` is the arena workspace language the
+ * Cashier, Player Management and Club Operations wear (ArenaWorkspace.css):
+ * one thin chrome case, live lettering in normal flow, chrome buttons with
+ * the primary lit blue, and the close X as a 44px chrome key.
+ *
+ * Every popup on the table is a SpadeConsole, so the table provides
+ * `smarterdesign` once (PersistentTableLayer) and all of them change together
+ * with no caller touched. Surfaces off the table keep `painted` until they
+ * are upgraded the same way.
+ */
+export type ConsoleSkin = 'painted' | 'smarterdesign';
+
+export const ConsoleSkinContext = createContext<ConsoleSkin>('painted');
+
+export const ConsoleSkinProvider = ConsoleSkinContext.Provider;
+
+export function useConsoleSkin(): ConsoleSkin {
+  return useContext(ConsoleSkinContext);
+}
 
 export const SPADE_CONSOLE_W = 1000;
 export const SPADE_CONSOLE_TOP_H = 348;
@@ -491,7 +523,66 @@ export function SpadeConsole({
    * role, and refuses a prop this console does not have.
    */
 } & Omit<HTMLAttributes<HTMLElement>, 'title'>) {
+  const skin = useConsoleSkin();
   const footKind = foot ?? (plates ? 'plates' : 'foot');
+  if (skin === 'smarterdesign') {
+    /* #SMARTERDESIGN (Dan 2026-11-27): the same console, in the arena
+       workspace language instead of the painted master. Same props, same
+       roles, same class names on the title, close and plates, so every
+       caller, test and stylesheet still finds them; only the dress changes.
+       Nothing is placed in a measured zone: the head, body and foot are
+       normal flow inside one thin chrome case (SpadeConsole.css, `.sc--sd`). */
+    const TitleTag = titleAs;
+    const sdPlates = [
+      plates?.secondary && {
+        key: 'secondary',
+        role: 'secondary' as const,
+        props: plates.secondary,
+      },
+      plates?.middle && { key: 'middle', role: 'secondary' as const, props: plates.middle },
+      plates?.primary && { key: 'primary', role: 'primary' as const, props: plates.primary },
+    ].filter(Boolean) as { key: string; role: 'primary' | 'secondary'; props: PlateButtonProps }[];
+    return (
+      <Tag
+        className={`sc sc--sd sc--${footKind} sc--crest-${crest} sc--family-${family} ${className}`.trim()}
+        data-console-skin="smarterdesign"
+        {...rest}
+      >
+        <div className={`sc__head sc-sd__head ${onClose ? 'sc-sd__head--close' : ''}`.trim()}>
+          <div className="sc-sd__lettering">
+            {eyebrow && <span className="sc__eyebrow sc-sd__eyebrow">{eyebrow} </span>}
+            <TitleTag id={titleId} className="sc__title sc-sd__title">
+              {title}
+            </TitleTag>{' '}
+            {subtitle && <span className="sc__subtitle sc-sd__subtitle">{subtitle} </span>}
+          </div>
+          {pill && <span className={`sc__pill sc-sd__pill sc-ink--${pillInk}`}>{pill} </span>}
+          {onClose && (
+            <button
+              type="button"
+              className="sc__close sc-sd__close"
+              onClick={onClose}
+              disabled={closeDisabled}
+              aria-label={closeLabel}
+              data-testid="sc-close"
+            >
+              <span aria-hidden="true">{'\u00D7'}</span>
+            </button>
+          )}
+        </div>
+        {children !== undefined && children !== null && (
+          <div className="sc__body sc-sd__body">{children}</div>
+        )}
+        {sdPlates.length > 0 && (
+          <div className={`sc__foot sc-sd__foot sc-sd__foot--${sdPlates.length}`}>
+            {sdPlates.map(({ key, role, props }) => (
+              <SmarterPlate key={key} {...props} sdRole={role} />
+            ))}
+          </div>
+        )}
+      </Tag>
+    );
+  }
   const F = FAMILY[family];
   const W = F.W;
   const TOP_H = F.TOP_H;
@@ -605,6 +696,39 @@ export function SpadeConsole({
  * A transparent button laid over a plate painted in the master. It paints
  * nothing: the plate is the art, the label is the only thing it adds.
  */
+/**
+ * A console plate in #SmarterDesign: a chrome-stat key in normal flow, lit
+ * blue when it is the primary action, with the same label, ink, link, ref,
+ * haptic and disabled behaviour as the painted PlateButton.
+ */
+function SmarterPlate({
+  sdRole,
+  label,
+  ink = 'silver',
+  buttonRef,
+  href,
+  className = '',
+  haptic,
+  ...rest
+}: { sdRole: 'primary' | 'secondary' } & PlateButtonProps) {
+  const cls = `sc-plate sc-sd__plate sc-sd__plate--${sdRole} ${className}`.trim();
+  const face = <span className={`sc-plate__text sc-sd__plate-text sc-ink--${ink}`}>{label}</span>;
+  if (href !== undefined) {
+    const anchorRest = rest as AnchorHTMLAttributes<HTMLAnchorElement>;
+    return (
+      <a className={`${cls} sc-plate--link`} href={href} {...anchorRest}>
+        {face}
+      </a>
+    );
+  }
+  return (
+    <button type="button" ref={buttonRef} className={cls} {...rest}>
+      {face}
+      {(haptic ?? true) && <TapHaptic disabled={Boolean(rest.disabled)} radius="0px" />}
+    </button>
+  );
+}
+
 export type PlateButtonProps = {
   label: string;
   /**
