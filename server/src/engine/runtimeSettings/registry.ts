@@ -30,12 +30,17 @@ import {
   OMAHA_BLANKET_ROWS_OFF_REGISTRY,
   OMAHA_BLANKET_ROW_OFF_SETTING_PREFIX,
 } from '../HorseOmahaBlanketRowsOffInPlo45Cash.js';
+import {
+  VPIP_FLOOR_TEN_HAND_WINDOW_GAMES,
+  VPIP_FLOOR_TEN_HAND_WINDOW_GAME_SETTING_PREFIX,
+} from '../HorseVpipFloorTenHandWindowGames.js';
 
 /** Where a setting is consumed. */
 export type RuntimeSettingConsumer =
   | 'horse_decision'
   | 'horse_option_game_scope'
   | 'horse_blanket_rows_off'
+  | 'horse_ten_hand_window_games'
   | 'lightning_fast_fold'
   | 'horse_stack_management';
 
@@ -220,6 +225,18 @@ export const RUNTIME_SETTINGS_REGISTRY: readonly RuntimeSettingSpec[] = Object.f
       consumer: 'horse_blanket_rows_off',
       source: `HorseOmahaBlanketRowsOffInPlo45Cash.ts (opts.omahaBlanketRowsOffList includes '${option}'; 0 is not listed)`,
       description: `PLO4/PLO5 Cash Only: Blanket Row ${option} Off While The Blanket Rows Off List Switch Is On (0 = No, 1 = Off)`,
+    })),
+    // ---- The games vpipFloorLimpOnlyTenHandWindow may act in (HorseVpipFloorTenHandWindowGames.ts): one key per
+    // variant; none set = the option as published, any set = only the listed games ----
+    ...VPIP_FLOOR_TEN_HAND_WINDOW_GAMES.map((game) => ({
+      key: VPIP_FLOOR_TEN_HAND_WINDOW_GAME_SETTING_PREFIX + game,
+      kind: 'integer',
+      min: 0,
+      max: 1,
+      compiledDefault: 0,
+      consumer: 'horse_ten_hand_window_games',
+      source: `HorseVpipFloorTenHandWindowGames.ts (opts.vpipFloorLimpOnlyTenHandWindowGames includes '${game}'; 0 is not listed)`,
+      description: `Cash Tables Judged At Ten Hands: The Ten-Hand Window Switch Acts In ${game} (0 = Not Listed, 1 = Listed; None Listed = Every Game)`,
     })),
   ].map((spec) => Object.freeze(spec as RuntimeSettingSpec))
 );

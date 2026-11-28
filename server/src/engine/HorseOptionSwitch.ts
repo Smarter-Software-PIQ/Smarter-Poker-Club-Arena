@@ -201,6 +201,7 @@ export const OPTION_SWITCH_NOT_A_SWITCH: Readonly<Record<string, string>> = Obje
         'horsePlayStyleForce',
         'omahaOptionGameScope',
         'omahaBlanketRowsOffList',
+        'vpipFloorLimpOnlyTenHandWindowGames',
       ] satisfies ReadonlyArray<keyof HorseDecideOpts>
     ).map((name) => [name, PARAMETER])
   ),

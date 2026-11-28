@@ -1741,6 +1741,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'vpipFloorLimpOnlyTenHandWindowGames',
+    'Lead-8 lane tenhand 2026-11-27: the games vpipFloorLimpOnlyTenHandWindow may act in. A PARAMETER, not an on/off option, absent at the compiled defaults: the variants (nlh, plo4, plo5) whose engine runtime setting horse.vpipFloorTenHandWindowGame.<variant> is 1 (0 = not listed; published with scripts/runtime-settings-publish.ts, live at the next hand, no cutover). Absent or empty: the switch as published, byte-identical. Given: vpipFloorLimpOnlyTenHandWindow is on only at a ten-hand table whose variant is listed and reads as off (the integrator exception of 2026-11-18) at every other table (HorseVpipFloorTenHandWindowGames.vpipFloorLimpOnlyTenHandWindowOn, the one read site). It never turns the switch on.',
+    'V94'
+  ),
+  flag(
     'omahaOptionGameScope',
     "EMERG lane PLO4-FIX 2026-11-20 (lane PLO4-AUDIT: an option switch row is global, and several omaha* options grade positive or neutral in PLO5 and negative in PLO4, and others the other way). A PARAMETER, not an on/off option, absent at the compiled defaults: option name -> 4 (PLO4 only) or 5 (PLO5 only), set from the engine runtime settings horse.omahaGameScope.<option> (0 = both games; published with scripts/runtime-settings-publish.ts, live at the next hand, no cutover; the option switch rows and their validation are untouched). In a PLO4 or PLO5 cash decision (table or Lightning, one board, no hi-lo, no bomb pot) HorseLogic.decide and prepareOriginalReads pass every listed option scoped to the other game as false (its off path) before anything reads it (HorseOmahaOptionGameScope.withOmahaOptionGameScope, the one read site), so an option scoped to PLO5 decides a PLO4 hand exactly as if it were off. Listed: every registered omaha* switch option except the omahaMathCore family (own per-game street flags), the PLO6 options and the tournament-only options. Never PLO6, PLO8, hold'em or a tournament: the same options object runs. Receipt omaha_option_game_scope_<option>_off_in_plo<4|5>_seen.",
     'V94'
