@@ -89,7 +89,9 @@ export class RealtimeAdmission {
   private socket: WebSocket | null = null;
   private observers = new Set<(error?: Error) => void>();
   private readinessObservers = new Set<() => void>();
+  private refusalObservers = new Set<(error: Error) => void>();
   private warnedRefusal = false;
+  private refusedError: Error | null = null;
 
   constructor(NativeSocket?: typeof WebSocket) {
     // The supported custom transport returns the native socket. Event listeners
@@ -97,36 +99,46 @@ export class RealtimeAdmission {
     // If the browser refuses `new WebSocket(...)` synchronously (restricted
     // environments, SecurityError, invalid URL), degrade to a closed facade
     // rather than crashing the calling React effect.
+    const handleRefusal = (url: string | URL, err: Error): WebSocket => {
+      this.refusedError = err;
+      if (!this.warnedRefusal) {
+        this.warnedRefusal = true;
+        console.warn('[Realtime] WebSocket unavailable; degrading cleanly:', err.message);
+      }
+      for (const listener of [...this.refusalObservers]) {
+        try {
+          listener(err);
+        } catch {
+          /* ignore refusal observer errors */
+        }
+      }
+      const socket = createRefusedSocket(url, err);
+      this.socket = socket;
+      queueMicrotask(() => {
+        if (this.socket === socket) this.notify(err);
+      });
+      return socket;
+    };
+
     const createSocket = (url: string | URL, protocols?: string | string[]) => {
+      // Once the runtime has deterministically refused WebSocket construction,
+      // do not loop invoking the broken constructor again.
+      if (this.refusedError) {
+        return handleRefusal(url, this.refusedError);
+      }
       const Socket = NativeSocket ?? globalThis.WebSocket;
       let socket: WebSocket;
       if (typeof Socket !== 'function') {
-        const err = new Error('WebSocket constructor is not available in this runtime');
-        if (!this.warnedRefusal) {
-          this.warnedRefusal = true;
-          console.warn('[Realtime] WebSocket unavailable; degrading cleanly:', err.message);
-        }
-        socket = createRefusedSocket(url, err);
-        this.socket = socket;
-        queueMicrotask(() => {
-          if (this.socket === socket) this.notify(err);
-        });
-        return socket;
+        return handleRefusal(
+          url,
+          new Error('WebSocket constructor is not available in this runtime')
+        );
       }
       try {
         socket = protocols === undefined ? new Socket(url) : new Socket(url, protocols);
       } catch (thrown) {
         const err = thrown instanceof Error ? thrown : new Error('WebSocket unavailable');
-        if (!this.warnedRefusal) {
-          this.warnedRefusal = true;
-          console.warn('[Realtime] WebSocket unavailable; degrading cleanly:', err.message);
-        }
-        socket = createRefusedSocket(url, err);
-        this.socket = socket;
-        queueMicrotask(() => {
-          if (this.socket === socket) this.notify(err);
-        });
-        return socket;
+        return handleRefusal(url, err);
       }
       this.socket = socket;
       socket.addEventListener('open', () => {
@@ -167,6 +179,27 @@ export class RealtimeAdmission {
       signal.addEventListener('abort', remove, { once: true });
     }
     return remove;
+  }
+
+  /** Observe deterministic synchronous WebSocket constructor refusal so the
+   * owning client can stop reconnect storms and short-circuit future connects.
+   */
+  onRefusal(listener: (error: Error) => void): () => void {
+    this.refusalObservers.add(listener);
+    if (this.refusedError) {
+      try {
+        listener(this.refusedError);
+      } catch {
+        /* ignore refusal observer errors */
+      }
+    }
+    return () => {
+      this.refusalObservers.delete(listener);
+    };
+  }
+
+  getRefusedError(): Error | null {
+    return this.refusedError;
   }
 
   private notifyReadinessChange(): void {
