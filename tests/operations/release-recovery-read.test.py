@@ -2067,10 +2067,24 @@ class LinuxKernelOwnerTests(unittest.TestCase):
 import ctypes,json,os,signal,socket,sys
 role=sys.argv[1]
 opaque_comm=len(sys.argv)>2 and sys.argv[2]=='opaque'
-srv=None;child=None;control=None;ack=None;port=None
+srv=None;child=None;control=None;ack=None;port=None;guard=None
+def listen_v4():
+ # A port free on 127.0.0.1 can still be LISTENING on ::1 (another process,
+ # another test). The reader then sees two listeners for one port and rightly
+ # answers "listener ambiguous", which read as a random 'unknown' role. Hold
+ # the IPv6 side of the same port with a bound, never-listening v6-only socket
+ # for the fixture's whole life, so the only listener on the port is ours.
+ for _ in range(64):
+  s=socket.socket();s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1);s.bind(('127.0.0.1',0));p=s.getsockname()[1]
+  g=socket.socket(socket.AF_INET6,socket.SOCK_STREAM);g.setsockopt(socket.IPPROTO_IPV6,socket.IPV6_V6ONLY,1)
+  try:g.bind(('::',p))
+  except OSError:
+   g.close();s.close();continue
+  s.listen();return s,g,p
+ raise RuntimeError('no port was free on both address families')
 try:
  if role in ('main','shared'):
-  srv=socket.socket();srv.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1);srv.bind(('127.0.0.1',0));srv.listen();port=srv.getsockname()[1]
+  srv,guard,port=listen_v4()
  if role in ('other','shared'):
   read,write=os.pipe();ready_read,ready_write=os.pipe();child=os.fork()
   if child==0:
@@ -2087,7 +2101,7 @@ try:
      own_name=ctypes.create_string_buffer(b'own-\xc3\xb8-\xff')
      if prctl(15,own_name,0,0,0)!=0:raise RuntimeError('owned fixture comm change unavailable')
     if role=='other':
-     srv=socket.socket();srv.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1);srv.bind(('127.0.0.1',0));srv.listen();port=srv.getsockname()[1]
+     srv,guard,port=listen_v4()
     os.write(ready_write,(str(port)+'\n').encode());os.close(ready_write)
     while True:
      command=os.read(read,1)
@@ -2117,6 +2131,7 @@ finally:
  if child:
   os.write(control,b'q');os.close(control);os.waitpid(child,0)
  if srv:srv.close()
+ if guard:guard.close()
 """
 
     @contextlib.contextmanager
@@ -2177,7 +2192,9 @@ finally:
                                        ('other','other_container_process',True)]:
             with self.subTest(role=fixture,opaque_comm=opaque),self.fixture(fixture,opaque) as (identity,_,__):
                 role,evidence=R.pending_socket_owner_details(identity,R.time.monotonic()+3)
-                self.assertEqual(role,expected)
+                # The evidence names the stage and reason, never a pid, so a
+                # failure says why the reader refused.
+                self.assertEqual(role,expected,json.dumps(evidence))
                 self.assertEqual(evidence,{'stage':'complete','code':'exclusive'})
                 self.assertNotIn(identity['hostPid'],json.dumps((role,evidence)))
                 self.assertNotIn('own-',json.dumps((role,evidence)))
