@@ -21,11 +21,13 @@ export const FLEET_STALL_PAUSE_BOUND_MS = 30 * 60_000;
 export interface FleetStallSample {
   dealable: number;
   paused?: boolean | null;
+  liveDecisionClock?: boolean | null;
   msSinceProgress: number;
 }
 
 export function shouldBeDealing(t: FleetStallSample): boolean {
   if (!(t.dealable >= 2)) return false;
+  if (t.liveDecisionClock) return false;
   if (t.paused && t.msSinceProgress < FLEET_STALL_PAUSE_BOUND_MS) return false;
   return true;
 }

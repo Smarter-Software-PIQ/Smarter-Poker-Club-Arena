@@ -55,7 +55,9 @@ export function zombieProgressAge(engine: {
   describeStallForRecovery(): string;
   msSinceProgress(): number;
   msSinceLoopPhase(): number;
+  hasLiveDecisionClock?(): boolean;
 }): number {
+  if (engine.hasLiveDecisionClock?.() === true) return 0;
   const progress = engine.msSinceProgress();
   const phase = engine.describeStallForRecovery().split(':', 1)[0];
   switch (phase) {
