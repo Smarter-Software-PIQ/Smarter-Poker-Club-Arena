@@ -546,6 +546,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaTurnFacingBetPriorIsLineSplit: priced(
     'a turn first wager (never a raise), heads-up or multiway, is priced on the PEOPLE-ONLY measured non-value share of its flop line (checked through / wagered) and size, the balanced share weighting only a thin cell, moved by his own shown bets; Horse play never enters (default OFF; lead-8 lane OFB 2026-11-27)'
   ),
+  omahaMultiwayRiverBetPriorIsPeopleMeasured: priced(
+    "a river first wager (never a raise) with another player in the hand besides the bettor, outside re-raised pots, is priced on the bettor's OWN shown river bets over the PEOPLE-ONLY measured multiway river cell and regions, the balanced share weighting only a thin cell, in place of the old constant and the reads against the Horse mean; with no record of the bettor it prices people's multiway river bets and changes nothing for a first encounter (default OFF; lead-9 lanes MWR + RV + RV2 2026-11-27)"
+  ),
   omahaHiddenBetsArePricedAsGiveUps: priced(
     "inside the hidden-bets people prior's heads-up turn bet (never a raise, never a re-raised pot), the hidden part of the bettor's non-value share (people's bets that checked and folded later or mucked, the one-street balanced share behind a thin cell, moved by his own record) is priced as his weakest half of holdings at full realization; the rest of the share as before; Horse play never enters (default OFF; lead-9 lane HUOOP 2026-11-27)"
   ),

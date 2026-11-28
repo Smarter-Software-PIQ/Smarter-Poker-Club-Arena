@@ -1231,6 +1231,7 @@ import { resolveHorseHybridSolverAdherence } from './HorseHybridProfile.js';
 import { analyzePreflopOrbit, analyzeV38CommittedPopulation } from './HorsePreflopOrbitState.js';
 import { computeSideGamePotOverlay } from './HorseSideGameOverlay.js';
 import {
+  omahaPeoplePriorFlopPotOf,
   omahaPeoplePriorHiddenKeyOf,
   omahaPeoplePriorHiddenReraisedCheckedKeyOf,
   omahaPeoplePriorRecordCountsHidden,
@@ -4718,6 +4719,16 @@ export interface HorseDecideOpts {
    *  wagered; HorseOmahaTurnLinePeoplePrior), his own shown bets first, the balanced share behind a thin cell; with
    *  omahaPeoplePriorCountsHiddenBets on, the multiway cell counts people's hidden bets as non-value and a heads-up turn bet stays with that option. Default OFF, read `=== true`. */
   omahaTurnFacingBetPriorIsLineSplit?: boolean;
+  /**
+   * lead-9 lanes MWR + RV + RV2 2026-11-27. Default OFF, read `=== true`. PLO4/PLO5 cash, the RIVER, inside
+   * omahaFacingBetEv, a first wager (never a raise) with another player in the hand besides the bettor (a caller, an
+   * earlier all-in or a player still to act), outside re-raised pots: the bettor's non-value share and river regions
+   * are his OWN shown river bets over the PEOPLE-ONLY multiway river cell over the balanced share: the arithmetic and
+   * cells omahaFacingBetPriorIsPeopleMeasured uses heads-up, in place of the old constant and the reads against the
+   * Horse mean. With no record of the bettor it prices people's multiway river bets (value-heavy): it does nothing
+   * for a first encounter. Calls and folds only.
+   */
+  omahaMultiwayRiverBetPriorIsPeopleMeasured?: boolean;
   /** PLO-OWNER lead-6 2026-11-24 (multiway M1). PLO4/PLO5 cash, turn and river, inside omahaFacingBetEv, another
    * player in the hand: the bettor, every caller, every earlier all-in and every player still to act are dealt on
    * the same cards from measured ranges (HorseOmahaPricedJointSample); a player behind continues at his measured
@@ -14943,6 +14954,11 @@ function omahaFacingBetEvRule(
         if (ev.lineSplit.shown > 0) noteFire('omaha_turn_line_prior_record_read');
         if (ev.lineSplit.changed) noteFire('omaha_turn_line_prior_changed');
       }
+      if (ev.riverMultiway) {
+        noteFire('omaha_mw_river_people_prior_priced');
+        if (ev.riverMultiway.shown > 0) noteFire('omaha_mw_river_people_prior_record_read');
+        if (ev.riverMultiway.changed) noteFire('omaha_mw_river_people_prior_changed');
+      }
       if (ev.peopleField) {
         noteFire('omaha_mw_people_field_priced');
         if (ev.peopleField.changed) noteFire('omaha_mw_people_field_changed');
@@ -14997,6 +15013,9 @@ type OmahaFacingBetEvAnswer = {
   /** omahaMultiwayFieldIsPeopleMeasured: the people-measured field priced the call, and whether the verdict differs
    *  from the one the stated field constants give */
   peopleField?: { changed: boolean };
+  /** omahaMultiwayRiverBetPriorIsPeopleMeasured: the people-only multiway river cell and his own river record priced
+   *  the bettor (shown: his river bets read), and whether the verdict differs from the one without it */
+  riverMultiway?: { shown: number; changed: boolean };
   /** omahaTurnFacingBetPriorIsLineSplit: the flop line's people cell priced the turn bettor (checked: the flop checked
    *  through; shown: his own shown bets read), and whether the verdict differs from the one without it */
   lineSplit?: { checked: boolean; multiway: boolean; shown: number; changed: boolean };
@@ -15044,6 +15063,8 @@ let omahaFacingBetEvCountMemo: {
   valueShareMeasured: boolean;
   /** omahaFacingBetPriorIsPeopleMeasured */
   equilibriumAnchor: boolean;
+  /** omahaMultiwayRiverBetPriorIsPeopleMeasured */
+  riverMultiwayPeople: boolean;
   /** omahaMultiwayFieldIsPeopleMeasured */
   multiwayFieldPeople: boolean;
   /** omahaTurnFacingBetPriorIsLineSplit (and whether its cell counts hidden bets) */
@@ -15299,6 +15320,11 @@ function omahaFacingBetEvCount(
     opts.omahaMultiwayFieldIsPeopleMeasured === true &&
     !isTournamentMode(gs) &&
     ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
+  // omahaMultiwayRiverBetPriorIsPeopleMeasured (default off): PLO4/PLO5 cash only.
+  const riverMultiwayPeople =
+    opts.omahaMultiwayRiverBetPriorIsPeopleMeasured === true &&
+    !isTournamentMode(gs) &&
+    ((player.cards ?? []).length === 4 || (player.cards ?? []).length === 5);
   const pricedOn =
     omahaPricedFacingAnyOn(pricedOpts) &&
     !isTournamentMode(gs) &&
@@ -15327,6 +15353,7 @@ function omahaFacingBetEvCount(
     memo.stabDefence === stabDefence &&
     memo.valueShareMeasured === valueShareMeasured &&
     memo.equilibriumAnchor === equilibriumAnchor &&
+    memo.riverMultiwayPeople === riverMultiwayPeople &&
     memo.multiwayFieldPeople === multiwayFieldPeople &&
     memo.turnLineSplit === turnLineSplit &&
     memo.turnLineHidden === turnLineHidden &&
@@ -15590,6 +15617,55 @@ function omahaFacingBetEvCount(
         lineSplitPriced = null;
       }
     }
+    // omahaMultiwayRiverBetPriorIsPeopleMeasured (default off): a river first wager with another player in the hand
+    // besides the bettor, outside re-raised pots: his own river record over the people-only multiway river cell and
+    // regions (the cells omahaFacingBetPriorIsPeopleMeasured reads heads-up) over the balanced share replace the old
+    // constant and the reads against the Horse mean.
+    let riverMultiwayPriced: { shown: number } | null = null;
+    if (
+      riverMultiwayPeople &&
+      spot.street === 'river' &&
+      spot.isRaise !== true &&
+      spot.callers + spot.allIns + spot.behind > 0
+    ) {
+      try {
+        const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
+        const variant = String(gs.gameVariant ?? '').toLowerCase();
+        if (omahaPeoplePriorFlopPotOf(gs.actionHistory) !== 'reraised') {
+          const anchored = omahaPeoplePriorShare({
+            street: 'river',
+            potFrac: spot.potFrac,
+            isRaise: false,
+            multiway: true,
+            paid: spot.paid,
+            winnable: spot.winnable,
+            rake: omahaFacingBetDeduction(player, gs, opts),
+            twoStreet: false,
+            record:
+              mind && bettor
+                ? omahaBetReadOwnCellOf(
+                    bettor.user_id,
+                    variant,
+                    'river',
+                    spot.potFrac,
+                    omahaMeasuredLineOf(gs.actionHistory, 'river', spot.bettorSeat, false) === 'agg'
+                  )
+                : null,
+          });
+          if (anchored) {
+            readBeforeAnchor = read;
+            read = {
+              ...OMAHA_EV_UNKNOWN_READ,
+              pricedShare: anchored.share,
+              pricedRegions: anchored.regions,
+            };
+            riverMultiwayPriced = { shown: anchored.shown };
+          }
+        }
+      } catch {
+        riverMultiwayPriced = null;
+      }
+    }
     // omahaMultiwayFieldIsPeopleMeasured (default off): the people-measured field, multiway only.
     const peopleFieldOf = (
       s: typeof spot
@@ -15669,6 +15745,11 @@ function omahaFacingBetEvCount(
     // Receipt only: the line split changed the verdict the reads before it give.
     const lineSplitChanged =
       lineSplitPriced !== null && verdict !== null && telemetryOn(opts)
+        ? verdictOf(spot, readBeforeAnchor)?.call !== verdict.call
+        : false;
+    // Receipt only: the multiway river people cell and record changed the verdict the reads before them give.
+    const riverMultiwayChanged =
+      riverMultiwayPriced !== null && verdict !== null && telemetryOn(opts)
         ? verdictOf(spot, readBeforeAnchor)?.call !== verdict.call
         : false;
     // Receipt only: the anchored share changed the verdict the population prior and the public reads give.
@@ -15843,6 +15924,11 @@ function omahaFacingBetEvCount(
       };
     if (answer && peopleFieldPriced)
       answer = { ...answer, peopleField: { changed: peopleFieldChanged } };
+    if (answer && riverMultiwayPriced)
+      answer = {
+        ...answer,
+        riverMultiway: { ...riverMultiwayPriced, changed: riverMultiwayChanged },
+      };
     if (answer && lineSplitPriced)
       answer = { ...answer, lineSplit: { ...lineSplitPriced, changed: lineSplitChanged } };
   }
@@ -15865,6 +15951,7 @@ function omahaFacingBetEvCount(
     stabDefence,
     valueShareMeasured,
     equilibriumAnchor,
+    riverMultiwayPeople,
     multiwayFieldPeople,
     turnLineSplit,
     turnLineHidden,

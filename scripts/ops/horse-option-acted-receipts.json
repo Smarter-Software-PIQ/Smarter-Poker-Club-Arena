@@ -1278,6 +1278,13 @@
       "prefixes": ["omaha_turn_line_prior_"],
       "unlessOn": []
     },
+    "omahaMultiwayRiverBetPriorIsPeopleMeasured": {
+      "releaseDefault": "off",
+      "source": "declared",
+      "keys": [],
+      "prefixes": ["omaha_mw_river_people_prior_"],
+      "unlessOn": []
+    },
     "omahaHiddenBetsArePricedAsGiveUps": {
       "releaseDefault": "off",
       "source": "declared",

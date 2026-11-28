@@ -135,6 +135,8 @@ export const OMAHA_OPTION_GAME_SCOPE_OPTIONS: readonly string[] = Object.freeze(
   'omahaFlopPressureCapIsPriced',
   // lead-8 lane OFB 2026-11-27: PLO4/PLO5 cash, default OFF
   'omahaTurnFacingBetPriorIsLineSplit',
+  // lead-9 lanes MWR + RV + RV2 2026-11-27: PLO4/PLO5 cash, default OFF
+  'omahaMultiwayRiverBetPriorIsPeopleMeasured',
   'omahaFacingBetFieldIsJoint',
   'omahaMultiwayCallNeedsNutShare',
   'omahaMultiwayValueBetIsPriced',

@@ -1382,6 +1382,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaMultiwayRiverBetPriorIsPeopleMeasured',
+    "lead-9 lanes MWR + RV + RV2 2026-11-27 (plo-lead7-01TLQer8/l9-river2/BUILD.md, l9-mwriver/BUILD.md). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. a river first wager (never a raise) with another player in the hand besides the bettor, outside re-raised pots: the bettor's non-value share and river regions are his own shown river bets (HorseOmahaBetRead) over the people-only multiway river cell (HorseOmahaFacingBetPeoplePrior) over the balanced share, in place of the old constant and the reads against the Horse mean. It does nothing on a first encounter. Public actions and shown cards only; no identity input.",
+    'V94'
+  ),
+  flag(
     'omahaHiddenBetsArePricedAsGiveUps',
     "lead-9 lane HUOOP 2026-11-27 (plo-lead7-01TLQer8/l9-huresid/BUILD.md). PLO4/PLO5 cash (table and Lightning, one board, high only, no bomb pot); default off (read === true); PLO6, tournaments, hold'em and every other game untouched. inside omahaPeoplePriorCountsHiddenBets' heads-up turn bet (never a raise, never a re-raised pot): the hidden part of the bettor's non-value share (people's bets that checked and folded later or mucked, the one-street balanced share behind a thin cell, moved by his own record) is priced as his weakest half of holdings at full realization; Horse play never enters. HorseOmahaFacingBetEv.ts, HorseOmahaFacingBetPeoplePrior.ts, HorseOmahaPeoplePriorHidden.ts",
     'V94'
@@ -6478,6 +6483,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_mw_river_people_prior_priced',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetEv)',
+    "a multiway river first bet was priced on the people-only multiway river cell and the bettor's own river record (omahaMultiwayRiverBetPriorIsPeopleMeasured)",
+    'V94'
+  ),
+  receipt(
+    'omaha_mw_river_people_prior_record_read',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetEv)',
+    'the multiway river price read shown river bets of this bettor (omahaMultiwayRiverBetPriorIsPeopleMeasured)',
+    'V94'
+  ),
+  receipt(
+    'omaha_mw_river_people_prior_changed',
+    'HorseLogic omahaFacingBetEvRule (HorseOmahaFacingBetEv)',
+    'the multiway river people cell and record changed the call-or-fold verdict the reads before them give (omahaMultiwayRiverBetPriorIsPeopleMeasured)',
+    'V94'
+  ),
+  receipt(
     'omaha_mw_people_field_changed',
     'HorseLogic omahaFacingBetEvRule (HorseOmahaMultiwayPeopleField)',
     'the verdict on the people-measured multiway field differs from the verdict on the stated field constants (omahaMultiwayFieldIsPeopleMeasured)',
@@ -11267,6 +11290,8 @@ export const OPTION_ACTED_RECEIPTS_DECLARED: Readonly<
   omahaFlopPressureCapIsPriced: { prefixes: ['omaha_flop_pressure_cap_priced'] },
   // the line-split turn prior names its own receipts in their descriptions; declared by prefix
   omahaTurnFacingBetPriorIsLineSplit: { prefixes: ['omaha_turn_line_prior_'] },
+  // the multiway river people prior names its own receipts in their descriptions; declared by prefix
+  omahaMultiwayRiverBetPriorIsPeopleMeasured: { prefixes: ['omaha_mw_river_people_prior_'] },
   omahaReraisedPositionVsEveryoneToAct: NO_OWN_RECEIPT(
     'a position weight inside the live re-raised-pot priced call, whose receipts fire by design'
   ),

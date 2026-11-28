@@ -66,6 +66,9 @@ export const OPTION_COST_LAWS: Readonly<Record<string, string>> = Object.freeze(
   // the line-split turn prior inside the facing-bet price (2026-11-27): one line scan, one cell lookup and, with
   // telemetry on, the second verdict that names omaha_turn_line_prior_changed
   omahaTurnFacingBetPriorIsLineSplit: 'engine/anOmahaTurnLinePriorIsFast.law.test.ts',
+  // the multiway river people cell and own record inside the facing-bet price (2026-11-27): one preflop history scan, two cell lookups and one record read where it prices a multiway river bet
+  omahaMultiwayRiverBetPriorIsPeopleMeasured:
+    'engine/anOmahaMultiwayRiverPeoplePriorIsFast.law.test.ts',
   // the priced multiway value bet (M3): its joint sample keeps the hand's pool by card ids (2026-11-26)
   omahaMultiwayValueBetIsPriced: 'engine/anOmahaMultiwayValueBetIsFast.law.test.ts',
   // the PLO re-raised pot price (id samplers, #12081)
