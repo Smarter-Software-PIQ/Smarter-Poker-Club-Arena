@@ -292,7 +292,7 @@ const properties = [
   '--sp-mobile-shadow',
   '--sp-mobile-overflow',
 ];
-const frameProperties = ['x', 'y', 'w', 'h', 'background', 'border', 'radius', 'shadow'].map(
+const frameProperties = ['x', 'y', 'w', 'h', 'bw', 'background', 'border', 'radius', 'shadow'].map(
   (name) => `--sp-frame-${name}`
 );
 /** Remove the fixed mobile paint. With geometryOnly, only what moves a box
@@ -1316,13 +1316,19 @@ export function enlargeMobileFrames(
     if (!choice) continue;
     state?.frames.set(info, choice);
     if (choice.scale === 1) continue;
+    if (info.style.getPropertyValue('--sp-frame-w')) {
+      for (const name of frameProperties) info.style.removeProperty(name);
+    }
     const style = getComputedStyle(info),
       next = choice.parts[0];
+    const borderLeftWidth = parseFloat(style.borderLeftWidth) || 0;
+    const borderTopWidth = parseFloat(style.borderTopWidth) || 0;
     const values = {
-      x: `${(next.left - rect.left) / ratio - parseFloat(style.borderLeftWidth)}px`,
-      y: `${(next.top - rect.top) / ratio - parseFloat(style.borderTopWidth)}px`,
+      x: `${(next.left - rect.left) / ratio - borderLeftWidth}px`,
+      y: `${(next.top - rect.top) / ratio - borderTopWidth}px`,
       w: `${next.width / ratio}px`,
       h: `${next.height / ratio}px`,
+      bw: `${borderLeftWidth}px`,
       background: style.background,
       border: style.border,
       radius: style.borderRadius,

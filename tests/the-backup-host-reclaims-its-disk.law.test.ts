@@ -28,6 +28,7 @@ const CANDIDATE = 'c'.repeat(40);
 const OLD = 'a'.repeat(40);
 const FRESH = 'b'.repeat(40);
 const IN_USE = 'd'.repeat(40);
+const SERVING_ELSEWHERE = 'e'.repeat(40);
 
 function run(script: string, dir: string) {
   return spawnSync(
@@ -42,7 +43,7 @@ function run(script: string, dir: string) {
   );
 }
 
-const DOCKER_STUB = (calls: string) => `
+const DOCKER_STUB = (calls: string, refuse = IN_USE) => `
 docker() {
   echo "$*" >> ${JSON.stringify(calls)}
   case "$1 $2" in
@@ -57,7 +58,7 @@ docker() {
         *) date -u -d '-3 days' +%FT%TZ ;;
       esac ;;
     "image rm")
-      case "$*" in *${IN_USE}*) return 1 ;; esac ;;
+      case "$*" in *${IN_USE}*|*${refuse}*) return 1 ;; esac ;;
     "info -f") echo /var/lib/docker ;;
   esac
   return 0
@@ -75,7 +76,10 @@ describe('the Backup host reclaims its disk', () => {
     utimesSync(join(dir, 'state', 'qualifications', 'old-run'), old, old);
     const calls = join(dir, 'calls');
     writeFileSync(calls, '');
-    const r = run(`${DOCKER_STUB(calls)}\nreclaim_backup_disk ${CANDIDATE}`, dir);
+    const r = run(
+      `${DOCKER_STUB(calls)}\nreclaim_backup_disk ${CANDIDATE} ${SERVING_ELSEWHERE}`,
+      dir
+    );
     expect(r.status, r.stderr).toBe(0);
     const removed = readFileSync(calls, 'utf8')
       .split('\n')
@@ -95,9 +99,10 @@ describe('the Backup host reclaims its disk', () => {
     expect(existsSync(join(dir, 'state', 'qualifications', 'new-run'))).toBe(true);
     // One engine image removed and counted (the in-use one was refused).
     expect(r.stderr).toMatch(/disk: removed 1 engine image\(s\) older than 24h; free 40 GiB/);
+    expect(r.stderr).toContain('serving eeeeeeeeeeee has no image here');
   });
 
-  it('keeps the serving release image however old it is, and still reclaims when serving is unknown', () => {
+  it('keeps the serving release image however old it is, and removes no engine image by age when serving is unknown', () => {
     // 2026-11-27: both rehearsal swaps run production's serving release. When nothing seals for
     // more than 24 h that image is older than the cutoff; deleting it made the rehearsal run a
     // rebuild instead of the bytes production runs.
@@ -112,15 +117,58 @@ describe('the Backup host reclaims its disk', () => {
       .filter((l) => l.startsWith('image rm'));
     expect(removed.join('\n')).not.toContain(OLD);
     expect(removed).toContain(`image rm club-arena-engine-standby:${IN_USE}`);
+    // The certify log proves which image was kept.
+    expect(kept.stderr).toContain('kept serving aaaaaaaaaaaa');
+    // UNKNOWN IS NOT NONE (2026-11-27, replaces "still reclaims when serving is unknown"). When
+    // /health cannot be read the serving sha is empty and the keep rule protected nothing: a
+    // serving image older than 24 h was removed and the rehearsal rebuilt it. Now no engine image
+    // is removed by age; the other classes still are, and the free-space floor refuses by name.
     writeFileSync(calls, '');
+    mkdirSync(join(dir, 'state', 'qualifications', 'old-run'), { recursive: true });
+    const old = Date.now() / 1000 - 3 * 86400;
+    utimesSync(join(dir, 'state', 'qualifications', 'old-run'), old, old);
     const unknown = run(`${DOCKER_STUB(calls)}\nreclaim_backup_disk ${CANDIDATE} ''`, dir);
     expect(unknown.status, unknown.stderr).toBe(0);
-    expect(readFileSync(calls, 'utf8')).toContain(`image rm club-arena-engine-standby:${OLD}`);
+    const after = readFileSync(calls, 'utf8');
+    expect(after).not.toContain('image rm club-arena-engine-standby');
+    expect(after).toContain('image rm standby-freeze-pg:x');
+    expect(after).toContain('image prune -f');
+    expect(after).toContain('builder prune -f --filter until=24h');
+    expect(existsSync(join(dir, 'state', 'qualifications', 'old-run'))).toBe(false);
+    expect(unknown.stderr).toContain(
+      'disk: serving release unknown, no engine image removed by age; free 40 GiB'
+    );
     const body = sliceBetween(STANDBY, 'cmd_certify() {', 'trial_regression_replay "$sha"');
     expect(body).toContain('reclaim_backup_disk "$sha" "$reclaim_serving"');
     expect(body).toMatch(
       /\[\[ "\$reclaim_serving" =~ \^\[0-9a-f\]\{40\}\$ \]\] \|\| reclaim_serving=''/
     );
+  });
+
+  it('a qualification image docker refuses to remove is skipped and never ends the certification', () => {
+    // The loop was `docker image ls ... | while read -r tag; do [ -n "$tag" ] && docker image rm
+    // "$tag"; done`. Under set -Eeuo pipefail a refusal of the LAST listed image failed the
+    // pipeline and the whole script exited before the certificate was written.
+    const dir = mkdtempSync(join(tmpdir(), 'reclaim-refused-'));
+    mkdirSync(join(dir, 'log'), { recursive: true });
+    mkdirSync(join(dir, 'state'), { recursive: true });
+    const calls = join(dir, 'calls');
+    writeFileSync(calls, '');
+    const r = run(
+      `${DOCKER_STUB(calls, 'standby-freeze-node:x')}\nreclaim_backup_disk ${CANDIDATE} ${OLD}\necho certification-continues`,
+      dir
+    );
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain('certification-continues');
+    expect(r.stderr).toContain('disk: could not remove standby-freeze-node:x (skipped)');
+    const all = readFileSync(calls, 'utf8');
+    expect(all).toContain('image rm standby-freeze-node:x');
+    // Everything after the refused removal still ran.
+    expect(all).toContain('image prune -f');
+    expect(r.stderr).toContain(
+      'disk: removed 0 engine image(s) older than 24h; free 40 GiB; kept serving aaaaaaaaaaaa'
+    );
+    expect(STANDBY).not.toMatch(/docker image ls[^\n]*\\\n[^\n]*\| while read/);
   });
 
   it('reports the smallest free space of the paths it writes, and unknown when it cannot read it', () => {

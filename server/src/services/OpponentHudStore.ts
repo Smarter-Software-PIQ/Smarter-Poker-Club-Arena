@@ -126,6 +126,12 @@ export const HUD_LIVE_SNAPSHOT_FAMILIES: readonly HudFamily[] = ['plo4', 'plo5']
  * while none is switched, carries nothing, exactly as before (AUDIT-24H P1-2).
  */
 export const HUD_NLH_RIVER_CONSUMERS: readonly string[] = ['holdemRiverBluffIsPricedOnPeople'];
+/**
+ * NLH cash consumers of the lifetime turn record (lead-9 2026-11-27), the same rule one street earlier: while one of
+ * these options has a switch row that is not off AND the store is armed, the HEADS-UP TURN decision of an NLH cash
+ * hand carries its opponent's packet (the option reads t.fb.sm.hu / t.fb.bg.hu). Nothing else changes.
+ */
+export const HUD_NLH_TURN_CONSUMERS: readonly string[] = ['holdemTurnBluffIsPricedOnPeople'];
 export const HUD_CATCHUP_PAUSE_MS = 200;
 export const HUD_CATCHUP_SLOW_MS = 1_000;
 export const HUD_CATCHUP_MAX_PAUSE_MS = 10_000;
@@ -305,6 +311,15 @@ export class OpponentHudStore {
   /** True while armed and an NLH river consumer is switched: heads-up NLH cash river decisions then carry a packet. */
   nlhRiverConsumer(): boolean {
     return this.armedState && this.nlhRiverConsumerState;
+  }
+  /** an NLH turn consumer (HUD_NLH_TURN_CONSUMERS) has a switch row that is not off */
+  private nlhTurnConsumerState = false;
+  setNlhTurnConsumer(on: boolean): void {
+    this.nlhTurnConsumerState = on === true;
+  }
+  /** True while armed and an NLH turn consumer is switched: heads-up NLH cash turn decisions then carry a packet. */
+  nlhTurnConsumer(): boolean {
+    return this.armedState && this.nlhTurnConsumerState;
   }
   /** the migration is not installed: nothing is read or written until this time (re-probed every 10 minutes) */
   private disabledUntil = 0;
@@ -1632,8 +1647,9 @@ export function warmOpponentHudSeats(
 }
 
 /** The decision snapshot field (ServerTableEngineTurns, LightningHorse): `{ opponentHud }` while armed for a PLO4/PLO5
- *  cash decision, and for a heads-up NLH cash river decision while an NLH river consumer is switched
- *  (HUD_NLH_RIVER_CONSUMERS); `{}` otherwise (then the snapshot is byte-identical). Never throws. */
+ *  cash decision, and for a heads-up NLH cash river (turn) decision while an NLH river (turn) consumer is switched
+ *  (HUD_NLH_RIVER_CONSUMERS, HUD_NLH_TURN_CONSUMERS); `{}` otherwise (then the snapshot is byte-identical). Never
+ *  throws. */
 export function opponentHudSnapshotField(
   gs: {
     gameVariant?: unknown;
@@ -1660,8 +1676,13 @@ export function opponentHudSnapshotField(
     if (!family || !cash) return {};
     const stage = String(gs.stage ?? 'preflop');
     if (!HUD_LIVE_SNAPSHOT_FAMILIES.includes(family)) {
-      // NLH cash: the heads-up river decision only, and only while an NLH river consumer is switched
-      if (family !== 'nlh' || stage !== 'river' || !shared.nlhRiverConsumer()) return {};
+      // NLH cash: the heads-up river decision only, and only while an NLH river consumer is switched; the
+      // heads-up turn decision only while an NLH turn consumer is switched
+      if (family !== 'nlh') return {};
+      const consumed =
+        (stage === 'river' && shared.nlhRiverConsumer()) ||
+        (stage === 'turn' && shared.nlhTurnConsumer());
+      if (!consumed) return {};
       // two players live in the hand (a seat sitting out that is not all in holds no cards)
       const live = (gs.players ?? []).filter(
         (p) => p && p.is_folded !== true && !(p.is_sitting_out === true && p.is_all_in !== true)
@@ -1704,9 +1725,17 @@ export function armOpponentHudFromSwitch(message: { status?: unknown; config?: u
           return state === 'on' || state === 'shadow' || state === 'on_shadow';
         })
     );
+    shared.setNlhTurnConsumer(
+      parsed.ok &&
+        HUD_NLH_TURN_CONSUMERS.some((name) => {
+          const state = parsed.states[name];
+          return state === 'on' || state === 'shadow' || state === 'on_shadow';
+        })
+    );
   } catch {
     shared?.setArmed(false);
     shared?.setNlhRiverConsumer(false);
+    shared?.setNlhTurnConsumer(false);
   }
 }
 

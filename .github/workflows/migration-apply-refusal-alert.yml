@@ -1,11 +1,30 @@
 name: Migration Apply Refusal Alert
 
-# IMMEDIATE MIGRATION APPLY REFUSAL ALERT (2026-11-26, post-incident 37a45c05).
+# MIGRATION APPLY REFUSAL ALERT: THE HAND DOOR (2026-11-26, post-incident
+# 37a45c05; corrected 2026-11-27).
 #
-# When `Apply Merged Migration` fails on main, this workflow immediately posts
-# ONE deduplicated alert comment on the owning merged PR and ONE concise note on
-# release custody issue #11599 — within ~30 seconds instead of waiting 60+ minutes
-# for `migration-install-watch` to fire CRITICAL `MergedMigrationNotInstalled`.
+# The alert itself is posted by the report-refusal job INSIDE the failed
+# `Apply Merged Migration` run (apply-merged-migration.yml): ONE deduplicated
+# comment on the owning merged PR and ONE concise note on release custody issue
+# #11599. This workflow is not that route. It keeps two doors:
+#
+#   workflow_dispatch  re-report a given apply run by id (or render it with
+#                      dry_run), for a run whose own report job did not post.
+#   workflow_run       fires ONLY for an apply run a person or an App started.
+#                      It can NEVER fire for the normal route: the merge
+#                      dispatcher starts the applier with the Actions job token,
+#                      and GitHub raises no workflow_run event for a run the job
+#                      token started. This file first claimed an alert "within
+#                      ~30 seconds" on this trigger; run 46054847104 refused
+#                      20261127172908 on 2026-11-27 and this workflow never ran
+#                      (its whole history was one manual dispatch).
+#
+# The two routes cannot double-post: the script dedups by apply run id
+# (`<!-- migration-apply-refusal:<runId> -->`), and a workflow_run event exists
+# only after the apply run, with its report job, has finished. The concurrency
+# group below is per apply run id, so two runs of THIS workflow for one apply
+# run go one after the other; a hand dispatch racing the in-run job reads the
+# comments first and can at worst post a second copy, never a wrong one.
 #
 # Reporting only: holds ZERO database secrets, runs ZERO database queries, has
 # NO timer/schedule, never retries or dispatches a release, and never writes

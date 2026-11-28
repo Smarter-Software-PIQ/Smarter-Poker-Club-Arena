@@ -314,7 +314,9 @@ describe('ANIMATION 9/16 — turn timer ring (spTimerRingShrink / spTimerColorSh
         turnDeadlineMs={start + 15_000}
       />
     );
-    const before = container.querySelector('.seat__info');
+    const beforeInfo = container.querySelector('.seat__info');
+    const beforeRing = container.querySelector('.seat__timer-ring');
+    expect(beforeRing).not.toBeNull();
     // time-bank extension: deadline moves, same turn
     rerender(
       <SeatSlot
@@ -327,8 +329,9 @@ describe('ANIMATION 9/16 — turn timer ring (spTimerRingShrink / spTimerColorSh
         turnDeadlineMs={start + 30_000}
       />
     );
-    // Same DOM node => the running animation was NOT restarted.
-    expect(container.querySelector('.seat__info')).toBe(before);
+    // Same DOM nodes => neither the plate nor the running ring animation restarted.
+    expect(container.querySelector('.seat__info')).toBe(beforeInfo);
+    expect(container.querySelector('.seat__timer-ring')).toBe(beforeRing);
   });
 
   it('a genuinely NEW turn does restart the ring', () => {
@@ -344,7 +347,9 @@ describe('ANIMATION 9/16 — turn timer ring (spTimerRingShrink / spTimerColorSh
         turnDeadlineMs={start + 15_000}
       />
     );
-    const before = container.querySelector('.seat__info');
+    const beforeInfo = container.querySelector('.seat__info');
+    const beforeRing = container.querySelector('.seat__timer-ring');
+    expect(beforeRing).not.toBeNull();
     rerender(
       <SeatSlot
         seatNumber={1}
@@ -356,7 +361,10 @@ describe('ANIMATION 9/16 — turn timer ring (spTimerRingShrink / spTimerColorSh
         turnDeadlineMs={start + 30_000}
       />
     );
-    expect(container.querySelector('.seat__info')).not.toBe(before);
+    // .seat__info stays mounted so imperative mobile frame geometry (--sp-frame-*)
+    // survives across turns, while ActionTimerRing remounts to restart the clock.
+    expect(container.querySelector('.seat__info')).toBe(beforeInfo);
+    expect(container.querySelector('.seat__timer-ring')).not.toBe(beforeRing);
   });
 });
 

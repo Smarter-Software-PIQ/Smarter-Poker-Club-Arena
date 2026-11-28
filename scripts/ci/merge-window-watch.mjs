@@ -65,7 +65,12 @@ export function lastClosedWindow(nowMs, cadence) {
  * statuses: [{ state, description, created_at }] }] (this context only).
  */
 export function windowVerdict(window, candidates) {
-  const list = Array.isArray(candidates) ? candidates : [];
+  // A DRAFT IS NOT A WITNESS (2026-11-27). The keeper never opens a draft
+  // (GitHub will not merge one), so a draft that stays failure through a
+  // window says nothing about whether the window was held. Its usual text
+  // (DRAFT_HELD) is not a MIGRATION_STATUS and is never sampled; this also
+  // drops a draft still carrying an older "Migrations merge" text.
+  const list = (Array.isArray(candidates) ? candidates : []).filter((c) => !c.isDraft);
   if (list.length === 0) return 'not-needed';
   const eligible = list.filter((c) => c.statuses.some((s) => Date.parse(s.created_at) < window.open));
   if (eligible.length === 0) return 'could-not-tell';
@@ -114,7 +119,7 @@ function gh(args) {
 const CANDIDATE_QUERY = `query($owner:String!,$name:String!){
   repository(owner:$owner,name:$name){
     pullRequests(states:OPEN,first:60,baseRefName:"main",orderBy:{field:UPDATED_AT,direction:ASC}){
-      nodes{ number commits(last:1){nodes{commit{oid status{context(name:"${MERGE_WINDOW_CONTEXT}"){description}}}}} }
+      nodes{ number isDraft commits(last:1){nodes{commit{oid status{context(name:"${MERGE_WINDOW_CONTEXT}"){description}}}}} }
     }
   }
 }`;
@@ -125,8 +130,8 @@ export function readCandidates(repo) {
   const nodes = JSON.parse(gh(['api', 'graphql', '-f', `query=${CANDIDATE_QUERY}`, '-F', `owner=${owner}`, '-F', `name=${name}`]))
     .data.repository.pullRequests.nodes;
   const picks = nodes
-    .map((n) => ({ number: n.number, commit: n.commits.nodes[0]?.commit }))
-    .filter((n) => n.commit && MIGRATION_STATUS.test(n.commit.status?.context?.description || ''))
+    .map((n) => ({ number: n.number, isDraft: Boolean(n.isDraft), commit: n.commits.nodes[0]?.commit }))
+    .filter((n) => !n.isDraft && n.commit && MIGRATION_STATUS.test(n.commit.status?.context?.description || ''))
     .slice(0, CANDIDATES);
   return picks.map((p) => {
     const rows = JSON.parse(gh(['api', '--paginate', '--slurp', `repos/${repo}/commits/${p.commit.oid}/statuses?per_page=100`])).flat();

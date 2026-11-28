@@ -309,6 +309,8 @@ export const OPTION_SHADOW_STAGE: OptionShadowStageTable = Object.freeze({
   ),
   // lead-8 2026-11-27: the NLH cash heads-up river bluff priced on people's river fold (river only)
   holdemRiverBluffIsPricedOnPeople: holdemStage(['nlh_cash', 'nlh_lightning'], ['river']),
+  // lead-9 2026-11-27: the NLH cash heads-up turn bluff after a checked flop priced on people's turn fold (turn only)
+  holdemTurnBluffIsPricedOnPeople: holdemStage(['nlh_cash', 'nlh_lightning'], ['turn']),
 });
 
 /**

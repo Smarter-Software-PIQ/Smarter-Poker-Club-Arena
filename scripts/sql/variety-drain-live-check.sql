@@ -32,6 +32,14 @@
 --   owed_waiting_now      owed games still waiting, and the longest wait so far.
 --                         Both rows say how many waits began before the window
 --                         (already owed at the release): those waits are minimums.
+--   drain_why             why the drain released what it did, counted over the
+--                         beats with a start owed, plus the withheld beats
+--                         (detail.variety_drain_why; "not recorded" until a
+--                         build that writes it) (INFO). A withheld beat
+--                         publishes no owed games: "owed now" and
+--                         owed_waiting_now read the newest beat that was not
+--                         withheld, or a withheld newest beat reads as
+--                         "0 waiting" (review 2026-11-27).
 --   horse_error_log       zero rows in the window
 WITH rel AS (
   SELECT at FROM public.ca_engine_deploy_attempts WHERE shipped ORDER BY at DESC LIMIT 1
@@ -43,7 +51,8 @@ hb AS (
                        THEN jsonb_build_array(h.detail ->> 'variety_drain_table') ELSE '[]'::jsonb END) AS named,
          jsonb_array_length(coalesce(h.detail -> 'variety_owed_games', '[]'::jsonb)) AS owed,
          coalesce(h.detail -> 'variety_owed_games', '[]'::jsonb) AS owed_games,
-         h.detail -> 'cash_room' AS room
+         h.detail -> 'cash_room' AS room,
+         h.detail ->> 'variety_drain_why' AS why
     FROM public.ca_horse_fleet_heartbeat h, rel
    WHERE h.beat_at > rel.at
 ),
@@ -98,7 +107,7 @@ census AS (SELECT count(*) AS counted FROM public.fn_cash_hourly_table_capacity_
 SELECT 'heartbeats' AS check_name,
        CASE WHEN (SELECT count(*) FROM rel) = 1 AND count(*) > 0 THEN 'PASS' ELSE 'FAIL' END AS verdict,
        count(*) || ' heartbeats since ' || coalesce((SELECT at::text FROM rel), 'NO SHIPPED RELEASE') ||
-         '; owed now ' || coalesce((SELECT owed FROM hb ORDER BY beat_at DESC LIMIT 1), 0) AS evidence
+         '; owed now ' || coalesce((SELECT owed FROM hb WHERE why IS DISTINCT FROM 'withheld' ORDER BY beat_at DESC LIMIT 1), 0) AS evidence
   FROM hb
 UNION ALL
 SELECT 'released_tables', 'INFO',
@@ -164,7 +173,12 @@ SELECT 'owed_waiting_now', 'INFO',
          CASE WHEN count(*) FILTER (WHERE truncated) > 0
               THEN ' (' || count(*) FILTER (WHERE truncated) || ' already owed at the release: their waits are minimums)'
               ELSE '' END
-  FROM waits WHERE started_at IS NULL AND last_beat = (SELECT max(beat_at) FROM hb)
+  FROM waits WHERE started_at IS NULL
+   AND last_beat = (SELECT max(beat_at) FROM hb WHERE why IS DISTINCT FROM 'withheld')
+UNION ALL
+SELECT 'drain_why', 'INFO',
+       coalesce(string_agg(w.why || ' ' || w.n, ', ' ORDER BY w.n DESC, w.why), 'no beat with a start owed')
+  FROM (SELECT coalesce(why, 'not recorded') AS why, count(*) AS n FROM hb WHERE owed > 0 OR why = 'withheld' GROUP BY 1) w
 UNION ALL
 SELECT 'horse_error_log',
        CASE WHEN (SELECT count(*) FROM rel) = 1 AND count(*) = 0 THEN 'PASS' ELSE 'FAIL' END,

@@ -383,6 +383,22 @@ export const VARIETY_DRAIN_NEW_TABLE_MS = 90_000;
  */
 export const VARIETY_DRAIN_FRESH_MS = 65_000;
 
+/**
+ * THE PACE HAS SLACK FOR THE FLEET'S OWN JITTER (review 2026-11-27). The fleet
+ * stamps a new release mid-cycle and asks again three 30 s cycles later, so
+ * the elapsed time is 90 s give or take how long each cycle's reads took. A
+ * strict ">= 90 s" failed whenever the third cycle ran a few milliseconds
+ * early and the new table waited a fourth cycle: the ramp ran at 120 s about
+ * half the time. Ten seconds of slack keeps it at three cycles and can never
+ * admit a second cycle (60 s).
+ */
+export const VARIETY_DRAIN_PACE_SLACK_MS = 10_000;
+
+/** PURE. May a NEW table be released now, given when the last new one was? */
+export function mayAddDrainTable(nowMs: number, lastNewAtMs: number): boolean {
+  return nowMs - lastNewAtMs >= VARIETY_DRAIN_NEW_TABLE_MS - VARIETY_DRAIN_PACE_SLACK_MS;
+}
+
 /** PURE. The one extra table to release this cycle, or null (the single-table view). */
 export function varietyDrainTable<T extends DrainTable>(
   input: VarietyDrainInput<T>
@@ -412,7 +428,35 @@ export function varietyDrainTable<T extends DrainTable>(
 export function varietyDrainTables<T extends DrainTable>(
   input: VarietyDrainManyInput<T>
 ): string[] {
-  if (input.owedGames.length === 0) return [];
+  return varietyDrainDecision(input).tables;
+}
+
+/**
+ * Why a decided owed cycle released what it did (2026-11-27). On the 1 AM CST
+ * seal the drain released nothing for ten hours while 18 games were owed, and
+ * the heartbeat could not say why: it took hand history to show that no game
+ * had a second occupied table. The beat now carries the reason itself.
+ *   nothing_owed    no owed start
+ *   room_free       the cap has a free slot (or the room is unknown): emptying a table frees nothing
+ *   no_extra_table  no game has a Horse-only extra table that may be released
+ *   covered         the tables already being released cover the shortfall
+ *   paced           a new table waits for the rotator's pace (one per cycle)
+ *   kept            the tables already being released are kept, none added
+ *   released        a new table was added this cycle
+ */
+export type VarietyDrainWhy =
+  | 'nothing_owed'
+  | 'room_free'
+  | 'no_extra_table'
+  | 'covered'
+  | 'paced'
+  | 'kept'
+  | 'released';
+
+export function varietyDrainDecision<T extends DrainTable>(
+  input: VarietyDrainManyInput<T>
+): { tables: string[]; why: VarietyDrainWhy } {
+  if (input.owedGames.length === 0) return { tables: [], why: 'nothing_owed' };
   const currentSet = new Set(input.current);
   const kept: string[] = [];
   const owed = new Set(input.owedGames);
@@ -476,8 +520,21 @@ export function varietyDrainTables<T extends DrainTable>(
     const n = input.seatedAt(id);
     return Number.isFinite(n) && n > 0;
   }).length;
-  if (candidates.length === 0 || stillSeated >= input.shortfall || input.mayAddNew === false)
-    return kept;
+  if (candidates.length === 0 || stillSeated >= input.shortfall || input.mayAddNew === false) {
+    const why: VarietyDrainWhy =
+      input.shortfall <= 0
+        ? kept.length > 0
+          ? 'kept'
+          : 'room_free'
+        : stillSeated >= input.shortfall
+          ? 'covered'
+          : candidates.length === 0
+            ? kept.length > 0
+              ? 'kept'
+              : 'no_extra_table'
+            : 'paced';
+    return { tables: kept, why };
+  }
   const owing = (x: T) => {
     const n = input.owingAt?.(String(x.id)) ?? 0;
     return Number.isFinite(n) && n > 0 ? n : 0;
@@ -489,7 +546,88 @@ export function varietyDrainTables<T extends DrainTable>(
       String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')) ||
       String(a.id).localeCompare(String(b.id))
   );
-  return [...kept, candidates[0].id];
+  return { tables: [...kept, candidates[0].id], why: 'released' };
+}
+
+/**
+ * WHAT ONE FLEET CYCLE DOES WITH THE DRAIN (review 2026-11-27). PURE.
+ *
+ * A cycle DECIDES only when it is seating (not withheld) and the waiting list
+ * and the Lightning set were both read. A decided cycle publishes and
+ * remembers exactly what varietyDrainDecision returned.
+ *
+ * A cycle that does not decide releases nothing new. While a start is owed it
+ * HOLDS the tables already being released (never one with a person seated):
+ * they stay out of the walk and the seat calls, stay published and stay
+ * remembered. A withheld cycle publishes no owed games (varietyOwedGamesThisCycle),
+ * so it is judged on the plan's own owed starts.
+ *
+ * Why it broke: the fleet computed "decided" from the two reads alone. A
+ * withheld cycle (the decision lane behind, or not ready) usually reads both
+ * fine, so it counted as decided with an empty decision: the memory was
+ * cleared and every released table un-published, the opposite of "a withheld
+ * cycle forgets nothing". The guard written for it sat behind "decided ||"
+ * and only ran when the reads had also failed.
+ */
+export function drainCycleOutcome(input: {
+  /** Seating is withheld this cycle (HorseFleetPolicy.withheldReason). */
+  withheld: boolean;
+  /** The waiting list and the Lightning set were both read this cycle. */
+  readsComplete: boolean;
+  /** Owed games this cycle publishes (0 in a withheld cycle). */
+  owedThisCycle: number;
+  /** Owed starts in the plan itself, withheld or not. */
+  owedInPlan: number;
+  /** varietyDrainDecision's tables; empty when the decision did not run. */
+  decision: ReadonlyArray<string>;
+  /** The tables remembered from the last cycle that changed the memory. */
+  remembered: ReadonlyArray<string>;
+  personSeatedAt: (tableId: string) => boolean;
+}): { decided: boolean; held: string[]; released: string[]; memory: string[] } {
+  const decided = !input.withheld && input.readsComplete;
+  const owed = input.withheld ? input.owedInPlan > 0 : input.owedThisCycle > 0;
+  const held = !decided && owed ? input.remembered.filter((id) => !input.personSeatedAt(id)) : [];
+  const released = decided ? [...input.decision] : held;
+  const memory = decided || !owed ? [...input.decision] : [...input.remembered];
+  return { decided, held, released, memory };
+}
+
+/**
+ * The reason a beat carries (detail.variety_drain_why): the decision's own
+ * reason, plus the cycle states the decision never sees.
+ *   withheld        seating withheld this cycle
+ *   undecided       an owed cycle that could not read what the decision needs
+ *   room_unknown    the cap or the census read failed (treated as fitting,
+ *                   never reported as a free slot)
+ *   start_admitted  the cap is full but an owed start is already admitted, so
+ *                   nothing more is released (review 2026-11-27: this read as
+ *                   "room_free" beside cash_room {cap 17, counted 17})
+ */
+export type VarietyDrainBeatWhy =
+  | VarietyDrainWhy
+  | 'withheld'
+  | 'undecided'
+  | 'room_unknown'
+  | 'start_admitted';
+
+/** PURE. */
+export function drainWhyForBeat(input: {
+  withheld: boolean;
+  owedThisCycle: number;
+  decided: boolean;
+  why: VarietyDrainWhy | null;
+  room: { cap?: number | null; counted?: number | null } | null;
+  anOwedStartAdmitted: boolean;
+}): VarietyDrainBeatWhy {
+  if (input.withheld) return 'withheld';
+  if (input.owedThisCycle === 0) return 'nothing_owed';
+  if (!input.decided || !input.why) return 'undecided';
+  if (input.why !== 'room_free') return input.why;
+  const cap = input.room?.cap ?? null;
+  const counted = input.room?.counted ?? null;
+  if (cap == null || counted == null) return 'room_unknown';
+  if (input.anOwedStartAdmitted && counted >= cap) return 'start_admitted';
+  return 'room_free';
 }
 
 /**

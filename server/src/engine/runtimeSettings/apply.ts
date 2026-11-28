@@ -6,6 +6,7 @@ import type { LiveHorseDecideOpts } from '../horseDecision/protocol.js';
 import { COMPILED_RUNTIME_SETTINGS, type RuntimeSettingsSnapshot } from './snapshot.js';
 import { omahaOptionGameScopeFromSettings } from '../HorseOmahaOptionGameScope.js';
 import { omahaBlanketRowsOffListFromSettings } from '../HorseOmahaBlanketRowsOffInPlo45Cash.js';
+import { vpipFloorTenHandWindowGamesFromSettings } from '../HorseVpipFloorTenHandWindowGames.js';
 
 const HORSE_OPTION_OF: Readonly<Record<string, keyof LiveHorseDecideOpts>> = Object.freeze({
   'horse.v67RiverRaiseShade': 'v67RiverRaiseShadeOverride',
@@ -45,6 +46,10 @@ export function horseDecideOptsFromRuntimeSettings(
   // set to 1, so at the compiled defaults (every one 0) the key is absent.
   const blanketRowsOff = omahaBlanketRowsOffListFromSettings(snapshot.values);
   if (blanketRowsOff) (out ??= {}).omahaBlanketRowsOffList = blanketRowsOff;
+  // The games vpipFloorLimpOnlyTenHandWindow may act in (horse.vpipFloorTenHandWindowGame.<variant>): only the games
+  // set to 1, so at the compiled defaults (every one 0) the key is absent.
+  const tenHandGames = vpipFloorTenHandWindowGamesFromSettings(snapshot.values);
+  if (tenHandGames) (out ??= {}).vpipFloorLimpOnlyTenHandWindowGames = tenHandGames;
   return out ? (Object.freeze(out) as LiveHorseDecideOpts) : undefined;
 }
 
