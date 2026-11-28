@@ -13,7 +13,7 @@ import { supabase } from '../../lib/supabase';
 import { isUUID, resolveClubUUID } from '../../utils/clubIdResolver';
 import { isAuthzError } from '../../utils/clubDashboard';
 import { masterBus } from '../../core/MasterBus';
-import { ArenaReadings, type ArenaReading } from '../ops/ArenaOps';
+import { ArenaReadings, ArenaState, type ArenaReading } from '../ops/ArenaOps';
 import styles from './ClubStatsCards.module.css';
 import { reportError } from '../../utils/errorReporter';
 import { compactChips } from '../../utils/format';
@@ -268,7 +268,7 @@ export default function ClubStatsCards({
   ];
 
   if (failed && !statsProp) {
-    return <p className={styles.unavailable}>The Club Metrics Could Not Be Loaded</p>;
+    return <ArenaState tone="error" title="The Club Metrics Could Not Be Loaded" />;
   }
 
   if (loading) {

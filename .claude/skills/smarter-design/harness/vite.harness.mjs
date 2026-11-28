@@ -3,6 +3,7 @@
 // swapped for offline stand-ins, so any route renders with Kings Club data
 // and no network. See ../SKILL.md section 6.
 import { loadConfigFromFile, mergeConfig } from 'vite';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -35,6 +36,9 @@ export default async () => {
   ).config;
   return mergeConfig(base, {
     root: ROOT,
+    // Its own dependency cache: two checkouts sharing one node_modules would
+    // otherwise overwrite each other's pre-bundle and load two copies of React.
+    cacheDir: path.join(os.tmpdir(), 'smarter-design-harness', ROOT.replace(/[^a-z0-9]+/gi, '-')),
     plugins: [stubs],
     // No file watching: on a small container the watcher exhausts inotify.
     server: { host: '127.0.0.1', hmr: false, watch: { ignored: ['**/*'] }, fs: { allow: [ROOT] } },

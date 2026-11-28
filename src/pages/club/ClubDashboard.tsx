@@ -39,7 +39,8 @@ import ClubActivityFeed from '../../components/club/ClubActivityFeed';
 import ClubDashboardAvatar from '../../components/club/ClubDashboardAvatar';
 import PageSkeleton from '../../components/common/PageSkeleton';
 import ArenaWorkspaceHeader from '../../components/lobby/ArenaWorkspaceHeader';
-import { ArenaReadings } from '../../components/ops/ArenaOps';
+import PageBar from '../../components/help/PageBar';
+import { ArenaReadings, ArenaState } from '../../components/ops/ArenaOps';
 import { useToast } from '../../components/common/Toast';
 import ClubMemberManagement from '../../components/admin/ClubMemberManagement';
 import { useVisibilityRefresh } from '../../hooks/useVisibilityRefresh';
@@ -986,11 +987,12 @@ export default function ClubDashboard() {
     return (
       <div className={`arena-workspace ${styles.dashboard}`} data-arena-surface="club-dashboard">
         <section className={`arena-case arena-ops-case ${styles.notice}`}>
-          <h2 className="arena-section-title">Members Only</h2>
-          <p className="arena-ops-copy">Club Analytics Are Visible To Members Of This Club.</p>
-          <div className="arena-switch">
-            <Link to="/clubs">Back To Clubs</Link>
-          </div>
+          <ArenaState
+            tone="empty"
+            title="Members Only"
+            message="Club Analytics Are Visible To Members Of This Club."
+            actions={<Link to="/clubs">Back To Clubs</Link>}
+          />
         </section>
       </div>
     );
@@ -1000,10 +1002,15 @@ export default function ClubDashboard() {
     return (
       <div className={`arena-workspace ${styles.dashboard}`} data-arena-surface="club-dashboard">
         <section className={`arena-case arena-ops-case ${styles.notice}`}>
-          <h2 className="arena-section-title">Failed To Load Dashboard</h2>
-          <div className="arena-switch arena-ops-primary">
-            <button onClick={() => loadDashboardData()}>Retry</button>
-          </div>
+          <ArenaState
+            tone="error"
+            title="Failed To Load Dashboard"
+            actions={
+              <button type="button" onClick={() => loadDashboardData()}>
+                Retry
+              </button>
+            }
+          />
         </section>
       </div>
     );
@@ -1013,10 +1020,11 @@ export default function ClubDashboard() {
     return (
       <div className={`arena-workspace ${styles.dashboard}`} data-arena-surface="club-dashboard">
         <section className={`arena-case arena-ops-case ${styles.notice}`}>
-          <h2 className="arena-section-title">Club Not Found</h2>
-          <div className="arena-switch">
-            <Link to="/clubs">Back To Clubs</Link>
-          </div>
+          <ArenaState
+            tone="empty"
+            title="Club Not Found"
+            actions={<Link to="/clubs">Back To Clubs</Link>}
+          />
         </section>
       </div>
     );
@@ -1061,6 +1069,24 @@ export default function ClubDashboard() {
             body: 'Choose Today, This Week, This Month Or All Time For Hosted Table Players, Players, Revenue And Tournaments. The Metric Cards Always Read Today And This Week.',
             target: `.${styles.filterBar}`,
           },
+        ]}
+      />
+
+      {/* The live meters under the mast, as on every Club Operations page
+          (Dan 2026-11-27). Read from what the page already holds; no new read. */}
+      <PageBar
+        title="Club Dashboard"
+        titleAs={false}
+        showHelp={false}
+        metrics={[
+          { label: 'Members', value: formatInt(club.memberCount) },
+          {
+            label: 'Online',
+            value: dashStats ? formatInt(dashStats.onlineNow) : '--',
+            tone: 'live',
+          },
+          { label: 'Live Tables', value: formatInt(club.tableCount) },
+          { label: 'Seated', value: dashStats ? formatInt(dashStats.seatedNow) : '--' },
         ]}
       />
 
@@ -1173,7 +1199,15 @@ export default function ClubDashboard() {
               {dashStats && dashStats.dailySeries.length > 0 && (
                 <div className={styles.chartBlock}>
                   <h3 className={styles.subTitle}>Last 14 Days</h3>
-                  <Suspense fallback={<div className={styles.chartLoading}>Loading Chart...</div>}>
+                  <Suspense
+                    fallback={
+                      <ArenaState
+                        tone="loading"
+                        title="Loading Chart..."
+                        className={styles.chartLoading}
+                      />
+                    }
+                  >
                     {/* ca_club_dashboard_stats.daily_series carries hands
                         DEALT beside the club's cash rake. */}
                     <ClubActivityChart data={dashStats.dailySeries} handsLabel="Hosted Hands" />
@@ -1210,7 +1244,10 @@ export default function ClubDashboard() {
 
               <div className={styles.leaderboard}>
                 {rankedPlayers.length === 0 ? (
-                  <p className={styles.empty}>No Hosted Table Hands {titleCase(rangeLabel)}</p>
+                  <ArenaState
+                    tone="empty"
+                    title={<>No Hosted Table Hands {titleCase(rangeLabel)}</>}
+                  />
                 ) : (
                   rankedPlayers.slice(0, LEADERBOARD_VISIBLE).map((player) => (
                     <Link
@@ -1353,11 +1390,12 @@ export default function ClubDashboard() {
 
             <div className={styles.playersList}>
               {membersLoading && members.length === 0 ? (
-                <p className={styles.empty}>Loading Members...</p>
+                <ArenaState tone="loading" title="Loading Members..." />
               ) : members.length === 0 ? (
-                <p className={styles.empty}>
-                  {memberSearch ? `No Members Matching "${memberSearch}"` : 'No Members Yet'}
-                </p>
+                <ArenaState
+                  tone="empty"
+                  title={memberSearch ? `No Members Matching "${memberSearch}"` : 'No Members Yet'}
+                />
               ) : (
                 members.map((m) => (
                   <Link
@@ -1454,11 +1492,11 @@ export default function ClubDashboard() {
               <Link to={`/clubs/${clubId}/create-table`}>+ Create Table</Link>
             </div>
             {tablesFailed && !tablesMeta ? (
-              <p className={styles.empty}>The Table List Could Not Be Loaded</p>
+              <ArenaState tone="error" title="The Table List Could Not Be Loaded" />
             ) : !tablesMeta ? (
-              <p className={styles.empty}>Loading Tables...</p>
+              <ArenaState tone="loading" title="Loading Tables..." />
             ) : tablesMeta.totalCount === 0 ? (
-              <p className={styles.empty}>No Tables Yet. Create One To Get The Club Playing.</p>
+              <ArenaState tone="empty" title="No Tables Yet. Create One To Get The Club Playing." />
             ) : (
               <>
                 <h3 className={styles.subTitle}>
@@ -1472,7 +1510,7 @@ export default function ClubDashboard() {
                 </h3>
                 <div className={styles.playersList}>
                   {sortedLiveTables.length === 0 ? (
-                    <p className={styles.empty}>No Table Is Running Right Now</p>
+                    <ArenaState tone="empty" title="No Table Is Running Right Now" />
                   ) : (
                     sortedLiveTables.map((t) => (
                       <Link
@@ -1501,7 +1539,7 @@ export default function ClubDashboard() {
                 </h3>
                 <div className={styles.playersList}>
                   {recentTables.length === 0 ? (
-                    <p className={styles.empty}>No Closed Tables Yet</p>
+                    <ArenaState tone="empty" title="No Closed Tables Yet" />
                   ) : (
                     recentTables.map((t) => (
                       <Link
@@ -1540,13 +1578,14 @@ export default function ClubDashboard() {
               Revenue ({dateRange === 'all' ? 'Last 90 Days' : rangeLabel})
             </h2>
             {revenueLoading && !revenue ? (
-              <p className={styles.empty}>Loading Revenue...</p>
+              <ArenaState tone="loading" title="Loading Revenue..." />
             ) : revenueError === 'restricted' ? (
-              <p className={styles.empty}>
-                Revenue Is Restricted To Club Owners, Admins And Super Agents
-              </p>
+              <ArenaState
+                tone="empty"
+                title="Revenue Is Restricted To Club Owners, Admins And Super Agents"
+              />
             ) : revenueError === 'failed' || !revenue ? (
-              <p className={styles.empty}>The Revenue Figures Could Not Be Loaded</p>
+              <ArenaState tone="error" title="The Revenue Figures Could Not Be Loaded" />
             ) : (
               <>
                 <ArenaReadings
@@ -1623,7 +1662,7 @@ export default function ClubDashboard() {
                   <Link to={`/clubs/${clubId}/bomb-pot-report`}>View Bomb Pot Report</Link>
                 </div>
 
-                <Suspense fallback={<p className={styles.empty}>Loading Chart...</p>}>
+                <Suspense fallback={<ArenaState tone="loading" title="Loading Chart..." />}>
                   {/* ca_club_revenue.daily.hands is RAKED hands, the same
                       basis as the rake plotted against it. */}
                   <ClubActivityChart
@@ -1636,7 +1675,7 @@ export default function ClubDashboard() {
                 <h3 className={styles.subTitle}>Busiest Tables</h3>
                 <div className={styles.playersList}>
                   {revenue.by_table.length === 0 ? (
-                    <p className={styles.empty}>No Table Activity In This Period</p>
+                    <ArenaState tone="empty" title="No Table Activity In This Period" />
                   ) : (
                     revenue.by_table.map((t) => (
                       <Link
@@ -1676,17 +1715,17 @@ export default function ClubDashboard() {
               )}
             </h2>
             {tournamentsLoading && !tournaments ? (
-              <p className={styles.empty}>Loading Tournaments...</p>
+              <ArenaState tone="loading" title="Loading Tournaments..." />
             ) : tournamentsError === 'restricted' ? (
-              <p className={styles.empty}>Tournament Data Is Visible To Members Of This Club</p>
+              <ArenaState tone="empty" title="Tournament Data Is Visible To Members Of This Club" />
             ) : tournamentsError === 'failed' || !tournaments ? (
-              <p className={styles.empty}>The Tournament List Could Not Be Loaded</p>
+              <ArenaState tone="error" title="The Tournament List Could Not Be Loaded" />
             ) : (
               <>
                 <h3 className={styles.subTitle}>Live And Upcoming ({tournaments.live.length})</h3>
                 <div className={styles.playersList}>
                   {tournaments.live.length === 0 ? (
-                    <p className={styles.empty}>Nothing Scheduled Right Now</p>
+                    <ArenaState tone="empty" title="Nothing Scheduled Right Now" />
                   ) : (
                     tournaments.live.map((t) => (
                       <Link
@@ -1723,10 +1762,15 @@ export default function ClubDashboard() {
                 </h3>
                 <div className={styles.playersList}>
                   {tournaments.recent.length === 0 ? (
-                    <p className={styles.empty}>
-                      No Tournaments Finished In The Last{' '}
-                      {formatInt(tournaments.summary.window_days)} Days
-                    </p>
+                    <ArenaState
+                      tone="empty"
+                      title={
+                        <>
+                          No Tournaments Finished In The Last{' '}
+                          {formatInt(tournaments.summary.window_days)} Days
+                        </>
+                      }
+                    />
                   ) : (
                     tournaments.recent.map((t) => (
                       <Link

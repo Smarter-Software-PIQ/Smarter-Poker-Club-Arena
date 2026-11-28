@@ -118,3 +118,34 @@ export function ArenaRow({
     </div>
   );
 }
+
+interface StateProps {
+  /** empty: nothing to show yet; loading: reading; error: the read failed. */
+  tone: 'empty' | 'loading' | 'error';
+  title: ReactNode;
+  message?: ReactNode;
+  /** Keys under the message, such as Retry: buttons or links. */
+  actions?: ReactNode;
+  className?: string;
+}
+
+/**
+ * One chrome screen for every empty, loading and error state on the Club
+ * Operations pages (Dan 2026-11-27), so a page reads the same with no data,
+ * while reading, and when a read fails as it does with a full ledger.
+ */
+export function ArenaState({ tone, title, message, actions, className }: StateProps) {
+  return (
+    <div
+      className={className ? `arena-ops-state ${className}` : 'arena-ops-state'}
+      data-tone={tone}
+      role={tone === 'error' ? 'alert' : 'status'}
+      aria-busy={tone === 'loading' || undefined}
+    >
+      {tone === 'loading' && <span className="arena-ops-state__meter" aria-hidden="true" />}
+      <strong className="arena-ops-state__title">{title}</strong>
+      {message != null && <p className="arena-ops-state__message">{message}</p>}
+      {actions != null && <div className="arena-switch arena-ops-keys">{actions}</div>}
+    </div>
+  );
+}

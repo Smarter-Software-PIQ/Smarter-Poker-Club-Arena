@@ -1,201 +1,138 @@
+/* TABLE MANAGEMENT in #SmarterDesign (Dan 2026-11-27).
+
+   The page wears the arena workspace (ArenaWorkspace.css, ArenaOps.css): one
+   chrome mast, the sections as one chrome switch, the Game Board as a thin
+   chrome case whose counts and health read as chrome meters, every game a
+   chrome ledger row with its controls as chrome keys, and every dialog a
+   chrome case on its own arena workspace backdrop. This sheet only lays out
+   the inside. Inks are the smarter.poker schema only: chrome blues for live
+   and positive, gold for scheduled and warnings, red for refusals. No :hover. */
+
 .page {
   min-height: 100dvh;
-  padding: clamp(8px, 2vw, 24px) 0 120px;
-  color: #e4e7ec;
-  background: #020305;
+}
+/* The arena workspace pads its root; the board keeps its foot clearance. */
+:global(.arena-workspace.arena-workspace).page {
+  padding-bottom: 120px;
 }
 
-/* THREE PAGES, THREE PICTURES (Dan 2026-09-20): "DO NOT ATTACH EVERYTHING
-   TOGETHER WITH THE SAME DISPLAY WINDOWS." The Game Board is the spade console
-   on its own; Ticker Management and Club Messages print on their own frame
-   families inside their panels, and a creator replaces the board rather than
-   sitting in it. Nothing here wraps more than one section. */
-.boardConsole {
-  --sc-max: 1000px;
-}
+/* ── Sections switch ────────────────────────────────────────────────────── */
 
-/* A state of the page (checking access) on the flat-headed spade: narrower
-   than the board, never wider than its own art. The shark denial keeps its
-   own 733px master width. */
-.stateConsole:global(.sc--family-spade) {
-  --sc-max: 760px;
-}
-
-.commandHeader {
-  display: grid;
-  gap: 2.4cqw;
-}
-
-.heroCopy {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.safetyLine,
-.eyebrow {
-  color: #45adff;
-  font:
-    800 clamp(10px, 1.5cqw, 14px) / 1 'Roboto Condensed',
-    sans-serif;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  text-shadow: 0 0 12px rgb(49 168 255 / 48%);
-}
-
-.headerRight {
-  display: grid;
-  gap: 1.8cqw;
-}
-
-.countRail,
-.healthRail {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: clamp(10px, 2cqw, 24px);
-  min-width: 0;
-  padding-block: 9px;
-  border-block: 1px solid rgb(117 132 148 / 34%);
-  color: #9aa5b3;
-  font:
-    700 clamp(10px, 1.35cqw, 13px) / 1.2 'Roboto Condensed',
-    sans-serif;
-  letter-spacing: 0.055em;
-  text-transform: uppercase;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.countRail strong {
-  color: #f4f7fb;
-  font-size: 1.2em;
-}
-
-.healthRail {
-  justify-content: flex-start;
-  padding-top: 0;
-  border-top: 0;
-  color: #758494;
-}
-
-.healthGood {
-  color: #c8ffd2;
-}
-.healthWarn,
-.healthAlert {
-  color: #ffd700;
-}
-
-.surfaceNav,
-.filters {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0;
-  border-block: 1px solid rgb(104 122 139 / 42%);
-}
-
-/* The strip is navigation, not a display window: no frame, no fill, one
-   engraved rule under it, and the page on show lit in the master's blue. */
 .surfaceNav {
-  width: min(calc(100% - 24px), 1000px);
-  margin: 0 auto clamp(12px, 2.4vw, 22px);
-  border-block: 0;
-  border-bottom: 1px solid #000;
-  box-shadow: 0 1px 0 rgb(255 255 255 / 8%);
+  margin: 7px 0;
+}
+.surfaceNav > button {
+  display: grid;
+  gap: 2px;
+  place-content: center;
+}
+.surfaceNav strong {
+  font:
+    700 13px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+.surfaceNav small {
+  color: #9fbacc;
+  font:
+    10px/1.2 Arial,
+    sans-serif;
 }
 
-/* The creation rail belongs to every management page, but it is not another
-   display window. It sits above the active section and keeps the distinct
-   spade, shark and riveted frames below completely separate. */
+/* The creation rail belongs to every management page, above the section. */
 .sectionCreationActions {
   display: grid;
   gap: 6px;
-  width: min(calc(100% - 24px), 1000px);
-  margin: 0 auto clamp(12px, 2.4vw, 22px);
+  margin: 7px 0;
 }
-
 .creationUnavailable {
   margin: 0;
   color: #ffd700;
   font:
-    800 clamp(10px, 1.25vw, 13px) / 1.3 'Roboto Condensed',
+    700 11px/1.3 'Arial Narrow',
+    Arial,
     sans-serif;
   letter-spacing: 0.06em;
   text-align: right;
   text-transform: uppercase;
 }
 
-.surfaceNav button {
-  border-bottom: 2px solid transparent;
-  font-size: clamp(10px, 1.3vw, 13px);
-}
+/* ── The Game Board case ────────────────────────────────────────────────── */
 
-.surfaceNav .surfaceActive {
-  border-bottom-color: #45adff;
+.board {
+  gap: 8px;
 }
-
-.surfaceNav button,
-.filters button,
-.rowActions button,
-.rowActions a,
-.scheduleRail button,
-.empty button,
-.loadMore,
-.creatorBack {
-  appearance: none;
-  min-height: 44px;
-  padding: 8px 12px;
-  border: 0;
-  color: #a9b4bf;
-  background: transparent;
-  font:
-    800 clamp(10px, 1.25cqw, 13px) / 1.1 'Roboto Condensed',
-    sans-serif;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-/* The divider belongs BETWEEN the columns of the strip and the filter row.
-   On the shared rule above it also printed after the last column and around
-   every button that stands alone, which drew three-sided boxes. */
-.surfaceNav button:not(:last-child),
-.filters button:not(:last-child) {
-  border-inline-end: 1px solid rgb(94 116 134 / 28%);
-}
-
-.surfaceNav button {
+.commandHeader {
   display: grid;
-  grid-template-columns: auto 1fr;
-  grid-template-rows: auto auto;
-  gap: 2px 10px;
-  text-align: left;
+  gap: 8px;
+}
+.heroCopy {
+  display: flex;
+}
+.safetyLine {
+  color: #74dfff;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.headerRight {
+  display: grid;
+  gap: 6px;
 }
 
-.surfaceNav button > span {
-  grid-row: 1 / 3;
-  align-self: center;
-  color: #52616e;
-  font-size: 1.6em;
+/* The counts and the health read as one even row of chrome meters. */
+.countRail,
+.healthRail {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 4px;
+  min-width: 0;
+  color: #9fbacc;
+  font:
+    700 10px/1.25 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.countRail > span,
+.healthRail > span {
+  display: grid;
+  place-content: center;
+  min-height: 44px;
+}
+.countRail strong {
+  display: block;
+  color: #f1f5fc;
+  font:
+    800 18px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.healthRail {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
 }
 
-.surfaceNav button strong {
-  color: #dce3ea;
+.healthGood {
+  color: #74dfff;
 }
-.surfaceNav button small {
-  color: #687886;
+.healthWarn,
+.healthAlert {
+  color: #ffd700;
 }
-.surfaceNav .surfaceActive,
-.filters .active {
-  color: #45adff;
-  text-shadow: 0 0 10px rgb(49 168 255 / 55%);
+.countRail > .healthGood strong {
+  color: #74dfff;
 }
-.surfaceNav .surfaceActive strong {
-  color: #f5f8fb;
+.countRail > .healthWarn strong {
+  color: #ffd700;
 }
-.surfaceNav .surfaceActive > span {
-  color: #45adff;
+
+.filters > button {
+  text-transform: capitalize;
 }
 
 .hostPicker {
@@ -203,81 +140,31 @@
   justify-content: space-between;
   gap: 12px;
   margin: 0;
-  padding-block: 10px;
-  border-bottom: 1px solid rgb(104 122 139 / 32%);
-  color: #788795;
-  font-size: 12px;
+  padding: 6px 2px;
+  border-bottom: 1px solid #253e57;
+  color: #9fbacc;
+  font:
+    700 11px 'Arial Narrow',
+    Arial,
+    sans-serif;
   text-transform: uppercase;
 }
 .hostPicker strong {
-  color: #e4e7ec;
+  color: #f1f5fc;
 }
 
-.creatorStage {
-  display: grid;
-  gap: clamp(8px, 1.6vw, 14px);
-  width: 100%;
-  max-width: 1000px;
-  min-width: 0;
-  margin-inline: auto;
-}
-
-/* Back to the game types: a lit word on the black, not a drawn button. */
-.creatorBack {
-  display: block;
-  justify-self: start;
-  min-width: 56px;
-  margin-inline-start: 12px;
-  border-inline: 0;
-  color: #45adff;
-  font-size: 18px;
-  text-shadow: 0 0 10px rgb(49 168 255 / 55%);
-}
-
-.filters {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-top: 0;
-}
-.filters button {
-  border-bottom: 2px solid transparent;
-}
-.filters .active {
-  border-bottom-color: #45adff;
-}
-
-.empty,
-.denied {
-  display: grid;
-  place-items: center;
-  gap: 10px;
-  min-height: 150px;
-  margin: 0;
-  padding: 28px 16px;
-  color: #9aa5b3;
-  text-align: center;
-}
-.empty h2 {
-  margin: 0;
-  color: #e4e7ec;
-  text-transform: uppercase;
-}
-.empty p {
-  margin: 0;
-}
+/* ── A managed game: one chrome ledger row ──────────────────────────────── */
 
 .gameList {
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
-
 .gameRow {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  align-items: center;
-  gap: 18px;
-  padding: 18px 0 14px 14px;
-  border-bottom: 1px solid rgb(101 120 137 / 34%);
+  gap: 10px;
+  padding: 12px 10px 10px 16px;
 }
 .managedCard {
   width: min(100%, 760px);
@@ -285,235 +172,248 @@
 }
 .statusRail {
   position: absolute;
-  inset: 10px auto 10px 0;
+  inset: 10px auto 10px 4px;
   width: 3px;
-  background: #6d7782;
+  background: #3a5268;
 }
 .statusRail.live {
-  background: #35d95a;
-  box-shadow: 0 0 9px rgb(53 217 90 / 72%);
-}
-.statusRail.scheduled {
   background: #45adff;
   box-shadow: 0 0 9px rgb(69 173 255 / 72%);
 }
+.statusRail.scheduled {
+  background: #ffd700;
+  box-shadow: 0 0 9px rgb(255 215 0 / 55%);
+}
 .statusRail.closed {
-  background: #59636d;
+  background: #3a5268;
 }
 .gameIdentity {
   min-width: 0;
-}
-.gameIdentity > :is(span, h2, p),
-.gameNumbers,
-.status {
-  display: none;
-}
-.gameIdentity > span,
-.status,
-.gameNumbers span {
-  color: #73818f;
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-.gameIdentity h2 {
-  margin: 3px 0;
-  color: #eef2f6;
-  font:
-    800 clamp(17px, 2.1cqw, 23px)/1.1 'Roboto Condensed',
-    sans-serif;
-  text-transform: uppercase;
-}
-.gameIdentity p {
-  margin: 0;
-  color: #9ba8b4;
-  font-size: 12px;
-}
-.gameNumbers {
-  text-align: center;
-}
-.gameNumbers strong {
-  color: #f4f7fb;
-  font-size: 20px;
-}
-.status {
-  color: #45adff;
 }
 
 .contractRail,
 .commandReceipt,
 .scheduleRail,
-.readinessGrid,
 .contractMeta {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px 14px;
-  margin-top: 9px;
-  padding-block: 7px;
-  border-block: 1px solid rgb(91 109 126 / 24%);
-  color: #8d9aa7;
-  font-size: 10px;
+  align-items: center;
+  gap: 6px 14px;
+  margin-top: 6px;
+  padding-block: 6px;
+  border-top: 1px solid #253e57;
+  color: #9fbacc;
+  font:
+    700 10px/1.3 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+.commandReceipt code {
+  color: #74dfff;
 }
 .locked,
 .blocked,
 .commandRejected {
-  color: #ff5b6e;
+  color: #ff5a6a;
 }
 .ready {
-  color: #c8ffd2;
+  color: #74dfff;
 }
 .scheduleRail strong {
-  color: #e4e7ec;
+  color: #ffd700;
 }
 .scheduleRail button {
   /* Cancel Schedule is a phone tap target like every other control here. */
   min-height: 44px;
   margin-left: auto;
-  padding-block: 0;
-  color: #45adff;
+  padding: 0 10px;
+  color: #74dfff;
+  background: none;
+  border: 0;
+  font:
+    700 11px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.scheduleRail button:active:not(:disabled) {
+  filter: brightness(1.3);
 }
 
 .rowActions {
-  grid-column: 1 / -1;
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  border-top: 1px solid rgb(91 109 126 / 24%);
+  margin: 0;
 }
-.rowActions .danger {
-  color: #ff5b6e;
-}
-.rowActions :is(button, a):disabled {
-  color: #4f5963;
-  cursor: not-allowed;
+/* Close keeps its refusal ink on the chrome key. */
+:global(.arena-workspace) :global(.arena-switch).rowActions > .danger:not(:disabled) {
+  color: #ff5a6a;
 }
 
 .loadMore {
-  width: 100%;
-  border-block: 1px solid rgb(91 109 126 / 36%);
-  color: #45adff;
+  min-height: 44px;
 }
 
-.dialogBackdrop {
+/* Back to the game types: one short chrome key. */
+.creatorBack {
+  max-width: 140px;
+  margin: 0;
+}
+.creatorStage {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+/* ── Dialogs: a chrome case on its own arena workspace backdrop ─────────── */
+
+:global(.arena-workspace.arena-workspace).dialogBackdrop {
   position: fixed;
   inset: 0;
   z-index: 5000;
   display: grid;
   place-items: center;
+  max-width: none;
+  margin: 0;
   padding: 12px;
   overflow-y: auto;
-  background: rgb(0 0 0 / 88%);
+  background: rgb(2 6 12 / 88%);
 }
 .dialog {
-  width: min(100%, 820px);
+  width: min(100%, 560px);
   max-height: calc(100dvh - 24px);
   margin: auto;
-  padding: 0 !important;
-  border: 0 !important;
-  color: #e4e7ec;
-  background: transparent !important;
-  box-shadow: none !important;
   overflow-y: auto;
-}
-.dialog > :global(.sc--family-spade) {
-  --sc-max: 760px;
-}
-
-/* THE SPADE GLASS IS CLEAR. Its mid slice is transparent between the rails,
-   which is right on a black page and wrong over a dimmed board: the board's
-   lit text read straight through a dialog's own copy. The rails sit between
-   1.7% and 7.6% of the master, so a black backing inset 3% closes the glass
-   and draws nothing outside the frame. */
-.dialog > :global(.sc--family-spade) > :global(.sc__body)::before {
-  content: '';
-  position: absolute;
-  inset: 0 3%;
-  z-index: -1;
-  background: #000;
 }
 .contractDialog {
   width: min(100%, 760px);
 }
+.dialogHead {
+  display: grid;
+  gap: 2px;
+}
+.dialogHead h2 {
+  margin: 0;
+}
+.dialogPill {
+  margin-left: 10px;
+  color: #ffd700;
+}
 .dialog label,
 .dialogField {
   display: grid;
-  gap: 7px;
-  color: #9aa5b3;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+  gap: 6px;
+  color: #74dfff;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-/* A disabled field is not an editable one: same groove, quieter ink. */
-.dialog input:disabled {
-  color: #9aa5b3;
-  cursor: not-allowed;
-}
-
 .dialog input {
+  box-sizing: border-box;
   width: 100%;
   min-height: 44px;
-  box-sizing: border-box;
-  padding: 10px 12px;
-  border: 1px solid rgb(94 116 134 / 52%);
-  color: #f4f7fb;
-  background: #05080c;
+  padding: 8px 10px;
+  color: #f1f5fc;
+  background: #030b14;
+  border: 1px solid #253e57;
   font:
-    600 16px/1.2 Inter,
+    600 15px/1.2 Arial,
+    sans-serif;
+  text-transform: none;
+}
+/* A disabled field is not an editable one: same well, quieter ink. */
+.dialog input:disabled {
+  color: #9fbacc;
+  cursor: not-allowed;
+}
+.dialog p {
+  margin: 0;
+  color: #b6c8d6;
+  font:
+    12px/1.4 Arial,
     sans-serif;
 }
-.fieldGrid,
+.dialog .dialogError {
+  color: #ff5a6a;
+}
+.dialogError {
+  color: #ff5a6a;
+}
+.fieldGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+/* The guarantee readiness: chrome meters, two across. */
 .readinessGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-.dialogError {
-  color: #ff5b6e;
+  gap: 4px;
 }
 .readinessGrid > span {
   display: grid;
-  gap: 4px;
+  gap: 2px;
+  padding: 6px 8px;
+  background: #0b1a2a;
+  border: 1px solid #253e57;
 }
 .readinessGrid small {
-  color: #71808e;
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 .readinessGrid strong {
-  color: #e7edf3;
-}
-.contractLoading {
-  padding: 28px;
-  color: #9aa5b3;
-  text-align: center;
+  color: #ffd700;
+  font:
+    800 16px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
 }
 .contractVersions {
   display: grid;
-  gap: 10px;
+  gap: 6px;
 }
 .contractVersions details {
-  border-block: 1px solid rgb(94 116 134 / 34%);
+  border-top: 1px solid #253e57;
 }
 .contractVersions summary {
   display: grid;
   grid-template-columns: auto 1fr auto;
   gap: 12px;
-  padding: 12px 0;
-  color: #dce3ea;
+  min-height: 44px;
+  align-items: center;
+  color: #f1f5fc;
+  font:
+    700 13px 'Arial Narrow',
+    Arial,
+    sans-serif;
   cursor: pointer;
 }
 .contractVersions summary span {
+  color: #9fbacc;
   text-align: center;
-  color: #8896a4;
 }
 .contractVersions code {
-  color: #45adff;
+  color: #74dfff;
 }
 .contractVersions pre {
   max-height: 300px;
   overflow: auto;
-  color: #a9b5c0;
-  background: #030507;
+  padding: 8px;
+  color: #b6c8d6;
+  background: #030b14;
+  border: 1px solid #253e57;
   font-size: 10px;
 }
 .contractMeta {
@@ -521,48 +421,18 @@
   overflow-wrap: anywhere;
 }
 
-.dialogActions,
-.primary {
-  display: none;
-}
-
-.page :is(button, a, input, summary):focus-visible {
-  outline: 3px solid #8fd4ff;
+.page :is(button, a, input, summary):focus-visible,
+.dialog :is(button, input, summary):focus-visible {
+  outline: 2px solid #45adff;
   outline-offset: 2px;
 }
 
 @media (max-width: 700px) {
-  .page {
-    padding-top: 0;
-  }
-  .commandHeader {
-    gap: 8px;
-  }
-  .countRail,
-  .healthRail {
-    justify-content: flex-start;
-  }
-  .surfaceNav button {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto;
-    text-align: center;
-  }
-  .surfaceNav button > span {
-    display: none;
-  }
-  .surfaceNav button small {
+  .surfaceNav small {
     font-size: 9px;
   }
   .gameRow {
-    grid-template-columns: 1fr;
-    gap: 10px;
-    padding-inline-start: 8px;
-  }
-  .rowActions {
-    justify-content: stretch;
-  }
-  .rowActions > * {
-    flex: 1 1 30%;
+    padding-inline-start: 12px;
   }
   .fieldGrid,
   .readinessGrid {
@@ -577,12 +447,10 @@
 }
 
 @media (forced-colors: active) {
-  .countRail,
-  .healthRail,
-  .surfaceNav,
-  .filters,
   .gameRow,
-  .rowActions,
+  .contractRail,
+  .commandReceipt,
+  .scheduleRail,
   .dialog input {
     border-color: CanvasText;
   }

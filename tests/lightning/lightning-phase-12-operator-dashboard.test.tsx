@@ -49,46 +49,6 @@ vi.mock('../../src/utils/errorReporter', () => ({ reportError: state.reportError
 vi.mock('../../src/pages/club/lightning/LightningLatencyChart', () => ({
   default: () => <div data-testid="latency-chart" />,
 }));
-vi.mock('../../src/components/console/SpadeConsole', () => ({
-  SpadeConsole: ({ children, plates, title, pill }: any) => (
-    <section>
-      <h2>{title}</h2>
-      {pill ? <span data-testid="pill">{pill}</span> : null}
-      {children}
-      {plates?.secondary ? (
-        <button type="button" onClick={plates.secondary.onClick}>
-          {plates.secondary.label}
-        </button>
-      ) : null}
-      {plates?.primary ? (
-        <button type="button" onClick={plates.primary.onClick} disabled={plates.primary.disabled}>
-          {plates.primary.label}
-        </button>
-      ) : null}
-    </section>
-  ),
-}));
-// #SmarterDesign (2026-11-27): the Lightning pages print through ClubPageSection's
-// arena case; the same stand-in keeps these tests about the page, not the chrome.
-vi.mock('../../src/components/club/ClubPageSection', () => ({
-  ClubPageSection: ({ children, plates, title, pill }: any) => (
-    <section>
-      <h2>{title}</h2>
-      {pill ? <span data-testid="pill">{pill}</span> : null}
-      {children}
-      {plates?.secondary ? (
-        <button type="button" onClick={plates.secondary.onClick}>
-          {plates.secondary.label}
-        </button>
-      ) : null}
-      {plates?.primary ? (
-        <button type="button" onClick={plates.primary.onClick} disabled={plates.primary.disabled}>
-          {plates.primary.label}
-        </button>
-      ) : null}
-    </section>
-  ),
-}));
 
 import {
   fetchLightningOverview,
@@ -380,7 +340,10 @@ describe('the overview page', () => {
     doors({ fn_lightning_operator_overview: ok(overviewAnswer()) });
     renderPage();
     expect(await screen.findByText('NLH 1/2 Lightning')).toBeTruthy();
-    expect(screen.getByTestId('pill').textContent).toBe('3 Clusters');
+    // #SmarterDesign: the count prints in the Clusters case title, the
+    // painted console pill is gone.
+    expect(screen.getByText('3 Clusters')).toBeTruthy();
+    expect(document.querySelector('.arena-workspace .arena-workspace-mast')).toBeTruthy();
     expect(screen.getAllByText('Lightning').length).toBeGreaterThan(0);
     expect(screen.getByText('Pending')).toBeTruthy();
     expect(screen.getByText('Frozen')).toBeTruthy();

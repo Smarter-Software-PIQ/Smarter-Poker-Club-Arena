@@ -1,7 +1,7 @@
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- *  CLUB ENGINE — Anti-Cheat Dashboard
+ *  CLUB ENGINE - Anti-Cheat Dashboard
  *  5 Tabs: Overview | Flags | Events | Collusion | Anomalies
  *  Ported from World Hub native page → Club Arena TSX
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -14,7 +14,11 @@ import { useAuthUser } from '../hooks/useAuthUser';
 import { useToast } from '../components/common/Toast';
 import { masterBus } from '../core/MasterBus';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
-import PageSkeleton from '../components/common/PageSkeleton';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import PageBar from '../components/help/PageBar';
+import { ArenaReadings, ArenaRow, ArenaState, type ArenaTone } from '../components/ops/ArenaOps';
+import '../components/lobby/ArenaWorkspace.css';
+import '../components/ops/ArenaOps.css';
 import { confirmDialog } from '../components/common/confirmDialog';
 import styles from './AntiCheatPage.module.css';
 import { useIsMounted } from '../hooks/useIsMounted';
@@ -30,20 +34,29 @@ import { describeFlagReason } from '../utils/antiCheatFlagReason';
 
 type Severity = 'critical' | 'high' | 'medium' | 'low';
 
-const SEVERITY_MAP: Record<Severity, { bg: string; color: string; label: string }> = {
-  critical: { bg: 'rgba(228,30,63,0.15)', color: '#FA383E', label: 'Critical' },
-  high: { bg: 'rgba(245,166,35,0.15)', color: '#F5A623', label: 'High' },
-  medium: { bg: 'rgba(247,197,42,0.15)', color: '#F7C52A', label: 'Medium' },
-  low: { bg: 'rgba(69,153,255,0.15)', color: '#4599FF', label: 'Low' },
+/* Severity prints as a word in the smarter.poker inks (Dan 2026-11-27,
+   #SmarterDesign): red for critical and high, gold for medium, blue for low.
+   No tinted badge box. */
+const SEVERITY_MAP: Record<Severity, { tone: ArenaTone; label: string }> = {
+  critical: { tone: 'danger', label: 'Critical' },
+  high: { tone: 'danger', label: 'High' },
+  medium: { tone: 'attention', label: 'Medium' },
+  low: { tone: 'live', label: 'Low' },
 };
 
 function SeverityBadge({ severity }: { severity: string }) {
   const sev = SEVERITY_MAP[severity as Severity] || SEVERITY_MAP.low;
   return (
-    <span className={styles.severityBadge} style={{ background: sev.bg, color: sev.color }}>
+    <span className={styles.severityBadge} data-tone={sev.tone}>
       {sev.label}
     </span>
   );
+}
+
+/** The club's name as the route spells it; a raw UUID names nothing. */
+function clubContext(clubId?: string): string | undefined {
+  if (!clubId || /^[0-9a-f]{8}-/i.test(clubId)) return undefined;
+  return clubId.replace(/[-_]/g, ' ');
 }
 
 // ── Types ───────────────────────────────────────────────────
@@ -624,7 +637,7 @@ export default function AntiCheatPage() {
     return () => unsubs.forEach((u) => u());
   }, [clubId, loadStats]);
 
-  // ── Supabase Realtime — cross-user WebSocket updates ──
+  // ── Supabase Realtime - cross-user WebSocket updates ──
   const loadStatsRef = useRef(loadStats);
   loadStatsRef.current = loadStats;
 
@@ -820,129 +833,135 @@ export default function AntiCheatPage() {
   };
 
   // ── Loading ────────────────────────────────────────────────
+  const mast = (
+    <ArenaWorkspaceHeader
+      area="integrity"
+      title="Anti-Cheat Dashboard"
+      context={clubContext(routeClubId)}
+      summary="Review Integrity Flags, Collusion Screening And Outsized Pots For This Club, And Act On What Needs A Decision."
+    />
+  );
   if (loading && !stats) {
-    return <PageSkeleton variant="dashboard" />;
+    return (
+      <div className={`${styles.page} arena-workspace`}>
+        {mast}
+        <ArenaState tone="loading" title="Loading Integrity Readings" />
+      </div>
+    );
   }
 
+  const exportTab = () => {
+    try {
+      if (tab === 'flags' && flags.length > 0) {
+        exportToCSV(flags, 'anti_cheat_flags.csv', [
+          { key: 'severity', label: 'Severity' },
+          { key: 'flag_type', label: 'Type' },
+          { key: 'reason', label: 'Reason' },
+          { key: 'status', label: 'Status' },
+          { key: 'player_id', label: 'Player ID' },
+          { key: 'flagged_at', label: 'Flagged At' },
+          { key: 'review_notes', label: 'Review Notes' },
+        ]);
+      } else if (tab === 'events' && events.length > 0) {
+        exportToCSV(events, 'anti_cheat_events.csv', [
+          { key: 'event_type', label: 'Type' },
+          { key: 'player_id', label: 'Player ID' },
+          { key: 'created_at', label: 'Time' },
+        ]);
+      } else if (
+        tab === 'collusion' &&
+        collusion &&
+        collusion.chip_dump.pairs.length + collusion.screening.pairs.length > 0
+      ) {
+        /* The old export carried a Net Chips column that no detector
+           has ever written, so every row said 0.00. */
+        exportToCSV(
+          [...collusion.chip_dump.pairs, ...collusion.screening.pairs].map((pair) => ({
+            ...pair,
+            evidence_summary: evidenceSummary(pair),
+          })),
+          'collusion_pairs.csv',
+          [
+            { key: 'pattern_type', label: 'Pattern' },
+            { key: 'dumper_id', label: 'Player A' },
+            { key: 'receiver_id', label: 'Player B' },
+            { key: 'hands_together', label: 'Hands Together' },
+            { key: 'score', label: 'Score' },
+            { key: 'severity', label: 'Severity' },
+            { key: 'evidence_summary', label: 'Evidence' },
+          ]
+        );
+      } else if (tab === 'anomalies' && anomalies.length > 0) {
+        exportToCSV(anomalies, 'anomalies.csv', [
+          { key: 'player_id', label: 'Player ID' },
+          { key: 'hand_rank', label: 'Hand Rank' },
+          { key: 'pot_total', label: 'Pot' },
+          { key: 'severity', label: 'Severity' },
+          { key: 'completed_at', label: 'Time' },
+        ]);
+      } else {
+        toast.info?.('No data to export from this tab');
+      }
+    } catch (e) {
+      reportError(e, 'AntiCheatPage');
+      /* silent */
+    }
+  };
+
   return (
-    <div className={styles.page}>
+    <div className={`${styles.page} arena-workspace`}>
       {/* ── Page Header ──────────────────────────────── */}
-      <header className={styles.header}>
-        <div className={styles.headerLeft}>
-          <h1 className={styles.title}>
-            Anti-Cheat Dashboard
-            {stats && stats.open_flags > 0 && (
-              <span className={styles.badgeRed}>{stats.open_flags} Open</span>
-            )}
-          </h1>
-        </div>
-        <div className={styles.headerActions}>
-          <Link to="/" className={styles.btnGhost}>
-            Lobby
-          </Link>
-          <Link to="/admin" className={styles.btnGhost}>
-            ⚙ Admin
-          </Link>
-          <button onClick={handleRefresh} className={styles.btnGhost}>
-            ↻ Refresh
+      {mast}
+      <PageBar
+        title="Anti-Cheat Dashboard"
+        titleAs={false}
+        showHelp={false}
+        status={stats && stats.open_flags > 0 ? `${fmt(stats.open_flags)} Open` : undefined}
+        statusTone="attention"
+      >
+        <div className="arena-switch arena-ops-keys">
+          <Link to="/">Lobby</Link>
+          <Link to="/admin">Admin</Link>
+          <button type="button" onClick={handleRefresh}>
+            Refresh
           </button>
-          <button
-            className={styles.btnGhost}
-            onClick={() => {
-              try {
-                if (tab === 'flags' && flags.length > 0) {
-                  exportToCSV(flags, 'anti_cheat_flags.csv', [
-                    { key: 'severity', label: 'Severity' },
-                    { key: 'flag_type', label: 'Type' },
-                    { key: 'reason', label: 'Reason' },
-                    { key: 'status', label: 'Status' },
-                    { key: 'player_id', label: 'Player ID' },
-                    { key: 'flagged_at', label: 'Flagged At' },
-                    { key: 'review_notes', label: 'Review Notes' },
-                  ]);
-                } else if (tab === 'events' && events.length > 0) {
-                  exportToCSV(events, 'anti_cheat_events.csv', [
-                    { key: 'event_type', label: 'Type' },
-                    { key: 'player_id', label: 'Player ID' },
-                    { key: 'created_at', label: 'Time' },
-                  ]);
-                } else if (
-                  tab === 'collusion' &&
-                  collusion &&
-                  collusion.chip_dump.pairs.length + collusion.screening.pairs.length > 0
-                ) {
-                  /* The old export carried a Net Chips column that no detector
-                     has ever written, so every row said 0.00. */
-                  exportToCSV(
-                    [...collusion.chip_dump.pairs, ...collusion.screening.pairs].map((pair) => ({
-                      ...pair,
-                      evidence_summary: evidenceSummary(pair),
-                    })),
-                    'collusion_pairs.csv',
-                    [
-                      { key: 'pattern_type', label: 'Pattern' },
-                      { key: 'dumper_id', label: 'Player A' },
-                      { key: 'receiver_id', label: 'Player B' },
-                      { key: 'hands_together', label: 'Hands Together' },
-                      { key: 'score', label: 'Score' },
-                      { key: 'severity', label: 'Severity' },
-                      { key: 'evidence_summary', label: 'Evidence' },
-                    ]
-                  );
-                } else if (tab === 'anomalies' && anomalies.length > 0) {
-                  exportToCSV(anomalies, 'anomalies.csv', [
-                    { key: 'player_id', label: 'Player ID' },
-                    { key: 'hand_rank', label: 'Hand Rank' },
-                    { key: 'pot_total', label: 'Pot' },
-                    { key: 'severity', label: 'Severity' },
-                    { key: 'completed_at', label: 'Time' },
-                  ]);
-                } else {
-                  toast.info?.('No data to export from this tab');
-                }
-              } catch (e) {
-                reportError(e, 'AntiCheatPage');
-                /* silent */
-              }
-            }}
-          >
+          <button type="button" onClick={exportTab}>
             Export
           </button>
         </div>
-      </header>
+      </PageBar>
 
       {/* ── Review Flag Modal ────────────────────────── */}
       {reviewTarget && (
         <div className={styles.modalOverlay} onClick={() => !processing && setReviewTarget(null)}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h2 className={styles.modalTitle}>Review Flag</h2>
-            <div className={styles.modalBody}>
-              <div className={styles.reviewHeader}>
-                <SeverityBadge severity={reviewTarget.severity} />
-                <span className={styles.flagType}>{reviewTarget.flag_type}</span>
-              </div>
-              <p className={styles.reviewPlayer}>
-                Player:{' '}
-                {reviewTarget.player?.display_name ||
-                  reviewTarget.player_id?.substring(0, 8) ||
-                  '-'}
-              </p>
-              <pre className={styles.detailsBlock}>
-                {reviewTarget.reason
-                  ? (() => {
-                      const view = describeFlagReason(reviewTarget.reason);
-                      const others = view.otherIds
-                        .map((id) => flagNames[id] || id.substring(0, 8))
-                        .join(', ');
-                      return others ? `${view.summary} With ${others}` : view.summary;
-                    })()
-                  : 'This Flag Was Raised Without A Stated Reason'}
-              </pre>
+          <div
+            className={`arena-case arena-ops-case ${styles.modal}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="arena-section-title">Review Flag</h2>
+            <div className={styles.reviewHeader}>
+              <SeverityBadge severity={reviewTarget.severity} />
+              <span className={styles.flagType}>{reviewTarget.flag_type}</span>
             </div>
+            <p className="arena-ops-copy">
+              Player:{' '}
+              {reviewTarget.player?.display_name || reviewTarget.player_id?.substring(0, 8) || '-'}
+            </p>
+            <pre className={`arena-ops-well ${styles.detailsBlock}`}>
+              {reviewTarget.reason
+                ? (() => {
+                    const view = describeFlagReason(reviewTarget.reason);
+                    const others = view.otherIds
+                      .map((id) => flagNames[id] || id.substring(0, 8))
+                      .join(', ');
+                    return others ? `${view.summary} With ${others}` : view.summary;
+                  })()
+                : 'This Flag Was Raised Without A Stated Reason'}
+            </pre>
             <div className={styles.formGroup}>
-              <label className={styles.formLabel}>Action</label>
+              <label className="arena-ops-eyebrow">Action</label>
               <select
-                className={styles.formSelect}
+                className="arena-ops-well"
                 value={reviewStatus}
                 onChange={(e) => setReviewStatus(e.target.value)}
               >
@@ -952,23 +971,19 @@ export default function AntiCheatPage() {
               </select>
             </div>
             <div className={styles.formGroup}>
-              <label className={styles.formLabel}>Notes (Optional)</label>
+              <label className="arena-ops-eyebrow">Notes (Optional)</label>
               <input
-                className={styles.formInput}
+                className="arena-ops-well"
                 placeholder="Add Review Notes..."
                 value={reviewNotes}
                 onChange={(e) => setReviewNotes(e.target.value)}
               />
             </div>
-            <div className={styles.modalActions}>
-              <button
-                onClick={() => setReviewTarget(null)}
-                className={styles.btnGhost}
-                disabled={processing}
-              >
+            <div className="arena-switch arena-ops-keys">
+              <button type="button" onClick={() => setReviewTarget(null)} disabled={processing}>
                 Cancel
               </button>
-              <button onClick={reviewFlag} className={styles.btnPrimary} disabled={processing}>
+              <button type="button" className="active" onClick={reviewFlag} disabled={processing}>
                 {processing ? 'Submitting...' : 'Submit Review'}
               </button>
             </div>
@@ -977,7 +992,7 @@ export default function AntiCheatPage() {
       )}
 
       {/* ── Tabs ──────────────────────────────────────── */}
-      <nav className={styles.tabNav}>
+      <nav className="arena-switch arena-ops-keys" aria-label="Anti-Cheat Sections">
         {[
           { id: 'overview' as const, label: 'Overview' },
           { id: 'flags' as const, label: 'Flags', badge: stats?.open_flags || 0 },
@@ -987,7 +1002,9 @@ export default function AntiCheatPage() {
         ].map((t) => (
           <button
             key={t.id}
-            className={`${styles.tab} ${tab === t.id ? styles.tabActive : ''}`}
+            type="button"
+            aria-pressed={tab === t.id}
+            className={tab === t.id ? 'active' : undefined}
             onClick={() => setTab(t.id)}
           >
             {t.label}
@@ -998,303 +1015,264 @@ export default function AntiCheatPage() {
 
       {/* ═══════════════ TAB: OVERVIEW ════════════════ */}
       {tab === 'overview' && (
-        <div className={styles.section}>
+        <section className="arena-case arena-ops-case" aria-label="Overview">
+          <h2 className="arena-section-title">Integrity Readings</h2>
           {!stats && loading ? (
-            <PageSkeleton variant="list" />
+            <ArenaState tone="loading" title="Loading Integrity Readings" />
           ) : !stats ? (
-            <div className={styles.emptyState}>
-              <span className={styles.emptyText}>
-                {loadError || 'The Integrity Readings Could Not Be Loaded'}
-              </span>
-            </div>
+            <ArenaState
+              tone="error"
+              title={loadError || 'The Integrity Readings Could Not Be Loaded'}
+            />
           ) : (
             <>
-              <div className={styles.statsGrid}>
-                <div className={styles.statCard}>
-                  <div className={styles.statValueRed}>{fmt(stats.open_flags)}</div>
-                  <div className={styles.statLabel}>Open Flags</div>
-                </div>
-                <div className={styles.statCard}>
-                  <div className={styles.statValueGold}>{fmt(stats.blocks_24h)}</div>
-                  <div className={styles.statLabel}>Enforcement (24H)</div>
-                </div>
-                <div className={styles.statCard}>
-                  <div className={styles.statValueGreen}>{fmt(stats.active_sessions)}</div>
-                  <div className={styles.statLabel}>Players Seated Now</div>
-                </div>
-              </div>
+              <ArenaReadings
+                label="Integrity Readings"
+                readings={[
+                  {
+                    id: 'open',
+                    label: 'Open Flags',
+                    value: fmt(stats.open_flags),
+                    tone: 'danger',
+                  },
+                  {
+                    id: 'blocks',
+                    label: 'Enforcement (24H)',
+                    value: fmt(stats.blocks_24h),
+                    tone: 'attention',
+                  },
+                  {
+                    id: 'seated',
+                    label: 'Players Seated Now',
+                    value: fmt(stats.active_sessions),
+                    tone: 'live',
+                  },
+                ]}
+              />
 
               {/* Severity Breakdown */}
               {Object.keys(stats.by_severity || {}).length > 0 && (
-                <div className={styles.subsection}>
-                  <h3 className={styles.subsectionTitle}>Flags By Severity</h3>
-                  <div className={styles.statsGrid}>
-                    {Object.entries(stats.by_severity).map(([sev, count]) => {
-                      const st = SEVERITY_MAP[sev as Severity] || {};
-                      return (
-                        <div
-                          key={sev}
-                          className={styles.statCard}
-                          style={{ borderLeft: `3px solid ${st.color || '#6B7280'}` }}
-                        >
-                          <div className={styles.statValue} style={{ color: st.color }}>
-                            {fmt(count)}
-                          </div>
-                          <div className={styles.statLabel} style={{ textTransform: 'capitalize' }}>
-                            {sev}
-                          </div>
-                        </div>
-                      );
+                <>
+                  <h3 className="arena-ops-eyebrow">Flags By Severity</h3>
+                  <ArenaReadings
+                    label="Flags By Severity"
+                    readings={Object.entries(stats.by_severity).map(([sev, count]) => {
+                      const st = SEVERITY_MAP[sev as Severity];
+                      return {
+                        id: sev,
+                        label: st?.label || sev,
+                        value: fmt(count),
+                        tone: st?.tone,
+                      };
                     })}
-                  </div>
-                </div>
+                  />
+                </>
               )}
 
               {/* Flags by Type */}
               {Object.keys(stats.by_type || {}).length > 0 && (
-                <div className={styles.subsection}>
-                  <h3 className={styles.subsectionTitle}>Flags By Type</h3>
-                  <div className={styles.tableScroll}>
-                    <table className={styles.dataTable}>
-                      <thead>
-                        <tr>
-                          <th>Type</th>
-                          <th>Count</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Object.entries(stats.by_type)
-                          .sort((a, b) => b[1] - a[1])
-                          .map(([type, count]) => (
-                            <tr key={type}>
-                              <td style={{ fontWeight: 600 }}>{type}</td>
-                              <td>{fmt(count)}</td>
-                            </tr>
-                          ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+                <>
+                  <h3 className="arena-ops-eyebrow">Flags By Type</h3>
+                  <ul className="arena-ops-rows">
+                    {Object.entries(stats.by_type)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([type, count]) => (
+                        <li key={type}>
+                          <ArenaRow title={type} signal={fmt(count)} signalTone="attention" />
+                        </li>
+                      ))}
+                  </ul>
+                </>
               )}
 
               {stats.open_flags === 0 && (
-                <div className={styles.emptyState}>
-                  <span className={styles.emptyIcon}>✓</span>
-                  <span className={styles.emptyText}>
-                    No Open Integrity Flags Against Members Of This Club
-                  </span>
-                </div>
+                <ArenaState
+                  tone="empty"
+                  title="No Open Integrity Flags Against Members Of This Club"
+                />
               )}
             </>
           )}
-        </div>
+        </section>
       )}
 
       {/* ═══════════════ TAB: FLAGS ═══════════════════ */}
       {tab === 'flags' && (
-        <div className={styles.section}>
-          <div className={styles.filterBar}>
+        <section className="arena-case arena-ops-case" aria-label="Flags">
+          <h2 className="arena-section-title">Integrity Flags</h2>
+          <div className="arena-switch arena-ops-keys">
             {['open', 'reviewed', 'dismissed', 'actioned', 'all'].map((f) => (
               <button
                 key={f}
-                className={flagFilter === f ? styles.btnPrimary : styles.btnGhost}
+                type="button"
+                aria-pressed={flagFilter === f}
+                className={flagFilter === f ? 'active' : undefined}
                 onClick={() => setFlagFilter(f)}
-                style={{ textTransform: 'capitalize' }}
               >
-                {f}
+                {f.charAt(0).toUpperCase() + f.slice(1)}
               </button>
             ))}
           </div>
 
           {!flagsLoaded ? (
-            <PageSkeleton variant="list" />
+            <ArenaState tone="loading" title="Loading Flags" />
           ) : flags.length === 0 ? (
-            <div className={styles.emptyState}>
-              <span className={styles.emptyIcon}>▸</span>
-              <span className={styles.emptyText}>No Flags Match The Filter "{flagFilter}"</span>
-            </div>
+            <ArenaState tone="empty" title={`No Flags Match The Filter "${flagFilter}"`} />
           ) : (
-            <div className={styles.tableScroll}>
-              <table className={styles.dataTable}>
-                <thead>
-                  <tr>
-                    <th>Severity</th>
-                    <th>Type</th>
-                    <th>Player</th>
-                    <th>Reason</th>
-                    <th>Time</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {flags.map((f) => (
-                    <tr key={f.id}>
-                      <td>
-                        <SeverityBadge severity={f.severity} />
-                      </td>
-                      <td style={{ fontWeight: 600 }}>{f.flag_type}</td>
-                      <td>{f.player?.display_name || f.player_id?.substring(0, 8) || '-'}</td>
-                      <td className={styles.detailsCell} title={f.reason || undefined}>
-                        {(() => {
-                          const view = describeFlagReason(f.reason);
-                          return (
-                            <>
-                              <span>{view.summary}</span>
-                              {view.otherIds.length > 0 && (
-                                <span className={styles.reasonAccounts}>
-                                  {' With '}
-                                  {view.otherIds.map((id, i) => (
-                                    <span key={id}>
-                                      {i > 0 ? ', ' : ''}
-                                      <Link to={`/profile/${id}`} className={styles.reasonLink}>
-                                        {flagNames[id] || id.substring(0, 8)}
-                                      </Link>
-                                    </span>
-                                  ))}
-                                </span>
-                              )}
-                              {view.handNumbers.length > 0 && (
-                                <span className={styles.reasonHands}>
-                                  {' Hands #'}
-                                  {view.handNumbers.slice(0, 5).join(', #')}
-                                </span>
-                              )}
-                            </>
-                          );
-                        })()}
-                      </td>
-                      <td className={styles.timeCell}>{timeAgo(f.flagged_at)}</td>
-                      <td>
-                        <span
-                          className={`${styles.statusBadge} ${f.status === 'open' ? styles.statusOpen : ''}`}
+            <ul className="arena-ops-rows arena-ops-rows--single">
+              {flags.map((f) => (
+                <li key={f.id}>
+                  <div className={`arena-ledger-row ${styles.caseRow}`}>
+                    <div className={styles.caseHead}>
+                      <SeverityBadge severity={f.severity} />
+                      <strong className={styles.flagType}>{f.flag_type}</strong>
+                      <span
+                        className={styles.caseStatus}
+                        data-open={f.status === 'open' || undefined}
+                      >
+                        {f.status}
+                      </span>
+                    </div>
+                    <p className={styles.caseLine}>
+                      {f.player?.display_name || f.player_id?.substring(0, 8) || '-'} ·{' '}
+                      {timeAgo(f.flagged_at)}
+                    </p>
+                    <p className={styles.caseDetail} title={f.reason || undefined}>
+                      {(() => {
+                        const view = describeFlagReason(f.reason);
+                        return (
+                          <>
+                            <span>{view.summary}</span>
+                            {view.otherIds.length > 0 && (
+                              <span className={styles.reasonAccounts}>
+                                {' With '}
+                                {view.otherIds.map((id, i) => (
+                                  <span key={id}>
+                                    {i > 0 ? ', ' : ''}
+                                    <Link to={`/profile/${id}`} className={styles.reasonLink}>
+                                      {flagNames[id] || id.substring(0, 8)}
+                                    </Link>
+                                  </span>
+                                ))}
+                              </span>
+                            )}
+                            {view.handNumbers.length > 0 && (
+                              <span className={styles.reasonHands}>
+                                {' Hands #'}
+                                {view.handNumbers.slice(0, 5).join(', #')}
+                              </span>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </p>
+                    <div className={`arena-switch ${styles.caseKeys}`}>
+                      {f.status === 'open' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReviewTarget(f);
+                            setReviewStatus('reviewed');
+                            setReviewNotes('');
+                          }}
                         >
-                          {f.status}
-                        </span>
-                      </td>
-                      <td>
-                        <div className={styles.actionBtns}>
-                          {f.status === 'open' && (
-                            <button
-                              onClick={() => {
-                                setReviewTarget(f);
-                                setReviewStatus('reviewed');
-                                setReviewNotes('');
-                              }}
-                              className={styles.btnSmallGold}
-                            >
-                              Review
-                            </button>
-                          )}
-                          <button
-                            onClick={() => kickPlayer(f.player_id)}
-                            className={styles.btnSmallDanger}
-                            disabled={processing}
-                          >
-                            Kick
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                          Review
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className={styles.dangerKey}
+                        onClick={() => kickPlayer(f.player_id)}
+                        disabled={processing}
+                      >
+                        Kick
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
           )}
-        </div>
+        </section>
       )}
 
       {/* ═══════════════ TAB: EVENTS ══════════════════ */}
       {tab === 'events' && (
-        <div className={styles.section}>
+        <section className="arena-case arena-ops-case" aria-label="Events">
           {!eventsLoaded ? (
-            <PageSkeleton variant="list" />
+            <ArenaState tone="loading" title="Loading Events" />
           ) : events.length === 0 ? (
-            <div className={styles.emptyState}>
-              <span className={styles.emptyIcon}>▦</span>
-              <span className={styles.emptyText}>No Anti-Cheat Events Recorded Yet</span>
-            </div>
+            <ArenaState tone="empty" title="No Anti-Cheat Events Recorded Yet" />
           ) : (
             <>
-              <h3 className={styles.subsectionTitle}>Recent Events ({events.length})</h3>
-              <div className={styles.tableScroll}>
-                <table className={styles.dataTable}>
-                  <thead>
-                    <tr>
-                      <th>Type</th>
-                      <th>Player</th>
-                      <th>Details</th>
-                      <th>Time</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {events.map((ev, i) => (
-                      <tr key={ev.id || i}>
-                        <td>
-                          <span
-                            className={`${styles.eventTypeBadge} ${
-                              ev.event_type.includes('kicked')
-                                ? styles.eventDanger
-                                : ev.event_type.includes('blocked')
-                                  ? styles.eventWarning
-                                  : ''
-                            }`}
-                          >
-                            {ev.event_type}
-                          </span>
-                        </td>
-                        <td>
-                          {ev.player?.display_name || ev.player_id?.substring(0, 8) || 'System'}
-                        </td>
-                        <td className={styles.detailsCell}>
-                          {ev.details ? JSON.stringify(ev.details).substring(0, 80) : '-'}
-                        </td>
-                        <td className={styles.timeCell}>{timeAgo(ev.created_at)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <h2 className="arena-section-title">Recent Events ({events.length})</h2>
+              <ul className="arena-ops-rows arena-ops-rows--single">
+                {events.map((ev, i) => (
+                  <li key={ev.id || i}>
+                    <ArenaRow
+                      title={ev.player?.display_name || ev.player_id?.substring(0, 8) || 'System'}
+                      line={
+                        <>
+                          {ev.details ? JSON.stringify(ev.details).substring(0, 80) : '-'} ·{' '}
+                          {timeAgo(ev.created_at)}
+                        </>
+                      }
+                      signal={ev.event_type}
+                      signalTone={
+                        ev.event_type.includes('kicked')
+                          ? 'danger'
+                          : ev.event_type.includes('blocked')
+                            ? 'attention'
+                            : 'live'
+                      }
+                      className={styles.eventRow}
+                    />
+                  </li>
+                ))}
+              </ul>
             </>
           )}
-        </div>
+        </section>
       )}
 
       {/* ═══════════════ TAB: COLLUSION ═══════════════ */}
       {tab === 'collusion' && (
-        <div className={styles.section}>
+        <section className="arena-case arena-ops-case" aria-label="Collusion">
+          <h2 className="arena-section-title">Collusion Screen</h2>
           {!collusionLoaded ? (
-            <PageSkeleton variant="list" />
+            <ArenaState tone="loading" title="Loading Collusion Screen" />
           ) : !collusion ? (
-            <div className={styles.emptyState}>
-              <span className={styles.emptyText}>
-                {loadError || 'The Collusion Screen Could Not Be Loaded'}
-              </span>
-            </div>
+            <ArenaState
+              tone="error"
+              title={loadError || 'The Collusion Screen Could Not Be Loaded'}
+            />
           ) : (
             <>
-              <div className={styles.statsGrid}>
-                <div className={styles.statCard}>
-                  <div className={styles.statValueBlue}>{fmt(collusion.analyzed_hands)}</div>
-                  <div className={styles.statLabel}>Hands Analyzed</div>
-                </div>
-                <div className={styles.statCard}>
-                  <div className={styles.statValueRed}>{fmt(collusion.chip_dump.total)}</div>
-                  <div className={styles.statLabel}>Chip Dump Pairs</div>
-                </div>
-                <div className={styles.statCard}>
-                  <div className={styles.statValueGold}>{fmt(collusion.screening.total)}</div>
-                  <div className={styles.statLabel}>Other Signals Open</div>
-                </div>
-                <div className={styles.statCard}>
-                  <div className={styles.statValue}>{fmt(collusion.club_players)}</div>
-                  <div className={styles.statLabel}>Players Screened</div>
-                </div>
-                <div className={styles.statCard}>
-                  <div className={styles.statValue}>{fmt(collusion.closed_pairs)}</div>
-                  <div className={styles.statLabel}>Already Closed</div>
-                </div>
-              </div>
+              <ArenaReadings
+                label="Collusion Readings"
+                readings={[
+                  {
+                    id: 'hands',
+                    label: 'Hands Analyzed',
+                    value: fmt(collusion.analyzed_hands),
+                    tone: 'live',
+                  },
+                  {
+                    id: 'dump',
+                    label: 'Chip Dump Pairs',
+                    value: fmt(collusion.chip_dump.total),
+                    tone: 'danger',
+                  },
+                  {
+                    id: 'signals',
+                    label: 'Other Signals Open',
+                    value: fmt(collusion.screening.total),
+                    tone: 'attention',
+                  },
+                  { id: 'players', label: 'Players Screened', value: fmt(collusion.club_players) },
+                  { id: 'closed', label: 'Already Closed', value: fmt(collusion.closed_pairs) },
+                ]}
+              />
 
               {/*
                 TWO DETECTORS WRITE INTO ONE TABLE AND THEY DO NOT MEAN THE SAME
@@ -1305,85 +1283,69 @@ export default function AntiCheatPage() {
                 window, so presenting the two as one list turned an actionable
                 queue of three into a wall nobody could work.
               */}
-              <h3 className={styles.subsectionTitle}>Suspected Chip Dumping</h3>
-              <p className={styles.subsectionDesc}>
+              <h3 className="arena-ops-eyebrow">Suspected Chip Dumping</h3>
+              <p className="arena-ops-copy">
                 One-Directional Chip Flow Between Two Players Who Sat At This Club, Scored At Or
                 Above {Math.round(collusion.threshold * 100)} Over The Last {collusion.window_days}{' '}
                 Days.
               </p>
               {collusion.chip_dump.pairs.length === 0 ? (
-                <div className={styles.emptyState}>
-                  <span className={styles.emptyText}>
-                    No Chip Dumping Is Awaiting Review Across {fmt(collusion.analyzed_hands)} Hands
-                  </span>
-                </div>
+                <ArenaState
+                  tone="empty"
+                  title={`No Chip Dumping Is Awaiting Review Across ${fmt(collusion.analyzed_hands)} Hands`}
+                />
               ) : (
-                <div className={styles.tableScroll}>
-                  <table className={styles.dataTable}>
-                    <thead>
-                      <tr>
-                        <th>Severity</th>
-                        <th>Loser To Winner</th>
-                        <th>Hands</th>
-                        <th>Score</th>
-                        <th>Evidence</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {collusion.chip_dump.pairs.map((pair) => (
-                        <tr key={`${pair.dumper_id}-${pair.receiver_id}`}>
-                          <td>
-                            <SeverityBadge severity={pair.severity} />
-                          </td>
-                          <td>
-                            <span className={styles.collusionFlow}>
-                              <span className={styles.dumper}>
-                                {pair.dumper_id.substring(0, 8)}
-                              </span>
-                              <span className={styles.arrow}>&rarr;</span>
-                              <span className={styles.receiver}>
-                                {pair.receiver_id.substring(0, 8)}
-                              </span>
+                <ul className="arena-ops-rows arena-ops-rows--single">
+                  {collusion.chip_dump.pairs.map((pair) => (
+                    <li key={`${pair.dumper_id}-${pair.receiver_id}`}>
+                      <div className={`arena-ledger-row ${styles.caseRow}`}>
+                        <div className={styles.caseHead}>
+                          <SeverityBadge severity={pair.severity} />
+                          <span className={styles.collusionFlow}>
+                            <span className={styles.dumper}>{pair.dumper_id.substring(0, 8)}</span>
+                            <span className={styles.arrow}>&rarr;</span>
+                            <span className={styles.receiver}>
+                              {pair.receiver_id.substring(0, 8)}
                             </span>
-                          </td>
-                          <td style={{ fontWeight: 600 }}>{fmt(pair.hands_together)}</td>
-                          <td style={{ fontWeight: 700 }}>{fmt(pair.score)}</td>
-                          <td className={styles.detailsCell}>{evidenceSummary(pair)}</td>
-                          <td>
-                            <div className={styles.actionBtns}>
-                              <button
-                                onClick={() => kickPlayer(pair.dumper_id)}
-                                className={styles.btnSmallDanger}
-                                disabled={processing}
-                              >
-                                Remove Loser
-                              </button>
-                              <button
-                                onClick={() => kickPlayer(pair.receiver_id)}
-                                className={styles.btnSmallDanger}
-                                disabled={processing}
-                              >
-                                Remove Winner
-                              </button>
-                              <button
-                                onClick={() => dismissPair(pair)}
-                                className={styles.btnSmall}
-                                disabled={processing}
-                              >
-                                Clear
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                          </span>
+                          <span className={styles.caseFigure}>{fmt(pair.score)}</span>
+                        </div>
+                        <p className={styles.caseLine}>
+                          {fmt(pair.hands_together)} Hands · {evidenceSummary(pair)}
+                        </p>
+                        <div className={`arena-switch arena-ops-keys ${styles.caseKeys}`}>
+                          <button
+                            type="button"
+                            className={styles.dangerKey}
+                            onClick={() => kickPlayer(pair.dumper_id)}
+                            disabled={processing}
+                          >
+                            Remove Loser
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.dangerKey}
+                            onClick={() => kickPlayer(pair.receiver_id)}
+                            disabled={processing}
+                          >
+                            Remove Winner
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => dismissPair(pair)}
+                            disabled={processing}
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
               )}
 
-              <h3 className={styles.subsectionTitle}>Other Screening Signals</h3>
-              <p className={styles.subsectionDesc}>
+              <h3 className="arena-ops-eyebrow">Other Screening Signals</h3>
+              <p className="arena-ops-copy">
                 Screening Signals, Not Findings: Win Rate Outliers, Timing Correlation, Soft Play
                 And The Rest, Each Row Naming Its Own Pattern. {fmt(collusion.screening.total)}{' '}
                 Awaiting Review
@@ -1393,154 +1355,131 @@ export default function AntiCheatPage() {
                 .
               </p>
               {collusion.screening.pairs.length === 0 ? (
-                <div className={styles.emptyState}>
-                  <span className={styles.emptyText}>
-                    No Screening Signal Is Awaiting Review In This Window
-                  </span>
-                </div>
+                <ArenaState
+                  tone="empty"
+                  title="No Screening Signal Is Awaiting Review In This Window"
+                />
               ) : (
-                <div className={styles.tableScroll}>
-                  <table className={styles.dataTable}>
-                    <thead>
-                      <tr>
-                        <th>Severity</th>
-                        <th>Pattern</th>
-                        <th>Pair</th>
-                        <th>Hands Together</th>
-                        <th>Score</th>
-                        <th>Evidence</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {collusion.screening.pairs.map((pair) => (
-                        <tr key={`${pair.dumper_id}-${pair.receiver_id}-${pair.pattern_type}`}>
-                          <td>
-                            <SeverityBadge severity={pair.severity} />
-                          </td>
-                          <td style={{ fontWeight: 600 }}>
+                <ul className="arena-ops-rows arena-ops-rows--single">
+                  {collusion.screening.pairs.map((pair) => (
+                    <li key={`${pair.dumper_id}-${pair.receiver_id}-${pair.pattern_type}`}>
+                      <div className={`arena-ledger-row ${styles.caseRow}`}>
+                        <div className={styles.caseHead}>
+                          <SeverityBadge severity={pair.severity} />
+                          <strong className={styles.flagType}>
                             {String(pair.pattern_type).replace(/_/g, ' ')}
-                          </td>
-                          <td>
-                            <span className={styles.collusionFlow}>
-                              <span className={styles.dumper}>
-                                {pair.dumper_id.substring(0, 8)}
-                              </span>
-                              <span className={styles.arrow}>&rarr;</span>
-                              <span className={styles.receiver}>
-                                {pair.receiver_id.substring(0, 8)}
-                              </span>
+                          </strong>
+                          <span className={styles.caseFigure}>{fmt(pair.score)}</span>
+                        </div>
+                        <p className={styles.caseLine}>
+                          <span className={styles.collusionFlow}>
+                            <span className={styles.dumper}>{pair.dumper_id.substring(0, 8)}</span>
+                            <span className={styles.arrow}>&rarr;</span>
+                            <span className={styles.receiver}>
+                              {pair.receiver_id.substring(0, 8)}
                             </span>
-                          </td>
-                          <td style={{ fontWeight: 600 }}>{fmt(pair.hands_together)}</td>
-                          <td style={{ fontWeight: 700 }}>{fmt(pair.score)}</td>
-                          <td className={styles.detailsCell}>{evidenceSummary(pair)}</td>
-                          <td>
-                            <button
-                              onClick={() => dismissPair(pair)}
-                              className={styles.btnSmall}
-                              disabled={processing}
-                            >
-                              Clear
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                          </span>{' '}
+                          · {fmt(pair.hands_together)} Hands Together · {evidenceSummary(pair)}
+                        </p>
+                        <div className={`arena-switch ${styles.caseKeys}`}>
+                          <button
+                            type="button"
+                            onClick={() => dismissPair(pair)}
+                            disabled={processing}
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
               )}
             </>
           )}
-        </div>
+        </section>
       )}
 
       {/* ═══════════════ TAB: ANOMALIES ═══════════════ */}
       {tab === 'anomalies' && (
-        <div className={styles.section}>
+        <section className="arena-case arena-ops-case" aria-label="Anomalies">
+          <h2 className="arena-section-title">Outsized Pots</h2>
           {!anomaliesLoaded ? (
-            <PageSkeleton variant="list" />
+            <ArenaState tone="loading" title="Loading Outsized Pots" />
           ) : (
             <>
-              <div className={styles.statsGrid}>
-                {/*
-                  THIS TAB SAID SOMETHING THE QUERY BEHIND IT NEVER MEASURED.
-                  detect_suspicious_plays returns the WINNERS of pots at or
-                  above forty big blinds, ranked by pot size over blind level.
-                  The page called them "Players Who Folded Strong Hands On The
-                  River" and stamped every row with a Folded Strong Hand badge.
-                  Its severity buckets are high at 100 big blinds and medium at
-                  60, so the Critical tile could never be anything but zero.
-                */}
-                <div className={styles.statCard}>
-                  <div className={styles.statValueRed}>{fmt(anomalies.length)}</div>
-                  <div className={styles.statLabel}>Outsized Pots</div>
-                </div>
-                <div className={styles.statCard}>
-                  <div className={styles.statValue} style={{ color: '#FA383E' }}>
-                    {fmt(anomalies.filter((a) => a.severity === 'high').length)}
-                  </div>
-                  <div className={styles.statLabel}>100 Big Blinds Or More</div>
-                </div>
-                <div className={styles.statCard}>
-                  <div className={styles.statValueGold}>
-                    {fmt(anomalies.filter((a) => a.severity === 'medium').length)}
-                  </div>
-                  <div className={styles.statLabel}>60 Big Blinds Or More</div>
-                </div>
-              </div>
+              {/*
+                THIS TAB SAID SOMETHING THE QUERY BEHIND IT NEVER MEASURED.
+                detect_suspicious_plays returns the WINNERS of pots at or
+                above forty big blinds, ranked by pot size over blind level.
+                The page called them "Players Who Folded Strong Hands On The
+                River" and stamped every row with a Folded Strong Hand badge.
+                Its severity buckets are high at 100 big blinds and medium at
+                60, so the Critical tile could never be anything but zero.
+              */}
+              <ArenaReadings
+                label="Outsized Pot Readings"
+                readings={[
+                  {
+                    id: 'pots',
+                    label: 'Outsized Pots',
+                    value: fmt(anomalies.length),
+                    tone: 'danger',
+                  },
+                  {
+                    id: 'hundred',
+                    label: '100 Big Blinds Or More',
+                    value: fmt(anomalies.filter((a) => a.severity === 'high').length),
+                    tone: 'danger',
+                  },
+                  {
+                    id: 'sixty',
+                    label: '60 Big Blinds Or More',
+                    value: fmt(anomalies.filter((a) => a.severity === 'medium').length),
+                    tone: 'attention',
+                  },
+                ]}
+              />
 
               {anomalies.length === 0 ? (
-                <div className={styles.emptyState}>
-                  <span className={styles.emptyIcon}>◎</span>
-                  <span className={styles.emptyText}>
-                    No Pot Reached Forty Big Blinds In The Last Thirty Days
-                  </span>
-                </div>
+                <ArenaState
+                  tone="empty"
+                  title="No Pot Reached Forty Big Blinds In The Last Thirty Days"
+                />
               ) : (
                 <>
-                  <h3 className={styles.subsectionTitle}>Outsized Pots And Who Won Them</h3>
-                  <p className={styles.subsectionDesc}>
+                  <h3 className="arena-ops-eyebrow">Outsized Pots And Who Won Them</h3>
+                  <p className="arena-ops-copy">
                     Every Pot At Or Above Forty Big Blinds In The Last Thirty Days, Largest Relative
                     To The Blind Level First. A Big Pot Is Not A Finding On Its Own.
                   </p>
-                  <div className={styles.tableScroll}>
-                    <table className={styles.dataTable}>
-                      <thead>
-                        <tr>
-                          <th>Size</th>
-                          <th>Winner</th>
-                          <th>Outcome</th>
-                          <th>Winning Hand</th>
-                          <th>Pot Size</th>
-                          <th>Time</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {anomalies.map((a, i) => (
-                          <tr key={`${a.hand_id}-${a.player_id}-${i}`}>
-                            <td>
-                              <SeverityBadge severity={a.severity} />
-                            </td>
-                            <td>{a.player_id.substring(0, 8)}</td>
-                            <td>
-                              <span className={styles.foldedBadge}>Won The Pot</span>
-                            </td>
-                            <td className={styles.handRank}>
+                  <ul className="arena-ops-rows arena-ops-rows--single">
+                    {anomalies.map((a, i) => (
+                      <li key={`${a.hand_id}-${a.player_id}-${i}`}>
+                        <div className={`arena-ledger-row ${styles.caseRow}`}>
+                          <div className={styles.caseHead}>
+                            <SeverityBadge severity={a.severity} />
+                            <strong className={styles.flagType}>
+                              {a.player_id.substring(0, 8)}
+                            </strong>
+                            <span className={styles.caseFigure}>{fmtChips(a.pot_total)}</span>
+                          </div>
+                          <p className={styles.caseLine}>
+                            <span className={styles.foldedBadge}>Won The Pot</span> ·{' '}
+                            <span className={styles.handRank}>
                               {String(a.hand_rank).replace(/_/g, ' ')}
-                            </td>
-                            <td style={{ fontWeight: 600 }}>{fmtChips(a.pot_total)}</td>
-                            <td className={styles.timeCell}>{timeAgo(a.completed_at)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                            </span>{' '}
+                            · {timeAgo(a.completed_at)}
+                          </p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
                 </>
               )}
             </>
           )}
-        </div>
+        </section>
       )}
     </div>
   );

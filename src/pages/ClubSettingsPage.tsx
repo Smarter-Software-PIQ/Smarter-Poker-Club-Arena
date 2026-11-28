@@ -16,7 +16,7 @@ import { MembershipService } from '../services/MembershipService';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useToast } from '../components/common/Toast';
 import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
-import { ArenaReadings } from '../components/ops/ArenaOps';
+import { ArenaReadings, ArenaState } from '../components/ops/ArenaOps';
 import BBJThresholdPanel from '../components/bbj/BBJThresholdPanel';
 import BBJMiniPanel from '../components/bbj/BBJMiniPanel';
 import ClubHandCountPanel from '../components/club/ClubHandCountPanel';
@@ -1326,17 +1326,18 @@ export default function ClubSettingsPage() {
   if (!clubId) {
     return (
       <div className="club-settings-page arena-workspace">
-        <div className="settings-empty-state">
-          <p className="settings-empty-title">No Club Selected</p>
-          <p className="settings-empty-desc">
-            Open This Page From A Club So It Knows Which Settings To Show.
-          </p>
-          <div className="arena-switch arena-ops-primary settings-empty-keys">
-            <button type="button" onClick={() => navigate('/clubs')}>
-              Browse Clubs
-            </button>
-          </div>
-        </div>
+        <section className="arena-case arena-ops-case">
+          <ArenaState
+            tone="empty"
+            title="No Club Selected"
+            message="Open This Page From A Club So It Knows Which Settings To Show."
+            actions={
+              <button type="button" onClick={() => navigate('/clubs')}>
+                Browse Clubs
+              </button>
+            }
+          />
+        </section>
       </div>
     );
   }
@@ -1352,17 +1353,18 @@ export default function ClubSettingsPage() {
   if (notFound && !loading) {
     return (
       <div className="club-settings-page arena-workspace">
-        <div className="settings-empty-state">
-          <p className="settings-empty-title">Club Not Found</p>
-          <p className="settings-empty-desc">
-            This Club Does Not Exist, Or It Is Private And You Are Not A Member.
-          </p>
-          <div className="arena-switch arena-ops-primary settings-empty-keys">
-            <button type="button" onClick={() => navigate('/clubs')}>
-              Browse Clubs
-            </button>
-          </div>
-        </div>
+        <section className="arena-case arena-ops-case">
+          <ArenaState
+            tone="empty"
+            title="Club Not Found"
+            message="This Club Does Not Exist, Or It Is Private And You Are Not A Member."
+            actions={
+              <button type="button" onClick={() => navigate('/clubs')}>
+                Browse Clubs
+              </button>
+            }
+          />
+        </section>
       </div>
     );
   }
@@ -1370,14 +1372,17 @@ export default function ClubSettingsPage() {
   if (loadError && !loading) {
     return (
       <div className="club-settings-page arena-workspace">
-        <div className="settings-empty-state">
-          <p className="settings-empty-title">Failed To Load Settings</p>
-          <div className="arena-switch arena-ops-primary settings-empty-keys">
-            <button type="button" onClick={() => loadClubSettings(undefined, { force: true })}>
-              Retry
-            </button>
-          </div>
-        </div>
+        <section className="arena-case arena-ops-case">
+          <ArenaState
+            tone="error"
+            title="Failed To Load Settings"
+            actions={
+              <button type="button" onClick={() => loadClubSettings(undefined, { force: true })}>
+                Retry
+              </button>
+            }
+          />
+        </section>
       </div>
     );
   }

@@ -1,23 +1,12 @@
 /**
- * ═══════════════════════════════════════════════════════════════════════════════
- *  PROMOTIONS PAGE - #ClubArenaConsole
- * ═══════════════════════════════════════════════════════════════════════════════
+ * PROMOTIONS PAGE in #SmarterDesign (Dan 2026-11-27).
  *
- * Dan, 2026-09-09: "upgrade these using #ClubArenaConsole, these pages are
- * still generic ... NONE OF THOSE FOLLOW the Painted-Chassis Standard."
- *
- * The page is ONE picture: the Rewards Circuit console (RewardsSurfaceHeader
- * on the spade master). Its painted head carries the title and the count in
- * the pill slot; the view words, every offer and its claim print on the black
- * glass between the rails; the two doors (Invite Friends, Daily Bonus) are
- * the painted plates in the foot. This sheet lays type on that glass and
- * draws nothing: no card, no chip, no border, no gradient, no pill. The only
- * lines are engraved rules between rows (a cut, and the room catching it).
- *
- * Sizes are cqw against the console, so a 320px phone and a 430px one get
- * the same picture. No :hover (tests/no-hover-effects.law.test.ts); a press
- * brightens the ink. Countdowns print gold and go red when the offer is in
- * its last day. Money prints through compactChips: no decimals, 1.2K style.
+ * The page wears the arena workspace: the chrome mast, chrome meters, chrome
+ * keys and one thin chrome case holding every offer as a chrome ledger row
+ * (ArenaWorkspace.css and ArenaOps.css draw all of that). This sheet only lays
+ * out the inside of an offer row: the render, the words, the figures and the
+ * Claim key. Figures print gold, a countdown in its last day prints red.
+ * No :hover (tests/no-hover-effects.law.test.ts).
  */
 
 .promotions-page {
@@ -31,95 +20,43 @@
      viewport. The bar leaves the bottom of the screen and rides up the page. */
   overflow-x: hidden;
   overflow-x: clip;
-  background: #000;
   /* Reserve the fixed bottom nav this page renders (2026-08-23). The bar is
      out of flow, so whatever it covers is simply unreachable: the token is
      the bar's height PLUS the home-indicator inset it adds on iOS. */
-  padding: 12px 0 var(--bottom-nav-clearance, 74px);
+  padding-bottom: var(--bottom-nav-clearance, 74px);
+}
+/* The arena workspace pads its root; the clearance still wins at the foot. */
+.promotions-page.arena-workspace.arena-workspace {
+  padding-bottom: var(--bottom-nav-clearance, 74px);
 }
 
-/* ── The view words: three lit words on the glass, the chosen one white ── */
-
-.promo-views {
-  display: flex;
-  justify-content: center;
-  gap: 6cqw;
-  padding: 1cqw 0 2cqw;
-  border-top: 1px solid #000;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
-}
-
-.promo-views__word,
-.promo-word {
-  min-height: 44px;
-  appearance: none;
-  margin: 0;
-  padding: 1.6cqw 0;
-  border: 0;
-  background: transparent;
-  font:
-    800 3.4cqw/1 'Roboto Condensed',
-    Inter,
-    system-ui,
-    sans-serif;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  cursor: pointer;
-  touch-action: manipulation;
-}
-
-.promo-views__word:active,
-.promo-word:active:not(:disabled) {
-  filter: brightness(1.25);
-}
-
-.promo-views__word:focus-visible,
-.promo-word:focus-visible {
-  outline: 0.6cqw solid #8fd4ff;
-  outline-offset: 0.4cqw;
-}
-
-.promo-word:disabled {
-  cursor: default;
-}
-
-.promo-word--busy {
-  animation: promoWordBusy 900ms ease-in-out infinite;
-}
-
-/* ── The offers: rows on the glass, engraved rules between them ───────── */
-
-.promo-list {
-  display: grid;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
+/* ── One offer: a chrome ledger row ─────────────────────────────────────── */
 
 .promo-row {
-  display: grid;
-  grid-template-columns: 15cqw minmax(0, 1fr) auto;
-  gap: 0 3cqw;
-  align-items: start;
-  padding: 3.4cqw 0;
-  border-top: 1px solid #000;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  opacity: 0;
+  transform: translateY(10px);
+  transition:
+    opacity 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275),
+    transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
-
-.promo-row:first-child {
-  border-top: 0;
-  box-shadow: none;
+.promo-row--shown {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .promo-row__render {
+  flex: 0 0 auto;
   display: grid;
   place-items: center;
-  width: 15cqw;
-  aspect-ratio: 1;
-  filter: drop-shadow(0 1.2cqw 1.6cqw rgb(0 0 0 / 85%));
+  width: 56px;
+  height: 56px;
 }
-
 .promo-row__render img {
   width: 100%;
   height: 100%;
@@ -127,110 +64,87 @@
 }
 
 .promo-row__lines {
-  display: grid;
-  gap: 0.9cqw;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 3px;
   min-width: 0;
 }
-
-.promo-row__type {
-  font-size: 2.5cqw;
+.promo-row__type,
+.promo-row__label {
+  color: #74dfff;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
-
 .promo-row__title {
-  font-size: 4.6cqw;
-  font-weight: 800;
-  line-height: 1.05;
-  letter-spacing: 0.01em;
+  color: #f1f5fc;
+  font:
+    700 15px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
   overflow-wrap: anywhere;
 }
-
-/* NOTHING CUT OFF (Dan's law). An offer's own words are not clamped to two
-   lines with an ellipsis; the row grows and the glass takes it. */
 .promo-row__desc {
-  font-size: 3.2cqw;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
+  color: #b6c8d6;
+  font:
+    12px/1.4 Arial,
+    sans-serif;
 }
-
 .promo-row__meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 1cqw 4cqw;
-  margin-top: 0.6cqw;
+  gap: 4px 14px;
 }
-
 .promo-row__fact {
   display: inline-flex;
-  flex-wrap: wrap;
-  max-width: 100%;
   align-items: baseline;
-  gap: 1.4cqw;
-  min-width: 0;
+  gap: 5px;
 }
-
-.promo-row__fact .sc-label {
-  font-size: 2.4cqw;
-}
-
 .promo-row__figure {
-  font-size: 3.4cqw;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  color: #f1f5fc;
+  font:
+    700 13px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
   font-variant-numeric: tabular-nums;
 }
-
+.promo-row__figure[data-tone='gold'] {
+  color: #ffd700;
+}
+.promo-row__figure[data-tone='red'] {
+  color: #ff5a6a;
+}
 .promo-row__board {
   display: block;
-  margin-top: 2cqw;
+  margin-top: 4px;
 }
 
 .promo-row__action {
-  align-self: center;
-  justify-self: end;
-  padding: 1.6cqw 0 1.6cqw 1cqw;
-}
-
-/* ── Loading, empty and error, printed on the same glass ──────────────── */
-
-.promo-state {
-  display: grid;
-  justify-items: center;
-  gap: 2.4cqw;
-  padding: 6cqw 2cqw 4cqw;
-  border-top: 1px solid #000;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
-  text-align: center;
-}
-
-.promo-state__render {
-  display: grid;
-  place-items: center;
-  width: 22cqw;
-  aspect-ratio: 1;
-  filter: drop-shadow(0 1.2cqw 1.6cqw rgb(0 0 0 / 85%));
-}
-
-.promo-state__render img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.promo-state__title {
+  flex: 0 0 auto;
+  width: auto;
   margin: 0;
-  font-size: 5cqw;
-  font-weight: 800;
-  letter-spacing: 0.03em;
+}
+.promo-row__action > button {
+  min-width: 84px;
+}
+.promo-row__claimed {
+  flex: 0 0 auto;
+  color: #ffd700;
+  font:
+    800 13px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
-.promo-state__copy {
-  max-width: 70cqw;
+.promo-word--busy {
+  animation: promoWordBusy 1s ease-in-out infinite;
 }
-
-/* ── Motion ───────────────────────────────────────────────────────────── */
 
 @keyframes promoWordBusy {
   50% {
@@ -238,77 +152,22 @@
   }
 }
 
-@media (max-width: 768px) {
-  .promotions-page {
-    /* padding: 0 !important used to wipe the bottom-nav clearance declared on
-       the root; the fixed bottom bar then covered the last card. Zero the
-       sides only; keep the clearance. */
-    padding: 8px 0 var(--bottom-nav-clearance, 74px) !important;
+@media (max-width: 480px) {
+  .promo-row {
+    flex-wrap: wrap;
+  }
+  .promo-row__render {
+    width: 44px;
+    height: 44px;
+  }
+  .promo-row__action {
+    flex: 1 1 100%;
   }
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   REDUCED MOTION
-
-   Scoped to this sheet's own decoration rather than a blanket
-   `.promotions-page *` collapse, so a modal another component mounts inside
-   .promotions-page keeps its own reduced-motion handling (CLAUDE.md 10.6:
-   motion collapses, meaning never does).
-   ───────────────────────────────────────────────────────────────────────────── */
-
+/* Reduced motion collapses the motion, never the meaning (CLAUDE.md 10.6). */
 @media (prefers-reduced-motion: reduce) {
   .promo-word--busy {
     animation: none;
   }
-}
-
-/* ── #SmarterDesign (Dan 2026-11-27) ──────────────────────────────────────
-   The painted Rewards Circuit console was the old style for a page section.
-   The offers now print in the arena workspace's thin chrome case
-   (RewardsSurfaceHeader `arena`): the views one chrome switch lit by
-   aria-pressed, each offer a chrome ledger row, Claim a lit chrome key, and
-   Invite Friends / Daily Bonus the case's chrome keys with the primary lit. */
-.promotions-page.arena-workspace.arena-workspace {
-  padding-bottom: calc(var(--bottom-nav-clearance, 74px) + 24px);
-}
-
-.arena-workspace .promo-views.arena-switch {
-  justify-content: stretch;
-  gap: 4px;
-  padding: 0;
-  border-top: 0;
-  box-shadow: none;
-}
-
-.arena-workspace .arena-switch > .promo-views__word,
-.arena-workspace .arena-switch > .promo-word {
-  padding: 6px 12px;
-  font:
-    700 12px/1.1 'Arial Narrow',
-    Arial,
-    sans-serif;
-  letter-spacing: 0.04em;
-}
-
-.arena-workspace .promo-list {
-  gap: 4px;
-}
-
-.arena-workspace .promo-row.arena-ledger-row,
-.arena-workspace .promo-row.arena-ledger-row:first-child {
-  padding: 10px;
-  border-top-width: 4px;
-}
-
-.arena-workspace .promo-row__action.arena-switch {
-  margin: 0;
-  padding: 0;
-}
-
-.arena-workspace .promo-row__action > .promo-word {
-  min-width: 76px;
-}
-
-.arena-workspace .promo-keys {
-  min-width: 160px;
 }

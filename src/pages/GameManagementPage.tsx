@@ -49,7 +49,8 @@ import { titleCase } from '../utils/titleCase';
 import { holdInAppNavigation } from '../lib/navigationGuard';
 import CreateTablePage, { isCreateTableGameType } from './CreateTablePage';
 import TableConfigPage from './TableConfigPage';
-import { SpadeConsole } from '../components/console/SpadeConsole';
+import ArenaWorkspaceHeader from '../components/lobby/ArenaWorkspaceHeader';
+import { ArenaState } from '../components/ops/ArenaOps';
 import ArenaGameCard from '../components/lobby/game-cards/ArenaGameCard';
 import type {
   ArenaGameFamily,
@@ -275,6 +276,38 @@ function toLocalDateTimeInput(value: Date): string {
   return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
+/** The head of a Table Management dialog in #SmarterDesign (Dan 2026-11-27):
+ *  an eyebrow, the title with its state beside it, and one line under it. */
+function DialogHead({
+  eyebrow,
+  title,
+  titleId,
+  subtitle,
+  pill,
+}: {
+  eyebrow: string;
+  title: string;
+  titleId: string;
+  subtitle: string;
+  pill: string;
+}) {
+  return (
+    <header className={styles.dialogHead}>
+      <span className="arena-ops-eyebrow">
+        {eyebrow}
+        <span className={styles.dialogPill}>{pill}</span>
+      </span>
+      <h2 id={titleId} className="arena-section-title">
+        {title}
+      </h2>
+      <p className="arena-ops-live">{subtitle}</p>
+    </header>
+  );
+}
+
+const TABLE_MANAGEMENT_SUMMARY =
+  'Run Every Game In This Club Or Union: The Live And Scheduled Game Board With Its Guarded Controls, The Ticker That Players Read And The Club Messages They See.';
+
 export function ScheduleCloseDialog({
   game,
   busy,
@@ -293,10 +326,10 @@ export function ScheduleCloseDialog({
   );
   useDialogEscape(true, onClose, busy);
   return (
-    <div className={styles.dialogBackdrop} role="presentation">
+    <div className={`${styles.dialogBackdrop} arena-workspace`} role="presentation">
       <form
         ref={dialogRef}
-        className={styles.dialog}
+        className={`${styles.dialog} arena-case arena-ops-case`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="schedule-close-title"
@@ -305,40 +338,35 @@ export function ScheduleCloseDialog({
           onSchedule(new Date(executeAt).toISOString());
         }}
       >
-        <SpadeConsole
-          onClose={busy ? undefined : onClose}
+        <DialogHead
           eyebrow="Governed Lifecycle"
           title="Schedule Close"
           titleId="schedule-close-title"
           subtitle="Occupied Or Registered Games Stay Locked"
           pill="Guarded"
-          pillInk="gold"
-          crest="flat"
-          plates={{
-            secondary: { label: 'Cancel', type: 'button', onClick: onClose, disabled: busy },
-            primary: {
-              label: busy ? 'Scheduling…' : 'Schedule Close',
-              type: 'submit',
-              disabled: busy || !executeAt,
-              ink: 'white',
-            },
-          }}
-        >
-          <p className="sc-copy sc-copy--center">
-            {titleCase(game.name)} Will Close Only If Its Contract Is Unchanged And No Players Are
-            Seated Or Registered When The Command Runs.
-          </p>
-          <label className={styles.dialogField}>
-            Execute At
-            <input
-              type="datetime-local"
-              min={minimum}
-              value={executeAt}
-              onChange={(event) => setExecuteAt(event.target.value)}
-              required
-            />
-          </label>
-        </SpadeConsole>
+        />
+        <p className="arena-ops-copy">
+          {titleCase(game.name)} Will Close Only If Its Contract Is Unchanged And No Players Are
+          Seated Or Registered When The Command Runs.
+        </p>
+        <label className={styles.dialogField}>
+          Execute At
+          <input
+            type="datetime-local"
+            min={minimum}
+            value={executeAt}
+            onChange={(event) => setExecuteAt(event.target.value)}
+            required
+          />
+        </label>
+        <div className="arena-switch arena-ops-keys">
+          <button type="button" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button type="submit" className="active" disabled={busy || !executeAt}>
+            {busy ? 'Scheduling…' : 'Schedule Close'}
+          </button>
+        </div>
       </form>
     </div>
   );
@@ -472,7 +500,7 @@ export function EditGameDialog({
 
   return (
     <div
-      className={styles.dialogBackdrop}
+      className={`${styles.dialogBackdrop} arena-workspace`}
       role="presentation"
       onMouseDown={(e) => {
         if (e.currentTarget === e.target) requestClose();
@@ -480,7 +508,7 @@ export function EditGameDialog({
     >
       <form
         ref={dialogRef}
-        className={styles.dialog}
+        className={`${styles.dialog} arena-case arena-ops-case`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="edit-game-title"
@@ -491,119 +519,115 @@ export function EditGameDialog({
           if (patch) onSave(patch);
         }}
       >
-        <SpadeConsole
-          onClose={busy ? undefined : requestClose}
+        <DialogHead
           eyebrow="Safe Pre-Game Changes"
           title={`Edit ${game.kind === 'table' ? 'Table' : 'Tournament'}`}
           titleId="edit-game-title"
           subtitle="Structural Changes Lock When Play Begins"
           pill={game.kind === 'table' ? 'Table' : 'Event'}
-          family="riveted"
-          plates={{
-            secondary: { label: 'Cancel', type: 'button', onClick: requestClose, disabled: busy },
-            primary: {
-              label: busy ? 'Saving…' : 'Save Changes',
-              type: 'submit',
-              disabled: busy,
-              ink: 'white',
-            },
-          }}
-        >
+        />
+        <label>
+          Game Name
+          <input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} required />
+        </label>
+        {!entryCapacityLocked && (
           <label>
-            Game Name
-            <input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} required />
+            Maximum Players
+            <input
+              type="number"
+              min="2"
+              max={game.kind === 'table' ? '10' : undefined}
+              value={maxPlayers}
+              onChange={(e) => setMaxPlayers(e.target.value)}
+              disabled={tableStructureLocked}
+              required
+            />
           </label>
-          {!entryCapacityLocked && (
+        )}
+        {game.kind === 'table' ? (
+          <div className={styles.fieldGrid}>
             <label>
-              Maximum Players
+              Small Blind
               <input
                 type="number"
-                min="2"
-                max={game.kind === 'table' ? '10' : undefined}
-                value={maxPlayers}
-                onChange={(e) => setMaxPlayers(e.target.value)}
+                min="0.01"
+                step="0.01"
+                value={smallBlind}
+                onChange={(e) => setSmallBlind(e.target.value)}
                 disabled={tableStructureLocked}
                 required
               />
             </label>
-          )}
-          {game.kind === 'table' ? (
-            <div className={styles.fieldGrid}>
-              <label>
-                Small Blind
-                <input
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  value={smallBlind}
-                  onChange={(e) => setSmallBlind(e.target.value)}
-                  disabled={tableStructureLocked}
-                  required
-                />
-              </label>
-              <label>
-                Big Blind
-                <input
-                  type="number"
-                  min="0.02"
-                  step="0.01"
-                  value={bigBlind}
-                  onChange={(e) => setBigBlind(e.target.value)}
-                  disabled={tableStructureLocked}
-                  required
-                />
-              </label>
-              <label>
-                Minimum Buy-In
+            <label>
+              Big Blind
+              <input
+                type="number"
+                min="0.02"
+                step="0.01"
+                value={bigBlind}
+                onChange={(e) => setBigBlind(e.target.value)}
+                disabled={tableStructureLocked}
+                required
+              />
+            </label>
+            <label>
+              Minimum Buy-In
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={minBuyIn}
+                readOnly
+                title="Always 50 Big Blinds"
+                disabled={tableStructureLocked}
+                required
+              />
+            </label>
+            <label>
+              Maximum Buy-In
+              {unlimitedCash ? (
+                <input type="text" value="No Maximum" readOnly />
+              ) : (
                 <input
                   type="number"
                   min="1"
                   step="1"
-                  value={minBuyIn}
-                  readOnly
-                  title="Always 50 Big Blinds"
+                  value={maxBuyIn}
+                  onChange={(e) => setMaxBuyIn(e.target.value)}
                   disabled={tableStructureLocked}
                   required
                 />
-              </label>
-              <label>
-                Maximum Buy-In
-                {unlimitedCash ? (
-                  <input type="text" value="No Maximum" readOnly />
-                ) : (
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={maxBuyIn}
-                    onChange={(e) => setMaxBuyIn(e.target.value)}
-                    disabled={tableStructureLocked}
-                    required
-                  />
-                )}
-              </label>
-            </div>
-          ) : (
-            <label>
-              Start Time
-              <input
-                type="datetime-local"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-              />
+              )}
             </label>
-          )}
-          <p id="edit-game-description">
-            {tableStructureLocked
-              ? 'This Live Table Can Be Renamed. Its Blinds, Buy-In, And Seats Are Locked.'
-              : 'Structural Changes Lock As Soon As Players Become Active.'}
+          </div>
+        ) : (
+          <label>
+            Start Time
+            <input
+              type="datetime-local"
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+            />
+          </label>
+        )}
+        <p id="edit-game-description">
+          {tableStructureLocked
+            ? 'This Live Table Can Be Renamed. Its Blinds, Buy-In, And Seats Are Locked.'
+            : 'Structural Changes Lock As Soon As Players Become Active.'}
+        </p>
+        {validationError && (
+          <p className={styles.dialogError} role="alert">
+            {validationError}
           </p>
-          {validationError && (
-            <p className={styles.dialogError} role="alert">
-              {validationError}
-            </p>
-          )}
-        </SpadeConsole>
+        )}
+        <div className="arena-switch arena-ops-keys">
+          <button type="button" onClick={requestClose} disabled={busy}>
+            Cancel
+          </button>
+          <button type="submit" className="active" disabled={busy}>
+            {busy ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
       </form>
     </div>
   );
@@ -633,7 +657,7 @@ export function ContractHistoryDialog({
 
   return (
     <div
-      className={styles.dialogBackdrop}
+      className={`${styles.dialogBackdrop} arena-workspace`}
       role="presentation"
       onMouseDown={(event) => {
         if (event.currentTarget === event.target) onClose();
@@ -641,86 +665,83 @@ export function ContractHistoryDialog({
     >
       <section
         ref={dialogRef}
-        className={`${styles.dialog} ${styles.contractDialog}`}
+        className={`${styles.dialog} ${styles.contractDialog} arena-case arena-ops-case`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="contract-title"
       >
-        <SpadeConsole
-          onClose={onClose}
+        <DialogHead
           eyebrow="Published Contract History"
           title={titleCase(game.name)}
           titleId="contract-title"
           subtitle="Hashed, Versioned, Append-Only"
           pill={`V${game.contract?.version || versions[0]?.version || 0}`}
-          family="shark"
-          plates={{ primary: { label: 'Close', type: 'button', onClick: onClose } }}
-        >
-          <p className="sc-copy sc-copy--center">
-            Every Revision Is Hashed And Append-Only. Registered Tournament Contracts Cannot Be
-            Rewritten.
-          </p>
-          {game.kind === 'tournament' && game.contract && (
-            <div className={styles.readinessGrid} aria-label="Tournament Guarantee Readiness">
+        />
+        <p className="arena-ops-copy">
+          Every Revision Is Hashed And Append-Only. Registered Tournament Contracts Cannot Be
+          Rewritten.
+        </p>
+        {game.kind === 'tournament' && game.contract && (
+          <div className={styles.readinessGrid} aria-label="Tournament Guarantee Readiness">
+            <span>
+              <small>Readiness</small>
+              <strong>{titleCase(game.contract.readiness.state.replace(/_/g, ' '))}</strong>
+            </span>
+            <span>
+              <small>Effective Guarantee</small>
+              <strong>{game.contract.readiness.effectiveGuarantee.toLocaleString()}</strong>
+            </span>
+            {game.contract.readiness.satelliteSeatGuarantee > 0 && (
               <span>
-                <small>Readiness</small>
-                <strong>{titleCase(game.contract.readiness.state.replace(/_/g, ' '))}</strong>
+                <small>Satellite Seat Value</small>
+                <strong>{game.contract.readiness.satelliteSeatGuarantee.toLocaleString()}</strong>
               </span>
-              <span>
-                <small>Effective Guarantee</small>
-                <strong>{game.contract.readiness.effectiveGuarantee.toLocaleString()}</strong>
-              </span>
-              {game.contract.readiness.satelliteSeatGuarantee > 0 && (
-                <span>
-                  <small>Satellite Seat Value</small>
-                  <strong>{game.contract.readiness.satelliteSeatGuarantee.toLocaleString()}</strong>
-                </span>
-              )}
-              <span>
-                <small>Overlay Required</small>
-                <strong>{game.contract.readiness.overlayRequired.toLocaleString()}</strong>
-              </span>
-              <span>
-                <small>{game.contract.readiness.bankType || 'Funding'} Bank</small>
-                <strong>{game.contract.readiness.bankBalance.toLocaleString()}</strong>
-              </span>
-              <span>
-                <small>Other Live Promises</small>
-                <strong>{game.contract.readiness.otherLiveExposure.toLocaleString()}</strong>
-              </span>
-              <span>
-                <small>Short By</small>
-                <strong>{game.contract.readiness.shortBy.toLocaleString()}</strong>
-              </span>
-            </div>
-          )}
-          {loading ? (
-            <div className={styles.contractLoading} role="status" aria-live="polite">
-              Loading Contract History…
-            </div>
-          ) : versions.length === 0 ? (
-            <div className={styles.contractLoading} role="status">
-              No Published Contract Revisions Were Returned.
-            </div>
-          ) : (
-            <div className={styles.contractVersions}>
-              {versions.map((version) => (
-                <details key={version.version} open={version.version === versions[0]?.version}>
-                  <summary>
-                    <strong>Version {version.version}</strong>
-                    <span>{new Date(version.publishedAt).toLocaleString()}</span>
-                    <code>{version.contractHash.slice(0, 12)}</code>
-                  </summary>
-                  <div className={styles.contractMeta}>
-                    <span>{titleCase(version.changeReason.replace(/_/g, ' '))}</span>
-                    <span>SHA-256 {version.contractHash}</span>
-                  </div>
-                  <pre>{JSON.stringify(version.contract, null, 2)}</pre>
-                </details>
-              ))}
-            </div>
-          )}
-        </SpadeConsole>
+            )}
+            <span>
+              <small>Overlay Required</small>
+              <strong>{game.contract.readiness.overlayRequired.toLocaleString()}</strong>
+            </span>
+            <span>
+              <small>{game.contract.readiness.bankType || 'Funding'} Bank</small>
+              <strong>{game.contract.readiness.bankBalance.toLocaleString()}</strong>
+            </span>
+            <span>
+              <small>Other Live Promises</small>
+              <strong>{game.contract.readiness.otherLiveExposure.toLocaleString()}</strong>
+            </span>
+            <span>
+              <small>Short By</small>
+              <strong>{game.contract.readiness.shortBy.toLocaleString()}</strong>
+            </span>
+          </div>
+        )}
+        {loading ? (
+          <ArenaState tone="loading" title="Loading Contract History…" />
+        ) : versions.length === 0 ? (
+          <ArenaState tone="empty" title="No Published Contract Revisions Were Returned." />
+        ) : (
+          <div className={styles.contractVersions}>
+            {versions.map((version) => (
+              <details key={version.version} open={version.version === versions[0]?.version}>
+                <summary>
+                  <strong>Version {version.version}</strong>
+                  <span>{new Date(version.publishedAt).toLocaleString()}</span>
+                  <code>{version.contractHash.slice(0, 12)}</code>
+                </summary>
+                <div className={styles.contractMeta}>
+                  <span>{titleCase(version.changeReason.replace(/_/g, ' '))}</span>
+                  <span>SHA-256 {version.contractHash}</span>
+                </div>
+                <pre>{JSON.stringify(version.contract, null, 2)}</pre>
+              </details>
+            ))}
+          </div>
+        )}
+        <div className="arena-switch arena-ops-keys">
+          <button type="button" onClick={onClose}>
+            Close
+          </button>
+        </div>
       </section>
     </div>
   );
@@ -1517,19 +1538,17 @@ export default function GameManagementPage({ scope }: { scope: Scope }) {
 
   if (allowed === null) {
     return (
-      <main className={styles.page}>
-        <SpadeConsole
-          eyebrow="Security Check"
+      <main className={`${styles.page} arena-workspace`}>
+        <ArenaWorkspaceHeader
+          area="control"
           title="Table Management"
+          context="Security Check"
           subtitle="Reading Your Management Authority"
-          pill="Checking"
-          crest="flat"
-          className={styles.stateConsole}
-        >
-          <section className={styles.empty} role="status" aria-live="polite">
-            Verifying Game-Management Access…
-          </section>
-        </SpadeConsole>
+          summary={TABLE_MANAGEMENT_SUMMARY}
+        />
+        <section className="arena-case arena-ops-case">
+          <ArenaState tone="loading" title="Verifying Game-Management Access…" />
+        </section>
       </main>
     );
   }
@@ -1559,9 +1578,9 @@ export default function GameManagementPage({ scope }: { scope: Scope }) {
             ? 'Sign In Before Opening Club Game-Management Controls.'
             : 'Only The Club Owner And Club Admins Can Manage Games For A Standalone Club.';
     return (
-      <main className={styles.page}>
-        <SpadeConsole
-          eyebrow="Management Locked"
+      <main className={`${styles.page} arena-workspace`}>
+        <ArenaWorkspaceHeader
+          area="control"
           title={
             accessUnverified
               ? 'Management Access Could Not Be Verified'
@@ -1569,42 +1588,45 @@ export default function GameManagementPage({ scope }: { scope: Scope }) {
                 ? clubAccessTitle
                 : 'Union Admin Required'
           }
+          context="Management Locked"
           subtitle="Game Management Is Restricted"
-          pill="Locked"
-          pillInk="red"
-          family={accessUnverified ? 'spade' : 'shark'}
-          className={styles.stateConsole}
-          plates={{
-            ...(accessUnverified
-              ? {
-                  secondary: {
-                    label: 'Retry',
-                    type: 'button' as const,
-                    onClick: () => {
-                      setAllowed(null);
-                      setClubAccess(null);
-                      void load();
-                    },
-                  },
-                }
-              : {}),
-            primary: {
-              label: 'Return',
-              type: 'button',
-              onClick: () => navigate(scope === 'club' ? `/clubs/${clubId}` : '/unions'),
-            },
-          }}
-        >
-          <section className={styles.denied} role="alert">
-            <p className="sc-copy sc-copy--center">
-              {accessUnverified
+          summary={TABLE_MANAGEMENT_SUMMARY}
+        />
+        <section className="arena-case arena-ops-case">
+          <ArenaState
+            tone="error"
+            title="Locked"
+            message={
+              accessUnverified
                 ? 'The Authoritative Game-Management Access Check Is Unavailable. Try Again Before Making Changes.'
                 : scope === 'club'
                   ? clubAccessMessage
-                  : 'Only The Union Owner And Union Admins Can Manage Union Games.'}
-            </p>
-          </section>
-        </SpadeConsole>
+                  : 'Only The Union Owner And Union Admins Can Manage Union Games.'
+            }
+            actions={
+              <>
+                {accessUnverified && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAllowed(null);
+                      setClubAccess(null);
+                      void load();
+                    }}
+                  >
+                    Retry
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => navigate(scope === 'club' ? `/clubs/${clubId}` : '/unions')}
+                >
+                  Return
+                </button>
+              </>
+            }
+          />
+        </section>
       </main>
     );
   }
@@ -1624,19 +1646,41 @@ export default function GameManagementPage({ scope }: { scope: Scope }) {
     : undefined;
 
   return (
-    <main className={styles.page} data-management-surface={surface}>
-      <nav className={styles.surfaceNav} aria-label="Management Sections">
+    <main className={`${styles.page} arena-workspace`} data-management-surface={surface}>
+      {/* #SmarterDesign (Dan 2026-11-27): one chrome mast with the club or
+          union name and the "?" help, the sections as one chrome switch that
+          lights the section on show, and the Game Board as a thin chrome case
+          whose counts and health read as chrome meters. */}
+      {/* The mast belongs to the Game Board. Ticker Management and Club
+          Messages are their own pages with their own chrome case heads, and a
+          creator replaces the board, so neither prints a second title. */}
+      {surface === 'games' && !creatorStage && (
+        <ArenaWorkspaceHeader
+          area="control"
+          title="Table Management"
+          id="table-management-title"
+          /* The club or union name alone: with a suffix, a long union name
+           fitted down to seven pixels. The line under it says the rest. */
+          context={titleCase(scopeName)}
+          subtitle={scope === 'union' ? 'Union Command' : 'Club Command'}
+          summary={TABLE_MANAGEMENT_SUMMARY}
+        />
+      )}
+      <nav
+        className={`${styles.surfaceNav} arena-switch arena-ops-keys`}
+        aria-label="Management Sections"
+      >
         {(
           [
             ['games', 'Game Board', 'Running & Scheduled'],
             ['ticker', 'Ticker Management', 'Live Message Rail'],
             ['messages', 'Club Messages', 'Identity & Announcements'],
           ] as Array<[ManagementSurface, string, string]>
-        ).map(([key, label, detail], index) => (
+        ).map(([key, label, detail]) => (
           <button
             key={key}
             type="button"
-            className={surface === key ? styles.surfaceActive : ''}
+            className={surface === key ? 'active' : ''}
             aria-current={surface === key ? 'page' : undefined}
             onClick={() => {
               // A creator page REPLACES the board rather than sitting inside
@@ -1651,7 +1695,6 @@ export default function GameManagementPage({ scope }: { scope: Scope }) {
               surfaceDirty && surface !== key ? 'Unsaved Changes Will Need Confirmation' : undefined
             }
           >
-            <span>0{index + 1}</span>
             <strong>{label}</strong>
             <small>{detail}</small>
           </button>
@@ -1665,6 +1708,7 @@ export default function GameManagementPage({ scope }: { scope: Scope }) {
             disabled={!hostClubId}
             disabledReason={creationDisabledReason}
             onNavigate={(path) => void openCreationFromHeader(path)}
+            arena
           />
           {unionHostUnavailable && (
             <p className={styles.creationUnavailable} role="status" aria-live="polite">
@@ -1675,20 +1719,19 @@ export default function GameManagementPage({ scope }: { scope: Scope }) {
       )}
 
       {surface === 'games' && !creatorStage && (
-        <SpadeConsole
-          eyebrow={scope === 'union' ? 'Union Command' : 'Club Command'}
-          title="Table Management"
-          titleId="table-management-title"
-          /* The club or union name alone: with a suffix, a long union name
-             fitted down to seven pixels. The line under it says the rest. */
-          subtitle={titleCase(scopeName)}
-          /* A board that has not read yet, or could not, does not claim to
-             hold zero games. */
-          pill={loadError ? 'Unavailable' : loading ? 'Loading' : `${reachableTotal} Games`}
-          className={styles.boardConsole}
-          aria-labelledby="table-management-title"
+        <section
+          className={`${styles.board} arena-case arena-ops-case`}
+          aria-label="Game Board"
           aria-busy={loading}
         >
+          <h2 className="arena-section-title">
+            Game Board
+            {/* A board that has not read yet, or could not, does not claim to
+                hold zero games. */}
+            <small>
+              {loadError ? 'Unavailable' : loading ? 'Loading' : `${reachableTotal} Games`}
+            </small>
+          </h2>
           <header className={styles.commandHeader}>
             <div className={styles.heroCopy}>
               <span className={styles.safetyLine}>Live Contract · Occupied Games Stay Locked</span>
@@ -1696,7 +1739,7 @@ export default function GameManagementPage({ scope }: { scope: Scope }) {
             <div className={styles.headerRight}>
               <div className={styles.countRail}>
                 <span
-                  className={realtimeStatus === 'current' ? styles.healthGood : styles.healthWarn}
+                  className={`${realtimeStatus === 'current' ? styles.healthGood : styles.healthWarn} arena-meter`}
                   role="status"
                   aria-live="polite"
                 >
@@ -1705,13 +1748,14 @@ export default function GameManagementPage({ scope }: { scope: Scope }) {
                 </span>
                 {countsKnown ? (
                   <>
-                    <span>
+                    <span className="arena-meter">
                       <strong>{liveCount}</strong> Live
                     </span>
-                    <span>
+                    <span className="arena-meter">
                       <strong>{scheduledCount}</strong> Scheduled
                     </span>
                     <span
+                      className="arena-meter"
                       title={
                         archivedBeyondHorizon
                           ? `${archivedBeyondHorizon} More Closed Games Are Older Than The ${counts.closedHorizonDays}-Day Board Horizon And Are Not Listed`
@@ -1724,7 +1768,7 @@ export default function GameManagementPage({ scope }: { scope: Scope }) {
                     </span>
                   </>
                 ) : (
-                  <span>
+                  <span className="arena-meter">
                     <strong>{loadError ? 'Unavailable' : 'Reading'}</strong> Game Counts
                   </span>
                 )}
@@ -1768,6 +1812,7 @@ export default function GameManagementPage({ scope }: { scope: Scope }) {
                 disabled={!hostClubId}
                 disabledReason={creationDisabledReason}
                 onNavigate={(path) => void openCreationFromHeader(path)}
+                arena
               />
             </div>
           </header>
@@ -1785,17 +1830,19 @@ export default function GameManagementPage({ scope }: { scope: Scope }) {
           )}
 
           {scope === 'union' && hosts.length === 0 && !loading && allowed && (
-            <section className={styles.empty}>
-              This Union Has No House Club Row Yet, So It Cannot Host Games Of Its Own.
-            </section>
+            <ArenaState
+              tone="empty"
+              title="This Union Has No House Club Row Yet, So It Cannot Host Games Of Its Own."
+            />
           )}
 
-          <nav className={styles.filters} aria-label="Game Status">
+          <nav className={`${styles.filters} arena-switch arena-ops-keys`} aria-label="Game Status">
             {(['all', 'running', 'scheduled', 'closed'] as View[]).map((item) => (
               <button
                 key={item}
                 type="button"
-                className={view === item ? styles.active : ''}
+                className={view === item ? 'active' : ''}
+                aria-pressed={view === item}
                 onClick={() => setView(item)}
               >
                 {item}
@@ -1804,19 +1851,24 @@ export default function GameManagementPage({ scope }: { scope: Scope }) {
           </nav>
 
           {loadError ? (
-            <section className={styles.empty} role="alert">
-              <p>{loadError}</p>
-              <button onClick={() => void load()}>Try Again</button>
-            </section>
+            <ArenaState
+              tone="error"
+              title="Game Board Unavailable"
+              message={loadError}
+              actions={
+                <button type="button" onClick={() => void load()}>
+                  Try Again
+                </button>
+              }
+            />
           ) : loading ? (
-            <section className={styles.empty} role="status" aria-live="polite">
-              Loading Live Game Controls…
-            </section>
+            <ArenaState tone="loading" title="Loading Live Game Controls…" />
           ) : filteredGames.length === 0 ? (
-            <section className={styles.empty} role="status" aria-live="polite">
-              <h2>No Games In This View</h2>
-              <p>Use The Controls Above To Add The First One.</p>
-            </section>
+            <ArenaState
+              tone="empty"
+              title="No Games In This View"
+              message="Use The Controls Above To Add The First One."
+            />
           ) : (
             <section className={styles.gameList} aria-label="Managed Games">
               {filteredGames.map((game) => {
@@ -1830,7 +1882,10 @@ export default function GameManagementPage({ scope }: { scope: Scope }) {
                       ? 'Edit Game'
                       : 'Contract';
                 return (
-                  <article key={`${game.kind}-${game.id}`} className={styles.gameRow}>
+                  <article
+                    key={`${game.kind}-${game.id}`}
+                    className={`${styles.gameRow} arena-ledger-row`}
+                  >
                     <ArenaGameCard
                       className={styles.managedCard}
                       data={{
@@ -1963,7 +2018,7 @@ export default function GameManagementPage({ scope }: { scope: Scope }) {
                         </div>
                       )}
                     </div>
-                    <div className={styles.rowActions}>
+                    <div className={`${styles.rowActions} arena-switch arena-ops-keys`}>
                       {/* Multi-day: Reschedule Day 2, only while the next day
                           is scheduled; renders nothing otherwise. */}
                       {game.kind === 'tournament' && !closed && isBaggedStatus(game.status) && (
@@ -2085,18 +2140,20 @@ export default function GameManagementPage({ scope }: { scope: Scope }) {
                 );
               })}
               {nextCursor && (
-                <button
-                  type="button"
-                  className={styles.loadMore}
-                  onClick={() => void loadMore()}
-                  disabled={loadingMore}
-                >
-                  {loadingMore ? 'Loading More…' : `Load More · ${games.length} Of ${viewTotal}`}
-                </button>
+                <div className="arena-switch">
+                  <button
+                    type="button"
+                    className={styles.loadMore}
+                    onClick={() => void loadMore()}
+                    disabled={loadingMore}
+                  >
+                    {loadingMore ? 'Loading More…' : `Load More · ${games.length} Of ${viewTotal}`}
+                  </button>
+                </div>
               )}
             </section>
           )}
-        </SpadeConsole>
+        </section>
       )}
 
       {creatorStage === 'selector' && (
@@ -2110,14 +2167,11 @@ export default function GameManagementPage({ scope }: { scope: Scope }) {
       )}
       {creatorStage === 'config' && requestedGameType && (
         <section className={styles.creatorStage} aria-label="Table Config">
-          <button
-            type="button"
-            className={styles.creatorBack}
-            onClick={openTableSelector}
-            aria-label="Back To Game Types"
-          >
-            Back
-          </button>
+          <div className={`${styles.creatorBack} arena-switch`}>
+            <button type="button" onClick={openTableSelector} aria-label="Back To Game Types">
+              Back
+            </button>
+          </div>
           <TableConfigPage
             key={`${hostClubId}:${requestedGameType}`}
             clubIdOverride={hostClubId}
@@ -2149,26 +2203,26 @@ export default function GameManagementPage({ scope }: { scope: Scope }) {
             onDirtyChange={setSurfaceDirty}
           />
         ) : (
-          <SpadeConsole
-            eyebrow={scope === 'union' ? 'Union Communications' : 'Club Communications'}
-            title="Club Messages"
-            subtitle={titleCase(scopeName)}
-            pill={loading ? 'Loading' : 'Unavailable'}
-            pillInk={loading ? 'blue' : 'gold'}
-            family="riveted"
-            foot="foot"
+          <section
+            className="arena-case arena-ops-case"
+            aria-label="Club Messages"
             aria-busy={loading}
           >
-            <section
-              className={styles.empty}
-              role={loading ? 'status' : 'alert'}
-              aria-live={loading ? 'polite' : undefined}
-            >
-              {loading
-                ? 'Reading The Club Message Host…'
-                : 'Club Messages Are Unavailable Until This Union Has A House Club Row.'}
-            </section>
-          </SpadeConsole>
+            <span className="arena-ops-eyebrow">
+              {scope === 'union' ? 'Union Communications' : 'Club Communications'}
+            </span>
+            <h2 className="arena-section-title">
+              Club Messages<small>{loading ? 'Loading' : 'Unavailable'}</small>
+            </h2>
+            {loading ? (
+              <ArenaState tone="loading" title="Reading The Club Message Host…" />
+            ) : (
+              <ArenaState
+                tone="error"
+                title="Club Messages Are Unavailable Until This Union Has A House Club Row."
+              />
+            )}
+          </section>
         ))}
 
       {tournamentModalOpen && hostClubId && (

@@ -25,7 +25,7 @@ describe('financial consoles mark the player aliases they print', () => {
 
   it('Club Disputes marks the submitter', () => {
     expect(source('src/pages/DisputeManagementPage.tsx')).toMatch(
-      /className="dmp__submitter sc-ink--muted" data-player-name>\s*By \{titleCase\(dispute\.submitterName\)\}/
+      /className="dmp__submitter" data-player-name>\s*By \{titleCase\(dispute\.submitterName\)\}/
     );
   });
 

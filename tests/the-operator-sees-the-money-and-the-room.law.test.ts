@@ -172,18 +172,9 @@ describe('one component, so the two consoles cannot drift apart', () => {
     }
   });
 
-  /* Owner ruling 2026-11-27, which supersedes the painted-chassis pin this
-     test held since 2026-09-11 (CLAUDE.md 10.8: the latest explicit owner
-     instruction wins): "NO DO NOT USE THOSE BULKY FRAMES, THATS THE OLD
-     STYLE... USE THE #SMARTERDESIGN STYLE FOR THESE." A routed page section
-     prints in the arena workspace's thin chrome case
-     (.claude/skills/smarter-design/SKILL.md). The case is still art, not CSS:
-     the component draws nothing of its own. */
-  it('it is built on the arena chrome case, not drawn', () => {
-    expect(ui).toContain("import { ClubPageSection as SpadeConsole } from './ClubPageSection'");
-    expect(ui).not.toContain('import { SpadeConsole');
-    expect(ui.match(/<SpadeConsole\s+arena\b/g)).toHaveLength(3);
-    expect(ui).toContain("import '../lobby/ArenaWorkspace.css'");
+  it('it is built on the shared #SmarterDesign arena kit, not drawn', () => {
+    expect(ui).toContain("from './DiamondOpsKit'");
+    expect(ui).not.toContain('SpadeConsole');
     expect(ui).not.toMatch(/border-radius|linear-gradient|box-shadow/);
   });
 
@@ -214,6 +205,6 @@ describe('one component, so the two consoles cannot drift apart', () => {
 
   it('shows a refusal rather than an empty table that looks like no history', () => {
     expect(ui).toContain('[pnl, room, players].find((r) => r && !r.ok)?.error ?? null');
-    expect(ui).toContain('sc-ink--red');
+    expect(ui).toContain('dops-copy--danger');
   });
 });

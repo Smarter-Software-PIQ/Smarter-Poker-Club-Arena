@@ -55,6 +55,9 @@ const MOBILE_SWEEP_TIMEOUT_MS =
 
 /** Every painted frame on the page: SpadeConsole's root always carries `sc`. */
 const FRAMES = '.sc';
+/** A #SmarterDesign chrome case (Dan 2026-11-27): Table Management's own
+ *  sections and its refusal wear these, never a painted frame. */
+const CASES = '.arena-case';
 
 // Preserve bounded network evidence on failure without changing live requests.
 const diagnostics = new WeakMap<Page, ReturnType<typeof observeCashierFailure>>();
@@ -158,40 +161,43 @@ test.describe('Table Management is its own page on its own frame, in production'
     await expect(strip(page)).toBeVisible();
     expect(await strip(page).evaluate((node) => Boolean(node.closest('.sc')))).toBe(false);
 
-    expect(await frameFamilies(page)).toEqual(['sc--family-spade']);
+    expect(await frameFamilies(page)).toEqual([]);
+    expect(await page.locator(CASES).count()).toBe(1);
     await expect(page.getByRole('heading', { name: 'Table Management' })).toBeVisible();
     // The other two sections are not printed in this window.
     expect(await page.getByRole('heading', { name: 'Ticker Management' }).count()).toBe(0);
     expect(await page.getByRole('heading', { name: 'Club Messages' }).count()).toBe(0);
   });
 
-  test('the ticker is the shark frame with its one plate', async ({ page }) => {
+  test('the ticker is its own chrome case with its one key', async ({ page }) => {
     const path = `${BOARD}?section=ticker`;
     mustSeeBoard(await open(page, path), path);
 
     await expect(page.getByRole('heading', { name: 'Ticker Management' })).toBeVisible({
       timeout: 30_000,
     });
-    expect(await frameFamilies(page)).toEqual(['sc--family-shark']);
+    expect(await frameFamilies(page)).toEqual([]);
+    expect(await page.locator(CASES).count()).toBe(1);
     await expect(page.getByRole('button', { name: 'Save Ticker' })).toBeVisible();
     expect(await page.getByRole('heading', { name: 'Table Management' }).count()).toBe(0);
   });
 
-  test('club messages is the riveted frame with its two plates', async ({ page }) => {
+  test('club messages is its own chrome case with its two keys', async ({ page }) => {
     const path = `${BOARD}?section=messages`;
     mustSeeBoard(await open(page, path), path);
 
     await expect(page.getByRole('heading', { name: 'Club Messages' })).toBeVisible({
       timeout: 30_000,
     });
-    expect(await frameFamilies(page)).toEqual(['sc--family-riveted']);
+    expect(await frameFamilies(page)).toEqual([]);
+    expect(await page.locator(CASES).count()).toBe(1);
     await expect(page.getByRole('button', { name: 'Save Identity' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Publish Banner' })).toBeVisible();
 
-    // The two switches wear the kit's tick well, not the text-field groove:
-    // this is what shipped broken on 2026-09-29 and it is pinned here in the
-    // one place that sees the real stylesheet.
-    const box = page.locator('.sc-check__box').first();
+    // The two switches are tick boxes, not the text-field groove: this is
+    // what shipped broken on 2026-09-29 and it is pinned here in the one
+    // place that sees the real stylesheet.
+    const box = page.locator(`${CASES} input[type="checkbox"]`).first();
     await expect(box).toBeVisible();
     const size = await box.boundingBox();
     expect(size).not.toBeNull();
@@ -234,7 +240,7 @@ test.describe('Table Management is its own page on its own frame, in production'
     await expectRivetedCreator(page, `${BOARD}?create=sng`, 'Sit N Go');
   });
 
-  test('a union member club is refused on the shark frame, with no section strip', async ({
+  test('a union member club is refused in one chrome case, with no section strip', async ({
     page,
   }) => {
     const path = `clubs/${UNION_MEMBER_CLUB}/table-management`;
@@ -246,7 +252,8 @@ test.describe('Table Management is its own page on its own frame, in production'
         `now renders, either the club left its union or the gate was weakened.`
     ).toBe('refused');
 
-    expect(await frameFamilies(page)).toEqual(['sc--family-shark']);
+    expect(await frameFamilies(page)).toEqual([]);
+    expect(await page.locator(CASES).count()).toBe(1);
     expect(await returnPlate(page).count()).toBe(1);
     // A refusal is one window. It is not the board with a notice on it.
     expect(await strip(page).count()).toBe(0);
@@ -259,13 +266,10 @@ test.describe('Table Management is its own page on its own frame, in production'
     test.setTimeout(MOBILE_SWEEP_TIMEOUT_MS);
     await page.setViewportSize({ width: 393, height: 852 });
 
-    for (const [path, family] of [
-      [BOARD, 'sc--family-spade'],
-      [`${BOARD}?section=ticker`, 'sc--family-shark'],
-      [`${BOARD}?section=messages`, 'sc--family-riveted'],
-    ] as const) {
+    for (const path of [BOARD, `${BOARD}?section=ticker`, `${BOARD}?section=messages`]) {
       mustSeeBoard(await open(page, path), path);
-      expect(await frameFamilies(page)).toEqual([family]);
+      expect(await frameFamilies(page)).toEqual([]);
+      expect(await page.locator(CASES).count()).toBe(1);
       await expectNoHorizontalOverflow(page, path);
     }
 
@@ -292,7 +296,8 @@ test.describe('Table Management is its own page on its own frame, in production'
 
     const refusalPath = `clubs/${UNION_MEMBER_CLUB}/table-management`;
     expect(await open(page, refusalPath)).toBe('refused');
-    expect(await frameFamilies(page)).toEqual(['sc--family-shark']);
+    expect(await frameFamilies(page)).toEqual([]);
+    expect(await page.locator(CASES).count()).toBe(1);
     await expect(page.getByText('Game Management Is Restricted')).toBeVisible();
     await expectNoHorizontalOverflow(page, refusalPath);
   });

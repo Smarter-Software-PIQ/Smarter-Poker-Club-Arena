@@ -53,29 +53,6 @@ vi.mock('../../src/utils/clubIdResolver', () => ({
   isUUID: () => true,
   resolveClubUUIDStrict: async (id: string) => id,
 }));
-vi.mock('../../src/components/console/SpadeConsole', () => ({
-  SpadeConsole: ({ children, plates, title, eyebrow, pill, id, tabIndex }: any) => (
-    <section
-      id={id}
-      tabIndex={tabIndex}
-      aria-label={`${eyebrow ?? ''} ${title}`.trim()}
-      data-pill={pill ?? ''}
-    >
-      {children}
-      {plates?.secondary ? (
-        <button disabled={plates.secondary.disabled} onClick={plates.secondary.onClick}>
-          {plates.secondary.label}
-        </button>
-      ) : null}
-      {plates?.primary ? (
-        <button disabled={plates.primary.disabled} onClick={plates.primary.onClick}>
-          {plates.primary.label}
-        </button>
-      ) : null}
-    </section>
-  ),
-}));
-
 import ClubDiamondCostsPage from '../../src/pages/club/ClubDiamondCostsPage';
 
 const now = Date.now();
@@ -430,7 +407,7 @@ describe('the operating service terms', () => {
     expect(
       within(quote).getByText('By Confirming, You Accept Operating Service Terms Version 1.')
     ).toBeInTheDocument();
-    const head = screen.getByRole('region', { name: 'Club Operations Diamond Costs' });
+    const head = screen.getByRole('region', { name: 'Club Operations Operating Access' });
     expect(
       within(head).getByRole('button', { name: 'Start Free Month: Start' })
     ).toHaveAccessibleDescription(/You Accept Operating Service Terms Version 1\./);
@@ -653,7 +630,8 @@ describe('the free month review', () => {
     render(<ClubDiamondCostsPage scopeKind="club" />);
     const review = await region('Free Month Free Month Review');
     expect(review).toHaveAttribute('data-pill', 'Approved');
-    expect(within(review).getByText('Approved')).toBeInTheDocument();
+    /* The case's state word and the review's own row both say it. */
+    expect(within(review).getAllByText('Approved')).toHaveLength(2);
     expect(within(review).getByText('Declined')).toBeInTheDocument();
     expect(
       within(review).getByText(/Note From Platform Staff: Separate Operation Confirmed\./)
