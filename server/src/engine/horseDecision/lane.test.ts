@@ -531,6 +531,46 @@ describe('ONE FLOOR, ONE READ: every shard learns every completed hand (2026-10-
     expect(status.workers[1 - owner]!.queueDepth).toBe(HORSE_MIND_MIRROR_MAX_PENDING);
     void pool.stop().catch(() => undefined);
   });
+
+  it('validates and clones the shared mirror observation once across all non-owner shards (1e532243)', async () => {
+    const { pool, workers } = poolOf(4);
+    for (const worker of workers) worker.emit(ready());
+    await pool.ready();
+    expect(workers.length).toBe(4);
+    const hand = {
+      ...observation(TABLE, 1_000_099),
+      acceptedActorRoster: [{ userId: 'u1', seat: 1 }],
+      horseTurnClocks: { u1: 1234 },
+    };
+    const owner = horseDecisionShard(hand.fence, workers.length);
+    const cloneSpy = vi.spyOn(globalThis, 'structuredClone');
+    let clones = 0;
+    try {
+      const ack = pool.observeCompletedHand(hand as any);
+      clones = cloneSpy.mock.calls.length;
+      for (const worker of workers) worker.ackAll();
+      await expect(ack).resolves.toMatchObject({ type: 'ACK' });
+    } finally {
+      cloneSpy.mockRestore();
+      const stopping = pool.stop();
+      await Promise.resolve();
+      for (const worker of workers) worker.emit({ type: 'STOPPED' } as never);
+      await stopping;
+    }
+    // 1 clone for the owner shard + 1 shared mirror clone for all 3 non-owner shards (never 4).
+    expect(clones).toBe(2);
+    for (const worker of workers) {
+      const jobs = worker.sent.filter((m) => m.type === 'OBSERVE_COMPLETED_HAND');
+      expect(jobs).toHaveLength(1);
+      if (worker.index === owner) {
+        expect(jobs[0]).toHaveProperty('acceptedActorRoster');
+        expect(jobs[0]).toHaveProperty('horseTurnClocks');
+      } else {
+        expect(jobs[0]).not.toHaveProperty('acceptedActorRoster');
+        expect(jobs[0]).not.toHaveProperty('horseTurnClocks');
+      }
+    }
+  });
 });
 
 it('keeps distinct isolate ownership and main-cache totals in the existing pool status', async () => {
