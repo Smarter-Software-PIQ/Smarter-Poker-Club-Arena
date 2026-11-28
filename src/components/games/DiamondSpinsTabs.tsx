@@ -1,17 +1,30 @@
 import { NavLink } from 'react-router-dom';
 import styles from '../../pages/diamondGames.module.css';
-export default function DiamondSpinsTabs({ clubId }: { clubId: string }) {
+
+const TABS = [
+  ['wheel', 'Spin Wheel'],
+  ['diamond-games', 'Bonus Games'],
+  ['earn-diamonds', 'Earn Diamonds'],
+] as const;
+
+/**
+ * The Diamond Spins route tabs. `arena` (#SmarterDesign batch D1, 2026-11-28)
+ * prints them as chrome keys in an arena switch, the current tab lit by its
+ * own aria-current; only Earn Diamonds passes it, so the game pages keep
+ * their printed links.
+ */
+export default function DiamondSpinsTabs({ clubId, arena }: { clubId: string; arena?: boolean }) {
   return (
-    <nav className={styles.spinsTabs} aria-label="Diamond Spins">
-      <NavLink className={styles.back} to={`/clubs/${clubId}/wheel`}>
-        Spin Wheel
-      </NavLink>
-      <NavLink className={styles.back} to={`/clubs/${clubId}/diamond-games`}>
-        Bonus Games
-      </NavLink>
-      <NavLink className={styles.back} to={`/clubs/${clubId}/earn-diamonds`}>
-        Earn Diamonds
-      </NavLink>
+    <nav className={arena ? 'arena-switch' : styles.spinsTabs} aria-label="Diamond Spins">
+      {TABS.map(([path, label]) => (
+        <NavLink
+          key={path}
+          className={arena ? undefined : styles.back}
+          to={`/clubs/${clubId}/${path}`}
+        >
+          {label}
+        </NavLink>
+      ))}
     </nav>
   );
 }
