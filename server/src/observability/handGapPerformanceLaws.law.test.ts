@@ -122,4 +122,65 @@ describe('hand-gap performance & anti-regression laws (1e532243)', () => {
     expect(postCutoverLib).toContain('health.eventDbBulkhead');
     expect(postCutoverLib).toContain('idleThrottledEvents');
   });
+
+  it('pins main-thread saturation, bulkhead REST priority, F06 clone elimination, lazy hub publish, and hold-fenced plan seeding laws (1e532243 Phase 4)', () => {
+    const dealingSrc = readServer('src/engine/ServerTableEngineDealing.ts');
+    const settlementSrc = readServer('src/engine/ServerTableEngineSettlement.ts');
+    const baseSrc = readServer('src/engine/ServerTableEngineBase.ts');
+    const engineSrc = readServer('src/engine/ServerTableEngine.ts');
+    const laneContinuationSrc = readServer('src/engine/HandContinuationLane.ts');
+    const protocolSrc = readServer('src/engine/horseDecision/protocol.ts');
+    const budgetSrc = readServer('src/engine/horseDecision/requestRetentionBudget.ts');
+    const hdClientSrc = readServer('src/engine/horseDecision/client.ts');
+    const hdLaneSrc = readServer('src/engine/horseDecision/lane.ts');
+    const hubSrc = readServer('src/transport/TableStateHub.ts');
+    const tmSrc = readServer('src/tournament/TournamentManager.ts');
+
+    // RC #1: Live between-hands REST calls run under high EventDb priority override.
+    expect(sliceMethod(dealingSrc, 'protected async readNextHandInputs(')).toContain(
+      "runWithEventDbPriority('high'"
+    );
+    expect(sliceMethod(dealingSrc, 'private async refreshBlindsOwned(')).toContain(
+      "runWithEventDbPriority('high'"
+    );
+    expect(settlementSrc).toContain(
+      "runWithEventDbPriority('high', () =>\n              supabase\n                .from('table_seats')"
+    );
+    expect(settlementSrc).toContain(
+      "runWithEventDbPriority('high', () =>\n        reconcileTableSeatCount("
+    );
+
+    // RC #2: F06 continuation skips redundant clones and uses getLifecyclePhase() instead of JSON.parse(serializeRecoveryState()).
+    expect(baseSrc).toContain('private static cloneContinuationValue(');
+    expect(baseSrc).toContain('protected captureContinuationAccounting(');
+    expect(laneContinuationSrc).toContain('engineCaptureDetached');
+    expect(laneContinuationSrc).toContain('captureAccounting');
+    expect(dealingSrc).toContain('engineCaptureDetached: true');
+    expect(sliceMethod(dealingSrc, 'override isPreparedOriginalHeldAtPauseGate(')).toContain(
+      'controller.getLifecyclePhase().handStarted === false'
+    );
+    expect(sliceMethod(dealingSrc, 'override isPreparedOriginalParkedForSuccessor(')).toContain(
+      'controller.getLifecyclePhase().handStarted === false'
+    );
+
+    // RC #3: horseDecision chunked SHA-256, parallel-stack allowance, prevalidated commit & single-clone mirror fan-out.
+    expect(protocolSrc).toContain('CANONICAL_HASH_CHUNK_CHARS');
+    expect(budgetSrc).toContain('pendingValues');
+    expect(budgetSrc).toContain('pendingDepths');
+    expect(budgetSrc).toContain('combineHorseRequestAllowanceMetrics');
+    expect(hdClientSrc).toContain('mirrorCompletedHandDetached(');
+    expect(hdClientSrc).toContain('prevalidatedCommitMetrics');
+    expect(hdLaneSrc).toContain('mirrorCompletedHandDetached(');
+
+    // RC #4: Unwatched-table lazy publish defers payload projection until a subscriber attaches.
+    expect(hubSrc).toContain('publishLazy(');
+    expect(hubSrc).toContain('materializeLazySnapshot(');
+    expect(sliceMethod(engineSrc, 'protected broadcastCurrentState(')).toContain('publishLazy(');
+    expect(sliceMethod(engineSrc, 'protected publishIdleState(')).toContain('publishLazy(');
+
+    // RC #5: Hold-fenced sources in boundaryPlanAwaitingPark receive seeded balanced boards.
+    expect(tmSrc).toContain(
+      'this.hasParkedGapBalanceSource() || this.boundaryPlanAwaitingPark.size > 0'
+    );
+  });
 });

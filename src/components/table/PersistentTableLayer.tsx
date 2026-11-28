@@ -29,7 +29,9 @@ import ErrorBoundary from '../common/ErrorBoundary';
 import PortraitLock from './PortraitLock';
 import { lazyWithRetry } from '../../utils/lazyWithRetry';
 
-const MultiTablePage = lazyWithRetry(() => import('../../pages/MultiTablePage'));
+/* The surface wraps MultiTablePage in the #SmarterDesign console skin; see
+   pages/MultiTableSurface.tsx for why the provider is not in this file. */
+const MultiTablePage = lazyWithRetry(() => import('../../pages/MultiTableSurface'));
 /* Lazy for the same reason MultiTablePage is: this layer is imported by
    App.tsx, so a static import here lands in the ENTRY chunk that every
    player downloads before first paint (the CI entry-chunk guard refused six

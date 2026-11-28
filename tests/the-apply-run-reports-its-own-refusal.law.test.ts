@@ -19,6 +19,14 @@
  * secret, so it can never reach the database, and it has the two write scopes
  * a comment needs and no other.
  *
+ * A TIMED-OUT APPLY IS REPORTED (2026-11-27). A job that reaches its
+ * timeout-minutes is cancelled by GitHub, so its conclusion is `cancelled`,
+ * and the gate that admitted only `failure` never heard the UNKNOWN outcome.
+ * The gate now admits exactly `failure` and `cancelled`, nothing wider, and
+ * the script decides a cancelled job from its step and log: reported when the
+ * applier was reached, skipped when nothing was sent. The script's timeout
+ * floor is held to the shortest timeout the apply job carries.
+ *
  * This reads the workflow as parsed YAML, so a comment that quotes any of the
  * forbidden shapes cannot satisfy or trip it.
  */
@@ -68,16 +76,33 @@ describe('the apply run reports its own refusal', () => {
     expect(wf.jobs.apply, 'the apply job itself').toBeDefined();
   });
 
-  it('needs the apply job and runs only when that job concluded failure', () => {
+  it('needs the apply job and runs only when that job concluded failure or cancelled', () => {
     expect([report.needs].flat()).toEqual(['apply']);
     // Without always() a job whose need failed is skipped, so it must be there.
     expect(condition).toContain('always()');
-    expect(condition).toContain("needs.apply.result == 'failure'");
-    // Joined by && at the top level: no || may widen it past the failure.
-    expect(topLevel(condition), 'no top-level || beside the failure gate').not.toContain('||');
-    expect(topLevel(condition)).toContain("needs.apply.result == 'failure'");
-    expect(condition).not.toMatch(/needs\.apply\.result (?:==|!=) '(?!failure')/);
+    // The one group that may hold an ||: exactly failure or cancelled.
+    const gate = "(needs.apply.result == 'failure' || needs.apply.result == 'cancelled')";
+    expect(condition).toContain(gate);
+    // Joined by && at the top level: no || may widen it past the gate.
+    expect(topLevel(condition), 'no top-level || beside the result gate').not.toContain('||');
+    expect(condition.split(gate).join('')).not.toMatch(/needs\.apply\.result/);
+    const results = [...condition.matchAll(/needs\.apply\.result\s*(==|!=)\s*'([^']*)'/g)];
+    expect(results.map((m) => `${m[1]} ${m[2]}`)).toEqual(['== failure', '== cancelled']);
     expect(report['continue-on-error']).toBeUndefined();
+  });
+
+  it('reads a cancelled job by its apply step, and knows the shortest apply timeout', () => {
+    const step = (wf.jobs.apply.steps ?? []).find((s) => s.name === alert.APPLY_STEP_NAME);
+    expect(step, `the apply job has a step named ${alert.APPLY_STEP_NAME}`).toBeDefined();
+    expect(String(step!.run)).toContain('scripts/ci/apply-recorded-migration.mjs');
+    // The timeout is an expression with a longer allowance for one named file;
+    // its shortest value is the floor the script calls TIMED OUT.
+    const raw = String(wf.jobs.apply['timeout-minutes']);
+    const minutes = /^\d+$/.test(raw)
+      ? [Number(raw)]
+      : [...raw.matchAll(/(?:&&|\|\|)\s*(\d+)\b/g)].map((m) => Number(m[1]));
+    expect(minutes.length).toBeGreaterThan(0);
+    expect(Math.min(...minutes)).toBe(alert.APPLY_JOB_MIN_TIMEOUT_MINUTES);
   });
 
   it('does not report a dry run, which sends nothing', () => {

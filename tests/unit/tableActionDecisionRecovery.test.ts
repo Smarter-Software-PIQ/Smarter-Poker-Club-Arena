@@ -5,6 +5,7 @@ import {
   getMissingDecisionPollDelayMs,
   resolveSnapshotActionContext,
   resolveTurnChangeActionContext,
+  resolveTurnChangeTimerState,
   startMissingDecisionPoller,
   submitTableDecision,
   tableDecisionIsReady,
@@ -233,7 +234,7 @@ describe('authoritative decision readiness', () => {
     );
   });
 
-  it('preserves same-seat actionContext and adopts deadline_ms when TURN_CHANGE arrives without a decision token', () => {
+  it('preserves same-seat actionContext and adopts deadline_ms via resolveTurnChangeTimerState when TURN_CHANGE arrives', () => {
     const turnChange = page.slice(
       page.indexOf("case 'TURN_CHANGE': {"),
       page.indexOf("case 'TIMER_COUNTDOWN': {")
@@ -241,7 +242,26 @@ describe('authoritative decision readiness', () => {
     expect(turnChange).toContain('const resolvedActionContext = resolveTurnChangeActionContext({');
     expect(turnChange).toContain('previousCurrentSeat: prev.currentPlayerSeat,');
     expect(turnChange).toContain('actionContext: resolvedActionContext,');
-    expect(turnChange).toContain('Number.isFinite(deadlineMs) && deadlineMs > 0');
+    expect(turnChange).toContain('const resolvedTimer = resolveTurnChangeTimerState({');
+    expect(turnChange).toContain('actionTimerDeadline: resolvedTimer.actionTimerDeadline,');
+    expect(turnChange).toContain('actionTimerStartTime: resolvedTimer.actionTimerStartTime,');
+    expect(turnChange).toContain('isTimeBankActive: resolvedTimer.isTimeBankActive,');
+  });
+
+  it('ACTION_TIMER_STARTED uses serverNow() and resets isTimeBankActive on a new turn; ACTION_TIMER_EXPIRED clears isTimeBankActive', () => {
+    const started = page.slice(
+      page.indexOf("useMasterBusSubscription('ACTION_TIMER_STARTED'"),
+      page.indexOf("useMasterBusSubscription('ACTION_TIMER_EXPIRED'")
+    );
+    expect(started).toContain('serverNow()');
+    expect(started).not.toContain('Date.now()');
+    expect(started).toContain('isTimeBankActive: sameTurn ? prev.isTimeBankActive : false,');
+
+    const expired = page.slice(
+      page.indexOf("useMasterBusSubscription('ACTION_TIMER_EXPIRED'"),
+      page.indexOf("useMasterBusSubscription('STATE_INTEGRITY_VIOLATION'")
+    );
+    expect(expired).toContain('isTimeBankActive: false,');
   });
 });
 
@@ -557,5 +577,94 @@ describe('startMissingDecisionPoller lifecycle, concurrency, and permanent bound
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('resolveTurnChangeTimerState prevents cross-turn timer and time-bank leakage', () => {
+  it('clears isTimeBankActive and never leaks previous deadline or start time when the turn moves to a new seat', () => {
+    expect(
+      resolveTurnChangeTimerState({
+        newSeat: 1,
+        previousCurrentSeat: 3,
+        eventDeadlineMs: 1700000027000,
+        eventTimestampMs: 1700000012000,
+        previousDeadlineMs: 1700000015000,
+        previousTurnStartTimeMs: 1700000000000,
+        previousIsTimeBankActive: true,
+      })
+    ).toEqual({
+      actionTimerDeadline: 1700000027000,
+      actionTimerStartTime: 1700000012000,
+      isTimeBankActive: false,
+    });
+
+    // Missing timestamp or deadline on a seat change must NOT inherit the prior seat's clock.
+    expect(
+      resolveTurnChangeTimerState({
+        newSeat: 1,
+        previousCurrentSeat: 3,
+        eventDeadlineMs: 1700000027000,
+        eventTimestampMs: Number.NaN,
+        previousDeadlineMs: 1700000015000,
+        previousTurnStartTimeMs: 1700000000000,
+        previousIsTimeBankActive: true,
+      })
+    ).toEqual({
+      actionTimerDeadline: 1700000027000,
+      actionTimerStartTime: undefined,
+      isTimeBankActive: false,
+    });
+
+    expect(
+      resolveTurnChangeTimerState({
+        newSeat: 1,
+        previousCurrentSeat: 3,
+        eventDeadlineMs: Number.NaN,
+        eventTimestampMs: 1700000012000,
+        previousDeadlineMs: 1700000015000,
+        previousTurnStartTimeMs: 1700000000000,
+        previousIsTimeBankActive: true,
+      })
+    ).toEqual({
+      actionTimerDeadline: undefined,
+      actionTimerStartTime: 1700000012000,
+      isTimeBankActive: false,
+    });
+  });
+
+  it('clears isTimeBankActive on a new street for the same seat, while preserving state on a duplicate same-turn frame', () => {
+    // Same seat, fresh turn start (next street): clear time bank and old deadline if omitted.
+    expect(
+      resolveTurnChangeTimerState({
+        newSeat: 1,
+        previousCurrentSeat: 1,
+        eventDeadlineMs: Number.NaN,
+        eventTimestampMs: 1700000020000,
+        previousDeadlineMs: 1700000015000,
+        previousTurnStartTimeMs: 1700000000000,
+        previousIsTimeBankActive: true,
+      })
+    ).toEqual({
+      actionTimerDeadline: undefined,
+      actionTimerStartTime: 1700000020000,
+      isTimeBankActive: false,
+    });
+
+    // Duplicate same-seat, same-turn frame (<= 50ms timestamp jitter): preserve time bank and deadline.
+    expect(
+      resolveTurnChangeTimerState({
+        newSeat: 1,
+        previousCurrentSeat: 1,
+        eventDeadlineMs: Number.NaN,
+        eventTimestampMs: 1700000000020,
+        previousDeadlineMs: 1700000035000,
+        previousTurnStartTimeMs: 1700000000000,
+        previousIsTimeBankActive: true,
+      })
+    ).toEqual({
+      actionTimerDeadline: 1700000035000,
+      actionTimerStartTime: 1700000000020,
+      isTimeBankActive: true,
+    });
   });
 });

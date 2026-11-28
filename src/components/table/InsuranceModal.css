@@ -645,3 +645,316 @@
     animation: none;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   #SMARTERDESIGN (Dan 2026-11-27): All-In Insurance and EV Cashout in the
+   arena workspace language instead of the painted spade master. One thin
+   chrome case on ink navy; eyebrow, title and the countdown as live lettering
+   in a flow head; the tabs and coverage presets as chrome keys that light
+   blue; players, readouts and the cashout summary on chrome ledger rows; No /
+   Play It Out and Insure / Cash Out as chrome keys, the primary lit blue.
+   The measured zones keep every handler, role, label and test hook; their
+   inline placement is neutralised. The dialog is still the scroll owner, the
+   action row is still its own sibling below the scrolling body, and the
+   fade, slide and urgent-timer animations still play.
+
+   `.insurance-modal.insurance-modal` outranks the painted rules above; the
+   `!important`s answer the dialog resets in SpadeConsole.css and
+   metallic-popups.css (plates, `__head`) and this file's own.
+   ══════════════════════════════════════════════════════════════════════════ */
+.insurance-modal.insurance-modal.ac-popup {
+  position: relative;
+  isolation: isolate;
+  box-sizing: border-box;
+  padding: 16px 14px 14px !important;
+  gap: 10px;
+  font-family: 'Inter', system-ui, sans-serif;
+  background:
+    radial-gradient(ellipse at 90% -40%, #1e3853, transparent 63%),
+    linear-gradient(145deg, #091727, #030b14 74%) !important;
+}
+.insurance-modal.insurance-modal::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-case.webp') 41 / 19px
+    stretch;
+}
+.insurance-modal.insurance-modal :is(.sc-zone, .sc-plate) {
+  position: relative !important;
+  inset: auto !important;
+  left: auto !important;
+  top: auto !important;
+  width: auto !important;
+  height: auto !important;
+}
+.insurance-modal.insurance-modal .sc-zone {
+  display: block;
+  overflow: visible;
+  white-space: normal;
+}
+.insurance-modal.insurance-modal .sc-zone > span {
+  font-size: inherit;
+}
+.insurance-modal.insurance-modal
+  :is(
+    .sc__eyebrow,
+    .sc__title,
+    .sc__pill,
+    .sc-label,
+    .insurance-modal__tab,
+    .insurance-modal__preset,
+    .insurance-modal__info-item,
+    .insurance-modal__player-name,
+    .insurance-modal__player-equity,
+    .insurance-modal__readout-value,
+    .insurance-modal__ev-amount,
+    .insurance-modal__summary-value
+  ) {
+  text-shadow: none;
+  -webkit-text-fill-color: currentcolor;
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+/* Head */
+.insurance-modal.insurance-modal > .insurance-modal__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px 10px;
+  aspect-ratio: auto;
+  padding: 0 2px 10px;
+  border: 0 !important;
+  border-bottom: 1px solid rgb(134 218 255 / 18%) !important;
+  border-radius: 0 !important;
+  background: none !important;
+  box-shadow: none !important;
+}
+.insurance-modal.insurance-modal .insurance-modal__head .sc__eyebrow {
+  grid-column: 1;
+  color: #86daff;
+  font-size: 13px;
+  font-weight: 700;
+}
+.insurance-modal.insurance-modal .insurance-modal__head .sc__title {
+  grid-column: 1;
+  color: #f4f8ff;
+  font:
+    700 clamp(22px, 6cqw, 28px) / 1.08 'Rajdhani',
+    'Roboto Condensed',
+    sans-serif;
+}
+.insurance-modal.insurance-modal .insurance-modal__head .sc__pill {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  padding: 6px 12px;
+  border: 4px solid transparent;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') 11 / 5px
+    stretch;
+  background: linear-gradient(155deg, #12273b, #07111c 70%);
+  font:
+    700 16px / 1.1 'Rajdhani',
+    'Roboto Condensed',
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.insurance-modal.insurance-modal .insurance-modal__timer.sc-ink--gold {
+  color: #86daff;
+}
+.insurance-modal.insurance-modal .insurance-modal__timer--urgent {
+  color: #ff6b78;
+}
+
+/* Body */
+.insurance-modal.insurance-modal .insurance-modal__body {
+  gap: 10px;
+  padding: 0 2px;
+  background: none;
+}
+.insurance-modal.insurance-modal .insurance-modal__body::after {
+  background: linear-gradient(180deg, rgb(3 11 20 / 0%), rgb(3 11 20 / 92%));
+}
+.insurance-modal.insurance-modal .insurance-modal__info-strip {
+  gap: 10px;
+  color: #bdd0e2;
+  font-size: 13px;
+}
+.insurance-modal.insurance-modal .insurance-modal__info-item.sc-ink--blue {
+  color: #86daff;
+}
+.insurance-modal.insurance-modal .insurance-modal__info-item.sc-ink--silver {
+  color: #e4edf7;
+}
+.insurance-modal.insurance-modal .insurance-modal__tabs {
+  gap: 6px;
+  border: 0;
+  box-shadow: none;
+}
+.insurance-modal.insurance-modal :is(.insurance-modal__tab, .insurance-modal__preset) {
+  min-height: 44px;
+  padding: 4px 8px;
+  border: 4px solid transparent !important;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') 11 / 5px
+    stretch !important;
+  background: linear-gradient(155deg, #12273b, #07111c 70%) !important;
+  color: #f1f5fc;
+  font:
+    700 15px / 1.1 'Rajdhani',
+    'Roboto Condensed',
+    sans-serif;
+  white-space: normal;
+}
+.insurance-modal.insurance-modal
+  :is(.insurance-modal__tab--active, .insurance-modal__preset--active) {
+  border-image-source: url('/assets/club-buttons/console/smarterdesign-v1/chrome-active.webp') !important;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
+  background-clip: padding-box !important;
+  color: #fff;
+}
+.insurance-modal.insurance-modal
+  :is(
+    .insurance-modal__board-label,
+    .insurance-modal__outcomes-label,
+    .insurance-modal__ev-subtitle
+  ) {
+  color: #bdd0e2;
+  font-size: 13px;
+}
+.insurance-modal.insurance-modal
+  :is(.insurance-modal__readout-label, .insurance-modal__summary-label) {
+  color: #86daff;
+  font-size: 13px;
+}
+.insurance-modal.insurance-modal .insurance-modal__outs-label {
+  color: #ff8a93;
+  font-size: 13px;
+}
+.insurance-modal.insurance-modal .insurance-modal__players {
+  gap: 6px;
+}
+.insurance-modal.insurance-modal
+  :is(
+    .insurance-modal__player-row,
+    .insurance-modal__readout,
+    .insurance-modal__summary-row,
+    .insurance-modal__outcome
+  ) {
+  border: 4px solid transparent;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-row.webp') 13 / 6px
+    stretch;
+  border-radius: 0;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+  box-shadow: none;
+}
+.insurance-modal.insurance-modal .insurance-modal__player-row {
+  padding: 6px 10px;
+}
+.insurance-modal.insurance-modal .insurance-modal__player-name {
+  color: #f4f8ff;
+  font:
+    700 16px / 1.15 'Rajdhani',
+    'Roboto Condensed',
+    sans-serif;
+}
+.insurance-modal.insurance-modal .insurance-modal__player-name.sc-ink--gold {
+  color: #86daff;
+}
+.insurance-modal.insurance-modal
+  :is(
+    .insurance-modal__player-equity,
+    .insurance-modal__readout-value,
+    .insurance-modal__summary-value
+  ) {
+  color: #f4f8ff;
+  font-family: 'Rajdhani', 'Roboto Condensed', sans-serif;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.insurance-modal.insurance-modal
+  :is(
+    .sc-ink--green.insurance-modal__player-equity,
+    .insurance-modal__readout-value--insured,
+    .insurance-modal__summary-value--highlight,
+    .insurance-modal__ev-amount
+  ) {
+  color: #4dc660;
+}
+.insurance-modal.insurance-modal .insurance-modal__readout-value--fee,
+.insurance-modal.insurance-modal .insurance-modal__player-equity.sc-ink--muted {
+  color: #e4edf7;
+}
+.insurance-modal.insurance-modal .insurance-modal__summary-value--negative {
+  color: #ff6b78;
+}
+.insurance-modal.insurance-modal .insurance-modal__ev-amount {
+  font:
+    700 32px / 1.05 'Rajdhani',
+    'Roboto Condensed',
+    sans-serif;
+}
+.insurance-modal.insurance-modal .insurance-modal__slider-range,
+.insurance-modal.insurance-modal .insurance-modal__ev-note {
+  color: #bdd0e2;
+}
+
+/* Foot: the two chrome keys */
+.insurance-modal.insurance-modal > .insurance-modal__actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  aspect-ratio: auto;
+  background: none;
+}
+.insurance-modal.insurance-modal .insurance-modal__actions > .sc-plate {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  min-height: 50px !important;
+  padding: 6px 10px;
+  border: 5px solid transparent !important;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') 11 / 6px
+    stretch !important;
+  border-radius: 0 !important;
+  background: linear-gradient(155deg, #12273b, #07111c 70%) !important;
+  color: #f1f5fc !important;
+}
+.insurance-modal.insurance-modal .insurance-modal__actions > .sc-plate::after {
+  content: none;
+}
+.insurance-modal.insurance-modal
+  .insurance-modal__actions
+  > :is(.insurance-modal__btn--accept, .insurance-modal__btn--cashout) {
+  border-image-source: url('/assets/club-buttons/console/smarterdesign-v1/chrome-active.webp') !important;
+  background: linear-gradient(#087cfa, #0044ac 55%, #002b68) !important;
+  background-clip: padding-box !important;
+  color: #fff !important;
+}
+.insurance-modal.insurance-modal .insurance-modal__actions > .sc-plate:disabled {
+  border-image-source: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') !important;
+  background: #13202c !important;
+  color: #a7b7c8 !important;
+}
+.insurance-modal.insurance-modal .sc-plate__well {
+  width: 100%;
+  overflow: visible;
+}
+.insurance-modal.insurance-modal .sc-plate__text {
+  color: inherit;
+  font:
+    700 17px / 1.12 'Rajdhani',
+    'Roboto Condensed',
+    sans-serif;
+  text-shadow: none;
+  -webkit-text-fill-color: currentcolor;
+  text-transform: none;
+  white-space: normal;
+  text-align: center;
+}
+.insurance-modal.insurance-modal
+  :is(.sc-plate, .insurance-modal__tab, .insurance-modal__preset):focus-visible {
+  outline: 2px solid #9ee3ff;
+  outline-offset: 2px;
+}

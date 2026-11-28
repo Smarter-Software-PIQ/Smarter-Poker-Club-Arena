@@ -1,4 +1,4 @@
-import { figureDigits, figureMagnitude } from './format';
+import { displayDigits, figureMagnitude } from './format';
 import { chipCents } from './cashierAmount';
 
 /** Player Record monetary statistics show full cents (owner, 2026-10-28).
@@ -14,7 +14,7 @@ export function playerRecordMoney(
 ): string {
   if (amount == null) return 'Restricted';
   if (typeof amount === 'number' && !Number.isFinite(amount)) return '-';
-  const d = figureDigits(typeof amount === 'number' ? chipCents(amount) : amount);
+  const d = displayDigits(typeof amount === 'number' ? chipCents(amount) : amount);
   if (!d) return '-';
   const text = figureMagnitude(d, 2);
   if (!/[1-9]/.test(d.whole + d.fraction)) return '0.00';

@@ -84,7 +84,7 @@ describe('an agent promoted with no chips is offered the chips', () => {
 describe('an owner can hand over their own club', () => {
   it("puts the control on the owner's settings page, gated on isOwner", () => {
     expect(SETTINGS_PAGE).toMatch(/Hand Over This Club/);
-    expect(SETTINGS_PAGE).toMatch(/className="settings-section handover-section"/);
+    expect(SETTINGS_PAGE).toMatch(/className="settings-section handover-section[ "]/);
     const section = SETTINGS_PAGE.slice(
       SETTINGS_PAGE.indexOf('{/* Ownership - Owner Only */}'),
       SETTINGS_PAGE.indexOf('{/* Danger Zone - Owner Only */}')

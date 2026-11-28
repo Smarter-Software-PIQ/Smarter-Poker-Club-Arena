@@ -2,7 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useToast } from '../components/common/Toast';
-import { SpadeConsole } from '../components/console/SpadeConsole';
+/* #SmarterDesign (Dan 2026-11-27): the painted console is the old style for a
+   page section; this page prints in the thin chrome case with chrome keys. */
+import { ClubPageSection as SpadeConsole } from '../components/club/ClubPageSection';
+import '../components/console/SpadeConsole.css';
+import '../components/lobby/ArenaWorkspace.css';
 import PageBar from '../components/help/PageBar';
 import StandardContentLayout from '../components/layouts/StandardContentLayout';
 import { resolveClubUUIDStrict } from '../utils/clubIdResolver';
@@ -151,7 +155,7 @@ export default function ClubWelcomeMessagePage() {
     }
   };
   return (
-    <StandardContentLayout className="club-welcome-page">
+    <StandardContentLayout className="club-welcome-page arena-workspace">
       {/* Dan, 2026-10-17: the subtitle moved behind the painted "?". The club's
           name stays on the head. */}
       <PageBar
@@ -160,6 +164,8 @@ export default function ClubWelcomeMessagePage() {
         summary="Your Downline Welcome Is Sent First. The Club Owner Welcome Is Scheduled Ten Minutes Later. Owners Set Up Both Messages."
       />
       <SpadeConsole
+        arena
+        className="club-welcome-console"
         title="Custom Messages"
         eyebrow={selected ? titleCase(selected.club_name) : undefined}
         foot={selected && !loading ? 'plates' : 'foot'}
@@ -208,9 +214,11 @@ export default function ClubWelcomeMessagePage() {
                       </select>
                     </label>
                   )}
-                  <button type="button" onClick={() => setReload((value) => value + 1)}>
-                    Reload
-                  </button>
+                  <span className="arena-switch arena-ops-keys arena-ops-primary club-welcome-keys">
+                    <button type="button" onClick={() => setReload((value) => value + 1)}>
+                      Reload
+                    </button>
+                  </span>
                 </>
               )}
               {selected && (

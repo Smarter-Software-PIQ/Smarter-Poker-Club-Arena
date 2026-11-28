@@ -31,6 +31,8 @@ void __CACHE_BUST_V7__;
 // ═══════════════════════════════════════════════════════════════════════════════
 (window as any).__CLUB_ARENA_BOOTING__ = true;
 
+// Two decimals everywhere (Dan 2026-11-27): must load before any figure is printed.
+import './utils/twoDecimalDisplay';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';

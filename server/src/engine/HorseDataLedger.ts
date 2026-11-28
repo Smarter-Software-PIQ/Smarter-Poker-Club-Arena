@@ -1422,6 +1422,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaLimpReraiseVsIsoRaiser',
+    "Owner order 2026-11-27 12:48 PM Chicago, lead-8 lane limprr (lane OFD: since vpipFloorLimpFoldsToARaise a zero-equity isolation raise over a Horse limp profits, PLO5 +0.42 +/- 0.18 and +1.26 +/- 0.36 bb per raise in two eras, because nearly every Horse limp folds to a raise). PLO4/PLO5 cash preflop; default off (read === true). (1) First in with at most two players behind, a strong hand (top 20% by the engine's preflop percentile, not trips or trash) the brain raises becomes the limp with probability 0.5 (deterministic on its own cards) when EV(limp, then the pot re-raise of his pot isolation) clears EV(open) by the deadband plus the sampling error, the likeliest raiser behind read from his own raise-when-unraised record (exploit counters rfi / rfiOpp) against the people-only prior (PLO5 0.54, PLO4 0.367, mass 5) and his fold to a re-raise from his own foldTo3Bet record against the people prior (0.01, mass 3.4); only in position against him after the flop or with a connected rundown. (2) The Horse's own limp (never the VPIP floor's: ownVpipFloorLimpThisHand is never touched, and every floor step runs first), facing exactly one raise heads-up with a strong hand, in position or with a rundown, becomes the pot re-raise when EV(re-raise) > max(EV(call), 0) + deadband + sampling error. No identity, no named player, no unshown card. HorseOmahaLimpReraise.ts",
+    'V94'
+  ),
+  flag(
     'omahaStabDefenceIsPriced',
     "EMERG lane STAB-DEFENCE 2026-11-20. PLO4/PLO5 cash (table and Lightning), turn and river; default off (read === true). Where the facing-bet verdict prices the FIRST wager of the street (never a raise), the bettor's non-value share is priced from his own lifetime PUBLIC frequency of first wagers on unopened action of that street (per game, street, heads-up / multiway) against the population's, shrunk n / (n + k) with the measured k of the cell (turn heads-up 43, river heads-up 33, turn multiway 62, river multiway 45): a player who bets more often than the population's value density allows is priced with the extra bets as non-value. One provider and one formula for every opponent (HorseMind.setOmahaLifetimeStreetRecordProvider; OPPONENT-HUD's lifetime counts through HorseOmahaLifetimeHudAdapter); no record = the population prior exactly, so without lifetime counts the option changes nothing. No identity, no hand class, no size band as the decision. HorseOmahaStabDefence.ts",
     'V94'
@@ -6538,6 +6543,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_reraised_pot_priced_call_reraised',
     'HorseLogic re-raised-pot rules (HorseOmahaReraisedPotPricedRule, omahaReraisedPotCallIsPriced, omahaReraisedPotReraiseIsPriced)',
     'the same spot in which the standing call became the pot-size re-raise (EV(re-raise) above max(EV(call), 0) by more than the deadband; omahaReraisedPotReraiseIsPriced)',
+    'V94'
+  ),
+  receipt(
+    'omaha_limp_reraise_limped',
+    'HorseLogic reference preflop (HorseOmahaLimpReraise, omahaLimpReraiseVsIsoRaiser)',
+    'a strong first-in raise became the limp: EV(limp then the pot re-raise of his isolation) above EV(open) by more than the deadband, in position against the likeliest raiser behind or a connected rundown, and the mix drew the limp',
+    'V94'
+  ),
+  receipt(
+    'omaha_limp_reraise_open_kept',
+    'HorseLogic reference preflop (HorseOmahaLimpReraise, omahaLimpReraiseVsIsoRaiser)',
+    'the same spot in which the limp was priced and the open stood (not priced above it, or the mix kept the open)',
+    'V94'
+  ),
+  receipt(
+    'omaha_limp_reraise_reraised',
+    'HorseLogic reference preflop (HorseOmahaLimpReraise, omahaLimpReraiseVsIsoRaiser)',
+    "the Horse's own limp (not the VPIP floor's), raised once heads-up, became the pot re-raise: EV(re-raise) above max(EV(call), 0) by more than the deadband and the sampling error, in position against the raiser or a connected rundown",
+    'V94'
+  ),
+  receipt(
+    'omaha_limp_reraise_reraise_kept',
+    'HorseLogic reference preflop (HorseOmahaLimpReraise, omahaLimpReraiseVsIsoRaiser)',
+    'the same spot in which the pot re-raise was priced and the standing answer stood',
     'V94'
   ),
   receipt(

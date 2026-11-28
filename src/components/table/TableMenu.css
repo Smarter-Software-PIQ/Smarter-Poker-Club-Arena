@@ -485,3 +485,120 @@
   background: transparent !important;
   filter: brightness(1.2);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   #SMARTERDESIGN (Dan 2026-11-27): the table drawer in the arena workspace
+   language - an ink-navy panel inside one thin chrome case, live condensed
+   lettering, every action a chrome ledger row with an ice-blue icon, the X a
+   44px chrome key. Geometry, scaling, stacking and the slide-in animations
+   above are unchanged (animation law: they still play).
+   ═══════════════════════════════════════════════════════════════════════════════ */
+.table-menu .table-menu__dropdown {
+  background:
+    radial-gradient(ellipse at 90% -20%, #1e3853, transparent 58%),
+    linear-gradient(160deg, #0b1a2b, #030b14 72%);
+  /* The chrome case is the drawer's own border, so it stays put while the
+     actions scroll; its 19px image paints over a 6px border into the padding. */
+  border: 6px solid transparent;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-case.webp') 41 / 19px
+    stretch;
+  border-radius: 0;
+  box-shadow: 0 10px 40px rgb(0 0 0 / 70%);
+}
+.table-menu .table-menu__utility {
+  padding: calc(14px * var(--menu-scale)) calc(16px * var(--menu-scale)) 0;
+}
+.table-menu .table-menu__close {
+  min-width: 44px;
+  min-height: 44px;
+  border: 4px solid transparent;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') 11 / 5px
+    stretch;
+  border-radius: 0;
+  background: linear-gradient(180deg, #1d344b, #0a1726 60%, #10243a);
+  color: #e9f1fb;
+  font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
+  font-weight: 700;
+}
+.table-menu .table-menu__header {
+  margin: 0 calc(14px * var(--menu-scale));
+  border-bottom: 1px solid rgb(134 218 255 / 18%);
+}
+.table-menu .table-menu__table-name {
+  color: #f4f8ff;
+  font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.table-menu .table-menu__header-meta {
+  color: #bdd0e2;
+  font-variant-numeric: tabular-nums;
+}
+.table-menu .table-menu__body {
+  padding: calc(8px * var(--menu-scale)) calc(14px * var(--menu-scale))
+    calc(18px * var(--menu-scale));
+}
+.table-menu .table-menu__section:not(:last-child) {
+  border-bottom: 0;
+}
+.table-menu .table-menu__section-title {
+  padding: calc(8px * var(--menu-scale)) 2px calc(6px * var(--menu-scale));
+  color: #86daff;
+  font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
+  font-size: calc(0.86rem * var(--menu-scale));
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+.table-menu .table-menu__action {
+  box-sizing: border-box;
+  margin: 0 0 calc(5px * var(--menu-scale));
+  border: 4px solid transparent;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-row.webp') 13 / 6px
+    stretch;
+  border-radius: 0;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+  color: #f1f5fc;
+  font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
+  font-size: calc(1.02rem * var(--menu-scale));
+  font-weight: 700;
+}
+.table-menu .table-menu__action:active {
+  filter: brightness(0.86);
+}
+.table-menu .table-menu__action-icon {
+  color: #86daff;
+}
+.table-menu .table-menu__action--danger,
+.table-menu .table-menu__action--danger .table-menu__action-icon {
+  color: #ff6b78;
+}
+.table-menu .table-menu__action-badge {
+  border: 3px solid transparent;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-stat.webp') 11 / 4px
+    stretch;
+  border-radius: 0;
+  background: #07111c;
+  color: #86daff;
+  font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
+}
+.table-menu .table-menu__action:focus-visible,
+.table-menu .table-menu__close:focus-visible {
+  outline: 2px solid #9ee3ff;
+  outline-offset: 2px;
+  box-shadow: none;
+}
+.table-menu .table-menu__observers {
+  margin-top: calc(6px * var(--menu-scale));
+  border: 4px solid transparent;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-row.webp') 13 / 6px
+    stretch;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+}
+.table-menu .table-menu__observers-title {
+  color: #86daff;
+  font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
+  text-transform: none;
+}
+.table-menu .table-menu__observer-name {
+  color: #e4edf7;
+}

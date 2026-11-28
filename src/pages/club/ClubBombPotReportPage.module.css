@@ -1,133 +1,141 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   CLUB BOMB POT REPORT - on the spade console (#ClubArenaConsole)
+   CLUB BOMB POT REPORT - #SmarterDesign (Dan 2026-11-27)
 
-   PAINT WHAT NEVER CHANGES. PRINT WHAT DOES. The chassis is Dan's approved
-   spade master (components/console/SpadeConsole.css); this file lays the
-   report on the black glass between the rails: the window as lit words, the
-   six totals as rows (label in lit blue, value in silver), and every table's
-   record as a row between engraved rules with its figures beneath - never an
-   HTML table. The two painted plates carry Back and Export CSV. Nothing is
-   drawn. Sizes are cqw against the console. No :hover.
+   The painted spade console was the old style for a page section. The report
+   now prints in the arena workspace's thin chrome case (ClubPageSection's
+   `arena`, ArenaWorkspace.css): the window as one chrome switch lit by
+   aria-pressed, the totals as chrome meters, every record as a chrome ledger
+   row with its figures beneath, Back / Export CSV as chrome keys with the
+   primary lit. The chrome comes from the shared classes; this sheet only lays
+   the report out inside the case. No :hover.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .page {
-  --bpr-rule: 1px solid #000;
-  --bpr-rule-lit: inset 0 1px 0 rgb(255 255 255 / 8%);
   min-height: 100vh;
   min-height: 100dvh;
-  width: 100%;
-  max-width: 100vw;
-  padding: 12px 8px max(70px, env(safe-area-inset-bottom));
   overflow-x: hidden;
   overflow-x: clip;
-  background: #020305;
-  color: #e6e9ee;
   font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
   color-scheme: dark;
 }
 
-.console {
-  --sc-max: 640px;
-  filter: drop-shadow(0 18px 34px rgb(0 0 0 / 85%));
+.page:global(.arena-workspace.arena-workspace) {
+  padding-bottom: calc(var(--bottom-nav-clearance, 74px) + 24px);
+}
+
+.page .console {
+  container-type: inline-size;
+  width: 100%;
+  max-width: 880px;
+  margin: 8px auto 0;
+}
+
+/* The inks keep their colour; the painted glow belonged to the glass. */
+.console [class*='sc-ink--'] {
+  text-shadow: none;
+}
+
+.console :global(.arena-section-title) small {
+  color: #74dfff;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .state,
 .notice {
   margin: 0;
+  color: #b6c8d6;
+  font:
+    13px/1.45 Arial,
+    sans-serif;
 }
 
-/* ── The window and the back-outs: lit words ────────────────────────────── */
+.state {
+  padding: 14px 4px;
+  text-align: center;
+}
 
-.windows,
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0 2cqw;
+.notice {
+  padding: 0 2px;
+}
+
+/* ── The window and the back-outs: chrome switches ──────────────────────── */
+
+.windows {
+  margin: 0;
 }
 
 .actions {
-  padding-top: 2.6cqw;
-  border-top: var(--bpr-rule);
-  box-shadow: var(--bpr-rule-lit);
+  margin-top: 4px;
 }
 
 .word {
-  appearance: none;
-  min-height: 44px;
-  margin: 0;
-  padding: 1.2cqw 1.6cqw;
-  border: 0;
-  background: transparent;
-  font:
-    800 3.4cqw/1 'Roboto Condensed',
-    Inter,
-    system-ui,
-    sans-serif;
-  letter-spacing: 0.12em;
-  white-space: nowrap;
-  cursor: pointer;
+  letter-spacing: 0.04em;
   touch-action: manipulation;
 }
 
-.word:active {
-  filter: brightness(1.25);
+.errorState {
+  display: grid;
+  gap: 6px;
 }
 
-.word:focus-visible {
-  outline: 0.6cqw solid #8fd4ff;
-  outline-offset: 0.4cqw;
-}
-
-/* ── Sections: rows on the glass ────────────────────────────────────────── */
+/* ── Totals: chrome meters ──────────────────────────────────────────────── */
 
 .section {
   display: grid;
-  gap: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
   margin: 0;
-  padding-top: 2.4cqw;
-  border-top: var(--bpr-rule);
-  box-shadow: var(--bpr-rule-lit);
-}
-
-.sectionTitle {
-  margin: 0 0 1cqw;
-  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
-  font-size: 3cqw;
 }
 
 .row {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 3cqw;
-  min-height: 9cqw;
-  padding: 1.8cqw 0;
-}
-
-.row + .row {
-  border-top: var(--bpr-rule);
-  box-shadow: var(--bpr-rule-lit);
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  min-height: 58px;
 }
 
 .rowLabel {
-  font-size: 3cqw;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
+  overflow-wrap: anywhere;
 }
 
 .rowValue {
-  font-size: 4.2cqw;
-  font-weight: 800;
-  letter-spacing: 0.03em;
+  font:
+    800 18px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
-/* ── Per table: records as rows, figures beneath ────────────────────────── */
+@media (max-width: 520px) {
+  .section {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ── Records: chrome ledger rows, figures beneath ───────────────────────── */
+
+.section:has(> .records) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.sectionTitle {
+  margin: 6px 0 2px;
+  font-size: 16px;
+}
 
 .records {
   display: grid;
+  gap: 4px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -135,62 +143,69 @@
 
 .record {
   display: grid;
-  gap: 1.4cqw;
-  padding: 2.2cqw 0;
-  border-top: var(--bpr-rule);
-  box-shadow: var(--bpr-rule-lit);
+  gap: 8px;
+  padding: 8px 10px;
 }
 
 .recordHead {
   display: grid;
-  gap: 0.6cqw;
+  gap: 2px;
 }
 
 .recordName {
-  font-size: 4cqw;
-  font-weight: 800;
-  letter-spacing: 0.03em;
+  font:
+    700 16px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
   overflow-wrap: anywhere;
 }
 
 .recordMeta {
-  font-size: 2.9cqw;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  font:
+    700 11px/1.3 Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .figures {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1.6cqw 2cqw;
+  gap: 6px 8px;
   margin: 0;
+}
+
+@media (min-width: 721px) {
+  .figures {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
 }
 
 .figure {
   display: grid;
-  gap: 0.4cqw;
+  gap: 2px;
   min-width: 0;
 }
 
 .figureLabel {
-  font-size: 2.5cqw;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .figureValue {
   margin: 0;
-  font-size: 3.6cqw;
-  font-weight: 800;
-  letter-spacing: 0.03em;
+  font:
+    800 15px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 
-.errorState {
-  display: grid;
-  justify-items: center;
-  gap: 1cqw;
+.section + .section {
+  margin-top: 6px;
 }

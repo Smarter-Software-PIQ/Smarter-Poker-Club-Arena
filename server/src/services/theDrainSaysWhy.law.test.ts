@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { varietyDrainDecision, varietyDrainTables, type DrainTable } from './HorseVarietyFirst.js';
+import {
+  drainWhyForBeat,
+  varietyDrainDecision,
+  varietyDrainTables,
+  type DrainTable,
+} from './HorseVarietyFirst.js';
 
 /**
  * THE DRAIN SAYS WHY (2026-11-27). On the 1 AM CST seal f2b854319ea9 the drain
@@ -108,13 +113,38 @@ describe('the drain says why it released what it did', () => {
     const fleet = read('./HorseFleetManager.ts');
     expect(fleet).toContain('const decision = varietyDrainDecision({');
     expect(fleet).toContain('varietyDrain = decision.tables;');
-    expect(fleet).toContain(
-      "decision.why === 'room_free' && (room?.cap == null || room?.counted == null)"
-    );
-    expect(fleet).toMatch(
-      /beat\.varietyDrainWhy = cycleWithheld\s*\? 'withheld'\s*: beat\.varietyOwedGames\.length === 0\s*\? 'nothing_owed'\s*: drainDecided && varietyWhy\s*\? varietyWhy\s*: 'undecided';/
-    );
+    expect(fleet).toContain('varietyWhy = decision.why;');
+    expect(fleet).toContain('beat.varietyDrainWhy = drainWhyForBeat({');
+    expect(fleet).toContain('room: drainRoom,');
+    expect(fleet).toContain('anOwedStartAdmitted: owedStartAdmitted,');
     expect(fleet).toContain('variety_drain_why: beat.varietyDrainWhy,');
     expect(fleet).toContain('varietyDrainWhy: null,');
+  });
+
+  it('review 2026-11-27: the beat never says room_free at a full cap, and names every cycle state', () => {
+    const why = (over: Partial<Parameters<typeof drainWhyForBeat>[0]> = {}) =>
+      drainWhyForBeat({
+        withheld: false,
+        owedThisCycle: 15,
+        decided: true,
+        why: 'room_free',
+        room: { cap: 17, counted: 16 },
+        anOwedStartAdmitted: false,
+        ...over,
+      });
+    expect(why()).toBe('room_free');
+    /* cap full, shortfall 0 only because an owed start is already admitted:
+       this read as "room_free" beside cash_room {cap 17, counted 17} */
+    expect(why({ room: { cap: 17, counted: 17 }, anOwedStartAdmitted: true })).toBe(
+      'start_admitted'
+    );
+    expect(why({ room: { cap: 17, counted: 16 }, anOwedStartAdmitted: true })).toBe('room_free');
+    expect(why({ room: null })).toBe('room_unknown');
+    expect(why({ room: { cap: null, counted: 17 } })).toBe('room_unknown');
+    expect(why({ why: 'no_extra_table' })).toBe('no_extra_table');
+    expect(why({ decided: false })).toBe('undecided');
+    expect(why({ why: null })).toBe('undecided');
+    expect(why({ owedThisCycle: 0 })).toBe('nothing_owed');
+    expect(why({ withheld: true, owedThisCycle: 0 })).toBe('withheld');
   });
 });

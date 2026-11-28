@@ -520,6 +520,11 @@ describe('the workflow adds chances, not authority', () => {
       'next-candidate-after-cycle',
       'selection',
       'signal',
+      // 2026-11-27: the keep-serving Backup is sent as the estate App so its
+      // completion is a workflow_run GitHub delivers; it sends what
+      // next-candidate-after-cycle recorded and decides nothing. Pinned by
+      // tests/the-estate-app-starts-the-next-cycle.law.test.ts.
+      'start-backup-as-estate-app',
       'window-migrations',
     ]);
     // cutover-outcome-record (CR1, 2026-11-24) is detection only: it reads
@@ -1527,6 +1532,21 @@ describe('the owner says what the cycle will find while there is still time (O25
     const table: [unknown, string][] = [
       [ready, 'READY a1b2c3d4e5f6'],
       [
+        report('AT_RISK', {
+          selectableSha: sha('f'),
+          summary:
+            'ffffffffffff is certified and selectable now, but an install is in flight that the Backup copy lacks: 20261127230642_x.sql (Apply Merged Migration run 9, in_progress)',
+        }),
+        'AT RISK ffffffffffff: ffffffffffff is certified and selectable now, but an install is in flight that the Backup copy lacks: 20261127230642_x.sql (Apply Merged Migration run 9, in_progress)',
+      ],
+      [
+        report('AT_RISK', {
+          selectableSha: sha('f'),
+          schedule: { preparationCutoffEpoch: cutoff + 10800 },
+        }),
+        'readiness unknown (the check read another cycle than this one)',
+      ],
+      [
         report('IN_FLIGHT', {
           summary:
             'no selectable candidate yet; bbbbbbbbbbbb is in flight (awaiting backup=in_progress (run 7), prequal=absent)',
@@ -1661,10 +1681,14 @@ describe('the owner says what the cycle will find while there is still time (O25
     // Nine: O27 (next-candidate-after-cycle) waits once after the selection,
     // never in the admission; CR1 (cutover-outcome-record) only records; O32
     // (cycle-look-back and its owner note) only reports, never waits, and
-    // neither is needed by detect, selection or signal.
-    expect(Object.keys(stage.jobs).length).toBe(9);
+    // neither is needed by detect, selection or signal. Ten since 2026-11-27:
+    // start-backup-as-estate-app sends the Backup O27 already sent, as the
+    // estate App; it runs after the cycle, and nothing needs it.
+    expect(Object.keys(stage.jobs).length).toBe(10);
     for (const job of ['detect', 'selection', 'signal', 'window-migrations'])
       expect([stage.jobs[job].needs ?? []].flat().join(' ')).not.toContain('cycle-');
+    for (const job of Object.values(stage.jobs) as Array<{ needs?: string | string[] }>)
+      expect([job.needs ?? []].flat()).not.toContain('start-backup-as-estate-app');
     expect(stage.jobs.detect['timeout-minutes']).toBe(315);
   });
 });

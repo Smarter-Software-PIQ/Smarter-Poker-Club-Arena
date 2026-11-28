@@ -1,97 +1,91 @@
-/* Hand Review uses only approved console masters. Dynamic queue rows and
-   controls print directly on their glass with engraved rules between them. */
+/* Hand Review in #SmarterDesign (Dan 2026-11-27). The page root is an arena
+   workspace; the cases, switches, wells and ledger rows come from
+   ArenaWorkspace.css and ArenaOps.css. This sheet only lays the casework out. */
 
 .chr-page {
   min-height: 100vh;
   min-height: 100dvh;
   padding-bottom: var(--bottom-nav-clearance, 74px);
   overflow-x: clip;
-  background: var(--realism-obsidian);
-  color: #e4e7ec;
-  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
+  font-family: 'Arial Narrow', Arial, sans-serif;
 }
 
 .chr-workspace,
 .chr-state-wrap {
   display: grid;
-  gap: clamp(18px, 4vw, 42px);
+  gap: 10px;
   width: min(100%, 1000px);
   margin: 0 auto;
-  padding: clamp(20px, 4vw, 44px) clamp(8px, 3vw, 28px) 60px;
+  padding: 8px 0 60px;
   box-sizing: border-box;
 }
 
 .chr-state-wrap {
   min-height: 70dvh;
-  place-content: center;
-}
-
-.chr-state {
-  padding: 24px 8px;
-}
-
-.chr-lookup {
-  --sc-max: 729px;
-}
-
-.chr-hand {
-  --sc-max: 733px;
-}
-
-.chr-queue {
-  --sc-max: 729px;
+  align-content: center;
 }
 
 .chr-lookup__warn,
 .chr-empty,
 .chr-state {
   margin: 0;
+  color: #b6c8d6;
+  font:
+    12px/1.45 Arial,
+    sans-serif;
+}
+
+.chr-state,
+.chr-empty {
+  padding: 18px 8px;
+  text-align: center;
+}
+
+.chr-state.is-red {
+  color: #ff5a6a;
+}
+
+.chr-state.is-gold {
+  color: #ffd700;
+}
+
+.chr-field-label {
+  color: #74dfff;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .chr-lookup__form {
   display: grid;
   grid-template-columns: minmax(120px, 0.34fr) minmax(0, 0.66fr);
-  gap: 12px;
+  gap: 10px;
 }
 
 .chr-lookup__form label,
 .chr-flag__reply-field {
   display: grid;
-  gap: 5.2px;
+  gap: 4px;
   min-width: 0;
 }
 
-.chr-lookup__number,
-.chr-lookup__reason,
-.chr-flag__replybox {
-  width: 100%;
+.arena-workspace .chr-lookup__number,
+.arena-workspace .chr-lookup__reason,
+.arena-workspace .chr-flag__replybox {
   min-width: 0;
-  min-height: 44px;
-  padding: 8px 5.6px;
-  box-sizing: border-box;
-  border: 0;
-  border-top: 1px solid #000;
-  border-bottom: 1px solid rgb(255 255 255 / 8%);
-  background: #05070b;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
-  color: #f4f7fb;
-  font:
-    500 max(16px, 12.8px)/1.35 Inter,
-    system-ui,
-    sans-serif;
-}
-
-.chr-lookup__number:focus-visible,
-.chr-lookup__reason:focus-visible,
-.chr-flag__replybox:focus-visible,
-.chr-chip:focus-visible,
-.chr-word-action:focus-visible {
-  outline: 2px solid #45adff;
-  outline-offset: 3px;
+  font-size: 16px;
 }
 
 .chr-lookup__error {
   margin: 0;
+  color: #ff5a6a;
+  text-align: center;
+  font:
+    700 12px/1.4 Arial,
+    sans-serif;
 }
 
 .chr-hand__bar {
@@ -99,98 +93,47 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #000;
-  box-shadow: inset 0 -1px 0 rgb(255 255 255 / 8%);
+  padding-bottom: 6px;
+  border-bottom: 1px solid #253e57;
 }
 
 .chr-hand__cards {
   min-width: 0;
-  white-space: normal;
+  color: #74dfff;
+  font:
+    700 12px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
 }
 
 .chr-hand__short {
   margin: 0;
-  padding: 10px 0;
-}
-
-.chr-filters {
-  display: flex;
-  gap: 4.8px;
-  padding-bottom: 8px;
-  overflow-x: auto;
-}
-
-.chr-chip,
-.chr-word-action {
-  flex: 0 0 auto;
-  min-width: 44px;
-  min-height: 44px;
-  padding: 4.8px 6px;
-  border: 0;
-  background: transparent;
-  color: #45adff;
+  padding: 8px 0;
+  color: #ffd700;
+  text-align: center;
   font:
-    700 10.8px/1.25 'Roboto Condensed',
-    Inter,
-    system-ui,
+    12px/1.4 Arial,
     sans-serif;
-  letter-spacing: 0.08em;
-  cursor: pointer;
-  touch-action: manipulation;
 }
 
-.chr-chip[aria-pressed='true'] {
-  color: #f4f7fb;
-  text-shadow: 0 0 5.6px rgb(69 173 255 / 72%);
-}
-
-.chr-word-action {
-  color: #f4f7fb;
-  text-shadow: 0 0 4.8px rgb(69 173 255 / 70%);
-}
-
-.chr-word-action--quiet {
-  color: #9aa5b3;
-  text-shadow: none;
-}
-
-.chr-chip:active:not(:disabled),
-.chr-word-action:active:not(:disabled) {
-  transform: translateY(1px);
-}
-
-.chr-chip:disabled,
-.chr-word-action:disabled {
-  color: #9aa5b3;
-  cursor: not-allowed;
-  text-shadow: none;
-}
-
-.chr-empty {
-  padding: 24px 8px;
+.arena-workspace .chr-filters {
+  margin: 0;
 }
 
 .chr-list {
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 4px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.chr-flag {
+.arena-workspace .chr-flag {
   display: grid;
-  gap: 8px;
-  padding: 12px 4px;
-  border-top: 1px solid #000;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
-}
-
-.chr-flag:first-child {
-  border-top-color: transparent;
-  box-shadow: none;
+  gap: 6px;
+  padding: 8px 10px;
 }
 
 .chr-flag__head {
@@ -202,18 +145,23 @@
 
 .chr-flag__num {
   min-width: 0;
-  font-size: 14px;
-  font-weight: 700;
+  color: #f1f5fc;
+  font:
+    700 14px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
   overflow-wrap: anywhere;
 }
 
 .chr-flag__status,
 .chr-flag__reply-label {
   flex: 0 0 auto;
-  color: #45adff;
-  font-size: 9.6px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  color: #74dfff;
+  font:
+    800 11px 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
@@ -222,20 +170,19 @@
 }
 
 .chr-flag__status.is-resolved {
-  color: #c8ffd2;
+  color: #45adff;
 }
 
 .chr-flag__status.is-dismissed {
-  color: #9aa5b3;
+  color: #9fbacc;
 }
 
 .chr-flag__note,
 .chr-flag__reply-body {
   margin: 0;
-  color: #d7dee7;
+  color: #dce5ef;
   font:
-    500 12.8px/1.5 Inter,
-    system-ui,
+    12px/1.5 Arial,
     sans-serif;
   overflow-wrap: anywhere;
 }
@@ -244,28 +191,21 @@
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
-  color: #9aa5b3;
-  font-size: 10px;
+  color: #9fbacc;
+  font:
+    11px Arial,
+    sans-serif;
 }
 
 .chr-flag__reply {
   display: grid;
-  gap: 4.8px;
-  padding: 9.2px 4px;
-  border-top: 1px solid #000;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
+  gap: 4px;
+  padding: 6px 3px;
+  border-top: 1px solid #253e57;
 }
 
-.chr-flag__actions {
-  display: flex;
-  align-items: end;
-  gap: 4.8px;
-  flex-wrap: wrap;
-  padding-top: 4px;
-}
-
-.chr-flag__reply-field {
-  flex: 1 1 250px;
+.arena-workspace .chr-flag__actions {
+  margin: 0;
 }
 
 @media (max-width: 560px) {
@@ -277,15 +217,6 @@
   .chr-flag__head {
     align-items: flex-start;
     flex-direction: column;
-  }
-
-  .chr-filters {
-    justify-content: flex-start;
-  }
-
-  .chr-flag__actions > *,
-  .chr-flag__reply-field {
-    flex: 1 1 100%;
   }
 }
 

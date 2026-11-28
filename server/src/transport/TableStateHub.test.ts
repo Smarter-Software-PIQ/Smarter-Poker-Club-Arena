@@ -419,5 +419,68 @@ describe('TableStateHub', () => {
         stringifySpy.mockRestore();
       }
     });
+
+    it('publishLazy defers snapshot projection until a subscriber attaches or resyncs, and clears stale state on unsubscribe/drop (1e532243)', () => {
+      let currentPot = 10;
+      const buildState = vi.fn(() => ({ pot: currentPot, extra: undefined, bad: Number.NaN }));
+
+      // 0 subscribers: repeated publishLazy calls never invoke buildState.
+      expect(hub.hasSubscribers(TABLE)).toBe(false);
+      hub.publishLazy(TABLE, buildState);
+      currentPot = 25;
+      hub.publishLazy(TABLE, buildState);
+      currentPot = 40;
+      hub.publishLazy(TABLE, buildState);
+      expect(buildState).not.toHaveBeenCalled();
+      expect(hub.hasSnapshot(TABLE)).toBe(true);
+
+      // First subscriber triggers exactly 1 buildState and receives normalized SNAPSHOT.
+      const sub1 = makeSub('viewer-1');
+      hub.subscribe(TABLE, sub1);
+      expect(hub.hasSubscribers(TABLE)).toBe(true);
+      expect(buildState).toHaveBeenCalledTimes(1);
+      expect(sub1.outbox).toHaveLength(1);
+      expect(parse(sub1.outbox[0])).toEqual({
+        type: 'SNAPSHOT',
+        tableId: TABLE,
+        seq: 1,
+        state: { pot: 40, bad: null },
+      });
+
+      // Subsequent publishLazy while subscribed evaluates synchronously and sends DELTA.
+      currentPot = 75;
+      hub.publishLazy(TABLE, buildState);
+      expect(buildState).toHaveBeenCalledTimes(2);
+      expect(parse(sub1.outbox[1])).toMatchObject({
+        type: 'DELTA',
+        tableId: TABLE,
+        seq: 2,
+        prev: 1,
+      });
+
+      // After last subscriber leaves, publishLazy returns to zero-invocation deferred mode
+      // and clears the old cached snapshot so the next joiner gets fresh state.
+      hub.unsubscribe(TABLE, sub1);
+      expect(hub.hasSubscribers(TABLE)).toBe(false);
+      currentPot = 120;
+      hub.publishLazy(TABLE, buildState);
+      expect(buildState).toHaveBeenCalledTimes(2);
+
+      const sub2 = makeSub('viewer-2');
+      hub.subscribe(TABLE, sub2);
+      expect(buildState).toHaveBeenCalledTimes(3);
+      expect(parse(sub2.outbox[0])).toEqual({
+        type: 'SNAPSHOT',
+        tableId: TABLE,
+        seq: 3,
+        state: { pot: 120, bad: null },
+      });
+
+      // dropTable clears lazySnapshotProvider so a closed room cannot materialize stale state.
+      hub.unsubscribe(TABLE, sub2);
+      hub.publishLazy(TABLE, buildState);
+      hub.dropTable(TABLE);
+      expect(hub.hasSnapshot(TABLE)).toBe(false);
+    });
   });
 });

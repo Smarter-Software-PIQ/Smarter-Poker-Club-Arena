@@ -21,7 +21,11 @@ import './ClubRulesPage.css';
 import PageSkeleton from '../components/common/PageSkeleton';
 import StandardContentLayout from '../components/layouts/StandardContentLayout';
 import { reportError } from '../utils/errorReporter';
-import { SpadeConsole } from '../components/console/SpadeConsole';
+/* #SmarterDesign (Dan 2026-11-27): the painted console is the old style for a
+   page section; the rules print in the thin chrome case with chrome keys. */
+import { ClubPageSection as SpadeConsole } from '../components/club/ClubPageSection';
+import '../components/console/SpadeConsole.css';
+import '../components/lobby/ArenaWorkspace.css';
 
 const rulesLineAnimationStyle = (index: number) => ({
   opacity: 0,
@@ -364,8 +368,9 @@ export default function ClubRulesPage() {
       : undefined;
 
   return (
-    <StandardContentLayout className="club-rules-page">
+    <StandardContentLayout className="club-rules-page arena-workspace">
       <SpadeConsole
+        arena
         className="club-rules-console"
         aria-busy={loading || saving || undefined}
         eyebrow={clubName || 'Club'}
@@ -383,9 +388,11 @@ export default function ClubRulesPage() {
           <div className="rules-empty">
             <span className="sc-label sc-ink--red">Could Not Load</span>
             <p className="sc-copy sc-copy--center">Failed To Load Club Rules.</p>
-            <button type="button" className="rules-retry sc-ink--blue" onClick={() => loadRules()}>
-              Retry
-            </button>
+            <div className="arena-switch arena-ops-keys arena-ops-primary rules-keys">
+              <button type="button" className="rules-retry" onClick={() => loadRules()}>
+                Retry
+              </button>
+            </div>
           </div>
         ) : isEditing ? (
           <div className="rules-editor">

@@ -272,3 +272,86 @@
     width: 78%;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   #SMARTERDESIGN (Dan 2026-11-27): the announcements in the arena workspace
+   language. The cinematic beat sits on one thin chrome case over ink navy,
+   the level-change banner on a chrome row instead of a capsule; titles are
+   live Rajdhani, subtitles silver. The warm brass and gold accents become
+   ice blue (yellow is not an approved colour); green and red beats keep
+   their meaning. Every entrance, sweep, float and rule animation above still
+   plays - nothing here sets `animation`.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.tournamentAnnouncement.tournamentAnnouncement[style*='#d6ad52'],
+.tournamentAnnouncement.tournamentAnnouncement[style*='#ffd700'],
+.tournamentAnnouncement.tournamentAnnouncement[style*='#d6AD52'],
+.tournamentAnnouncement.tournamentAnnouncement[style*='#FFD700'] {
+  --accent-color: #86daff !important;
+}
+.tournamentAnnouncement.tournamentAnnouncement:not(.compact) .announcementContent {
+  isolation: isolate;
+  box-sizing: border-box;
+  width: min(92vw, 440px);
+  padding: 22px 20px 20px;
+  border: 0;
+  background:
+    radial-gradient(ellipse at 90% -40%, #1e3853, transparent 63%),
+    linear-gradient(145deg, #091727, #030b14 74%);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 60%);
+}
+.tournamentAnnouncement.tournamentAnnouncement:not(.compact) .announcementContent::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-case.webp') 41 / 19px
+    stretch;
+}
+.tournamentAnnouncement.tournamentAnnouncement .announcementTitle {
+  font-family: 'Rajdhani', 'Roboto Condensed', Inter, sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+.tournamentAnnouncement.tournamentAnnouncement .announcementSubtitle {
+  color: #bdd0e2;
+}
+.tournamentAnnouncement.tournamentAnnouncement.finalTableAnnouncement {
+  background: radial-gradient(
+    ellipse at center,
+    rgb(3 11 20 / 90%),
+    rgb(3 11 20 / 46%) 54%,
+    transparent 76%
+  );
+}
+.tournamentAnnouncement.finalTableAnnouncement .announcementIcon {
+  border: 0;
+  background: conic-gradient(
+    from 25deg,
+    #6d94b1,
+    #d8e7f3 12%,
+    #3c5369 23%,
+    #0d263b 35%,
+    #a6c8e0 50%,
+    #465d72 64%,
+    #f4f9ff 78%,
+    #234968 90%,
+    #6d94b1
+  );
+  box-shadow:
+    0 0 0 3px #06101b inset,
+    0 2px 9px #01060fbb;
+  color: #f4f8ff;
+}
+.tournamentAnnouncement.tournamentAnnouncement.compact .announcementContent {
+  border: 4px solid transparent;
+  border-image: url('/assets/club-buttons/console/smarterdesign-v1/chrome-row.webp') 13 / 6px
+    stretch;
+  border-radius: 0;
+  background: linear-gradient(108deg, #13253a, #060e18 72%);
+}
+.tournamentAnnouncement.tournamentAnnouncement.compact .announcementIcon {
+  background: #06101b;
+  border-color: rgb(134 218 255 / 45%);
+}

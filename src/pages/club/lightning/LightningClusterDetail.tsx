@@ -26,7 +26,11 @@
  * horses read exactly like every other player (Law 10.5).
  */
 import { lazy, Suspense, useCallback, useState, type ReactNode } from 'react';
-import { SpadeConsole, type ConsoleInk } from '../../../components/console/SpadeConsole';
+import { type ConsoleInk } from '../../../components/console/SpadeConsole';
+/* #SmarterDesign (Dan 2026-11-27): the Cluster detail prints in the thin
+   chrome case; its confirmation dialogs keep their own popup chassis. */
+import { ClubPageSection as SpadeConsole } from '../../../components/club/ClubPageSection';
+import '../../../components/lobby/ArenaWorkspace.css';
 import { useToast } from '../../../components/common/Toast';
 import { compactChips } from '../../../utils/format';
 import { titleCase } from '../../../utils/titleCase';
@@ -209,7 +213,7 @@ function SignalRecord({
   const ink = SEVERITY_INK[s.severity ?? ''] ?? 'muted';
   const players = [s.playerA, s.playerB].filter(Boolean).map((p) => shortId(p));
   return (
-    <li className={styles.record} data-signal-id={s.id ?? undefined}>
+    <li className={`arena-ledger-row ${styles.record}`} data-signal-id={s.id ?? undefined}>
       <div className={styles.recordHead}>
         <span className={`${styles.recordName} sc-ink--silver`}>
           {s.pattern ? enumLabel(s.pattern) : 'Signal'}
@@ -226,12 +230,16 @@ function SignalRecord({
       {s.notes ? <p className={`sc-copy sc-ink--muted ${styles.state}`}>{s.notes}</p> : null}
       {open ? (
         <div className={styles.review}>
-          <div className={styles.words} role="group" aria-label="Review Decision">
+          <div
+            className={`arena-switch arena-ops-keys ${styles.words}`}
+            role="group"
+            aria-label="Review Decision"
+          >
             {SIGNAL_REVIEW_STATUSES.map((st) => (
               <button
                 key={st}
                 type="button"
-                className={`${styles.word} ${status === st ? 'sc-ink--white' : 'sc-ink--muted'}`}
+                className={styles.word}
                 aria-pressed={status === st}
                 onClick={() => setStatus(st)}
               >
@@ -249,7 +257,7 @@ function SignalRecord({
               onChange={(e) => setNote(e.target.value)}
             />
           </label>
-          <div className={styles.words}>
+          <div className={`arena-switch arena-ops-keys ${styles.words}`}>
             <button
               type="button"
               className={`${styles.word} sc-ink--muted`}
@@ -259,7 +267,7 @@ function SignalRecord({
             </button>
             <button
               type="button"
-              className={`${styles.word} sc-ink--white`}
+              className={`${styles.word} club-page-key--primary sc-ink--white`}
               onClick={() => void save()}
               disabled={saving || !s.id}
             >
@@ -268,7 +276,7 @@ function SignalRecord({
           </div>
         </div>
       ) : (
-        <div className={styles.words}>
+        <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.words}`}>
           <button
             type="button"
             className={`${styles.word} sc-ink--white`}
@@ -317,7 +325,7 @@ function HandReplayCheck({ clusterId }: { clusterId: string }) {
           }}
         />
       </label>
-      <div className={styles.words}>
+      <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.words}`}>
         <button
           type="button"
           className={`${styles.word} sc-ink--white`}
@@ -435,7 +443,7 @@ function SessionTrail({
           onChange={(e) => onPoolSessionId(e.target.value)}
         />
       </label>
-      <div className={styles.words}>
+      <div className={`arena-switch arena-ops-keys arena-ops-primary ${styles.words}`}>
         <button
           type="button"
           className={`${styles.word} sc-ink--white`}
@@ -514,12 +522,16 @@ function LatencySection({ detail }: { detail: Detail }) {
         <Empty>No Latency Windows In This Range</Empty>
       ) : (
         <>
-          <div className={styles.words} role="group" aria-label="Latency Leg">
+          <div
+            className={`arena-switch arena-ops-keys ${styles.words}`}
+            role="group"
+            aria-label="Latency Leg"
+          >
             {withData.map((l) => (
               <button
                 key={l}
                 type="button"
-                className={`${styles.word} ${l === leg ? 'sc-ink--white' : 'sc-ink--muted'}`}
+                className={styles.word}
                 aria-pressed={l === leg}
                 onClick={() => setPicked(l)}
               >
@@ -575,8 +587,8 @@ export default function LightningClusterDetail({
 
   return (
     <SpadeConsole
+      arena
       className={styles.console}
-      family="riveted"
       eyebrow="Lightning"
       title={c?.name ? titleCase(c.name) : 'Lightning Cluster'}
       titleId="lightning-cluster-title"
@@ -591,12 +603,12 @@ export default function LightningClusterDetail({
         },
       }}
     >
-      <div className={styles.words} role="group" aria-label="Time Window">
+      <div className={`arena-switch ${styles.words}`} role="group" aria-label="Time Window">
         {DETAIL_WINDOWS.map((w) => (
           <button
             key={w.key}
             type="button"
-            className={`${styles.word} ${windowKey === w.key ? 'sc-ink--white' : 'sc-ink--muted'}`}
+            className={styles.word}
             aria-pressed={windowKey === w.key}
             onClick={() => setWindowKey(w.key)}
           >

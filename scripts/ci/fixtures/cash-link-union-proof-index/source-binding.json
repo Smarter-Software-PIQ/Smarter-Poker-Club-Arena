@@ -16,7 +16,7 @@
     "scripts/ci/contract-index-recovery.mjs": "f348be2a919456e08ec9293bfc0f36b6af0be254588d379bfd3cca297e55bd7c",
     "scripts/ci/contract-index-recovery.test.mjs": "d349c59e55f35a9f1f39b269664994f33df64fca4170ec209a5ae7d5b3c25fe6",
     "scripts/ci/apply-recorded-migration.mjs": "942fdb90bc5e1002a136b8c1f2f4fb940732306d6921dc5b571f8bf3e66e93b5",
-    ".github/workflows/apply-merged-migration.yml": "926a8113e16e2a6f0cb05f2f704e3387205db7a7f0d181379d7f847984f937b4",
+    ".github/workflows/apply-merged-migration.yml": "a97840da371d27597412f8e021d9ca201535813e5ecb9016345b40e195565920",
     "docs/changelog/2026-10-28-cash-selector-bounded-build-recovery.md": "30ec99aca57f738f841167aefca2c47c8c68cda088f7b6189b3e46e532137f1e",
     "scripts/ci/fixtures/cash-link-union-proof-index/actual-function-cold-plans.py": "31974fb62fbb677047a80686903e6c96f8f11db1a64c8bc0daccb5242c17ac7d"
   },
@@ -235,5 +235,12 @@
     "after": "926a8113e16e2a6f0cb05f2f704e3387205db7a7f0d181379d7f847984f937b4",
     "review": "Reviewed exact diff. Additions only: a header comment paragraph and one new job, report-refusal, appended after the apply job. The apply job (its condition, environment, timeout, every step, the queue, the older-first install, the apply command and its recovery arguments), the triggers, inputs, concurrency group and workflow permissions are byte-identical. The new job needs apply and runs only when the apply job concluded failure on the default branch and the run is not a dry run; it has no environment and no secret, holds contents and actions read plus issues and pull-requests write for itself alone, checks out the default branch without stored credentials and runs scripts/ci/migration-apply-refusal-alert.mjs on its own run id with the job token. It sends no SQL, dispatches nothing and retries nothing, so the installer path this fixture qualifies is unchanged. No financial, native or production qualification is restamped or claimed.",
     "reason": "2026-11-27: apply run 46054847104 refused 20261127172908 and nothing was posted, because the alert listened for a workflow_run event GitHub does not raise for a run the job token started. tests/the-apply-run-reports-its-own-refusal.law.test.ts."
+  },
+  "aTimedOutInstallIsReported20261127": {
+    "path": ".github/workflows/apply-merged-migration.yml",
+    "before": "926a8113e16e2a6f0cb05f2f704e3387205db7a7f0d181379d7f847984f937b4",
+    "after": "a97840da371d27597412f8e021d9ca201535813e5ecb9016345b40e195565920",
+    "review": "Reviewed exact diff. Two changes only: four header comment lines, and the report-refusal job's if now admits needs.apply.result == 'cancelled' beside 'failure' in one parenthesized group, so a timed-out apply job (GitHub concludes a job that reaches timeout-minutes as cancelled) reaches scripts/ci/migration-apply-refusal-alert.mjs, which reports it as TIMED OUT / UNKNOWN only when the job's log shows the applier was reached and skips a cancel that sent nothing. The always(), default-branch and dry-run gates, the report job's permissions, steps and absent environment, and the apply job (its condition, environment, timeout, every step, the queue, the older-first install, the apply command and its recovery arguments), the triggers, inputs, concurrency group and workflow permissions are byte-identical. It sends no SQL, dispatches nothing and retries nothing, so the installer path this fixture qualifies is unchanged. No financial, native or production qualification is restamped or claimed.",
+    "reason": "2026-11-27: a timed-out apply, the UNKNOWN outcome, concluded cancelled and was never reported. tests/the-apply-run-reports-its-own-refusal.law.test.ts."
   }
 }
