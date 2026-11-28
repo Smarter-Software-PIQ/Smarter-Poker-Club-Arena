@@ -8,7 +8,8 @@ import { formatWalletChips } from '../../utils/format';
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { AgentService, type Agent } from '../../services/AgentService';
+import { AgentService, formatAgentRate, type Agent } from '../../services/AgentService';
+import '../ops/ArenaOps.css';
 import styles from './AgentTree.module.css';
 import { generateDefaultAvatar } from '../../utils/avatarGenerator';
 import { reportError } from '../../utils/errorReporter';
@@ -134,13 +135,13 @@ function TreeNode({
       }}
     >
       <div
-        className={`${styles.nodeCard} ${node.status !== 'active' ? styles.inactive : ''}`}
+        className={`arena-ledger-row ${styles.nodeCard} ${node.status !== 'active' ? styles.inactive : ''}`}
         onClick={() => onAgentClick?.(node)}
       >
         {/* Expand/Collapse */}
         {hasChildren && (
           <button
-            className={styles.expandBtn}
+            className={`${styles.expandBtn} ${node.isExpanded ? styles.expanded : ''}`}
             onClick={(e) => {
               e.stopPropagation();
               onToggle(node.id);
@@ -178,20 +179,20 @@ function TreeNode({
 
         {/* Stats */}
         <div className={styles.nodeStats}>
-          <div className={styles.statItem}>
+          <div className={`arena-meter ${styles.statItem}`}>
             <span className={styles.statValue}>{node.activePlayerCount}</span>
             <span className={styles.statLabel}>Players</span>
           </div>
-          <div className={styles.statItem}>
+          <div className={`arena-meter ${styles.statItem}`}>
             <span className={styles.statValue}>{node.subAgentCount}</span>
             <span className={styles.statLabel}>Sub-Agents</span>
           </div>
-          <div className={styles.statItem}>
+          <div className={`arena-meter ${styles.statItem}`}>
             <span className={styles.statValue}>{formatCurrency(node.businessBalance)}</span>
             <span className={styles.statLabel}>Balance</span>
           </div>
-          <div className={styles.statItem}>
-            <span className={styles.statValue}>{node.commissionRate}%</span>
+          <div className={`arena-meter ${styles.statItem}`}>
+            <span className={styles.statValue}>{formatAgentRate(node.commissionRate)}</span>
             <span className={styles.statLabel}>Commission</span>
           </div>
         </div>
@@ -201,17 +202,19 @@ function TreeNode({
 
         {/* Actions */}
         {onTransferClick && node.status === 'active' && (
-          <button
-            className={styles.transferBtn}
-            onClick={(e) => {
-              e.stopPropagation();
-              onTransferClick(node);
-            }}
-          >
-            {/* It was an empty square (2026-10-19): the row body opens
+          <div className={`arena-switch ${styles.nodeKeys}`}>
+            <button
+              className={styles.transferBtn}
+              onClick={(e) => {
+                e.stopPropagation();
+                onTransferClick(node);
+              }}
+            >
+              {/* It was an empty square (2026-10-19): the row body opens
                 Commission History, so the send was undiscoverable. */}
-            Send Chips
-          </button>
+              Send Chips
+            </button>
+          </div>
         )}
       </div>
 
@@ -256,7 +259,7 @@ export default function AgentTree({ clubId, onAgentClick, onTransferClick }: Age
       const agents = await AgentService.getAgents(clubId);
       setTree(buildTree(agents));
     } catch (err) {
-      setError('Failed to load agent hierarchy');
+      setError('Failed To Load Agent Hierarchy');
       reportError(err, 'AgentTree.error');
     }
     setLoading(false);
@@ -303,16 +306,20 @@ export default function AgentTree({ clubId, onAgentClick, onTransferClick }: Age
   };
 
   if (loading) {
-    return <div className={styles.loading}>Loading Agent Hierarchy...</div>;
+    return (
+      <div className={`arena-case arena-ops-case ${styles.loading}`}>
+        Loading Agent Hierarchy...
+      </div>
+    );
   }
 
   if (error) {
-    return <div className={styles.error}>{error}</div>;
+    return <div className={`arena-case arena-ops-case ${styles.error}`}>{error}</div>;
   }
 
   if (tree.length === 0) {
     return (
-      <div className={styles.empty}>
+      <div className={`arena-case arena-ops-case ${styles.empty}`}>
         <span className={styles.emptyIcon}>▲</span>
         <h4>No Agents Yet</h4>
         <p>Create Your First Agent To Start Building Your Hierarchy</p>
@@ -321,16 +328,18 @@ export default function AgentTree({ clubId, onAgentClick, onTransferClick }: Age
   }
 
   return (
-    <div className={styles.agentTree}>
+    <div className={`arena-case arena-ops-case ${styles.agentTree}`}>
       {/* Controls */}
       <div className={styles.controls}>
         <input
-          className={styles.searchInput}
+          className={`arena-ops-well ${styles.searchInput}`}
           placeholder="Search Agents..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
         <span className={styles.nodeCount}>{countNodes(tree)} Agents</span>
+      </div>
+      <div className={`arena-switch arena-ops-keys ${styles.controlKeys}`}>
         <button className={styles.controlBtn} onClick={expandAll}>
           Expand All
         </button>

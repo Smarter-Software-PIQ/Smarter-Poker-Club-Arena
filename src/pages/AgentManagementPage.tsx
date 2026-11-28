@@ -1428,7 +1428,7 @@ export default function AgentManagementPage() {
         {activeTab === 'payouts' && (
           <div className={styles.payoutsSection}>
             {/* Player Cashout Requests (wired to CashoutService) */}
-            <AgentCashoutPanel clubId={clubId} />
+            <AgentCashoutPanel clubId={clubId} arena />
 
             {/*
               THE SCHEDULE THIS BLOCK USED TO PRINT WAS THREE LINES OF STATIC

@@ -31,7 +31,7 @@
   font-size: 0.9rem;
   font-weight: 800;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  text-transform: none;
   cursor: pointer;
   pointer-events: auto;
   transition: opacity 120ms linear;
@@ -156,7 +156,7 @@
   font-size: 0.85rem;
   font-weight: 700;
   letter-spacing: 0.12em;
-  text-transform: uppercase;
+  text-transform: none;
   cursor: pointer;
 }
 
@@ -189,7 +189,7 @@
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.14em;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .lightning-ended__text {
@@ -211,7 +211,7 @@
   font-size: 0.85rem;
   font-weight: 700;
   letter-spacing: 0.12em;
-  text-transform: uppercase;
+  text-transform: none;
   cursor: pointer;
 }
 

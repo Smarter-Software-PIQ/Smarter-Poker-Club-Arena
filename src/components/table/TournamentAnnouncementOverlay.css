@@ -64,7 +64,7 @@
   font-size: clamp(1.65rem, 6vw, 2.5rem);
   font-weight: 900;
   color: #f4f7fb;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.16em;
   margin-bottom: 0.45rem;
   background: linear-gradient(100deg, var(--accent-color) 0%, #f4f7fb 42%, var(--accent-color) 78%);

@@ -96,7 +96,7 @@
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
+  text-transform: none;
   background: rgba(56, 132, 255, 0.16);
   border: 1px solid rgba(96, 154, 255, 0.4);
   color: #9dc2ff;
@@ -220,7 +220,7 @@
   margin: 0;
   font-size: 10.5px;
   letter-spacing: 0.05em;
-  text-transform: uppercase;
+  text-transform: none;
   color: #6d7f9e;
   text-align: center;
 }

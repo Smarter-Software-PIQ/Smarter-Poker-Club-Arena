@@ -30,7 +30,7 @@
  * per-row stagger fade is unchanged.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, type ComponentProps } from 'react';
 import { useIsMounted } from '../../hooks/useIsMounted';
 import { cashoutService, CashoutRequest } from '../../services/CashoutService';
 import {
@@ -58,6 +58,8 @@ import { titleCase } from '../../utils/titleCase';
 import './AgentCashoutPanel.css';
 import { reportError } from '../../utils/errorReporter';
 import { SpadeConsole } from '../console/SpadeConsole';
+import { ClubPageSection } from '../club/ClubPageSection';
+import './AgentCashoutArena.css';
 
 import { safeErrorMessage } from '../../utils/safeErrorMessage';
 
@@ -77,6 +79,17 @@ interface AgentCashoutPanelProps {
   eyebrow?: string;
   /** Present when the panel is opened as a dialog over the cashier. */
   onClose?: () => void;
+  /** #SmarterDesign (batch 6, 2026-11-28): a section of an arena workspace
+   *  page (Agent Team's Payouts tab) wears the thin chrome case, chrome keys
+   *  and chrome rows instead of the painted console. The Cashier's dialog and
+   *  the player record leave it off and keep their console. */
+  arena?: boolean;
+}
+
+/** The arena case takes the console's own props, so the panel passes the
+ *  same title, eyebrow, pill and title id to either frame. */
+function ArenaCase(props: ComponentProps<typeof SpadeConsole>) {
+  return <ClubPageSection {...props} arena />;
 }
 
 export default function AgentCashoutPanel(props: AgentCashoutPanelProps) {
@@ -91,7 +104,12 @@ function AgentCashoutContent({
   playerId,
   eyebrow = 'Agent Desk',
   onClose,
+  arena = false,
 }: AgentCashoutPanelProps) {
+  const Frame = arena ? ArenaCase : SpadeConsole;
+  const frameClass = arena ? 'acp acp--arena' : 'acp';
+  /** A painted-console class, worn only on the console. */
+  const painted = (cls: string) => (arena ? '' : ` ${cls}`);
   const isMounted = useIsMounted();
   const { user } = useAuthUser();
   const isCurrent = useCashoutScope(user?.id, clubId ?? 'all-clubs');
@@ -477,13 +495,13 @@ function AgentCashoutContent({
 
   if (loading || !rowsScope.current?.()) {
     return (
-      <SpadeConsole
+      <Frame
         eyebrow={eyebrow}
         onClose={onClose}
         title="Pending Cashouts"
         titleId="agent-cashout-title"
         foot="foot"
-        className="acp"
+        className={frameClass}
       >
         <CashoutReceiptChecks checks={receiptChecks} />
         {/* The first-load skeleton: three engraved rows carrying the SAME two
@@ -506,48 +524,58 @@ function AgentCashoutContent({
             and were injected into the document on every render of the loading
             state for nothing. Deleted, not renamed: the real ones already
             exist. */}
-      </SpadeConsole>
+      </Frame>
     );
   }
 
   if (error && cashouts.length === 0) {
     return (
-      <SpadeConsole
+      <Frame
         eyebrow={eyebrow}
         onClose={onClose}
         title="Pending Cashouts"
         titleId="agent-cashout-title"
         foot="foot"
-        className="acp"
+        className={frameClass}
       >
         <CashoutReceiptChecks checks={receiptChecks} />
         {/* Words, not glyphs (launch audit D-19): the triangle rendered as an
             emoji on iOS and the arrows were font marks stuck on the glass. */}
         <div className="acp-state">
-          <p className="acp-state-text sc-copy sc-copy--center">Failed To Load Cashout Requests</p>
-          <button type="button" className="acp-word acp-word-blue" onClick={loadCashouts}>
-            Retry
-          </button>
+          <p className={`acp-state-text${painted('sc-copy sc-copy--center')}`}>
+            Failed To Load Cashout Requests
+          </p>
+          {/* Retry is one chrome key on the arena case; on the console the
+              wrapper lays nothing out (display: contents). */}
+          <div className={arena ? 'acp-keys arena-switch arena-ops-keys' : 'acp-keys'}>
+            <button
+              type="button"
+              className={arena ? 'acp-key' : 'acp-word acp-word-blue'}
+              onClick={loadCashouts}
+            >
+              Retry
+            </button>
+          </div>
         </div>
-      </SpadeConsole>
+      </Frame>
     );
   }
 
   return (
-    <SpadeConsole
+    <Frame
       eyebrow={eyebrow}
       onClose={onClose}
       title="Pending Cashouts"
       titleId="agent-cashout-title"
       pill={String(cashouts.length)}
       foot="foot"
-      className="acp"
+      className={frameClass}
     >
       <CashoutReceiptChecks checks={receiptChecks} />
-      <div className="acp-tools">
+      <div className={arena ? 'acp-tools arena-switch arena-ops-keys' : 'acp-tools'}>
         <button
           type="button"
-          className="acp-word acp-word-blue"
+          className={arena ? 'acp-key' : 'acp-word acp-word-blue'}
           onClick={loadCashouts}
           title="Refresh"
         >
@@ -556,21 +584,23 @@ function AgentCashoutContent({
       </div>
 
       {(error || decisions.error) && (
-        <div className="acp-error sc-ink--red" role="alert">
+        <div className={`acp-error${painted('sc-ink--red')}`} role="alert">
           {error || decisions.error}
         </div>
       )}
 
       {cashouts.length === 0 ? (
         <div className="acp-state">
-          <p className="acp-state-text sc-copy sc-copy--center">No Pending Cashout Requests</p>
+          <p className={`acp-state-text${painted('sc-copy sc-copy--center')}`}>
+            No Pending Cashout Requests
+          </p>
         </div>
       ) : (
         <div className="acp-list">
           {cashouts.map((cashout, i) => (
             <div
               key={cashout.id}
-              className="acp-item"
+              className={arena ? 'acp-item arena-ledger-row' : 'acp-item'}
               style={{
                 opacity: visibleItems.has(i) ? 1 : 0,
                 transform: visibleItems.has(i) ? 'translateY(0)' : 'translateY(8px)',
@@ -592,7 +622,9 @@ function AgentCashoutContent({
                   )}
                 </span>
                 <span className="acp-who">
-                  <span className="acp-name sc-ink--silver">{cashout.playerName || 'Player'}</span>
+                  <span className={`acp-name${painted('sc-ink--silver')}`}>
+                    {cashout.playerName || 'Player'}
+                  </span>
                   {/* Relative time is data, so it goes through the house
                       transform: "8h Ago", never "8h ago" (launch audit R-09). */}
                   <span className="acp-time">
@@ -602,12 +634,14 @@ function AgentCashoutContent({
                 {/* The exact figure that is about to move between two wallets:
                     separators, never an abbreviation. */}
                 <span className="acp-amount">
-                  <span className="acp-amount-value sc-ink--silver">
+                  <span className={`acp-amount-value${painted('sc-ink--silver')}`}>
                     {Number.isInteger(cashout.amount)
                       ? cashout.amount.toLocaleString()
                       : cashout.amount.toLocaleString(undefined, TWO_PLACES)}
                   </span>
-                  <span className="acp-amount-label sc-label sc-ink--blue">Chips</span>
+                  <span className={`acp-amount-label${painted('sc-label sc-ink--blue')}`}>
+                    Chips
+                  </span>
                 </span>
               </div>
 
@@ -620,10 +654,16 @@ function AgentCashoutContent({
               )}
 
               {cashout.canDecide && !blockedDecisions.current.has(cashout.id) && (
-                <div className="acp-actions">
+                <div
+                  className={
+                    arena
+                      ? 'acp-actions arena-switch arena-ops-keys arena-ops-primary'
+                      : 'acp-actions'
+                  }
+                >
                   <button
                     type="button"
-                    className="acp-word acp-word-white"
+                    className={arena ? 'acp-key' : 'acp-word acp-word-white'}
                     onClick={() => handleApprove(cashout)}
                     disabled={
                       processing.has(cashout.id) ||
@@ -634,7 +674,7 @@ function AgentCashoutContent({
                   </button>
                   <button
                     type="button"
-                    className="acp-word acp-word-red"
+                    className={arena ? 'acp-key acp-key--decline' : 'acp-word acp-word-red'}
                     onClick={() => handleReject(cashout, 'Request Declined')}
                     disabled={
                       processing.has(cashout.id) ||
@@ -648,16 +688,18 @@ function AgentCashoutContent({
               {cashout.canEscalate &&
                 !cashout.isEscalated &&
                 !blockedDecisions.current.has(cashout.id) && (
-                  <button
-                    type="button"
-                    className="acp-word acp-word-blue"
-                    disabled={processing.has(cashout.id)}
-                    onClick={() => handleEscalate(cashout)}
-                  >
-                    {processing.has(cashout.id) ? 'Sending...' : 'Send To Notice Board'}
-                  </button>
+                  <div className={arena ? 'acp-keys arena-switch arena-ops-keys' : 'acp-keys'}>
+                    <button
+                      type="button"
+                      className={arena ? 'acp-key' : 'acp-word acp-word-blue'}
+                      disabled={processing.has(cashout.id)}
+                      onClick={() => handleEscalate(cashout)}
+                    >
+                      {processing.has(cashout.id) ? 'Sending...' : 'Send To Notice Board'}
+                    </button>
+                  </div>
                 )}
-              <div className="acp-escrow sc-copy">
+              <div className={`acp-escrow${painted('sc-copy')}`}>
                 {cashout.isEscalated
                   ? 'Sent To Notice Board. Only The Owner, CO-Owner Or Admin Can Decide This Request. Approval Transfers The Held Chips To The Club Bank.'
                   : 'Approval Transfers The Verified Hold Into Your Agent Wallet. Rejection Returns The Verified Hold To The Player.'}
@@ -666,6 +708,6 @@ function AgentCashoutContent({
           ))}
         </div>
       )}
-    </SpadeConsole>
+    </Frame>
   );
 }

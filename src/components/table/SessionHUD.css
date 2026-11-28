@@ -65,7 +65,7 @@
 .sh-title {
   font-size: 14px;
   font-weight: 700;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.5px;
   color: #fff;
 }
@@ -168,7 +168,7 @@
 .sh-qstat-label {
   font-size: 10px;
   color: rgba(255, 255, 255, 0.4);
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.5px;
 }
 
@@ -212,7 +212,7 @@
   background: #60a5fa;
 }
 .sh-pfr-fill {
-  background: #f97316;
+  background: #74dfff;
 }
 
 .sh-adv-value {
@@ -232,9 +232,10 @@
 .sh-vpip-fill[data-vpip-tier='normal'] {
   background: linear-gradient(90deg, #3b82f6, #60a5fa);
 }
-/* Loose: 29-40% → warm orange */
+/* Loose: 29-40% → silver (2026-11-28: it was orange; the skin carries no
+   orange, Dan: "YELLOW IS NOT A APPROVED COLOR") */
 .sh-vpip-fill[data-vpip-tier='loose'] {
-  background: linear-gradient(90deg, #f97316, #fb923c);
+  background: linear-gradient(90deg, #9fbacc, #dce5ef);
 }
 /* Maniac: 41%+ → hot red */
 .sh-vpip-fill[data-vpip-tier='maniac'] {
@@ -243,10 +244,10 @@
 
 /* ── PFR Tier Matching ── */
 .sh-pfr-fill[data-pfr-tier='tight'] {
-  background: linear-gradient(90deg, #a78bfa, #8b5cf6);
+  background: linear-gradient(90deg, #22d3ee, #06b6d4);
 }
 .sh-pfr-fill[data-pfr-tier='normal'] {
-  background: linear-gradient(90deg, #f97316, #fb923c);
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
 }
 .sh-pfr-fill[data-pfr-tier='aggressive'] {
   background: linear-gradient(90deg, #ef4444, #f87171);
@@ -284,13 +285,13 @@
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.3px;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .sh-win-badge--hot {
-  background: rgba(245, 158, 11, 0.15);
+  background: rgba(77, 198, 96, 0.15);
   color: var(--sp-text-bright);
-  border: 1px solid rgba(245, 158, 11, 0.2);
+  border: 1px solid rgba(77, 198, 96, 0.3);
 }
 
 .sh-win-badge--cold {

@@ -160,11 +160,25 @@ Financial Admin, Engine) are internal tools. The front door
 PR #12312 converted the shells of Anti-Cheat, Agent Network, Promo Vault, Agent
 Team, Table Management, Diamond Costs and Agent Dashboard.
 
-## Recommended Batch 6
+## Batch 6: Agent Team, Hierarchy and Payouts tab bodies
 
-Agent Team's tab bodies, which still wear their old dress inside the converted
-shell: the Hierarchy tab (`AgentAssignmentPanel`, `AgentAssignmentHistory`,
-`AgentTree`), the Payouts tab (`AgentCashoutPanel`, shared with the Cashier
-trade page and the player record, so scope it), the Commissions tab
-(`AgentCommissionDashboard`) and the Players tab (`PlayerSearch`, Distribution
-History, Agent Analytics). Pin their figures first.
+| #   | Surface       | File                                                                                           | What changed                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --- | ------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 19  | Hierarchy tab | `src/components/agent/AgentAssignmentPanel.tsx`, `AgentAssignmentHistory.tsx`, `AgentTree.tsx` | Assign And Transfer moved off the painted console onto `ClubPageSection arena`; fields dark wells; Review Assignment Or Transfer lit; the review and each history record a chrome row with a Transfer Details chevron disclosure. The tree is a chrome case: search well, chrome keys, one chrome row per agent with four readout tiles (two across on a phone, so no figure is cut short), a chevron expander on a 44px target and Send Chips a chrome key. |
+| 20  | Payouts tab   | `src/components/agent/AgentCashoutPanel.tsx`, `AgentCashoutArena.css`                          | Pending Cashouts in a chrome case by an opt-in `arena` prop that only Agent Team passes; Refresh, Approve Cashout (lit), Reject (error ink), Send To Notice Board and Retry chrome keys; each request a chrome row. The Cashier trade dialog and the player record keep the painted console; their markup is unchanged apart from a layout-neutral key wrapper (`display: contents`).                                                                        |
+
+Every printed figure, word, named region and control was pinned first against
+the old components (`tests/components/agentTeamTabBodiesArePinned.test.tsx`),
+and the arena cashout case is asserted to print exactly what the console
+prints. Every dress rule is scoped under `.arena-workspace`
+(`tests/unit/agentTeamArenaDressIsScoped.test.ts`).
+
+## Recommended Batch 7
+
+Agent Team's remaining tab bodies, which still wear their old dress inside the
+converted shell: the Commissions tab (`AgentCommissionDashboard`, rounded
+cards and gold buttons) and the Players tab (`PlayerSearch`, Distribution
+History, Agent Analytics). Pin their figures first. The player record's
+Cash Out Requested section (`MemberManagementPage`) still shows the painted
+`AgentCashoutPanel`; passing `arena` there converts it once a before/after is
+approved.

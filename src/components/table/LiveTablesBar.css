@@ -57,11 +57,12 @@
 }
 
 /* ── Urgent variant: a hidden table's action clock is running on the hero.
-   Amber matches the app's attention color (offline banner); faster pulse. ── */
+   Ice blue, the skin's emphasis ink (it was amber; the skin carries no
+   yellow, 2026-11-28); faster pulse. ── */
 
 .live-tables-bar--urgent {
-  border-color: rgba(251, 191, 36, 0.65);
-  box-shadow: 0 4px 24px rgba(251, 191, 36, 0.25);
+  border-color: rgba(116, 223, 255, 0.7);
+  box-shadow: 0 4px 24px rgba(116, 223, 255, 0.25);
 }
 
 .live-tables-bar__dot--urgent {
@@ -78,5 +79,5 @@
 }
 
 .live-tables-bar--urgent .live-tables-bar__cta {
-  color: rgba(251, 191, 36, 0.95);
+  color: #74dfff;
 }

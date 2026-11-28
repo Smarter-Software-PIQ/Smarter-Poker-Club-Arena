@@ -164,11 +164,19 @@ async function visibleRoot(page: Page, selector: string): Promise<Locator> {
   return root;
 }
 
-async function expectPaintedConsole(root: Locator): Promise<void> {
-  const head = root.locator('.sc__head:visible').first();
-  await expect(head).toBeVisible();
-  const background = await head.evaluate((element) => getComputedStyle(element).backgroundImage);
-  expect(background).toContain('/assets/club-buttons/console/');
+/** A console page off the table (PR #12299, 2026-11-28): SpadeConsole renders in
+ *  its #SmarterDesign skin, a thin chrome case whose rim is the smarterdesign
+ *  chrome-case art on ::before. The painted head background it used to carry
+ *  is gone by design; asserting it failed post-deploy run 46116364687. */
+async function expectSpadeConsoleCase(root: Locator): Promise<void> {
+  const frame = root.locator('.sc:visible').first();
+  await expect(frame).toBeVisible();
+  await expect(frame).toHaveAttribute('data-console-skin', 'smarterdesign');
+  await expect(frame.locator('.sc__head').first()).toBeVisible();
+  const rim = await frame.evaluate(
+    (element) => getComputedStyle(element, '::before').borderImageSource
+  );
+  expect(rim).toContain('/assets/club-buttons/console/smarterdesign-v1/chrome-case');
 }
 
 /** The arena chrome case: its rim is the chrome-case art laid by border-image. */
@@ -221,7 +229,7 @@ async function expectMobileConsoleQuality(
     await root.evaluate((element) => element.scrollWidth - element.clientWidth)
   ).toBeLessThanOrEqual(1);
   if (chassis === 'arena') await expectArenaCase(root);
-  else await expectPaintedConsole(root);
+  else await expectSpadeConsoleCase(root);
   await expectNoRawBackendCopy(root);
   await expectTouchSafeControls(root);
   await expectKeyboardEntry(root);
