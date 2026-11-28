@@ -523,11 +523,13 @@ jobs:
               def short: (. // "unknown") | tostring | .[0:12];
               def flat: (. // "") | tostring | gsub("[\\r\\n|]+"; " ") | .[0:240];
               (.summary | flat) as $summary
-              | if .verdict == "READY" or .verdict == "IN_FLIGHT" or .verdict == "NO_CANDIDATE" then
+              | if .verdict == "READY" or .verdict == "AT_RISK" or .verdict == "IN_FLIGHT" or .verdict == "NO_CANDIDATE" then
                   if (.schedule.preparationCutoffEpoch? // null) != $cutoff then
                     "readiness unknown (the check read another cycle than this one)"
                   elif .verdict == "READY" then
                     "READY " + (.selectableSha | short)
+                  elif .verdict == "AT_RISK" then
+                    "AT RISK " + (.selectableSha | short) + ": " + $summary
                   elif .verdict == "IN_FLIGHT" then
                     ([.candidates[]? | select(.status == "PENDING") | select((.sha | short) as $s | $summary | contains($s + " is in flight"))][0]) as $c
                     | if $c then "IN_FLIGHT " + ($c.sha | short) + " (" + ($c.reason | flat) + ")" else "IN_FLIGHT (" + $summary + ")" end
@@ -1195,13 +1197,15 @@ jobs:
     # Backup proves it before reading anything, and this job then reads the
     # run it started and fails when its refresh job was skipped.
     #
-    # WHAT THIS DOES NOT DO. GitHub creates no workflow_run event for a run
-    # the job token started (nine of nine job-token Backup runs from
-    # 2026-11-24 to 2026-11-26 produced no listener run), so the completion
-    # of this Backup does NOT start the next election. The election still
-    # needs a push to main, a delivered schedule or a Backup completion a
-    # person or a push started. The listener clause for "Backup after
-    # keep-serving " stays for a run a person starts with after_cycle.
+    # WHO SENDS IT (2026-11-27, the estate App starts the next cycle). GitHub
+    # creates no workflow_run event for a run the job token started (nine of
+    # nine job-token Backup runs from 2026-11-24 to 2026-11-26 produced no
+    # listener run), so a Backup this job sent itself never started the next
+    # election. This job therefore decides, records and publishes the intent
+    # and sends nothing: the job start-backup-as-estate-app below sends the
+    # recorded body as the estate GitHub App, whose runs do raise
+    # workflow_run, and falls back to the job token when no App token can be
+    # had.
     if: needs.detect.outputs.admission_allowed == 'true' && needs.detect.outputs.daily_preparation == 'true' && needs.detect.outputs.owner_window_id == '' && needs.selection.result == 'success' && github.run_attempt == 1 && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Start The Next Cycle When This One Did Not Seal
     needs: [detect, selection]
@@ -1210,8 +1214,15 @@ jobs:
     # ci-main holds the service-role key the Messenger note uses (last step).
     environment: ci-main
     permissions:
-      actions: write
+      actions: read
       contents: read
+    # What the sending job needs: the decision, and the exact body the intent
+    # record printed (no secret: the nonce is in the Backup run's own title).
+    outputs:
+      did_not_seal: ${{ steps.next.outputs.did_not_seal }}
+      reason: ${{ steps.next.outputs.reason }}
+      nonce: ${{ steps.intent.outputs.nonce }}
+      dispatch_body: ${{ steps.intent.outputs.dispatch_body }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1264,7 +1275,11 @@ jobs:
           node scripts/ci/dispatch-intent.mjs write --operation backup-after-keep-serving --dir "$RUNNER_TEMP/dispatch-intents" \
             --input "after_cycle=$RELEASE_DATE" --input refresh=true > "$RUNNER_TEMP/keep-serving-intent.json"
           jq -c .body "$RUNNER_TEMP/keep-serving-intent.json" > "$RUNNER_TEMP/keep-serving-dispatch.json"
+          jq -e --arg cycle "$RELEASE_DATE" \
+            '.ref == "main" and .inputs.after_cycle == $cycle and .inputs.refresh == "true" and (.inputs.intent_nonce | test("^[0-9a-f]{32}$"))' \
+            "$RUNNER_TEMP/keep-serving-dispatch.json" >/dev/null
           echo "nonce=$(jq -r .nonce "$RUNNER_TEMP/keep-serving-intent.json")" >> "$GITHUB_OUTPUT"
+          echo "dispatch_body=$(cat "$RUNNER_TEMP/keep-serving-dispatch.json")" >> "$GITHUB_OUTPUT"
       - name: Publish the intent on this exact run attempt
         if: steps.next.outputs.did_not_seal == 'true'
         uses: actions/upload-artifact@v4
@@ -1273,33 +1288,231 @@ jobs:
           path: ${{ runner.temp }}/dispatch-intents
           if-no-files-found: error
           retention-days: 7
-      - name: Start one Backup of main and prove it is doing the work
+      - name: Tell the owner in Messenger that this cycle did not seal
+        # One plain line per cycle, idempotent in the database
+        # (public.fn_ca_note_cycle_did_not_seal, migration 20261126031810).
+        # No note when the cycle had nothing new to ship. Its failure never
+        # blocks the Backup the next job starts.
         if: steps.next.outputs.did_not_seal == 'true'
+        continue-on-error: true
+        env:
+          RELEASE_DATE: ${{ needs.detect.outputs.daily_preparation_date }}
+          SELECTED: ${{ needs.selection.outputs.send == 'true' }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          note=$(python3 -B scripts/release/next-candidate-after-cycle.py note --cycle "$RELEASE_DATE" \
+            --selected "$SELECTED" --selection selection-artifact/daily-selection.json | sed -n 's/^note=//p')
+          [ -n "$note" ] || { echo "Cycle $RELEASE_DATE had nothing new to ship; no note."; exit 0; }
+          jq -n --arg cycle "$RELEASE_DATE" --arg note "$note" '{p_cycle: $cycle, p_note: $note}' > note.json
+          curl -fsS --max-time 20 -X POST "$SUPABASE_URL/rest/v1/rpc/fn_ca_note_cycle_did_not_seal" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H 'Content-Type: application/json' --data @note.json
+          echo
+
+  start-backup-as-estate-app:
+    # THE ESTATE APP STARTS THE NEXT CYCLE (2026-11-27).
+    # WHY. The Backup that next-candidate-after-cycle used to send was started
+    # by the job token, and GitHub raises no workflow_run event for a run the
+    # job token started. So when nobody pushed inside the next cycle's
+    # election window, that Backup's completion created no Stage run and the
+    # cycle had no owner: the 10:00 Chicago cycles of 2026-11-25 and
+    # 2026-11-26 never ran. The only cover was a cron on the owner's Mac.
+    # WHAT. This job sends the body next-candidate-after-cycle recorded, and
+    # nothing else, as the estate GitHub App (smarter-poker-autopilot[bot]).
+    # A run the App starts raises workflow_run like a person's, and the
+    # election above already admits the completion of a first-attempt
+    # "Backup after keep-serving " run on main under the title "Automatic
+    # Backup daily reservation". No trigger, timer or election rule changes,
+    # and Backup proves the same intent record whoever sent it.
+    # The App key lives only in the main-only environment github-app-main, so
+    # this is its own job: next-candidate-after-cycle stays in ci-main for the
+    # Messenger note. The token is scoped to this repository and to
+    # actions: write, is used for the one POST, and every read uses the job
+    # token.
+    # FAIL-SAFE. The decision is already made when this job starts, so a
+    # missing App token never fails it: the mint step may fail (secret or
+    # variable missing, App uninstalled, GitHub unavailable) and the send then
+    # goes out with the job token exactly as before this change, said plainly
+    # in the log. That Backup still certifies; only its completion starts no
+    # election, which the operator fallback on the Mac
+    # (scripts/ops/cutover-operator-preparation.mjs) still covers. An App POST
+    # GitHub refuses falls back the same way unless the run already exists.
+    # THE RECORD DECIDES, NOT A JOB OUTPUT. GitHub drops a job output it takes
+    # for a secret, and a dropped did_not_seal or nonce would have skipped or
+    # failed this send. So the job runs whenever next-candidate-after-cycle
+    # succeeded, and its first step reads that job's published intent
+    # (dispatch-intents-<attempt> of this run): a record means the cycle did
+    # not seal and holds the nonce and the body; no record means nothing is
+    # sent, so a sealed cycle can never send. The outputs are only the
+    # second source, for a record that cannot be read.
+    if: needs.next-candidate-after-cycle.result == 'success' && github.run_attempt == 1 && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    name: Start The Backup As The Estate App So Its Completion Elects
+    needs: [detect, next-candidate-after-cycle]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: github-app-main
+    permissions:
+      actions: write
+    steps:
+      - name: Read the recorded intent to decide whether a Backup is owed
+        id: decide
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RELEASE_DATE: ${{ needs.detect.outputs.daily_preparation_date }}
-          INTENT_NONCE: ${{ steps.intent.outputs.nonce }}
-          REASON: ${{ steps.next.outputs.reason }}
+          OUT_DID_NOT_SEAL: ${{ needs.next-candidate-after-cycle.outputs.did_not_seal }}
+          OUT_NONCE: ${{ needs.next-candidate-after-cycle.outputs.nonce }}
+          OUT_BODY: ${{ needs.next-candidate-after-cycle.outputs.dispatch_body }}
+        run: |
+          set -euo pipefail
+          name="dispatch-intents-$GITHUB_RUN_ATTEMPT"
+          # How many intent artifacts this run attempt published: 0, 1 or unknown.
+          count=unknown
+          artifact=''
+          for _ in 1 2 3; do
+            if listing=$(gh api "repos/$REPO/actions/runs/$GITHUB_RUN_ID/artifacts?name=$name&per_page=10" 2>/dev/null) &&
+              found=$(jq -r --arg n "$name" 'if (.artifacts | type) == "array" then [.artifacts[] | select(.name == $n and (.expired | not)) | .id] | "\(length) \(.[0] // "")" else empty end' <<< "$listing" 2>/dev/null) &&
+              [ -n "$found" ]; then
+              read -r count artifact <<< "$found" || true
+              break
+            fi
+            sleep 5
+          done
+          nonce=''
+          body=''
+          if [ "$count" = 1 ] && [[ "$artifact" =~ ^[1-9][0-9]*$ ]]; then
+            # Only data is read from the record: one JSON member, parsed by jq.
+            zip="$RUNNER_TEMP/keep-serving-intents.zip"
+            if gh api "repos/$REPO/actions/artifacts/$artifact/zip" > "$zip" 2>/dev/null &&
+              member=$(unzip -Z1 "$zip" 2>/dev/null) && [[ "$member" =~ ^[0-9a-f]{32}\.json$ ]] &&
+              record=$(unzip -p "$zip" "$member" 2>/dev/null | head -c 65536) &&
+              body=$(jq -ce --arg cycle "$RELEASE_DATE" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" --arg nonce "${member%.json}" '
+                select(.operation == "backup-after-keep-serving" and .senderRunId == $run and .senderRunAttempt == $attempt and .nonce == $nonce
+                  and .inputs.after_cycle == $cycle and .inputs.refresh == "true" and ((.inputs | keys | length) == 2)) |
+                {ref: "main", inputs: {after_cycle: .inputs.after_cycle, refresh: .inputs.refresh, intent_run_id: .senderRunId, intent_run_attempt: .senderRunAttempt, intent_nonce: .nonce}}' <<< "$record" 2>/dev/null); then
+              nonce="${member%.json}"
+              echo "This run recorded a keep-serving intent ($nonce): cycle $RELEASE_DATE did not seal."
+            else
+              body=''
+              echo '::warning title=RECORDED INTENT UNREADABLE::This run published an intent artifact that could not be read back; the job outputs decide.'
+            fi
+          fi
+          if [ -z "$nonce" ] && [ "$OUT_DID_NOT_SEAL" = true ] && [[ "$OUT_NONCE" =~ ^[0-9a-f]{32}$ ]]; then
+            nonce="$OUT_NONCE"
+            body="$OUT_BODY"
+            echo "The job outputs say cycle $RELEASE_DATE did not seal (intent $nonce)."
+          fi
+          if [ -n "$nonce" ]; then
+            echo "send=true" >> "$GITHUB_OUTPUT"
+            echo "nonce=$nonce" >> "$GITHUB_OUTPUT"
+            echo "body=$body" >> "$GITHUB_OUTPUT"
+          elif [ "$count" = 0 ]; then
+            echo "send=false" >> "$GITHUB_OUTPUT"
+            echo "Cycle $RELEASE_DATE: this run recorded no keep-serving intent (the cycle sealed, or nothing was owed); nothing is sent."
+          else
+            echo "send=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=KEEP-SERVING INTENT UNKNOWN::Could not tell whether this run recorded a keep-serving intent for cycle $RELEASE_DATE (artifacts: $count; did_not_seal output: '${OUT_DID_NOT_SEAL:-}'); nothing is sent."
+          fi
+      - name: Mint the estate App token for this one dispatch
+        id: app-token
+        if: steps.decide.outputs.send == 'true'
+        # Never fatal: the next step falls back to the job token.
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.AUTOPILOT_APP_ID }}
+          private-key: ${{ secrets.AUTOPILOT_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: Smarter-Poker-Club-Arena
+          permission-actions: write
+      - name: Start one Backup of main and prove it is doing the work
+        # Runs whatever the mint step did (success() is true after a step
+        # that continues on error).
+        if: steps.decide.outputs.send == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          RELEASE_DATE: ${{ needs.detect.outputs.daily_preparation_date }}
+          INTENT_NONCE: ${{ steps.decide.outputs.nonce }}
+          DISPATCH_BODY: ${{ steps.decide.outputs.body }}
+          REASON: ${{ needs.next-candidate-after-cycle.outputs.reason || 'did not seal' }}
         run: |
           set -euo pipefail
           [[ "$INTENT_NONCE" =~ ^[0-9a-f]{32}$ ]] || { echo '::error::No recorded Backup intent.'; exit 1; }
-          jq -e --arg cycle "$RELEASE_DATE" --arg nonce "$INTENT_NONCE" \
-            '.ref == "main" and .inputs.after_cycle == $cycle and .inputs.refresh == "true" and .inputs.intent_nonce == $nonce' \
+          if [ -z "$DISPATCH_BODY" ]; then
+            # GitHub drops a job output it takes for a secret. The body has
+            # five fixed fields, all known here; Backup still proves it
+            # against the recorded intent, so a wrong one is refused there.
+            echo '::warning title=RECORDED BODY NOT RECEIVED::The recorded dispatch body did not reach this job; it is rebuilt from the recorded cycle, run, attempt and nonce.'
+            DISPATCH_BODY=$(jq -cn --arg cycle "$RELEASE_DATE" --arg nonce "$INTENT_NONCE" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
+              '{ref: "main", inputs: {after_cycle: $cycle, refresh: "true", intent_run_id: $run, intent_run_attempt: $attempt, intent_nonce: $nonce}}')
+          fi
+          printf '%s' "$DISPATCH_BODY" > "$RUNNER_TEMP/keep-serving-dispatch.json"
+          jq -e --arg cycle "$RELEASE_DATE" --arg nonce "$INTENT_NONCE" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
+            '.ref == "main" and .inputs.after_cycle == $cycle and .inputs.refresh == "true" and .inputs.intent_nonce == $nonce
+              and .inputs.intent_run_id == $run and .inputs.intent_run_attempt == $attempt and ((.inputs | keys | length) == 5) and ((keys | length) == 2)' \
             "$RUNNER_TEMP/keep-serving-dispatch.json" >/dev/null
           title="Backup after keep-serving $RELEASE_DATE $INTENT_NONCE"
           sent_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          gh api --method POST "repos/$REPO/actions/workflows/backup-engine.yml/dispatches" --input "$RUNNER_TEMP/keep-serving-dispatch.json" >/dev/null
-          backup_id=''
-          for _ in $(seq 1 12); do
-            backup_id=$(gh api "repos/$REPO/actions/workflows/backup-engine.yml/runs?event=workflow_dispatch&per_page=30" |
+          # One POST of the recorded body, with the token named by $1.
+          send() {
+            GH_TOKEN="$1" gh api --method POST "repos/$REPO/actions/workflows/backup-engine.yml/dispatches" --input "$RUNNER_TEMP/keep-serving-dispatch.json" >/dev/null
+          }
+          # The run this dispatch started, read with the job token: "<id> <actor>".
+          started() {
+            gh api "repos/$REPO/actions/workflows/backup-engine.yml/runs?event=workflow_dispatch&per_page=30" |
               jq -r --arg title "$title" --arg sent "$sent_at" \
-                '[.workflow_runs[] | select(.display_title == $title and .created_at >= $sent)][0].id // empty')
+                '[.workflow_runs[] | select(.display_title == $title and .created_at >= $sent)][0] | if . == null then empty else "\(.id) \(.triggering_actor.login // .actor.login // "unknown")" end'
+          }
+          sender='the job token'
+          if [ -n "$APP_TOKEN" ]; then
+            if send "$APP_TOKEN"; then
+              sender='the estate App'
+            else
+              # A refused or failed App POST. GitHub may still have accepted it
+              # and list the run late, so look six times, five seconds apart,
+              # before sending again: the intent is honoured once, and a second
+              # run would go red for nothing.
+              seen=''
+              for _ in $(seq 1 6); do
+                sleep 5
+                seen=$(started || true)
+                [ -z "$seen" ] || break
+              done
+              if [ -n "$seen" ]; then
+                sender='the estate App'
+                echo "::warning title=ESTATE APP DISPATCH ANSWER LOST::GitHub answered the estate App dispatch with an error and started \"$title\" anyway; nothing is sent again."
+              else
+                echo "::warning title=ESTATE APP DISPATCH FAILED, JOB TOKEN FALLBACK::GitHub did not accept the estate App dispatch. Sending \"$title\" with the job token exactly as before 2026-11-27: the Backup still certifies, but its completion starts no election. The operator fallback on the Mac is the cover for the next cycle while that Mac is on."
+                send "$GH_TOKEN"
+              fi
+            fi
+          else
+            echo "::warning title=NO ESTATE APP TOKEN, JOB TOKEN FALLBACK::No estate App token could be minted (see the step above). Sending \"$title\" with the job token exactly as before 2026-11-27: the Backup still certifies, but its completion starts no election. The operator fallback on the Mac is the cover for the next cycle while that Mac is on."
+            send "$GH_TOKEN"
+          fi
+          backup_id=''
+          actor=unknown
+          for _ in $(seq 1 12); do
+            read -r backup_id actor <<< "$(started || true)" || true
             [ -z "$backup_id" ] || break
             sleep 5
           done
           [[ "$backup_id" =~ ^[1-9][0-9]*$ ]] \
             || { echo "::error::GitHub accepted the dispatch but no \"$title\" run appeared; the next cycle has no fresh certificate from this run."; exit 1; }
+          # WHO STARTED IT, READ BACK (CLAUDE.md 10.86). Only a run GitHub
+          # records under the App's name raises workflow_run.
+          if [ "$actor" = 'smarter-poker-autopilot[bot]' ]; then
+            elects="Its completion starts the next cycle's election (started by $actor)."
+          else
+            elects="Its completion does not start the election (started by $actor: a job-token run fires no workflow_run)."
+            [ "$sender" != 'the estate App' ] || echo "::warning title=ESTATE APP RUN NOT ATTRIBUTED::The dispatch was sent as the estate App but GitHub records Backup run $backup_id as started by $actor."
+          fi
+          echo "Backup run $backup_id (\"$title\") was sent by $sender. $elects"
           # NEVER GREEN FOR NOTHING (O27b). A run that appeared is not a run
           # that works: 45775146770 appeared, skipped refresh and certify, and
           # ended green. Read its refresh job once plan has finished (bounded,
@@ -1318,29 +1531,7 @@ jobs:
           fi
           [ "$refresh" = admitted ] || echo "::warning title=KEEP-SERVING BACKUP UNKNOWN::Could not read whether Backup run $backup_id started its refresh job; its own outcome job fails the run if it certifies nothing."
           echo "Cycle $RELEASE_DATE did not seal ($REASON): Backup run $backup_id certifies main for the next cycle (refresh job: $refresh)."
-          { echo "### Next Cycle"; echo ""; echo "- $REASON: Backup run $backup_id (\`$title\`) certifies main for the next cycle. Its completion does not start the election (a job-token run fires no workflow_run)."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
-      - name: Tell the owner in Messenger that this cycle did not seal
-        # One plain line per cycle, idempotent in the database
-        # (public.fn_ca_note_cycle_did_not_seal, migration 20261126031810).
-        # No note when the cycle had nothing new to ship. Its failure never
-        # undoes or blocks the Backup started above.
-        if: steps.next.outputs.did_not_seal == 'true'
-        continue-on-error: true
-        env:
-          RELEASE_DATE: ${{ needs.detect.outputs.daily_preparation_date }}
-          SELECTED: ${{ needs.selection.outputs.send == 'true' }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: |
-          set -euo pipefail
-          note=$(python3 -B scripts/release/next-candidate-after-cycle.py note --cycle "$RELEASE_DATE" \
-            --selected "$SELECTED" --selection selection-artifact/daily-selection.json | sed -n 's/^note=//p')
-          [ -n "$note" ] || { echo "Cycle $RELEASE_DATE had nothing new to ship; no note."; exit 0; }
-          jq -n --arg cycle "$RELEASE_DATE" --arg note "$note" '{p_cycle: $cycle, p_note: $note}' > note.json
-          curl -fsS --max-time 20 -X POST "$SUPABASE_URL/rest/v1/rpc/fn_ca_note_cycle_did_not_seal" \
-            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-            -H 'Content-Type: application/json' --data @note.json
-          echo
+          { echo "### Next Cycle"; echo ""; echo "- $REASON: Backup run $backup_id (\`$title\`), sent by $sender, certifies main for the next cycle. $elects"; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
   cutover-outcome-record:
     # A REPEATED CUTOVER REFUSAL CANNOT HIDE (2026-11-24, incident fix audit,

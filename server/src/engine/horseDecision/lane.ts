@@ -1,4 +1,7 @@
-import { horseRequestAllowance } from './requestRetentionBudget.js';
+import {
+  horseRequestAllowanceMetrics,
+  type HorseRequestAllowanceMetrics,
+} from './requestRetentionBudget.js';
 import {
   armOpponentHudFromSwitch,
   startOpponentHudStore,
@@ -760,33 +763,37 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
     signal?: AbortSignal,
     options?: HorseDecisionJobOptions
   ): Promise<FastHorseDecisionResult> {
+    let snapshotMetrics: HorseRequestAllowanceMetrics;
     try {
-      horseRequestAllowance(snapshot);
+      snapshotMetrics = horseRequestAllowanceMetrics(snapshot);
     } catch (error) {
       return Promise.reject(error);
     }
     const original = structuredClone(snapshot);
     const shardIndex = horseDecisionShard(original.fence, this.clients.length);
-    return this.clients[shardIndex]!.decideFastDetached(original, signal, options).then(
-      (result) => {
-        // Only the validated original FAST can register this observer. A rejected
-        // or never-delivered decision cannot enroll another horse in a hand.
-        try {
-          this.observerParticipants.capture(original);
-        } catch (error) {
-          throw markHorseDecisionRejection(error, 'post_result_failed');
-        }
-        // Pure read-only rolling latency telemetry for /health (bounded O(1) memory,
-        // never mutates result, never throws).
-        recordHorseDecisionLatencySample({
-          workerIndex: shardIndex,
-          variant: original.gameState.gameVariant,
-          computeMs: result.computeMs,
-          transitions: result.decision.policyGraph?.transitions,
-        });
-        return result;
+    return this.clients[shardIndex]!.decideFastDetached(
+      original,
+      signal,
+      options,
+      snapshotMetrics
+    ).then((result) => {
+      // Only the validated original FAST can register this observer. A rejected
+      // or never-delivered decision cannot enroll another horse in a hand.
+      try {
+        this.observerParticipants.capture(original);
+      } catch (error) {
+        throw markHorseDecisionRejection(error, 'post_result_failed');
       }
-    );
+      // Pure read-only rolling latency telemetry for /health (bounded O(1) memory,
+      // never mutates result, never throws).
+      recordHorseDecisionLatencySample({
+        workerIndex: shardIndex,
+        variant: original.gameState.gameVariant,
+        computeMs: result.computeMs,
+        transitions: result.decision.policyGraph?.transitions,
+      });
+      return result;
+    });
   }
 
   decideDeep(
@@ -814,8 +821,28 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
     };
     const owner = horseDecisionShard(original.fence, this.clients.length);
     const ack = this.clients[owner]!.observeCompletedHand(original, signal);
-    for (let index = 0; index < this.clients.length; index++)
-      if (index !== owner) this.clients[index]!.mirrorCompletedHand(original);
+    if (this.clients.length > 1) {
+      const mirrorBase: CompletedHandObservation = { ...original };
+      delete mirrorBase.acceptedActorRoster;
+      delete mirrorBase.horseTurnClocks;
+      let detachedMirror: CompletedHandObservation | null = null;
+      let mirrorMetrics: HorseRequestAllowanceMetrics | null = null;
+      try {
+        mirrorMetrics = horseRequestAllowanceMetrics(mirrorBase);
+        detachedMirror = structuredClone(mirrorBase);
+      } catch {
+        // Validation/clone failure falls back to per-client mirrorCompletedHand
+        // so mirror unavailability telemetry fires identically without touching ack.
+      }
+      for (let index = 0; index < this.clients.length; index++) {
+        if (index === owner) continue;
+        if (detachedMirror && mirrorMetrics) {
+          this.clients[index]!.mirrorCompletedHandDetached(detachedMirror, mirrorMetrics);
+        } else {
+          this.clients[index]!.mirrorCompletedHand(original);
+        }
+      }
+    }
     return ack;
   }
 

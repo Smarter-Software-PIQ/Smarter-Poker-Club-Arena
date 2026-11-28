@@ -131,6 +131,16 @@ describe('one shared PostgreSQL installer', () => {
       rmSync(box, { recursive: true, force: true });
     }
   });
+  /* 2026-11-27, PR #12304 shard 6: `printf | grep -qx` under pipefail is a
+     race. grep -q leaves at its first match, printf can take SIGPIPE writing
+     the rest, the pipeline answers 141, and the client went unpinned. The
+     installer reads membership from its array instead; no `| grep -q` may
+     come back under `set -o pipefail`. */
+  it('never decides on a pipe into grep -q, which races under pipefail', () => {
+    expect(SH).toContain('set -euo pipefail');
+    expect(SH).not.toMatch(/\|\s*grep\s+-[a-zA-Z]*q/);
+  });
+
   it('installs the server minor the native tools are built for, never the newest in the index', () => {
     const start = SH.indexOf('pg_minor_source=');
     const end = SH.indexOf('\n# PGDG can publish an extension rebuild', start);

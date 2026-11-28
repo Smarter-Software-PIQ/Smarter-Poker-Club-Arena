@@ -102,3 +102,27 @@
     gap: 3cqw;
   }
 }
+
+/* ── #SmarterDesign (Dan 2026-11-27) ──────────────────────────────────────
+   On the Financials page every console is the thin chrome case
+   (ClubPageSection `arena`). The case is the container the cqw type above
+   reads, so each figure keeps the proportions it had; only the painted glow
+   is dropped. */
+.arena-workspace .cfd > .arena-case {
+  container-type: inline-size;
+  width: min(100%, 1000px);
+  margin: 0 auto;
+}
+.arena-workspace .cfd {
+  gap: 0;
+  padding: 0;
+}
+.arena-workspace .cfd .arena-case [class*='sc-ink--'] {
+  text-shadow: none;
+}
+.arena-workspace .cfd .arena-section-title small {
+  color: #74dfff;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}

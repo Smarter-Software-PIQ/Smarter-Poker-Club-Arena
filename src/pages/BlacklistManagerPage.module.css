@@ -479,3 +479,150 @@
     transform: none;
   }
 }
+
+/* ── #SmarterDesign (Dan 2026-11-27) ──────────────────────────────────────
+   The page body moves from its own cut-corner panels onto the arena
+   workspace language the integrity mast above it already wears: the form,
+   the alerts and the ledger are thin chrome cases, every control a chrome
+   key (Add Exclusion lit), fields dark wells, each exclusion and each roster
+   match a chrome ledger row. The reds keep their meaning: Apply Exclusion,
+   Remove From Play, Confirm and Remove Access Control print red, and an
+   active exclusion keeps its red badge. */
+.page:global(.arena-workspace.arena-workspace) {
+  padding-inline: 0;
+  padding-bottom: calc(var(--bottom-nav-clearance, 74px) + 24px);
+  background: #050d17;
+}
+.page:global(.arena-workspace) .workspace {
+  padding: 4px 6px 24px;
+}
+.page:global(.arena-workspace) .workspaceHeading h2,
+.page:global(.arena-workspace) .panelHeader h2 {
+  color: #f1f5fc;
+  font:
+    800 20px/1.05 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: -0.35px;
+  text-transform: none;
+}
+.page:global(.arena-workspace) .kicker {
+  color: #74dfff;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.08em;
+}
+.page:global(.arena-workspace) .workspaceHeading > a {
+  color: #74dfff;
+}
+.page:global(.arena-workspace) :is(.formPanel, .ledger, .errorPanel, .seatedPanel) {
+  clip-path: none;
+  border: 0;
+  box-shadow: none;
+}
+.page:global(.arena-workspace) :is(.formPanel, .ledger, .errorPanel, .seatedPanel) > * {
+  position: relative;
+  z-index: 2;
+}
+.page:global(.arena-workspace) .panelHeader {
+  padding-bottom: 6px;
+  border-bottom: 1px solid #253e57;
+}
+.page:global(.arena-workspace) .panelHeader > span,
+.page:global(.arena-workspace) .ledgerTools > span {
+  color: #9fbacc;
+  font:
+    11px/1.3 Arial,
+    sans-serif;
+}
+.page:global(.arena-workspace) .field label {
+  color: #9fbacc;
+  font:
+    700 11px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+}
+.page:global(.arena-workspace) .field input {
+  min-height: 44px;
+  padding: 0 8px;
+  border: 1px solid #476079;
+  border-radius: 0;
+  background: #040d17;
+  box-shadow: none;
+  color: #f1f5fc;
+  color-scheme: dark;
+  font:
+    16px/1.2 Arial,
+    sans-serif;
+}
+.page:global(.arena-workspace)
+  :global(.arena-switch)
+  > :is(.addButton, .dangerButton, .secondaryButton, .removeButton) {
+  padding: 6px 14px;
+  font:
+    700 12px/1.1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+.page:global(.arena-workspace) :global(.arena-switch) > :is(.dangerButton, .removeButton) {
+  color: #ff5b6e;
+}
+.page:global(.arena-workspace) .addKeys {
+  margin: 0;
+}
+.page:global(.arena-workspace) :is(.formActions, .confirmActions, .selectedMember, .ledgerTools) {
+  margin: 8px 0 0;
+}
+.page:global(.arena-workspace) .selectedMember {
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+.page:global(.arena-workspace) .selectedMember > span {
+  flex: 1 1 auto;
+  color: #f1f5fc;
+}
+.page:global(.arena-workspace) .selectedMember > .secondaryButton {
+  flex: 0 0 auto;
+}
+.page:global(.arena-workspace) .ledgerTools {
+  align-items: center;
+  justify-content: flex-end;
+}
+.page:global(.arena-workspace) .ledgerTools > .secondaryButton {
+  flex: 0 0 auto;
+}
+.page:global(.arena-workspace) .memberOptions button:global(.arena-ledger-row) {
+  border-radius: 0;
+  box-shadow: none;
+  color: #dce5ef;
+}
+.page:global(.arena-workspace) .tableScroll table {
+  border-collapse: separate;
+  border-spacing: 0 4px;
+}
+.page:global(.arena-workspace) .tableScroll th {
+  color: #9fbacc;
+  border-bottom: 1px solid #253e57;
+}
+.page:global(.arena-workspace) .tableScroll td {
+  border-bottom: 0;
+  color: #dce5ef;
+}
+.page:global(.arena-workspace) .tableScroll td :global(.arena-switch) {
+  margin: 0;
+}
+.page:global(.arena-workspace) .seatedPanel {
+  border-radius: 0;
+  color: #ffe98a;
+}
+.page:global(.arena-workspace) .errorPanel {
+  border-radius: 0;
+}

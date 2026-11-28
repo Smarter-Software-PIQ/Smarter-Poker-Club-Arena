@@ -126,6 +126,7 @@ describe('the drain says why it released what it did', () => {
       drainWhyForBeat({
         withheld: false,
         owedThisCycle: 15,
+        owedCapBlocked: 15,
         decided: true,
         why: 'room_free',
         room: { cap: 17, counted: 16 },

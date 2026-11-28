@@ -699,6 +699,23 @@ test.describe('LIVE E2E — the insurance dialog, on a short phone viewport', ()
       document.body.appendChild(overlay);
     });
 
+    // The overlay fades in and the modal springs up from translateY(18px)
+    // scale(0.98) over 0.28s (InsuranceModal.css). Measuring inside that
+    // entrance read the buttons up to 18px low, plus the spring's overshoot,
+    // and failed on a slow runner (PR #12301, twice). The contract is about
+    // what the player sees once the dialog has arrived, so let every
+    // animation on the page finish, then measure. Nothing is disabled.
+    await page.evaluate(() =>
+      Promise.all(
+        document
+          .getAnimations()
+          // An infinite loop (an urgent timer pulse) never finishes; only the
+          // entrance has an end.
+          .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity)
+          .map((animation) => animation.finished)
+      )
+    );
+
     const verdict = await page.evaluate(() => {
       const modal = document.getElementById('insModal')!;
       const body = document.getElementById('insBody')!;

@@ -65,7 +65,7 @@ jobs:
       actions: read
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
-        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        if: (((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch') || ((github.actor == 'smarter-poker-autopilot[bot]' || github.triggering_actor == 'smarter-poker-autopilot[bot]') && github.event_name == 'repository_dispatch' && github.event.client_payload.intent_nonce != '')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -135,7 +135,7 @@ jobs:
       actions: read
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
-        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        if: (((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch') || ((github.actor == 'smarter-poker-autopilot[bot]' || github.triggering_actor == 'smarter-poker-autopilot[bot]') && github.event_name == 'repository_dispatch' && github.event.client_payload.intent_nonce != '')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -171,7 +171,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
-        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        if: (((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch') || ((github.actor == 'smarter-poker-autopilot[bot]' || github.triggering_actor == 'smarter-poker-autopilot[bot]') && github.event_name == 'repository_dispatch' && github.event.client_payload.intent_nonce != '')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -250,7 +250,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
-        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        if: (((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch') || ((github.actor == 'smarter-poker-autopilot[bot]' || github.triggering_actor == 'smarter-poker-autopilot[bot]') && github.event_name == 'repository_dispatch' && github.event.client_payload.intent_nonce != '')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -373,7 +373,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
-        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        if: (((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch') || ((github.actor == 'smarter-poker-autopilot[bot]' || github.triggering_actor == 'smarter-poker-autopilot[bot]') && github.event_name == 'repository_dispatch' && github.event.client_payload.intent_nonce != '')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -503,7 +503,7 @@ jobs:
       contents: read
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
-        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        if: (((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch') || ((github.actor == 'smarter-poker-autopilot[bot]' || github.triggering_actor == 'smarter-poker-autopilot[bot]') && github.event_name == 'repository_dispatch' && github.event.client_payload.intent_nonce != '')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -1058,7 +1058,7 @@ jobs:
 
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
-        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        if: (((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch') || ((github.actor == 'smarter-poker-autopilot[bot]' || github.triggering_actor == 'smarter-poker-autopilot[bot]') && github.event_name == 'repository_dispatch' && github.event.client_payload.intent_nonce != '')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -2394,7 +2394,7 @@ jobs:
       certified: ${{ steps.release_window.outcome == 'success' && steps.release_window.outputs.certified == 'true' }}
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
-        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        if: (((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch') || ((github.actor == 'smarter-poker-autopilot[bot]' || github.triggering_actor == 'smarter-poker-autopilot[bot]') && github.event_name == 'repository_dispatch' && github.event.client_payload.intent_nonce != '')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -3265,7 +3265,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
-        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        if: (((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch') || ((github.actor == 'smarter-poker-autopilot[bot]' || github.triggering_actor == 'smarter-poker-autopilot[bot]') && github.event_name == 'repository_dispatch' && github.event.client_payload.intent_nonce != '')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -3381,7 +3381,7 @@ jobs:
       sealed: ${{ steps.seal.outputs.sealed }}
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
-        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        if: (((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch') || ((github.actor == 'smarter-poker-autopilot[bot]' || github.triggering_actor == 'smarter-poker-autopilot[bot]') && github.event_name == 'repository_dispatch' && github.event.client_payload.intent_nonce != '')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -3523,7 +3523,7 @@ jobs:
       contents: read
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
-        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        if: (((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch') || ((github.actor == 'smarter-poker-autopilot[bot]' || github.triggering_actor == 'smarter-poker-autopilot[bot]') && github.event_name == 'repository_dispatch' && github.event.client_payload.intent_nonce != '')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

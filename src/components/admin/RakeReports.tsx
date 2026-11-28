@@ -15,7 +15,15 @@ import { compactChips, pct } from '../../utils/format';
 import { reportError } from '../../utils/errorReporter';
 import { resolveClubUUIDStrict } from '../../utils/strictClubIdResolver';
 import { titleCase, enumToTitleCase } from '../../utils/titleCase';
-import { SpadeConsole } from '../console/SpadeConsole';
+/* #SmarterDesign (Dan 2026-11-27): "NO DO NOT USE THOSE BULKY FRAMES, THATS
+   THE OLD STYLE... USE THE #SMARTERDESIGN STYLE FOR THESE." On an arena page
+   (`arena`) every console is the thin chrome case; inside the Cashier's Rake
+   Treasury dialog it keeps the painted console. Frame only: every figure,
+   format and hook is unchanged (pinned by its test). */
+import { SpadeConsole as PaintedConsole } from '../console/SpadeConsole';
+import { ClubPageSection } from '../club/ClubPageSection';
+import '../console/SpadeConsole.css';
+import '../lobby/ArenaWorkspace.css';
 import { useToast } from '../common/Toast';
 import './RakeReports.css';
 
@@ -57,6 +65,8 @@ interface RakeReportsProps {
     requestedEnd: string;
     financials: ReturnType<typeof parseClubFinancialsPayload>;
   };
+  /** #SmarterDesign: print in the arena workspace's thin chrome case. */
+  arena?: boolean;
 }
 
 interface HandPlayerBreakdown {
@@ -451,7 +461,8 @@ function lookupMessage(state: LookupState): string | null {
   return null;
 }
 
-export const RakeReports = ({ clubId, initialSnapshot }: RakeReportsProps) => {
+export const RakeReports = ({ clubId, initialSnapshot, arena = false }: RakeReportsProps) => {
+  const SpadeConsole = (arena ? ClubPageSection : PaintedConsole) as typeof ClubPageSection;
   const toast = useToast();
   const isMounted = useIsMounted();
   const [period, setPeriod] = usePlayerPreference<Period>('rakeReports.period', 'week', clubId);
@@ -665,6 +676,7 @@ export const RakeReports = ({ clubId, initialSnapshot }: RakeReportsProps) => {
     return (
       <div className="rr">
         <SpadeConsole
+          arena={arena || undefined}
           family="spade"
           crest="spade"
           eyebrow="Club Arena Data"
@@ -686,6 +698,7 @@ export const RakeReports = ({ clubId, initialSnapshot }: RakeReportsProps) => {
     return (
       <div className="rr">
         <SpadeConsole
+          arena={arena || undefined}
           family="spade"
           crest="spade"
           eyebrow="Club Arena Data"
@@ -706,6 +719,7 @@ export const RakeReports = ({ clubId, initialSnapshot }: RakeReportsProps) => {
     return (
       <div className="rr">
         <SpadeConsole
+          arena={arena || undefined}
           family="spade"
           crest="spade"
           eyebrow="Club Arena Data"
@@ -732,6 +746,7 @@ export const RakeReports = ({ clubId, initialSnapshot }: RakeReportsProps) => {
   return (
     <div className="rr">
       <SpadeConsole
+        arena={arena || undefined}
         family="riveted"
         crest="spade"
         eyebrow="Club Arena Data"
@@ -744,7 +759,7 @@ export const RakeReports = ({ clubId, initialSnapshot }: RakeReportsProps) => {
           primary: { label: 'Refresh Report', onClick: () => void loadRakeData(true) },
         }}
       >
-        <div className="rr__rail" role="tablist" aria-label="Rake Reporting Window">
+        <div className="rr__rail arena-switch" role="tablist" aria-label="Rake Reporting Window">
           {(['today', 'week', 'month', 'year'] as const).map((option) => (
             <button
               key={option}
@@ -784,6 +799,7 @@ export const RakeReports = ({ clubId, initialSnapshot }: RakeReportsProps) => {
       </SpadeConsole>
 
       <SpadeConsole
+        arena={arena || undefined}
         family="spade"
         crest="spade"
         eyebrow="Verified Daily Series"
@@ -817,6 +833,7 @@ export const RakeReports = ({ clubId, initialSnapshot }: RakeReportsProps) => {
       </SpadeConsole>
 
       <SpadeConsole
+        arena={arena || undefined}
         family="spade"
         crest="spade"
         eyebrow="Selected Club"
@@ -852,6 +869,7 @@ export const RakeReports = ({ clubId, initialSnapshot }: RakeReportsProps) => {
       </SpadeConsole>
 
       <SpadeConsole
+        arena={arena || undefined}
         family="spade"
         crest="spade"
         eyebrow="Server Guarded"

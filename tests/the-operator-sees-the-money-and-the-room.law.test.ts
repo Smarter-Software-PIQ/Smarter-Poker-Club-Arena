@@ -172,8 +172,18 @@ describe('one component, so the two consoles cannot drift apart', () => {
     }
   });
 
-  it('it is built on the painted chassis, not drawn', () => {
-    expect(ui).toContain("from '../console/SpadeConsole'");
+  /* Owner ruling 2026-11-27, which supersedes the painted-chassis pin this
+     test held since 2026-09-11 (CLAUDE.md 10.8: the latest explicit owner
+     instruction wins): "NO DO NOT USE THOSE BULKY FRAMES, THATS THE OLD
+     STYLE... USE THE #SMARTERDESIGN STYLE FOR THESE." A routed page section
+     prints in the arena workspace's thin chrome case
+     (.claude/skills/smarter-design/SKILL.md). The case is still art, not CSS:
+     the component draws nothing of its own. */
+  it('it is built on the arena chrome case, not drawn', () => {
+    expect(ui).toContain("import { ClubPageSection as SpadeConsole } from './ClubPageSection'");
+    expect(ui).not.toContain('import { SpadeConsole');
+    expect(ui.match(/<SpadeConsole\s+arena\b/g)).toHaveLength(3);
+    expect(ui).toContain("import '../lobby/ArenaWorkspace.css'");
     expect(ui).not.toMatch(/border-radius|linear-gradient|box-shadow/);
   });
 

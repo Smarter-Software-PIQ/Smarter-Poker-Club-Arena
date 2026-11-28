@@ -1,6 +1,11 @@
 import { horseSavedProfilePresence } from '../../services/HorseSavedProfilePresence.js';
 import { noteOmahaMathCoreSwitchDelivered } from '../omahaMathCore/OmahaMathCoreSwitchState.js';
-import { HorseRequestRetentionBudget, horseRequestAllowance } from './requestRetentionBudget.js';
+import {
+  HorseRequestRetentionBudget,
+  combineHorseRequestAllowanceMetrics,
+  horseRequestAllowanceMetrics,
+  type HorseRequestAllowanceMetrics,
+} from './requestRetentionBudget.js';
 import { markHorseDecisionRejection } from './fallbackReason.js';
 import type { HorseOwnPublicHistoryLoader } from './ownPublicHistoryProvenance.js';
 import {
@@ -908,33 +913,42 @@ export class LiveHorseDecisionWorkerClient {
     signal?: AbortSignal,
     options?: HorseDecisionJobOptions
   ): Promise<FastHorseDecisionResult> {
+    let snapshotMetrics: HorseRequestAllowanceMetrics;
     try {
-      horseRequestAllowance(snapshot);
+      snapshotMetrics = horseRequestAllowanceMetrics(snapshot);
     } catch (error) {
       return Promise.reject(error);
     }
-    return this.decideFastInternal(structuredClone(snapshot), signal, options, false);
+    return this.decideFastInternal(
+      structuredClone(snapshot),
+      signal,
+      options,
+      false,
+      snapshotMetrics
+    );
   }
 
   /**
    * Internal entry point for `HorseDecisionWorkerLane`, which has already
-   * validated `horseRequestAllowance(snapshot)` and detached `captured` via
-   * `structuredClone`. Eliminates two redundant full-tree clones and one
-   * redundant property-descriptor walk per horse decision (incident 1e532243).
+   * validated `horseRequestAllowanceMetrics(snapshot)` and detached `captured`
+   * via `structuredClone`. Eliminates redundant full-tree clones and redundant
+   * property-descriptor walks per horse decision (incident 1e532243).
    */
   decideFastDetached(
     captured: LiveHorseDecisionSnapshot,
     signal?: AbortSignal,
-    options?: HorseDecisionJobOptions
+    options?: HorseDecisionJobOptions,
+    snapshotMetrics?: HorseRequestAllowanceMetrics
   ): Promise<FastHorseDecisionResult> {
-    return this.decideFastInternal(captured, signal, options, true);
+    return this.decideFastInternal(captured, signal, options, true, snapshotMetrics);
   }
 
   private decideFastInternal(
     captured: LiveHorseDecisionSnapshot,
     signal: AbortSignal | undefined,
     options: HorseDecisionJobOptions | undefined,
-    alreadyDetached: boolean
+    alreadyDetached: boolean,
+    snapshotMetrics?: HorseRequestAllowanceMetrics
   ): Promise<FastHorseDecisionResult> {
     const startedAt = Date.now();
     const context = horseObserverReadContextFromRequest(captured);
@@ -944,23 +958,45 @@ export class LiveHorseDecisionWorkerClient {
       options.deadlineMs > 0
         ? options.deadlineMs
         : this.jobTimeoutMs;
+    const requestId = this.nextRequestId++;
+    // The original host owns this private saving-store diagnostic.
+    const savedProfilePresence = horseSavedProfilePresence.forSnapshot(captured);
+    // Never accept a caller-authored history packet through the snapshot.
+    const ownPublicHistory = context
+      ? this.ownPublicHistory?.forSnapshot(context, captured.decisionTimeMs)
+      : undefined;
+    const ownPublicHistoryState = context ? this.ownPublicHistory?.state(context) : undefined;
+    const ownPublicHistoryProvenance = context
+      ? this.ownPublicHistory?.provenance(context, captured.decisionTimeMs)
+      : undefined;
     // The individual worker owns its public reads. A pooled service result
     // cannot establish which horse observed it or its original public cutoff.
     const request: FastHorseDecisionRequest = {
       ...captured,
       type: 'DECIDE_FAST',
-      requestId: this.nextRequestId++,
-      // The original host owns this private saving-store diagnostic.
-      savedProfilePresence: horseSavedProfilePresence.forSnapshot(captured),
-      // Never accept a caller-authored history packet through the snapshot.
-      ownPublicHistory: context
-        ? this.ownPublicHistory?.forSnapshot(context, captured.decisionTimeMs)
-        : undefined,
-      ownPublicHistoryState: context ? this.ownPublicHistory?.state(context) : undefined,
-      ownPublicHistoryProvenance: context
-        ? this.ownPublicHistory?.provenance(context, captured.decisionTimeMs)
-        : undefined,
+      requestId,
+      savedProfilePresence,
+      ownPublicHistory,
+      ownPublicHistoryState,
+      ownPublicHistoryProvenance,
     };
+    let prevalidated: HorseRequestAllowanceMetrics | undefined;
+    if (snapshotMetrics) {
+      try {
+        const extraMetrics = horseRequestAllowanceMetrics({
+          type: 'DECIDE_FAST',
+          requestId,
+          savedProfilePresence,
+          ownPublicHistory,
+          ownPublicHistoryState,
+          ownPublicHistoryProvenance,
+        });
+        prevalidated = combineHorseRequestAllowanceMetrics(snapshotMetrics, extraMetrics);
+      } catch {
+        // Defer refusal to enqueue/reserve so requestCapacityRefusals increments identically.
+        prevalidated = undefined;
+      }
+    }
     return this.enqueue<FastHorseDecisionResult>(
       request,
       'FAST_RESULT',
@@ -968,7 +1004,8 @@ export class LiveHorseDecisionWorkerClient {
       false,
       Math.max(1, callerBudget - (Date.now() - startedAt)),
       false,
-      alreadyDetached
+      alreadyDetached,
+      prevalidated
     ).then((result) => {
       try {
         if (context)
@@ -1044,11 +1081,49 @@ export class LiveHorseDecisionWorkerClient {
     const mirror: CompletedHandObservation = { ...observation };
     delete mirror.acceptedActorRoster;
     delete mirror.horseTurnClocks;
+    this.mirrorCompletedHandInternal(mirror, false);
+  }
+
+  /**
+   * Internal fan-out entry point for `HorseDecisionWorkerLane`, which validates
+   * and detaches the shared read-only mirror observation ONCE across all
+   * non-owner shards instead of repeating `horseRequestAllowance` +
+   * `structuredClone` 7 times per completed hand (incident 1e532243).
+   */
+  mirrorCompletedHandDetached(
+    detachedMirror: CompletedHandObservation,
+    mirrorMetrics: HorseRequestAllowanceMetrics
+  ): void {
+    if (this.pendingMirrors >= HORSE_MIND_MIRROR_MAX_PENDING) {
+      noteFire('horse_mind_mirror_shed');
+      return;
+    }
+    this.mirrorCompletedHandInternal(detachedMirror, true, mirrorMetrics);
+  }
+
+  private mirrorCompletedHandInternal(
+    mirror: CompletedHandObservation,
+    alreadyDetached: boolean,
+    mirrorMetrics?: HorseRequestAllowanceMetrics
+  ): void {
+    const requestId = this.nextRequestId++;
     const request = {
       ...mirror,
       type: 'OBSERVE_COMPLETED_HAND' as const,
-      requestId: this.nextRequestId++,
+      requestId,
     };
+    let prevalidated: HorseRequestAllowanceMetrics | undefined;
+    if (mirrorMetrics) {
+      try {
+        const headerMetrics = horseRequestAllowanceMetrics({
+          type: 'OBSERVE_COMPLETED_HAND',
+          requestId,
+        });
+        prevalidated = combineHorseRequestAllowanceMetrics(mirrorMetrics, headerMetrics);
+      } catch {
+        prevalidated = undefined;
+      }
+    }
     this.pendingMirrors++;
     let settled: Promise<HorseDecisionWorkerAck>;
     try {
@@ -1058,7 +1133,9 @@ export class LiveHorseDecisionWorkerClient {
         undefined,
         false,
         undefined,
-        true
+        true,
+        alreadyDetached,
+        prevalidated
       );
     } catch {
       settled = Promise.reject(new Error('mirror enqueue failed'));
@@ -1094,7 +1171,11 @@ export class LiveHorseDecisionWorkerClient {
     const owner = this.planOwners.get(result);
     // Bound fingerprint work before hashing caller-owned data. A confirmed
     // duplicate reuses its actual worker ACK; it never posts another effect.
-    horseRequestAllowance({ binding: result.planBinding, effects: result.effects, acceptance });
+    const effectPayloadMetrics = horseRequestAllowanceMetrics({
+      planBinding: result.planBinding,
+      effects: result.effects,
+      acceptance,
+    });
     const batchDigest = horsePlanIssuedBatchDigest(result.planBinding, result.effects);
     const fingerprint = JSON.stringify([
       batchDigest,
@@ -1202,22 +1283,46 @@ export class LiveHorseDecisionWorkerClient {
         );
       }
     }
+    const requestId = this.nextRequestId++;
     const request: CommitDecisionEffectsRequest = {
       generation: result.generation,
       fence: result.fence,
       type: 'COMMIT_DECISION_EFFECTS',
-      requestId: this.nextRequestId++,
+      requestId,
       planBinding: structuredClone(result.planBinding),
       effects: structuredClone(result.effects),
       acceptance: structuredClone(acceptance),
     };
+    const commitHeaderMetrics = horseRequestAllowanceMetrics({
+      generation: request.generation,
+      fence: request.fence,
+      type: request.type,
+      requestId: request.requestId,
+    });
+    const prevalidatedCommitMetrics = combineHorseRequestAllowanceMetrics(
+      effectPayloadMetrics,
+      commitHeaderMetrics
+    );
     // Transfer only after the detached request exists and before enqueue.
     // A caller timeout cannot prove whether the accepted plan applied.
     owner.state = 'committing';
     noteFire('phase15_plan_commit_posted');
     // Worker issue ownership is checked separately. This transport method does
     // not certify table acceptance; Turns retains its exact accepted-wager gate.
-    return this.enqueue<HorseDecisionWorkerAck>(request, 'ACK', undefined, true)
+    // The three nested fields above are already freshly structuredClone'd, so
+    // alreadyDetached=true + prevalidatedCommitMetrics eliminates a redundant
+    // full-tree walk and 4th structuredClone on every horse decision commit
+    // (incident 1e532243).
+    return this.enqueue<HorseDecisionWorkerAck>(
+      request,
+      'ACK',
+      undefined,
+      true,
+      undefined,
+      false,
+      true,
+      prevalidatedCommitMetrics
+    )
       .then((ack) => {
         if (
           batchDigest !== null &&
@@ -1413,7 +1518,8 @@ export class LiveHorseDecisionWorkerClient {
     priority = false,
     deadlineMs?: number,
     background = false,
-    alreadyDetached = false
+    alreadyDetached = false,
+    prevalidatedMetrics?: HorseRequestAllowanceMetrics
   ): Promise<T> {
     if (this.phase === 'stopping' || this.phase === 'stopped') {
       return Promise.reject(
@@ -1435,7 +1541,7 @@ export class LiveHorseDecisionWorkerClient {
 
     let reserved = false;
     try {
-      this.requestRetention.reserve(request);
+      this.requestRetention.reserve(request, prevalidatedMetrics);
       reserved = true;
       // The allowance owns detached data; later caller mutation cannot enlarge it.
       if (!alreadyDetached) request = structuredClone(request);
