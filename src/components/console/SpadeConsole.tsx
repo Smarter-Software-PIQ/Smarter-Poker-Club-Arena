@@ -63,10 +63,11 @@ import { TapHaptic } from '../haptics/TapHaptic';
  * one thin chrome case, live lettering in normal flow, chrome buttons with
  * the primary lit blue, and the close X as a 44px chrome key.
  *
- * Every popup on the table is a SpadeConsole, so the table provides
- * `smarterdesign` once (PersistentTableLayer) and all of them change together
- * with no caller touched. Surfaces off the table keep `painted` until they
- * are upgraded the same way.
+ * Every console is a SpadeConsole, so the app root (App.tsx) provides
+ * `smarterdesign` once and every surface, on and off the table, changes
+ * together with no caller touched. The context default stays `painted` so a
+ * component rendered on its own (a unit test, the render harness) still
+ * shows the master it was measured on.
  */
 export type ConsoleSkin = 'painted' | 'smarterdesign';
 
