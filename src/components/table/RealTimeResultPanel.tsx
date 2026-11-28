@@ -48,7 +48,7 @@ import { sessionStatsService, type SessionStats } from '../../services/SessionSt
 import { useMasterBusSubscription } from '../../hooks/useMasterBusSubscription';
 import { useSessionHandStats } from '../../hooks/useSessionHandStats';
 import { SpadeConsole } from '../console/SpadeConsole';
-import { formatTableChips } from '../../utils/format';
+import { formatTableChips, cutFixed } from '../../utils/format';
 import { titleCase } from '../../utils/titleCase';
 import './RealTimeResultPanel.css';
 
@@ -427,7 +427,7 @@ export default function RealTimeResultPanel({
         : '-',
       ink: 'silver',
     },
-    { label: 'BB Won', value: (stats?.bigBlindsWon ?? 0).toFixed(1), ink: 'silver' },
+    { label: 'BB Won', value: cutFixed(stats?.bigBlindsWon ?? 0, 1), ink: 'silver' },
   ];
 
   const body = (

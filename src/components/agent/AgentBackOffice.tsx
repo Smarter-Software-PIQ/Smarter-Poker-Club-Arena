@@ -18,11 +18,12 @@ import {
   type AgentStatement,
 } from '../../services/UnionOpsService';
 import { reportError } from '../../utils/errorReporter';
+import { cutNumberFormat } from '../../utils/format';
 
 const money = (n: unknown) =>
   n === null || n === undefined || !Number.isFinite(Number(n))
     ? 'Not Available'
-    : new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(
+    : cutNumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(
         Number(n)
       );
 

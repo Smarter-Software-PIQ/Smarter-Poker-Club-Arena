@@ -81,6 +81,7 @@ import {
 import { publicOrigin } from '../lib/appBase';
 import { getMyInviteLink } from '../services/ClubInviteService';
 import { storedCardActiveSource, type ClubCardActiveSource } from '../lib/clubCardActiveSource';
+import { cutFixed } from '../utils/format';
 
 const DESCRIPTION_MAX = 500;
 const TAGLINE_MAX = 72;
@@ -290,9 +291,7 @@ export default function ClubSettingsPage() {
     const uncappedLow = Math.round(settings.rake_cap * 2 * 100) / 100;
     const uncappedHigh = Math.round(settings.rake_cap * 10 * 100) / 100;
     const limited = uncappedLow > low || uncappedHigh > high;
-    return `Currently ${settings.rake_cap} BB - ${low.toFixed(2)} Chips per pot at 1/2 and ${high.toFixed(
-      2
-    )} Chips at 5/10${limited ? ', held down by the house cap for those stakes.' : '.'}`;
+    return `Currently ${settings.rake_cap} BB - ${cutFixed(low, 2)} Chips per pot at 1/2 and ${cutFixed(high, 2)} Chips at 5/10${limited ? ', held down by the house cap for those stakes.' : '.'}`;
   })();
   const [loadError, setLoadError] = useState(false);
   // A club id that resolves to no row (deleted club, bad code, or a club RLS

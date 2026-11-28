@@ -120,7 +120,8 @@ describe('a commission row says whether it has been claimed', () => {
 
 describe('agent payment rates keep their authoritative tenth', () => {
   it('uses the same one-decimal formatter on screen and in the export', () => {
-    expect(AGENT_MANAGEMENT).toMatch(/const formatPercent = .*toFixed\(1\)/);
+    // Cut at the tenth, never rounded (2026-11-27); this pinned `.toFixed(1)`.
+    expect(AGENT_MANAGEMENT).toMatch(/const formatPercent = .*cutFixed\(.*, 1\)/);
     expect(AGENT_MANAGEMENT).toMatch(/commissionRate: formatPercent\(a\.commissionRate\)/);
     expect(AGENT_MANAGEMENT).not.toMatch(
       /commissionRate: `\$\{\(\(a\.commissionRate \|\| 0\) \* 100\)\.toFixed\(0\)\}%`/

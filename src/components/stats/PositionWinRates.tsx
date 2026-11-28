@@ -28,7 +28,7 @@ import {
   positionTrendLabel,
   selectPositionCallouts,
 } from './positionCallouts';
-import { compactChips } from '../../utils/format';
+import { compactChips, cutFixed } from '../../utils/format';
 import './PositionWinRates.css';
 
 interface PositionStats {
@@ -217,7 +217,7 @@ const PositionWinRates: React.FC<PositionWinRatesProps> = ({ initialPositions, d
                     aria-label={`${pos.position}, ${
                       pos.winRate === null
                         ? 'Win Rate Not Yet Measured'
-                        : `${pos.winRate.toFixed(1)} BB Per 100`
+                        : `${cutFixed(pos.winRate, 1)} BB Per 100`
                     }`}
                     onMouseEnter={() => setHoveredPosition(i)}
                     onMouseLeave={() => setHoveredPosition(null)}
@@ -260,7 +260,7 @@ const PositionWinRates: React.FC<PositionWinRatesProps> = ({ initialPositions, d
                       fontWeight: 700,
                     }}
                   >
-                    {pos.winRate === null ? '--' : pos.winRate.toFixed(1)}
+                    {pos.winRate === null ? '--' : cutFixed(pos.winRate, 1)}
                   </text>
                 </g>
               );
@@ -277,18 +277,18 @@ const PositionWinRates: React.FC<PositionWinRatesProps> = ({ initialPositions, d
                 </div>
                 <div className="tooltip-stat">
                   <span>VPIP:</span>
-                  <span>{hovered.vpip.toFixed(1)}%</span>
+                  <span>{cutFixed(hovered.vpip, 1)}%</span>
                 </div>
                 <div className="tooltip-stat">
                   <span>PFR:</span>
-                  <span>{hovered.pfr.toFixed(1)}%</span>
+                  <span>{cutFixed(hovered.pfr, 1)}%</span>
                 </div>
                 <div className="tooltip-stat">
                   <span>{hovered.threeBetPerOpp ? '3-Bet (Per Opportunity):' : '3-Bet:'}</span>
                   <span>
                     {hovered.threeBet === null
                       ? 'Not Yet Measured'
-                      : `${hovered.threeBet.toFixed(1)}%`}
+                      : `${cutFixed(hovered.threeBet, 1)}%`}
                   </span>
                 </div>
                 <div className="tooltip-stat">
@@ -296,7 +296,7 @@ const PositionWinRates: React.FC<PositionWinRatesProps> = ({ initialPositions, d
                   <span style={{ color: positionRateColor(hovered.winRate, hovered.handsPlayed) }}>
                     {hovered.winRate === null
                       ? 'Not Yet Measured'
-                      : `${hovered.winRate.toFixed(1)} BB/100 Hands`}
+                      : `${cutFixed(hovered.winRate, 1)} BB/100 Hands`}
                   </span>
                 </div>
                 <div className="tooltip-stat total">
@@ -318,7 +318,9 @@ const PositionWinRates: React.FC<PositionWinRatesProps> = ({ initialPositions, d
             <div className="callout-text">
               <span className="callout-label">Strongest Position</span>
               <span className="callout-value">{bestPosition.position}</span>
-              <span className="callout-detail">{bestPosition.winRate.toFixed(1)} BB/100 Hands</span>
+              <span className="callout-detail">
+                {cutFixed(bestPosition.winRate, 1)} BB/100 Hands
+              </span>
             </div>
           </div>
           <div className="callout weakest">
@@ -326,7 +328,7 @@ const PositionWinRates: React.FC<PositionWinRatesProps> = ({ initialPositions, d
               <span className="callout-label">Weakest Position</span>
               <span className="callout-value">{worstPosition.position}</span>
               <span className="callout-detail">
-                {worstPosition.winRate.toFixed(1)} BB/100 Hands
+                {cutFixed(worstPosition.winRate, 1)} BB/100 Hands
               </span>
             </div>
           </div>
@@ -369,7 +371,7 @@ const PositionWinRates: React.FC<PositionWinRatesProps> = ({ initialPositions, d
                     style={{ color: positionRateColor(pos.winRate, pos.handsPlayed) }}
                   >
                     {pos.winRate !== null && pos.winRate > 0 ? '+' : ''}
-                    {pos.winRate === null ? '--' : pos.winRate.toFixed(1)}
+                    {pos.winRate === null ? '--' : cutFixed(pos.winRate, 1)}
                   </span>
                 </div>
                 <div className="card-stats">
@@ -379,11 +381,11 @@ const PositionWinRates: React.FC<PositionWinRatesProps> = ({ initialPositions, d
                   </div>
                   <div className="stat">
                     <span className="stat-key">VPIP</span>
-                    <span className="stat-val">{pos.vpip.toFixed(1)}%</span>
+                    <span className="stat-val">{cutFixed(pos.vpip, 1)}%</span>
                   </div>
                   <div className="stat">
                     <span className="stat-key">PFR</span>
-                    <span className="stat-val">{pos.pfr.toFixed(1)}%</span>
+                    <span className="stat-val">{cutFixed(pos.pfr, 1)}%</span>
                   </div>
                 </div>
                 <div className="card-progress">
@@ -411,18 +413,18 @@ const PositionWinRates: React.FC<PositionWinRatesProps> = ({ initialPositions, d
         columns={[
           { key: 'position', label: 'Position', render: (row) => row.positionLabel },
           { key: 'hands', label: 'Hands', render: (row) => row.handsPlayed.toLocaleString() },
-          { key: 'vpip', label: 'VPIP', render: (row) => `${row.vpip.toFixed(1)}%` },
-          { key: 'pfr', label: 'PFR', render: (row) => `${row.pfr.toFixed(1)}%` },
+          { key: 'vpip', label: 'VPIP', render: (row) => `${cutFixed(row.vpip, 1)}%` },
+          { key: 'pfr', label: 'PFR', render: (row) => `${cutFixed(row.pfr, 1)}%` },
           {
             key: 'three_bet',
             label: '3-Bet',
             render: (row) =>
-              row.threeBet === null ? 'Not Yet Measured' : `${row.threeBet.toFixed(1)}%`,
+              row.threeBet === null ? 'Not Yet Measured' : `${cutFixed(row.threeBet, 1)}%`,
           },
           {
             key: 'bb100',
             label: 'BB/100 Hands',
-            render: (row) => (row.winRate === null ? 'Not Yet Measured' : row.winRate.toFixed(1)),
+            render: (row) => (row.winRate === null ? 'Not Yet Measured' : cutFixed(row.winRate, 1)),
           },
           { key: 'profit', label: 'Profit', render: (row) => compactChips(row.totalProfit) },
         ]}

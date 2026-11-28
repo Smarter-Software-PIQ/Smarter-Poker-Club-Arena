@@ -29,10 +29,11 @@ import {
 import { reportError } from '../../utils/errorReporter';
 import { enumToTitleCase, titleCase } from '../../utils/titleCase';
 import './DownlineRakePanel.css';
+import { cutNumberFormat } from '../../utils/format';
 
 const money = (n: unknown) =>
-  new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(n) || 0);
-const count = (n: unknown) => new Intl.NumberFormat('en-US').format(Number(n) || 0);
+  cutNumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(n) || 0);
+const count = (n: unknown) => cutNumberFormat('en-US').format(Number(n) || 0);
 
 const AGENT_ROLES = new Set(['super_agent', 'agent', 'sub_agent']);
 const PAGE_SIZE = 500;

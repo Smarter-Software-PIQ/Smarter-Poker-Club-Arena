@@ -90,6 +90,7 @@ import {
 } from '../../utils/killPot';
 import { isLightningVariant } from '../../lightning/lightningLobby';
 import './CashGameCreateFlow.css';
+import { cutFixed } from '../../utils/format';
 
 /* ═══ THE WAKE HAS AN ANSWER, AND START READS IT (2026-09-20) ═══════════════
    getTableState never throws: it answers null for every non-OK response (403,
@@ -991,7 +992,7 @@ export default function CashGameCreateFlow({
                     <div className="slider-header">
                       <span className="slider-label">
                         This Game Charges {priced.rakePercent}% Of Each Raked Pot, Up To{' '}
-                        {formatCurrency(priced.rakeCap)} ({Number(capInBB.toFixed(1))} Big Blinds)
+                        {formatCurrency(priced.rakeCap)} ({Number(cutFixed(capInBB, 1))} Big Blinds)
                       </span>
                     </div>
                     <div className="slider-header">

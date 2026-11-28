@@ -56,7 +56,7 @@ import {
 } from '../hooks/usePreActionBoundary';
 import { winnerViewportPoint, potViewportPoint } from '../lib/chipAwardGeometry';
 import { observeDealPresentationTiming } from '../utils/dealPresentationTiming';
-import { formatPrizeAtUnit, formatWalletChips } from '../utils/format';
+import { formatPrizeAtUnit, formatWalletChips, cutFixed } from '../utils/format';
 import {
   getTournamentFormatKind,
   getTournamentEntryCapacity,
@@ -14363,8 +14363,8 @@ function LiveTablePage({
           const noun = clientDebited ? 'Add-On' : 'Rebuy';
           toast.info(
             applied > 0
-              ? `${noun} Adjusted: ${applied.toFixed(2)} Added, ${refunded.toFixed(2)} Returned To Your Wallet. Your Stack Is At The Table Maximum.`
-              : `${noun} Returned: ${refunded.toFixed(2)} Is Back In Your Wallet. The Purchase Must Meet The Table Minimum And Fit Below Its Maximum.`
+              ? `${noun} Adjusted: ${cutFixed(applied, 2)} Added, ${cutFixed(refunded, 2)} Returned To Your Wallet. Your Stack Is At The Table Maximum.`
+              : `${noun} Returned: ${cutFixed(refunded, 2)} Is Back In Your Wallet. The Purchase Must Meet The Table Minimum And Fit Below Its Maximum.`
           );
         }
       }
@@ -19893,7 +19893,7 @@ function LiveTablePage({
     if (payload.tableId !== tableId) return;
     if (payload.distributions && payload.distributions[userId]) {
       toast?.success?.(
-        `Received +${payload.distributions[userId].toFixed(2)} ${moneyWordAtUnit(arenaAssetUnitCents(tableStateRef.current.arenaAsset))} Rakeback!`
+        `Received +${cutFixed(payload.distributions[userId], 2)} ${moneyWordAtUnit(arenaAssetUnitCents(tableStateRef.current.arenaAsset))} Rakeback!`
       );
     }
   });
@@ -29392,7 +29392,7 @@ function LiveTablePage({
       const result = lastAddChipsResultRef.current;
       if (result && !result.queued && result.applied >= requested)
         toast.success(
-          `Auto Top Up: Added ${result.applied.toFixed(2)} ${seatUnits(tableStateRef.current.arenaAsset)}`
+          `Auto Top Up: Added ${cutFixed(result.applied, 2)} ${seatUnits(tableStateRef.current.arenaAsset)}`
         );
     },
   });
@@ -29614,7 +29614,7 @@ function LiveTablePage({
                     toast?.success?.(
                       tableState.arenaAsset === 'diamonds'
                         ? `Auto Top Up: Added ${landed} ${landed === 1 ? 'Diamond' : 'Diamonds'}`
-                        : `Auto Top Up: Added ${landed.toFixed(2)} Chips`
+                        : `Auto Top Up: Added ${cutFixed(landed, 2)} Chips`
                     );
                   }
                 }

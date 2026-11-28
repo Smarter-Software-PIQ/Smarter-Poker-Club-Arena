@@ -14,7 +14,7 @@ import { haptic } from '../../services/SoundService';
 import './LeaderboardPanel.css';
 import { generateDefaultAvatar } from '../../utils/avatarGenerator';
 import { SpadeConsole } from '../console/SpadeConsole';
-import { compactChips } from '../../utils/format';
+import { compactChips, cutFixed } from '../../utils/format';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -153,7 +153,7 @@ function PlayerRow({ player, index = 0 }: PlayerRowProps) {
         {player.winRate !== undefined && (
           <span className="leaderboard-row__winrate">
             {player.winRate > 0 ? '+' : ''}
-            {player.winRate.toFixed(1)} BB/100
+            {cutFixed(player.winRate, 1)} BB/100
           </span>
         )}
       </div>

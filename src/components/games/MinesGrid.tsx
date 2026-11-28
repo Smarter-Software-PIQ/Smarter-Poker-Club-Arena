@@ -6,6 +6,7 @@ import { soundService } from '../../services/SoundService';
 import { triggerHaptic } from '../../services/HapticService';
 import { TapHaptic } from '../haptics/TapHaptic';
 import styles from './MinesGrid.module.css';
+import { cutFixed } from '../../utils/format';
 /**
  * The gem and the mine a tile turns over. The geometry is the original art; the
  * palette is the house one (2026-09-25): the gem is cut from light blue
@@ -47,7 +48,7 @@ export function minesReadouts(input: {
   const multiplier = betChips > 0 ? value / betChips : 0;
   const next = prizes[picks];
   return {
-    totalLabel: `Total Profit (${multiplier.toFixed(2)}x)`,
+    totalLabel: `Total Profit (${cutFixed(multiplier, 2)}x)`,
     totalProfit: signedChips(value - betChips),
     nextLabel: 'Profit On Next Tile',
     nextProfit:

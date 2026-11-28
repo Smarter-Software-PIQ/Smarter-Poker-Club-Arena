@@ -14,7 +14,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import StatsFactsService, { type DistributionRow } from '../../services/StatsFactsService';
-import { ordinal } from '../../utils/format';
+import { ordinal, cutFixed } from '../../utils/format';
 import { titleCase } from '../../utils/titleCase';
 import { benchmark, type BenchmarkResult } from './statBenchmarks';
 import './BenchmarkPanel.css';
@@ -197,7 +197,7 @@ export default function BenchmarkPanel({
             <div className="bench-item-head">
               <span className="bench-label">{r.def.label}</span>
               <span className="bench-value">
-                {r.value.toFixed(1)}
+                {cutFixed(r.value, 1)}
                 {r.def.unit === 'bb/100' ? ' BB/100 Hands' : r.def.unit}
               </span>
               {r.percentile !== null ? (

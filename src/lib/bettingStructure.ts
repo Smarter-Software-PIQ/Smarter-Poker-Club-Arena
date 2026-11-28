@@ -1,3 +1,4 @@
+import { cutFixed } from '../utils/format';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  * BETTING STRUCTURE (client mirror)
@@ -76,6 +77,6 @@ export function stakesLabel(
   bigBlind: number,
   _variant?: string | null
 ): string {
-  const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2));
+  const fmt = (n: number) => (Number.isInteger(n) ? String(n) : cutFixed(n, 2));
   return `${fmt(smallBlind)}/${fmt(bigBlind)}`;
 }

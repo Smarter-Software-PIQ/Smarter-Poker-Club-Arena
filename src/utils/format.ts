@@ -68,8 +68,9 @@ export const formatStackChips = (n: number | null | undefined): string => {
   const v = Number(n ?? 0);
   if (!Number.isFinite(v)) return '0';
   const abs = Math.abs(v);
-  if (abs < PENNY_PRECISION_BELOW) return `${v < 0 ? '-' : ''}${abs.toFixed(2)}`;
-  return formatTableChips(Math.round(v));
+  if (abs < PENNY_PRECISION_BELOW) return cutFixed(v, 2);
+  // Whole chips from 100 up: the sub-chip remainder is CUT, never rounded up.
+  return formatTableChips(Math.trunc(faithful(v)));
 };
 
 /**
@@ -91,9 +92,10 @@ export const formatBigBlinds = (
   const bb = Number(bigBlind);
   if (!Number.isFinite(bb) || bb <= 0) return null;
   const n = Number(amount || 0) / bb;
-  if (Math.abs(n) >= 100) return `${Math.round(n).toLocaleString('en-US')} BB`;
-  const tenths = Math.round(n * 10) / 10;
-  return Number.isInteger(tenths) ? `${tenths} BB` : `${tenths.toFixed(1)} BB`;
+  if (Math.abs(n) >= 100)
+    return `${cutNumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)} BB`;
+  const tenths = cutTo(n, 1);
+  return Number.isInteger(tenths) ? `${tenths} BB` : `${cutFixed(tenths, 1)} BB`;
 };
 
 export const formatTableChips = (n: number | null | undefined): string => {
@@ -102,8 +104,8 @@ export const formatTableChips = (n: number | null | undefined): string => {
   if (v === 0) return '0';
   const sign = v < 0 ? '-' : '';
   const abs = Math.abs(v);
-  if (abs < 1) return `${sign}${abs.toFixed(2)}`;
-  return `${sign}${abs.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+  if (abs < 1) return cutFixed(v, 2) === '0.00' ? '0.00' : `${sign}${cutFixed(abs, 2)}`;
+  return `${sign}${cutNumberFormat('en-US', { maximumFractionDigits: 2 }).format(abs)}`;
 };
 
 /**
@@ -362,7 +364,7 @@ export const formatDateTime = (ts: string | null | undefined): string => {
  * @example pct(0.253) → "25.3%"
  */
 export const pct = (n: number | null | undefined): string =>
-  `${((Number(n) || 0) * 100).toFixed(1)}%`;
+  `${cutFixed((Number(n) || 0) * 100, 1)}%`;
 
 /* ── Player identity surfaces (added 2026-09-04) ────────────────────────────
    Every stat the profile renders arrives as a raw ratio or float from
@@ -665,3 +667,104 @@ export const formatWalletDiamonds = (amount: number | null | undefined): string 
  * carries three places (cut, not rounded).
  */
 export const winLossChips = (n: FigureInput): string => chipFigure(n, 2, 'signed', '0.00', '0.00');
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ *  A FIXED-PLACE FIGURE IS CUT, NEVER ROUNDED (Dan 2026-11-27, 2026-09-04)
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * `Number#toFixed`, `Math.round(x * 10) / 10` and `Intl.NumberFormat` with a
+ * fraction limit all ROUND: 0.999 printed "1.00", a 25.67% VPIP printed
+ * "25.7%". Dan: "NUMERS AFTER A DECIMAL NEED TO STOP AFTER 2 DIGITS ANY WHERE
+ * AND EVERYWHERE" and "ABSOLUTELY ZERO ROUNDING ANYWHERE EVER". These three
+ * helpers are what an on-screen figure uses instead. Digits are copied and
+ * cut, as displayFraction does, and never more than DISPLAY_PLACES are shown.
+ *
+ * Arithmetic noise is not a digit. 0.29 * 100 is 28.999999999999996 in binary
+ * floating point and a bare cut would print a 29% stat as "28.9%". Each value
+ * is first read at fifteen significant digits (the precision a double carries
+ * faithfully), which turns that noise back into 29 and leaves every real
+ * figure, 0.999 included, exactly as it was. That is the binary representation
+ * being read honestly, not a rounding of the figure at its display places.
+ *
+ * Values sent to the server, CSV exports, geometry and CSS keep `toFixed`:
+ * those are payloads and measurements, not figures a player reads.
+ */
+const faithful = (value: number): number => Number(value.toPrecision(15));
+
+const displayPlaces = (places: number): number =>
+  Math.min(DISPLAY_PLACES, Math.max(0, Math.trunc(Number(places) || 0)));
+
+/**
+ * `value.toFixed(places)` with the extra digits CUT. Same shape (no grouping,
+ * exactly `places` decimals, at most two), never "-0.00".
+ * @example cutFixed(0.999, 2)  -> "0.99"
+ * @example cutFixed(1.005, 2)  -> "1.00"
+ * @example cutFixed(25.67, 1)  -> "25.6"
+ * @example cutFixed(-0.004, 2) -> "0.00"
+ */
+export function cutFixed(value: number, places: number): string {
+  const p = displayPlaces(places);
+  const v = Number(value);
+  const d = Number.isFinite(v) ? figureDigits(faithful(v)) : null;
+  if (!d) return (0).toFixed(p);
+  const fraction = d.fraction.slice(0, p).padEnd(p, '0');
+  const negative = d.negative && /[1-9]/.test(d.whole + fraction);
+  return `${negative ? '-' : ''}${d.whole}${p > 0 ? `.${fraction}` : ''}`;
+}
+
+/**
+ * The number a display shows at `places`, CUT: what `Math.round(x * 10) / 10`
+ * was used for when the result is interpolated as text ("33.3%", "2.5 Min").
+ * @example cutTo(33.36, 1) -> 33.3
+ * @example cutTo(-0.04, 1) -> 0
+ */
+export function cutTo(value: number, places: number): number {
+  const cut = Number(cutFixed(value, places));
+  return Object.is(cut, -0) ? 0 : cut;
+}
+
+type CutNumberFormatOptions = Intl.NumberFormatOptions & { roundingMode?: 'trunc' };
+
+/**
+ * `new Intl.NumberFormat(locales, options)` for a figure on screen: the same
+ * separators, currency and minimum places, at most two decimals, and the
+ * digits past the last place CUT (roundingMode 'trunc', and the value is cut
+ * by its digits first so an engine without roundingMode cuts too). Never
+ * prints "-0".
+ * @example cutNumberFormat('en-US', { maximumFractionDigits: 2 }).format(0.999) -> "0.99"
+ */
+export function cutNumberFormat(
+  locales?: string | string[],
+  options: Intl.NumberFormatOptions = {}
+): { format: (value: number | bigint) => string } {
+  const compact = options.notation === 'compact' || options.notation === 'scientific';
+  const significant =
+    options.maximumSignificantDigits != null || options.minimumSignificantDigits != null;
+  const percent = options.style === 'percent';
+  // Intl's own default places: none for a percent, otherwise capped at two.
+  const max = displayPlaces(options.maximumFractionDigits ?? (percent ? 0 : DISPLAY_PLACES));
+  const min = Math.min(displayPlaces(options.minimumFractionDigits ?? 0), max);
+  const shaped: CutNumberFormatOptions =
+    compact || significant
+      ? { ...options, roundingMode: 'trunc' }
+      : {
+          ...options,
+          minimumFractionDigits: min,
+          maximumFractionDigits: max,
+          roundingMode: 'trunc',
+        };
+  const nf = new Intl.NumberFormat(locales, shaped as Intl.NumberFormatOptions);
+  return {
+    format: (value: number | bigint) => {
+      if (typeof value === 'bigint') return nf.format(value);
+      const v = Number(value);
+      if (!Number.isFinite(v)) return nf.format(v);
+      // Cut by digits before formatting; a percent is cut at its shown places.
+      const shown =
+        compact || significant ? faithful(v) : percent ? cutTo(v * 100, max) / 100 : cutTo(v, max);
+      const text = nf.format(shown);
+      return /^-[^1-9]*$/.test(text) ? text.slice(1) : text;
+    },
+  };
+}

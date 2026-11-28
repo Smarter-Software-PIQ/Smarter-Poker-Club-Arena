@@ -21,6 +21,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
+import { cutFixed, cutNumberFormat } from '../../utils/format';
 
 interface AnimatedNumberProps {
   value: number;
@@ -33,8 +34,8 @@ interface AnimatedNumberProps {
 }
 
 function defaultFormat(n: number): string {
-  if (n >= 1) return Math.round(n).toLocaleString('en-US');
-  if (n > 0) return n.toFixed(2);
+  if (n >= 1) return cutNumberFormat('en-US', { maximumFractionDigits: 0 }).format(n);
+  if (n > 0) return cutFixed(n, 2);
   return '0';
 }
 

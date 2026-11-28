@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AgentService } from '../../services';
 import './AgentHierarchyTree.css';
 import { reportError } from '../../utils/errorReporter';
+import { cutFixed } from '../../utils/format';
 
 interface AgentNode {
   id: string;
@@ -120,7 +121,7 @@ export const AgentHierarchyTree: React.FC<AgentHierarchyTreeProps> = ({
             <div className="node-meta">
               <span className="tier-badge">{node.tier}</span>
               <span className="player-count"> {node.playerCount}</span>
-              <span className="commission">{(node.commissionRate * 100).toFixed(1)}%</span>
+              <span className="commission">{cutFixed(node.commissionRate * 100, 1)}%</span>
             </div>
           </div>
 

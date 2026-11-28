@@ -28,6 +28,7 @@ import { PLINKO_TABLES, diamondBonusFloor, plinkoTableForFloor } from '../utils/
 import { diamondGameTitle, type DiamondBonusGame } from '../utils/diamondGameTitles';
 import styles from './diamondGames.module.css';
 import setup from '../components/games/BonusSetup.module.css';
+import { cutFixed } from '../utils/format';
 
 const games: Record<DiamondBonusGame, string> = {
   plinko: 'Plinko',
@@ -317,7 +318,7 @@ export default function DiamondTestPage() {
           },
           {
             label: game === 'crash' ? 'Multiplier' : 'Current Prize',
-            value: game === 'crash' ? `${(liveCents / 100).toFixed(2)}x` : money(current),
+            value: game === 'crash' ? `${cutFixed(liveCents / 100, 2)}x` : money(current),
             ink: 'gold',
           },
           {

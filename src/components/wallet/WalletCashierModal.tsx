@@ -143,7 +143,7 @@ import transferStyles from '../../pages/CashierTradePage.module.css';
 import { downloadBlob } from '../../utils/downloadCsv';
 import { statementCsvCell } from '../../utils/cashierStatementCsv';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
-import { compactChips, formatWalletChips } from '../../utils/format';
+import { compactChips, formatWalletChips, cutFixed } from '../../utils/format';
 import { generateAvatarSvg } from '../../utils/avatarGenerator';
 import { safeErrorMessage } from '../../utils/safeErrorMessage';
 
@@ -2440,7 +2440,7 @@ export default function WalletCashierModal({
                           a 40 chip float read "50 Percent Of The Club Bank". */}
                       {tab === 'claim'
                         ? `Claim ${fmtMovement(amt)} Chips From ${titleCase(recipient.name)} Into ${claimReturnLabel}?`
-                        : `That Is ${((amt / (spendBalance || 1)) * 100).toFixed(1)} Percent Of ${spentAccount}. Send ${fmtMovement(amt)} Chips To ${titleCase(recipient.name)}?`}
+                        : `That Is ${cutFixed((amt / (spendBalance || 1)) * 100, 1)} Percent Of ${spentAccount}. Send ${fmtMovement(amt)} Chips To ${titleCase(recipient.name)}?`}
                     </div>
                   )}
 

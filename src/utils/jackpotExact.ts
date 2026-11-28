@@ -23,6 +23,8 @@
  * Pinned by tests/the-jackpot-is-printed-to-the-cent.law.test.ts.
  */
 
+import { cutFixed } from './format';
+
 /** Stored chip amount, to the cent: 15379.83 -> "15,379.83", 700 -> "700.00". */
 export const jackpotChips = (n: number | string | null | undefined): string => {
   const v = Number(n);
@@ -85,11 +87,11 @@ export const jackpotSplit = (
 
 /**
  * A jackpot percentage as it is, to two places with trailing zeros dropped:
- * 10 -> "10", 12.5 -> "12.5", 15.3798 -> "15.38". Replaces Math.round, which
+ * 10 -> "10", 12.5 -> "12.5", 15.3798 -> "15.37" (cut, never rounded). Replaces Math.round, which
  * printed a 12.5% policy as "13%" and a pool at 15.38% of its pivot as "15%".
  */
 export const jackpotPercent = (pct: number): string => {
   const v = Number(pct);
   if (!Number.isFinite(v)) return '0';
-  return String(Number(v.toFixed(2)));
+  return String(Number(cutFixed(v, 2)));
 };

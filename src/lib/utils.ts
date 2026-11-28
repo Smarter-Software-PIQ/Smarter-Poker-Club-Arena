@@ -4,6 +4,8 @@
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 
+import { cutFixed, cutNumberFormat } from '../utils/format';
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // NUMBER FORMATTING
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -15,7 +17,7 @@
  */
 
 export function formatCurrency(amount: number, currency = 'USD'): string {
-  return new Intl.NumberFormat('en-US', {
+  return cutNumberFormat('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(amount);
@@ -35,10 +37,10 @@ export function formatCurrency(amount: number, currency = 'USD'): string {
  *   100      → "100.00"
  */
 export function formatChips(amount: number): string {
-  return amount.toLocaleString('en-US', {
+  return cutNumberFormat('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  });
+  }).format(amount);
 }
 
 /**
@@ -55,19 +57,20 @@ export function formatChipsWithCurrency(amount: number, currency: string = ''): 
  */
 export function formatChipsWhole(amount: number): string {
   if (Number.isInteger(amount)) {
-    return amount.toLocaleString('en-US');
+    return cutNumberFormat('en-US', { maximumFractionDigits: 0 }).format(amount);
   }
-  return amount.toLocaleString('en-US', {
+  return cutNumberFormat('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  });
+  }).format(amount);
 }
 
 /**
- * Format a percentage
+ * Format a percentage. The digits past `decimals` are CUT, never rounded
+ * (Dan 2026-09-04, 2026-11-27).
  */
 export function formatPercent(value: number, decimals = 1): string {
-  return `${value.toFixed(decimals)}%`;
+  return `${cutFixed(value, decimals)}%`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

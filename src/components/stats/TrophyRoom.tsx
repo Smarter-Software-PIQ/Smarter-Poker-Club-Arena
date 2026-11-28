@@ -38,7 +38,7 @@ import {
   type StatsEvidenceQuery,
 } from '../../services/StatsEvidenceService';
 import { CHIP_STATS, type StatsClubId, type StatsScope } from '../../services/statsScope';
-import { compactChips } from '../../utils/format';
+import { compactChips, cutFixed } from '../../utils/format';
 import { enumToTitleCase, titleCase } from '../../utils/titleCase';
 import './TrophyRoom.css';
 
@@ -219,7 +219,7 @@ function buildMilestones(o: OverallLike, t: TournLike | null, lifetimeHands: num
     progress: crusherQualified ? (o.bb_per_100 > 0 ? 1 : 0) : clamp01(hands / 5000),
     unlocked: crusherQualified && o.bb_per_100 > 0,
     detail: crusherQualified
-      ? `${o.bb_per_100.toFixed(1)} BB/100 Hands over your last ${o.cash_hands.toLocaleString()} cash hands`
+      ? `${cutFixed(o.bb_per_100, 1)} BB/100 Hands over your last ${o.cash_hands.toLocaleString()} cash hands`
       : `${hands.toLocaleString()} / 5,000 qualifying hands`,
   });
 
@@ -234,7 +234,7 @@ function buildMilestones(o: OverallLike, t: TournLike | null, lifetimeHands: num
     progress: disciplineQualified ? (inBand ? 1 : 0) : clamp01(hands / 1000),
     unlocked: disciplineQualified && inBand,
     detail: disciplineQualified
-      ? `VPIP ${vpipPct.toFixed(1)}%`
+      ? `VPIP ${cutFixed(vpipPct, 1)}%`
       : `${hands.toLocaleString()} / 1,000 qualifying hands`,
   });
 
@@ -247,7 +247,7 @@ function buildMilestones(o: OverallLike, t: TournLike | null, lifetimeHands: num
     progress: aggroQualified ? clamp01(o.aggression_factor / 2) : clamp01(hands / 1000),
     unlocked: aggroQualified && o.aggression_factor >= 2,
     detail: aggroQualified
-      ? `AF ${o.aggression_factor.toFixed(1)}`
+      ? `AF ${cutFixed(o.aggression_factor, 1)}`
       : `${hands.toLocaleString()} / 1,000 qualifying hands`,
   });
 

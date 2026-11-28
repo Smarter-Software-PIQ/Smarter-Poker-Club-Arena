@@ -25,6 +25,7 @@
 import type { DeckCard } from './deckCards';
 import type { ReplayFrame } from './replayFrames';
 import type { ReplayVerb } from './handReplay';
+import { cutFixed, cutTo } from './format';
 
 // ── Speed ────────────────────────────────────────────────────────────────────
 
@@ -223,8 +224,8 @@ export function facingAt(prev: ReplayFrame | null, frame: ReplayFrame): Facing |
   if (toCall <= 0) return null;
   const pot = prev.pot;
   const potIfCalled = Math.round((pot + toCall) * 100) / 100;
-  const potOddsPct = Math.round((toCall / potIfCalled) * 1000) / 10;
-  const ratio = `${(Math.round((pot / toCall) * 10) / 10).toFixed(1)} : 1`;
+  const potOddsPct = cutTo((toCall / potIfCalled) * 100, 1);
+  const ratio = `${cutFixed(pot / toCall, 1)} : 1`;
   return { seat, toCall, potIfCalled, potOddsPct, ratio };
 }
 

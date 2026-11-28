@@ -13,7 +13,7 @@ import type { AgentRoleRow } from '../../services/AgentRakeService';
 import type { PlayerRakeStats } from '../../services/StatsFactsService';
 import PanelBoundary from '../../components/stats/PanelBoundary';
 import { StatRow } from './StatRow';
-import { compactChips } from '../../utils/format';
+import { compactChips, cutFixed } from '../../utils/format';
 
 const DownlineRakePanel = lazy(() => import('../../components/agent/DownlineRakePanel'));
 
@@ -126,7 +126,7 @@ export default function RakeTab({
               />
               <StatRow
                 label="Rake In Big Blinds"
-                value={`${rakeStats.rake_in_bb.toFixed(1)} BB`}
+                value={`${cutFixed(rakeStats.rake_in_bb, 1)} BB`}
                 color="#e4e7ec"
               />
               <StatRow
