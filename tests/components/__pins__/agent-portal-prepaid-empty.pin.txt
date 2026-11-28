@@ -1,0 +1,34 @@
+money: {
+  "figures": [
+    "1,250.50",
+    "456.00",
+    "40.00",
+    "0.00",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0"
+  ],
+  "hooks": [
+    "data-visible=true",
+    "data-visible=true",
+    "data-visible=true"
+  ]
+}
+text: Business Wallet | Commissions And Settlements | 1,250.50 | Play Wallet | Selected Club Balance | 456.00 | Promo Wallet | Non-Cashable Giveaways | 40.00 | Tracking Amount | Prepaid | Wallet Shortfall | 0.00 | No Invoices. Weekly Top-Up Invoices Use Your Credit Line Minus Your Agent Wallet Before Rakeback. | Mon | 0 | Chips | Tue | 0 | Chips | Wed | 0 | Chips | Thu | 0 | Chips | Fri | 0 | Chips | Sat | 0 | Chips | Sun | 0 | Chips | Total: | 0 | Chips | No Transactions Yet
+regions: [
+  "section||Agent Wallets|",
+  "section||Credit Line|",
+  "section||Agent Invoices|",
+  "section||My Transactions|",
+  "div|status||polite"
+]
+controls: [
+  "button|Back",
+  "button|Transfer To Play"
+]
+named: Agent Wallets=1, Credit Line=1, Agent Invoices=1, My Transactions=1

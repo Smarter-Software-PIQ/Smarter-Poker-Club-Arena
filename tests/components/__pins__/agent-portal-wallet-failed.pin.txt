@@ -1,0 +1,23 @@
+money: {
+  "figures": [
+    "1",
+    "75.25"
+  ],
+  "hooks": [
+    "data-category=Transfer"
+  ]
+}
+text: Member Read Refused | No Invoices. Weekly Top-Up Invoices Use Your Credit Line Minus Your Agent Wallet Before Rakeback. | Commission History Is Unavailable Until The Wallet Scope Is Verified | 1 | Transaction | Shown | Transfer | Agent Wallet To Player Wallet | Agent Self Transfer | 75.25 | <date>, <time>
+regions: [
+  "p|alert||",
+  "section||Agent Invoices|",
+  "p|status||",
+  "section||My Transactions|",
+  "section||Transaction History|",
+  "ol||Ledger Rows|"
+]
+controls: [
+  "button|Back",
+  "button|Open Clubs"
+]
+named: Agent Wallets=0, Credit Line=0, Agent Invoices=1, My Transactions=1
