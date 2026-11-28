@@ -1,0 +1,49 @@
+{
+  "money": {
+    "figures": [
+      "75",
+      "(40)",
+      "(15)",
+      "(20)",
+      "110",
+      "124",
+      "/ 500",
+      "55",
+      "42",
+      "4",
+      "220",
+      "88",
+      "/ 200",
+      "3",
+      "75"
+    ],
+    "hooks": [
+      "data-xmtt-total=75",
+      "data-discover=true",
+      "data-discover=true",
+      "data-tournament-id=xmtt-1",
+      "data-tournament-id=xmtt-2",
+      "data-tournament-id=xmtt-3"
+    ]
+  },
+  "text": "XMTT Lobby | 75 | Tournament | Sunday Major XMTT | Reg Open | Buy-In | 110 | Entries | 124 | / 500 | Starts | <date>, <time> | Tournament | Waitlisted Turbo | Reg Open | Buy-In | 55 | Entries | 42 | / Open | Starts | <date>, <time> | Waitlist | Position # | 4 | Tournament | Live Deepstack | Running | Buy-In | 220 | Entries | 88 | / 200 | Starts | <date>, <time> | More Events | Showing | 3 | Of | 75",
+  "regions": [
+    "nav||Tournament Filters",
+    "p|status|"
+  ],
+  "controls": [
+    "a||All Tournaments|",
+    "a||Lobby|",
+    "button|button|All|aria-pressed=true",
+    "button|button|Completed (20)|aria-pressed=false",
+    "button|button|Details|",
+    "button|button|Details|",
+    "button|button|Leave Waitlist|",
+    "button|button|Load More|",
+    "button|button|Registering (40)|aria-pressed=false",
+    "button|button|Register|",
+    "button|button|Running (15)|aria-pressed=false",
+    "button|button|Running|disabled",
+    "button|button|Unregister|"
+  ]
+}

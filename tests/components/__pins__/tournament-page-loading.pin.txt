@@ -1,0 +1,9 @@
+{
+  "money": {
+    "figures": [],
+    "hooks": []
+  },
+  "text": "Tournaments",
+  "regions": [],
+  "controls": []
+}

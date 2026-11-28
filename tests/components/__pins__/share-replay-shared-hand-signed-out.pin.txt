@@ -1,0 +1,16 @@
+{
+  "money": {
+    "figures": [],
+    "hooks": [
+      "data-hand-id=",
+      "data-hand-number=77",
+      "data-clip=0"
+    ]
+  },
+  "text": "Hand Replay Surface | Smarter.Poker | Play This Game | kingfish Invited You | Join | Cash Games, Tournaments And Spins With Your Friends. | Shared From kingfish's Hand History · | Smarter Poker",
+  "regions": [],
+  "controls": [
+    "a||Create Account|",
+    "a||Sign In|"
+  ]
+}
