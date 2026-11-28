@@ -1,105 +1,127 @@
+/* THE LEGAL DOCUMENTS IN #SMARTERDESIGN (Dan 2026-11-27, player pages batch
+   P2, 2026-11-28). Terms Of Service, Privacy Policy, Fair Gaming and Promotion
+   Rules all print through this layout. The page root carries .arena-workspace:
+   the mast, the cases, the section titles, the ledger rows and the chrome keys
+   come from ArenaWorkspace.css and ArenaOps.css. This sheet lays them out and
+   sets the document's prose for reading: the words are legal text and are
+   never restyled into anything but the case they sit in. The prerender
+   (src/prerender/entry-server.tsx) renders these pages as they are, so a
+   reader without JavaScript gets the same page. */
 .page {
-  --trust-black: #030609;
-  --trust-carbon: #0a0f14;
-  --trust-gunmetal: #26333d;
-  --trust-chrome: #b9cad7;
-  --trust-blue: #3aa8ff;
   min-height: calc(100dvh - var(--bottom-nav-clearance, 74px));
-  padding: clamp(12px, 2.6vw, 36px) clamp(12px, 3vw, 42px)
-    max(calc(var(--bottom-nav-clearance, 74px) + 18px), env(safe-area-inset-bottom));
+  padding-bottom: max(calc(var(--bottom-nav-clearance, 74px) + 18px), env(safe-area-inset-bottom));
   overflow-x: clip;
-  color: #edf5fb;
-  background:
-    radial-gradient(circle at 88% 5%, rgba(58, 168, 255, 0.1), transparent 30rem),
-    linear-gradient(180deg, #05090d, var(--trust-black));
+}
+
+/* The breadcrumb back to the Legal Center, above the mast. */
+.bar:global(.ca-page-bar) {
+  margin-bottom: 2px;
 }
 
 .breadcrumbs {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 30px;
-  color: #74899a;
-  font-size: 0.76rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 0 3px;
+  color: #9fbacc;
+  font:
+    700 12px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
 }
 
 .breadcrumbs a {
-  color: #9bb4c6;
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  color: #74dfff;
   text-decoration: none;
 }
 
+.breadcrumbs a:active {
+  filter: brightness(0.86);
+}
+
 .breadcrumbs a:focus-visible,
-.documentSwitchboard a:focus-visible,
 .indexPlate a:focus-visible,
 .documentFooter a:focus-visible {
-  outline: 2px solid var(--trust-blue);
-  outline-offset: 3px;
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
+}
+
+.breadcrumbs [aria-current='page'] {
+  color: #dce5ef;
 }
 
 .documentGrid {
   display: grid;
-  grid-template-columns: minmax(210px, 0.32fr) minmax(0, 0.68fr);
-  gap: clamp(14px, 2.5vw, 30px);
-  max-width: 1240px;
-  margin: 24px auto 0;
+  grid-template-columns: minmax(210px, 0.3fr) minmax(0, 0.7fr);
+  gap: 0 8px;
+  align-items: start;
 }
 
 .indexRail {
   min-width: 0;
 }
 
-.indexPlate {
+/* The section index: a chrome case of ledger rows, held in view on a desk
+   (above the case's own position: relative). */
+.page .indexRail .indexPlate {
   position: sticky;
-  top: 18px;
-  padding: 18px;
-  border: 1px solid rgba(151, 174, 191, 0.26);
-  border-radius: 3px;
-  background: linear-gradient(145deg, rgba(20, 29, 37, 0.96), rgba(5, 9, 13, 0.98));
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.04);
+  top: 12px;
 }
 
 .indexPlate nav {
   display: grid;
+  gap: 4px;
 }
 
 .indexPlate a {
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr);
-  gap: 8px;
-  padding: 10px 4px;
-  border-top: 1px solid rgba(123, 146, 164, 0.14);
-  color: #a8b8c4;
-  font-size: 0.8rem;
-  line-height: 1.25;
+  grid-template-columns: 24px minmax(0, 1fr);
+  min-height: 44px;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  color: #dce5ef;
+  font:
+    700 13px/1.2 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
   text-decoration: none;
 }
 
-.indexPlate a span {
-  color: #49677e;
-  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
-  font-size: 0.66rem;
+.indexPlate a:active {
+  filter: brightness(0.86);
 }
 
+.indexPlate a span {
+  color: #74dfff;
+  font:
+    700 11px/1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The document: one chrome case, each section under its own title. */
 .document {
   min-width: 0;
-  border: 1px solid rgba(151, 174, 191, 0.25);
-  border-radius: 3px;
-  background: linear-gradient(180deg, rgba(13, 20, 27, 0.98), rgba(6, 10, 14, 0.99));
-  box-shadow:
-    inset 0 1px rgba(255, 255, 255, 0.04),
-    0 22px 65px rgba(0, 0, 0, 0.32);
 }
 
 .document section {
-  padding: clamp(24px, 4vw, 50px);
+  padding: 8px 4px 14px;
   scroll-margin-top: 20px;
 }
 
-.document section + section {
-  border-top: 1px solid rgba(139, 163, 181, 0.18);
+/* On a desk the long document breathes between its sections. */
+@media (min-width: 821px) {
+  .document section {
+    padding: 12px 10px 20px;
+  }
 }
 
 .document section:focus {
@@ -107,46 +129,42 @@
 }
 
 .sectionHeading {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
+  display: flex;
   align-items: baseline;
-  gap: 12px;
-  margin-bottom: 18px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .sectionHeading > span {
-  color: #466a85;
-  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
-  font-size: 0.72rem;
+  flex: 0 0 auto;
+  color: #74dfff;
+  font:
+    700 12px/1 'Arial Narrow',
+    Arial,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
 }
 
 .sectionHeading h2 {
+  flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
-  color: #eef6fb;
-  font-family: 'Rajdhani', 'Roboto Condensed', system-ui, sans-serif;
-  font-size: clamp(1.35rem, 3vw, 2rem);
-  font-weight: 650;
-  letter-spacing: 0.018em;
-  line-height: 1.1;
-  text-transform: uppercase;
 }
 
+/* The words themselves: a comfortable measure and size for long reading. */
 .sectionBody {
-  padding-left: 46px;
-  color: #aab9c4;
-  font-family:
-    Inter,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
+  max-width: 70ch;
+  padding-left: 20px;
+  color: #dce5ef;
+  font:
+    16px/1.65 Arial,
     sans-serif;
-  font-size: 0.98rem;
-  line-height: 1.72;
 }
 
+/* The app's global p ink is a grey; legal prose reads in the body ink. */
 .sectionBody p {
-  margin: 0 0 16px;
+  margin: 0 0 14px;
+  color: inherit;
 }
 
 .sectionBody p:last-child,
@@ -155,84 +173,67 @@
 }
 
 .sectionBody h3 {
-  margin: 24px 0 8px;
-  color: #dce8f0;
-  font-size: 1rem;
+  margin: 20px 0 6px;
+  color: #f1f5fc;
+  font:
+    800 16px/1.25 'Roboto Condensed',
+    'Arial Narrow',
+    Arial,
+    sans-serif;
 }
 
 .sectionBody ul {
   display: grid;
-  gap: 9px;
-  margin: 0 0 18px;
+  gap: 8px;
+  margin: 0 0 16px;
   padding: 0;
   list-style: none;
 }
 
 .sectionBody li {
   position: relative;
-  padding-left: 19px;
+  padding-left: 18px;
   overflow-wrap: anywhere;
 }
 
 .sectionBody li::before {
   position: absolute;
-  top: 0.72em;
+  top: 0.8em;
   left: 0;
   width: 7px;
-  height: 1px;
+  height: 2px;
   content: '';
-  background: var(--trust-blue);
-  box-shadow: 0 0 7px rgba(58, 168, 255, 0.65);
+  background: #74dfff;
 }
 
-.sectionBody strong,
+.sectionBody strong {
+  color: #f1f5fc;
+}
+
 .sectionBody a {
-  color: #e5f0f7;
+  color: #74dfff;
+}
+
+.sectionBody a:focus-visible {
+  outline: 2px solid #9ae5ff;
+  outline-offset: 2px;
 }
 
 .documentFooter {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
-  gap: 12px;
-  padding: 22px clamp(24px, 4vw, 50px);
-  border-top: 1px solid rgba(58, 168, 255, 0.28);
-  color: #718594;
-  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
-  font-size: 0.72rem;
+  gap: 8px 12px;
+  padding: 10px 4px 2px;
+  border-top: 1px solid #253e57;
+  color: #9fbacc;
+  font:
+    12px/1.35 Arial,
+    sans-serif;
 }
 
 .documentFooter a {
-  color: #8dbfe4;
-}
-
-.documentSwitchboard {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  max-width: 1240px;
-  margin: 18px auto 0;
-}
-
-.documentSwitchboard a {
-  min-height: 46px;
-  padding: 13px 10px;
-  border: 1px solid rgba(151, 174, 191, 0.23);
-  border-radius: 2px;
-  color: #8fa2b0;
-  font-size: 0.76rem;
-  font-weight: 750;
-  letter-spacing: 0.06em;
-  text-align: center;
-  text-decoration: none;
-  text-transform: uppercase;
-  background: rgba(10, 15, 20, 0.92);
-}
-
-.documentSwitchboard a[aria-current='page'] {
-  border-color: rgba(58, 168, 255, 0.58);
-  color: #e8f4fc;
-  box-shadow: inset 0 -1px var(--trust-blue);
+  color: #74dfff;
 }
 
 @media (max-width: 820px) {
@@ -240,56 +241,35 @@
     grid-template-columns: 1fr;
   }
 
-  .indexPlate {
-    position: static;
-    padding: 14px;
+  /* On a phone the index is one scrolling row of ledger chips. */
+  .page .indexRail .indexPlate {
+    position: relative;
     overflow: hidden;
   }
 
   .indexPlate nav {
     display: flex;
-    gap: 6px;
+    gap: 4px;
     overflow-x: auto;
     scrollbar-width: thin;
   }
 
   .indexPlate a {
-    grid-template-columns: auto 1fr;
+    grid-template-columns: auto auto;
+    flex: 0 0 auto;
     min-width: max-content;
-    min-height: 44px;
-    align-items: center;
-    padding: 10px;
-    border: 1px solid rgba(123, 146, 164, 0.18);
   }
 }
 
 @media (max-width: 560px) {
-  .page {
-    padding-right: 10px;
-    padding-left: 10px;
-  }
-
-  .document section {
-    padding: 24px 18px;
-  }
-
-  .sectionHeading {
-    grid-template-columns: 28px minmax(0, 1fr);
-    gap: 8px;
-  }
-
   .sectionBody {
-    padding-left: 36px;
-    font-size: 0.94rem;
-  }
-
-  .documentSwitchboard {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding-left: 0;
+    font-size: 15px;
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .page {
-    scroll-behavior: auto;
-  }
+/* The four documents: chrome keys under the document, the open one lit by
+   its aria-current (ArenaWorkspace.css); a long name breaks evenly. */
+.documentSwitchboard > a {
+  text-wrap: balance;
 }
