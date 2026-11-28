@@ -17,6 +17,18 @@ Previous handoff this session continued from: "HANDOFF: Player Management bottom
 
 **Everything merged tonight is LIVE in 2b3b3647d** (each merge SHA is an ancestor of it).
 
+> **UPDATE 11:35 PM CT (supersedes the table and orders 2 to 4 below):** #12301, #12304, #12307 and #12310 have ALL MERGED.
+>
+> - #12301 Blacklist: merge `6a7d7ab4496f508c4b396290946195c4b4980690` (publish run `46112353977`, in progress at handoff)
+> - #12304 money pages: merge `f3a649b62a7e9c8a3ba4dbe1eeb6e3d247f8eb6d` (publish run `46112605873`, in progress)
+> - #12307 Stats tabs: merge `7e382b8baadb27dae176516d56b59556a1d1f4d3` (publish run `46112432571`, in progress)
+> - #12310 this handoff doc: merge `680bacf66` (docs only, publish success)
+> - Fixes the batch lane made on the way: `tests/e2e/live-animations.spec.ts:642` (insurance dialog on a short phone) now waits for finite animations to finish before measuring (it measured mid-slide-in on slow runners; no assertion changed, loops are skipped); `.github/actions/install-postgres-17/install.sh` no longer pipes `printf` into `grep -qx` under pipefail (a random false "not found" could leave postgresql-client-17 unpinned), plus a new assertion in `tests/postgres-installs-from-one-shared-action.law.test.ts`.
+> - Live at handoff: still `2b3b3647d` (before these). **YOUR FIRST JOB:** confirm both build-info.json endpoints show `f3a649b62` or a newer SHA that contains all three merge SHAs above (`gh api repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/compare/<merge>...<live> --jq .status` = ahead/identical). Then confirm a post-deploy-e2e "Client browser verification" job on such a SHA is fully green (download post-deploy-playwright-report into a mktemp -d dir and check every test is "expected"; the hero celebration test fails only if production advances mid-run, so check the next run if so). Then report to Dan. Then do order 4 onward (inventory doc update, continue the sweep).
+> - Worktrees left in the old sandbox: `statsfit`, `sweep5`, `handoff` (irrelevant to a new sandbox).
+
+**This handoff is also committed to the repo** as `docs/HANDOFF-2026-11-27-club-arena-smarterdesign.md` via docs-only PR **#12310** (branch `agent/handoff/docs/handoff-smarterdesign-2026-11-27`, auto-merge armed). If #12310 has not merged, read it from that branch.
+
 **STILL OPEN, NOT MERGED, NOT LIVE (your first jobs):**
 
 | #   | PR                                                                                                    | Branch                                                     | Head        | State at handoff                                                                                                           | Auto-merge                                                |
