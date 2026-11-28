@@ -1,0 +1,194 @@
+/* SETTLEMENT HISTORY in #SmarterDesign (batch O2, 2026-11-28).
+
+   The mast, cases, keys, readout tiles and ledger rows come from
+   ArenaWorkspace.css and ArenaOps.css. This sheet gives the page its height,
+   lays out the timeline and each cycle row, and sets the inks of the lines
+   that are the page's own, from the workspace's ink table. Every rule is
+   scoped under the page's .arena-workspace root. Nothing reacts to a pointer
+   resting on it. */
+
+.arena-workspace.settlement-history-page {
+  min-height: 100dvh;
+  padding-bottom: max(var(--bottom-nav-clearance, 74px), env(safe-area-inset-bottom));
+  overflow-x: clip;
+}
+
+.arena-workspace.settlement-history-page .settlement-history-page__back {
+  margin-bottom: 7px;
+}
+
+/* One Back key, not a full-width bar across the phone. */
+.arena-workspace.settlement-history-page .settlement-history-page__back > button {
+  flex: 0 1 140px;
+}
+
+.arena-workspace.settlement-history-page .settlement-history-page__summary .arena-ops-readings {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.arena-workspace.settlement-history-page
+  .settlement-history-page__summary
+  .arena-meter:nth-child(2)
+  dd {
+  color: #c8ffd2;
+}
+
+.arena-workspace.settlement-history-page .settlement-history-page__summary--failed .arena-meter dd {
+  color: #ff5b6e;
+}
+
+.arena-workspace.settlement-history-page .settlement-history-page__bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 64px;
+  margin-top: 10px;
+  padding: 0 2px;
+  border-bottom: 1px solid #476079;
+}
+
+.arena-workspace.settlement-history-page .settlement-history-page__bar {
+  flex: 1;
+  min-width: 2px;
+  max-height: 60px;
+  background: #ffd700;
+  transform-origin: bottom;
+  animation: settlementHistoryBarRise 500ms ease-out both;
+}
+
+.arena-workspace.settlement-history-page .settlement-history-page__bar[data-complete='true'] {
+  background: #35d95a;
+}
+
+.arena-workspace.settlement-history-page .settlement-history-page__axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  padding: 0 2px;
+  color: #9fbacc;
+  font:
+    700 10px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.arena-workspace.settlement-history-page .settlement-history-page__state {
+  margin: 0;
+  padding: 20px 12px;
+  color: #9fbacc;
+  text-align: center;
+  font:
+    13px/1.45 Arial,
+    sans-serif;
+}
+
+.arena-workspace.settlement-history-page .settlement-history-page__state[role='alert'] {
+  color: #ff5b6e;
+}
+
+.arena-workspace.settlement-history-page .settlement-history-page__retry {
+  justify-content: center;
+  margin-top: 10px;
+}
+
+.arena-workspace.settlement-history-page .settlement-history-page__retry > button {
+  flex: 0 1 160px;
+}
+
+.arena-workspace.settlement-history-page .settlement-history-page__cycles {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.arena-workspace.settlement-history-page .settlement-history-page__cycle {
+  padding: 8px 10px;
+  opacity: 0;
+  transform: translateX(-8px);
+  transition:
+    opacity 300ms ease,
+    transform 300ms ease;
+}
+
+.arena-workspace.settlement-history-page .settlement-history-page__cycle[data-visible='true'] {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.arena-workspace.settlement-history-page .settlement-history-page__cycle-head,
+.arena-workspace.settlement-history-page .settlement-history-page__amounts {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.arena-workspace.settlement-history-page .settlement-history-page__cycle-head {
+  align-items: flex-start;
+}
+
+.arena-workspace.settlement-history-page .settlement-history-page__cycle-head strong {
+  display: block;
+  color: #f1f5fc;
+  font:
+    800 15px/1.15 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.arena-workspace.settlement-history-page .settlement-history-page__cycle-head time {
+  display: block;
+  margin-top: 2px;
+  color: #74dfff;
+  font:
+    11px/1.35 Arial,
+    sans-serif;
+}
+
+.arena-workspace.settlement-history-page .settlement-history-page__status {
+  color: #ffe98a;
+  font:
+    700 12px/1.2 'Arial Narrow',
+    Arial,
+    sans-serif;
+}
+
+.arena-workspace.settlement-history-page .settlement-history-page__status--done {
+  color: #c8ffd2;
+}
+
+.arena-workspace.settlement-history-page .settlement-history-page__amounts {
+  flex-wrap: wrap;
+  margin-top: 7px;
+  color: #9fbacc;
+  font:
+    12px/1.35 Arial,
+    sans-serif;
+}
+
+.arena-workspace.settlement-history-page .settlement-history-page__amounts strong {
+  color: #f1f5fc;
+  font-variant-numeric: tabular-nums;
+}
+
+.arena-workspace.settlement-history-page
+  .settlement-history-page__amounts
+  .settlement-history-page__fee {
+  color: #ff5b6e;
+}
+
+.arena-workspace.settlement-history-page
+  .settlement-history-page__amounts
+  .settlement-history-page__net {
+  color: #c8ffd2;
+}
+
+@keyframes settlementHistoryBarRise {
+  from {
+    transform: scaleY(0.08);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}

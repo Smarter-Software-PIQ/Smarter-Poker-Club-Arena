@@ -60,6 +60,7 @@ const LINKED_CONSOLES: readonly LinkedConsole[] = [
     relativeUrl: `settlement-history?club=${encodeURIComponent(CLUB_ID)}`,
     heading: 'Settlement History',
     root: 'main',
+    chassis: 'arena',
   },
   {
     label: 'Settlement Center',
