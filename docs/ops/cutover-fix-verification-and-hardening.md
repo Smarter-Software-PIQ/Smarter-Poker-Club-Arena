@@ -391,6 +391,14 @@ An independent review compared `scripts/release/three-hourly-readiness.py` (O36,
 - **Not read still:** a re-run of an Apply run older than 48 hours before the copy; contents (the selector compares those).
 - **Live proof:** pending the first readiness posts on `#11599` after the merge.
 
+### The Apply Run Reports Its Own Refusal (2026-11-27)
+
+- **Why it broke:** `Migration Apply Refusal Alert` listened for `workflow_run` of `Apply Merged Migration`. The merge dispatcher starts the applier with the Actions job token, and GitHub raises no `workflow_run` event for a run the job token started. Apply run `46054847104` refused `20261127172908` (statement timeout) at 13:13 CST and nothing was posted on #12217 or on #11599; the alert workflow's whole history was one manual dispatch (`45943016172`). Separately, the script read the job log with plain `gh api`, which the hosted runner's gh (2.97 and later) refuses for a body holding terminal escape sequences, and it swallowed that into an empty log.
+- **Root-cause fix:** the failed run is its own reader. `apply-merged-migration.yml` carries a `report-refusal` job (`needs: apply`, only when the apply job concluded `failure`, never for a dry run) with no environment and no secret, which runs `scripts/ci/migration-apply-refusal-alert.mjs` on its own run id. The script decides from the apply job's conclusion, because the run's own conclusion is still null while it is running, and never picks the report job as the failure. No watcher, no timer, no retry.
+- **Hardening:** `ghApiText` always passes `--allow-escape-sequences` and falls back only on gh's own "unknown flag" answer (the rule of #12249); terminal escape sequences are stripped before parsing; an unreadable, empty or unrecognized log is stated in both comments as `Detail unread:` with the reason. `migration-apply-refusal-alert.yml` stays as the hand door and its header now says its `workflow_run` trigger cannot fire for the normal route. Dedup by apply run id keeps the two routes from double-posting.
+- **What stops it returning:** `tests/the-apply-run-reports-its-own-refusal.law.test.ts` (6 of 7 fail on main before the change, 7 of 7 pass after) and the new cases in `tests/unit/migrationApplyRefusalAlert.test.ts`.
+- **Live proof:** pending the next refused apply on main: a `Report a refused install` job in that run, and one comment each on the owning pull request and #11599.
+
 ### Decided Against Or Deferred (2026-11-27)
 
 - **A retest after the window installs:** not built. A push after 04:15 CST refreshes the copy on its own, and a `current` keep-serving result means there is nothing new to certify.
