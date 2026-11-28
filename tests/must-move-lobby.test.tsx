@@ -475,7 +475,7 @@ describe('the lobby', () => {
     mocks.rpc.mockResolvedValue({ data: lobby(), error: null });
     render(<MustMoveLobbyModal isOpen gameId={GAME} currentTableId={FEEDER} onClose={vi.fn()} />);
     await waitFor(() => expect(screen.getByText('NLH 0.10/0.25 Action')).toBeTruthy());
-    expect(screen.getByText('LIGHTNING GAMES')).toBeTruthy();
+    expect(screen.getByText('Lightning Games')).toBeTruthy();
     expect(screen.getByText('Main 1')).toBeTruthy();
     expect(screen.getAllByText('Main 2').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Feeder').length).toBeGreaterThan(0);
