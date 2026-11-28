@@ -407,14 +407,16 @@ describe('a rate over an empty sample says so (defect 3)', () => {
         full={null}
       />
     );
-    expect(row(freerolls, 'ITM %').value).toBe('36.4%');
+    // 0.3636 reads 36.3%: cut, never rounded (2026-11-27); this pinned 36.4%.
+    expect(row(freerolls, 'ITM %').value).toBe('36.3%');
     expect(row(freerolls, 'ROI').value).toBe(NOT_YET_MEASURED);
     cleanup();
 
     const { container: real } = render(
       <TournamentsTab tourn={TOURN} overall={OVERALL} full={null} />
     );
-    expect(row(real, 'ROI').value).toBe('109.1%');
+    // 1.0909 reads 109.0%: cut, never rounded (2026-11-27); this pinned 109.1%.
+    expect(row(real, 'ROI').value).toBe('109.0%');
   });
 });
 

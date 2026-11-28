@@ -27,7 +27,7 @@ import {
   type StyleSourceStats,
 } from './playerStyleFromStats';
 import { arenaDisplayText } from '../../lib/arenaDisplay/text';
-import { compactChips } from '../../utils/format';
+import { compactChips, cutFixed } from '../../utils/format';
 
 interface Props {
   displayName: string;
@@ -236,7 +236,7 @@ export default function StatsShareCard({
     ctx.font = `800 96px ${FONT}`;
     const bbText = privacyPresentationMode
       ? 'PRIVATE'
-      : `${n(stats.bb100) >= 0 ? '+' : ''}${n(stats.bb100).toFixed(1)}`;
+      : `${n(stats.bb100) >= 0 ? '+' : ''}${cutFixed(n(stats.bb100), 1)}`;
     ctx.fillText(bbText, 64, 262);
     const bbW = ctx.measureText(bbText).width;
     ctx.fillStyle = 'rgba(200,224,245,0.6)';
@@ -271,10 +271,10 @@ export default function StatsShareCard({
           ? 'PRIVATE'
           : stats.hoursPlayed === null
             ? 'UNAVAILABLE'
-            : n(stats.hoursPlayed).toFixed(1),
+            : cutFixed(n(stats.hoursPlayed), 1),
       ],
-      ['VPIP', privacyPresentationMode ? 'PRIVATE' : `${n(stats.vpip).toFixed(1)}%`],
-      ['PFR', privacyPresentationMode ? 'PRIVATE' : `${n(stats.pfr).toFixed(1)}%`],
+      ['VPIP', privacyPresentationMode ? 'PRIVATE' : `${cutFixed(n(stats.vpip), 1)}%`],
+      ['PFR', privacyPresentationMode ? 'PRIVATE' : `${cutFixed(n(stats.pfr), 1)}%`],
     ];
     const tileW = 244;
     const tileH = 118;

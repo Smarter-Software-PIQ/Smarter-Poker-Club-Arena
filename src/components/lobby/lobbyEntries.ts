@@ -71,6 +71,7 @@ import { tournamentRowUnitCents, type TournamentArenaEmbed } from '../tournament
 import { DIAMOND_UNIT_CENTS } from '../../../server/src/tournament/tournamentUnit';
 import { CASH_TEMPLATES, cashTemplateKey, cashTemplateNote } from '../../config/cashGames';
 import { isKillVariant, killTableRuleOf } from '../../utils/killPot';
+import { cutNumberFormat, cutTo } from '../../utils/format';
 
 // ─── Raw row shapes (subset the lobby queries actually select) ─────────────
 /* Extends CashFeatureSource so the medallion columns travel on the same row
@@ -463,10 +464,12 @@ const TOURNEY_VARIANT_KEYS: Record<string, string> = {
 export function formatChipTotal(n: number): string {
   const v = Number(n);
   if (!Number.isFinite(v)) return '0';
-  const rounded = Math.round(v * 100) / 100;
-  return Number.isInteger(rounded)
-    ? rounded.toLocaleString('en-US')
-    : rounded.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const shown = cutTo(v, 2);
+  return Number.isInteger(shown)
+    ? shown.toLocaleString('en-US')
+    : cutNumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(
+        shown
+      );
 }
 
 export function variantDisplay(variant?: string): { short: string; long: string } {
@@ -1916,7 +1919,7 @@ export function levelSpeedLabel(t: LobbyTournamentRow): string | null {
   if (!structure) return null;
   const mins = describeStoredMttStructure(structure, t.starting_chips).openingMinutes;
   if (mins === null) return null;
-  const rounded = Math.round(mins * 10) / 10;
+  const rounded = cutTo(mins, 1);
   /* Just the number. "Levels" used to be in the value and wrapped the well
      onto three lines on a 375px card, under a heading that already said BLIND
      LEVELS. The heading carries the noun. */

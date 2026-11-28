@@ -1,4 +1,5 @@
 import { multiplierLabel } from '../../utils/diamondGamesFairness';
+import { cutFixed } from '../../utils/format';
 
 /** The four Diamond bonus games, by the name their routes and awards use. */
 export type BonusReceiptGame = 'crash' | 'plinko' | 'crossing' | 'mines';
@@ -31,7 +32,7 @@ export function bookedAtCap(figure: number | null | undefined, cap: number | nul
 export function receiptFigure(game: BonusReceiptGame, figure: number | null | undefined) {
   const value = Number(figure);
   if (figure === null || figure === undefined || !Number.isFinite(value) || value < 0) return null;
-  if (game === 'crash') return `${value.toFixed(2)}x`;
+  if (game === 'crash') return `${cutFixed(value, 2)}x`;
   if (game === 'plinko') return multiplierLabel(Math.round(value * 100));
   if (game === 'crossing') return `Street ${Math.round(value)}`;
   return Math.round(value).toLocaleString('en-US');

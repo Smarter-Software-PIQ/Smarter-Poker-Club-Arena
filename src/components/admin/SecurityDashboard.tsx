@@ -9,6 +9,7 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
 
 import { useMemo } from 'react';
 import CircularGauge from '../common/CircularGauge';
+import { cutFixed } from '../../utils/format';
 
 interface SecurityDashboardProps {
   memberCount: number;
@@ -57,7 +58,7 @@ export default function SecurityDashboard({
     list.push({
       label: 'Agent Coverage',
       status: agentRatio > 0.1 ? 'pass' : agentRatio > 0.05 ? 'warn' : 'fail',
-      detail: `${agentCount} agent${agentCount !== 1 ? 's' : ''} for ${memberCount} members (${(agentRatio * 100).toFixed(1)}%)`,
+      detail: `${agentCount} agent${agentCount !== 1 ? 's' : ''} for ${memberCount} members (${cutFixed(agentRatio * 100, 1)}%)`,
     });
 
     // Activity ratio

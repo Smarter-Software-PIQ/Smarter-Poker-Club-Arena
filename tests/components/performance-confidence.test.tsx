@@ -105,8 +105,9 @@ describe('Performance cash-stat evidence', () => {
 
     const cbet = screen.getByText('C-Bet Flop').closest('.stat-row');
     expect(cbet).not.toBeNull();
+    // Each bound is cut at the tenth, never rounded (2026-11-27); this pinned 40.4%.
     expect(within(cbet as HTMLElement).getByText(/100 Opportunities/)).toHaveTextContent(
-      '100 Opportunities · 40.4% To 59.6%'
+      '100 Opportunities · 40.3% To 59.6%'
     );
 
     const wtsd = screen.getByText('WTSD').closest('.stat-row');

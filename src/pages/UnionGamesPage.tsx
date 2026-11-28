@@ -26,7 +26,7 @@ import { tournamentService, tournamentUnregisterSuccessText } from '../services/
 import PageSkeleton from '../components/common/PageSkeleton';
 import styles from './UnionGamesPage.module.css';
 import { useIsMounted } from '../hooks/useIsMounted';
-import { fmt, fmtChips } from '../utils/format';
+import { fmt, fmtChips, cutFixed } from '../utils/format';
 import { jackpotChips } from '../utils/jackpotExact';
 import { reportError } from '../utils/errorReporter';
 import { useTournamentRegistration } from '../hooks/useTournamentRegistration';
@@ -754,7 +754,7 @@ export default function UnionGamesPage() {
                 </div>
                 <div className={styles.statCard}>
                   <div className={styles.statValue}>
-                    {(bbjPool.contribution_rate * 100).toFixed(1)}%
+                    {cutFixed(bbjPool.contribution_rate * 100, 1)}%
                   </div>
                   <div className={styles.statLabel}>Contribution Rate</div>
                 </div>

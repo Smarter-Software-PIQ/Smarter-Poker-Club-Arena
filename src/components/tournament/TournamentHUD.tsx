@@ -1,6 +1,6 @@
 import { readTournamentStandings } from '../../services/readTournamentStandings';
 import { maintenanceClockFrozen } from '../../utils/maintenanceLevelClock';
-import { exactChips } from '../../utils/format';
+import { exactChips, cutNumberFormat } from '../../utils/format';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  TOURNAMENT HUD — the tournament info dock UNDER the action bar
@@ -219,7 +219,7 @@ function fmtClock(totalSeconds: number): string {
 }
 
 // Only the bottom dock's average is approximate; blinds and prizes stay exact.
-const dockAverage = new Intl.NumberFormat('en-US', { notation: 'compact' });
+const dockAverage = cutNumberFormat('en-US', { notation: 'compact' });
 
 function fmtChips(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return '-';

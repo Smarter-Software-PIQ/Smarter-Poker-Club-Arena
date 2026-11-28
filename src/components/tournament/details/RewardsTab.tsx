@@ -117,7 +117,7 @@ import {
   tournamentRowUnitCents,
   type PayoutSubject,
 } from './types';
-import { formatPrizeAtUnit, moneySuffixAtUnit } from '../../../utils/format';
+import { formatPrizeAtUnit, moneySuffixAtUnit, cutFixed } from '../../../utils/format';
 import {
   CHIP_UNIT_CENTS,
   normalizeUnitCents,
@@ -183,7 +183,7 @@ function bandLabel(band: PayoutBand): string {
 
 /** Percentages print without a trailing ".0" but keep a real decimal. */
 function pct(n: number): string {
-  return `${Number.isInteger(n) ? n : Number(n.toFixed(2))}%`;
+  return `${Number.isInteger(n) ? n : Number(cutFixed(n, 2))}%`;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

@@ -9,8 +9,13 @@
  *   - a call that sets no fraction or significant-digit limit gets at most two
  *     decimals, cut (roundingMode 'trunc'), never rounded;
  *   - a call asking for more than two decimals is clamped to two;
- *   - percent, compact and significant-digit calls, and calls that already
- *     ask for two or fewer, are left exactly as written.
+ *   - percent, compact and significant-digit calls keep their own place
+ *     counts, and calls that already ask for two or fewer keep theirs;
+ *   - EVERY call that names no roundingMode CUTS (roundingMode 'trunc'), so a
+ *     `{ maximumFractionDigits: 2 }` or `{ maximumFractionDigits: 0 }` call no
+ *     longer rounds 0.999 up to "1" (2026-11-27, "ABSOLUTELY ZERO ROUNDING
+ *     ANYWHERE EVER"). The value is read at fifteen significant digits first,
+ *     so float noise such as 0.29 * 100 = 28.999999999999996 reads 29, not 28.
  * Installed once, as the first import of src/main.tsx. Idempotent.
  */
 
@@ -45,16 +50,16 @@ export function cutToPlaces(value: number, places: number): number {
 /** The options a display call is given under the two-decimal rule. */
 export function twoDecimalOptions(options: Options | undefined): Options | undefined {
   const o = options ?? {};
-  if (o.style === 'percent' || o.notation === 'compact') return options;
-  if (o.maximumSignificantDigits != null || o.minimumSignificantDigits != null) return options;
+  const cut: Options = o.roundingMode == null ? { ...o, roundingMode: 'trunc' } : o;
+  if (o.style === 'percent' || o.notation === 'compact') return cut;
+  if (o.maximumSignificantDigits != null || o.minimumSignificantDigits != null) return cut;
   const max = o.maximumFractionDigits;
-  if (max != null && max <= MAX_PLACES) return options;
+  if (max != null && max <= MAX_PLACES) return cut;
   const min = Math.min(o.minimumFractionDigits ?? 0, MAX_PLACES);
   return {
-    ...o,
+    ...cut,
     minimumFractionDigits: min,
     maximumFractionDigits: MAX_PLACES,
-    roundingMode: 'trunc',
   };
 }
 
@@ -71,8 +76,19 @@ export function installTwoDecimalDisplay(): void {
   ): string {
     const next = twoDecimalOptions(options);
     if (next === options) return original.call(this, locales, options);
-    const value = Number(this);
-    const shown = supportsTrunc(original) ? value : cutToPlaces(value, MAX_PLACES);
+    const raw = Number(this);
+    // Float noise is not a digit: read the double at the precision it carries.
+    const value = Number.isFinite(raw) ? Number(raw.toPrecision(15)) : raw;
+    const places = Math.min(next?.maximumFractionDigits ?? MAX_PLACES, MAX_PLACES);
+    const fixedPlaces =
+      next?.style !== 'percent' &&
+      next?.notation !== 'compact' &&
+      next?.maximumSignificantDigits == null &&
+      next?.minimumSignificantDigits == null;
+    const shown =
+      supportsTrunc(original) || !fixedPlaces || next?.roundingMode !== 'trunc'
+        ? value
+        : cutToPlaces(value, places);
     const text = original.call(shown, locales, next);
     // A tiny negative cut to zero reads "0", never "-0".
     return /^-[0.,\s]*$/.test(text) ? text.slice(1) : text;

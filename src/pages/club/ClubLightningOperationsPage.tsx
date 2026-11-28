@@ -38,7 +38,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { SpadeConsole } from '../../components/console/SpadeConsole';
-import { compactChips } from '../../utils/format';
+import { compactChips, cutFixed } from '../../utils/format';
 import { titleCase } from '../../utils/titleCase';
 import { formatStakes } from '../../lib/utils';
 import { reportError } from '../../utils/errorReporter';
@@ -109,7 +109,7 @@ export function clusterNotices(c: LightningOverviewCluster): string[] {
 
 function signedOne(n: number | null | undefined): string {
   if (n === null || n === undefined) return '-';
-  return `${n > 0 ? '+' : ''}${n.toFixed(1)}`;
+  return `${n > 0 ? '+' : ''}${cutFixed(n, 1)}`;
 }
 
 export function ClusterRecord({

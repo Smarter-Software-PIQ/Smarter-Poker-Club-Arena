@@ -31,7 +31,7 @@ import { reportError } from '../../utils/errorReporter';
 import { titleCase } from '../../utils/titleCase';
 import { SpadeConsole } from '../console/SpadeConsole';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
-import { compactChips } from '../../utils/format';
+import { compactChips, cutFixed } from '../../utils/format';
 import './UnionOpsPanel.css';
 
 type Tab = 'risk' | 'hierarchy' | 'settlement' | 'integrity';
@@ -383,7 +383,7 @@ function UnionOpsPanelForUnion({ unionId, canRun }: { unionId: string; canRun: b
             <Stat
               label="Rates Out Of Policy"
               value={coverage.commission_rates_out_of_policy}
-              sub={`band ${(coverage.policy_band.min * 100).toFixed(1)}-${(coverage.policy_band.max * 100).toFixed(1)}%`}
+              sub={`band ${cutFixed(coverage.policy_band.min * 100, 1)}-${cutFixed(coverage.policy_band.max * 100, 1)}%`}
               bad={coverage.commission_rates_out_of_policy > 0}
             />
           </div>

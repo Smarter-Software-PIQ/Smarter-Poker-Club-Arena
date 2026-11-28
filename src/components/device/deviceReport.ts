@@ -2,6 +2,7 @@ import { nativePlatform, isNativePlatform } from '../../lib/appBase';
 import { iosWebkitVersion, vibrationPath, type VibrationPath } from '../../utils/vibrationGate';
 import { QUALITY_STORAGE_KEY, QUALITY_TIERS, rememberedTier } from '../games/qualityGovernor';
 import { isSoftwareRenderer } from '../games/rendererTier';
+import { cutFixed } from '../../utils/format';
 
 /**
  * What the device check reports, as plain words a player (or Dan, holding his
@@ -27,7 +28,7 @@ export function deviceLabel(): string {
     const safari = /Version\/(\d+(?:\.\d+)?)/.exec(ua);
     return safari
       ? `IPhone Or IPad Browser (Safari ${safari[1]})`
-      : `IPhone Or IPad Browser (Reports IOS ${ios.toFixed(1)})`;
+      : `IPhone Or IPad Browser (Reports IOS ${cutFixed(ios, 1)})`;
   }
   if (/Android/i.test(ua)) return 'Android Browser';
   return 'Computer Browser';

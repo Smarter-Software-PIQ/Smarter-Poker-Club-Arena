@@ -95,7 +95,7 @@ import { reportError } from '../utils/errorReporter';
 import { formatPopupText } from '../utils/popupStyle';
 import { CashierWorkspace } from '../components/wallet/CashierWorkspace';
 import { ClubPageSection } from '../components/club/ClubPageSection';
-import { compactChips, formatWalletChips } from '../utils/format';
+import { compactChips, formatWalletChips, cutFixed } from '../utils/format';
 import { enumToTitleCase, titleCase } from '../utils/titleCase';
 
 type CashierAction = 'send' | 'distribute' | 'buyin' | 'cashout' | 'mint' | 'history';
@@ -2737,7 +2737,7 @@ function CashierContent({ embeddedClubId }: { embeddedClubId?: string }) {
                                         : '';
                           const commInfo =
                             isAgent && r.commissionRate
-                              ? ` ${(r.commissionRate * 100).toFixed(1)}%`
+                              ? ` ${cutFixed(r.commissionRate * 100, 1)}%`
                               : '';
                           const typeInfo = isAgent ? (r.isPrepaid ? ' PP' : ' CR') : '';
                           return (

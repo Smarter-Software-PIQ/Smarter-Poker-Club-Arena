@@ -548,7 +548,8 @@ describe('the hero does not rate an empty sample (defect 3, hero)', () => {
   it('a measured cash win rate still prints its number and its colour', async () => {
     render(<PlayerStatsPage />);
     const h = await hero();
-    expect(await within(h).findByText('4.3')).toHaveClass('positive');
+    // 4.25 BB/100 reads 4.2: cut, never rounded (2026-11-27); this pinned 4.3.
+    expect(await within(h).findByText('4.2')).toHaveClass('positive');
     expect(within(h).getByText('BB/100 Hands').parentElement).not.toHaveTextContent(
       NOT_YET_MEASURED
     );

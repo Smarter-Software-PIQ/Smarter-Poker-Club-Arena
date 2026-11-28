@@ -10,6 +10,7 @@ import { ratioOrUnmeasured } from './format';
 import { RANGES } from './types';
 import { sharedStatsHelp } from './StatsWorkspaceHeader';
 import PageBar from '../../components/help/PageBar';
+import { cutFixed } from '../../utils/format';
 
 interface Props {
   renderMast?: (context: string) => ReactNode;
@@ -276,14 +277,14 @@ export default function SharedClubStatsView(props: Props) {
                   <td data-label="Won">{o.hands_won ?? 0}</td>
                   {!tournament && (
                     <td data-label="BB/100 Hands">
-                      {ratioOrUnmeasured(o.bb_per_100, o.cash_hands, (value) => value.toFixed(1))}
+                      {ratioOrUnmeasured(o.bb_per_100, o.cash_hands, (value) => cutFixed(value, 1))}
                     </td>
                   )}
                   <td data-label="VPIP">
-                    {ratioOrUnmeasured(o.vpip, o.hands, (value) => `${(value * 100).toFixed(1)}%`)}
+                    {ratioOrUnmeasured(o.vpip, o.hands, (value) => `${cutFixed(value * 100, 1)}%`)}
                   </td>
                   <td data-label="PFR">
-                    {ratioOrUnmeasured(o.pfr, o.hands, (value) => `${(value * 100).toFixed(1)}%`)}
+                    {ratioOrUnmeasured(o.pfr, o.hands, (value) => `${cutFixed(value * 100, 1)}%`)}
                   </td>
                   {tournament && (
                     <>

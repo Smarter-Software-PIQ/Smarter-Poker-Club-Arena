@@ -24,6 +24,7 @@ import PageSkeleton from '../components/common/PageSkeleton';
 import { useIsMounted } from '../hooks/useIsMounted';
 import { reportError } from '../utils/errorReporter';
 import CasinoSurfaceHeader from '../components/rewards/RewardsSurfaceHeader';
+import { cutFixed } from '../utils/format';
 
 interface SessionRecord {
   id: string;
@@ -316,11 +317,11 @@ export default function SessionHistoryPage() {
       <div className="sh-stats-row">
         <div className="sh-mini-stat">
           <span className="sh-mini-label">Avg VPIP</span>
-          <span className="sh-mini-value">{avgVPIP.toFixed(1)}%</span>
+          <span className="sh-mini-value">{cutFixed(avgVPIP, 1)}%</span>
         </div>
         <div className="sh-mini-stat">
           <span className="sh-mini-label">Avg PFR</span>
-          <span className="sh-mini-value">{avgPFR.toFixed(1)}%</span>
+          <span className="sh-mini-value">{cutFixed(avgPFR, 1)}%</span>
         </div>
       </div>
 

@@ -19,7 +19,7 @@ import type { StatsMetricAvailabilityContract } from '../../services/statsContra
 import { formatRateEvidence, formatSampleEvidence } from './binomialConfidence';
 import type { CashOpportunityStats } from '../../services/StatsFactsService';
 import type { CashEvidenceMetric } from '../../components/stats/CashIntelligencePanel';
-import { compactChips } from '../../utils/format';
+import { compactChips, cutFixed } from '../../utils/format';
 
 const EVLuckChart = lazy(() => import('../../components/stats/EVLuckChart'));
 const CashIntelligencePanel = lazy(() => import('../../components/stats/CashIntelligencePanel'));
@@ -115,7 +115,7 @@ export default function PerformanceTab({
             value={ratioOrUnmeasured(
               overall.vpip,
               overall.total_hands,
-              (v) => `${(v * 100).toFixed(1)}%`
+              (v) => `${cutFixed(v * 100, 1)}%`
             )}
             color="#c0e7ff"
             evidence={formatRateEvidence(overall.vpip, overall.total_hands)}
@@ -125,7 +125,7 @@ export default function PerformanceTab({
             value={ratioOrUnmeasured(
               overall.pfr,
               overall.total_hands,
-              (v) => `${(v * 100).toFixed(1)}%`
+              (v) => `${cutFixed(v * 100, 1)}%`
             )}
             color="#c0e7ff"
             evidence={formatRateEvidence(overall.pfr, overall.total_hands)}
@@ -135,11 +135,11 @@ export default function PerformanceTab({
             value={
               exactThreeBet
                 ? threeBetMeasured
-                  ? `${((exactThreeBet.actions / exactThreeBet.opportunities) * 100).toFixed(1)}%`
+                  ? `${cutFixed((exactThreeBet.actions / exactThreeBet.opportunities) * 100, 1)}%`
                   : NOT_YET_MEASURED
                 : metricAvailability?.three_bet_percent !== true
                   ? NOT_YET_MEASURED
-                  : `${(overall.three_bet_percent * 100).toFixed(1)}%`
+                  : `${cutFixed(overall.three_bet_percent * 100, 1)}%`
             }
             color="#c0e7ff"
             evidence={formatRateEvidence(
@@ -155,7 +155,7 @@ export default function PerformanceTab({
             value={
               metricAvailability?.fold_to_three_bet !== true
                 ? NOT_YET_MEASURED
-                : `${(overall.fold_to_three_bet * 100).toFixed(1)}%`
+                : `${cutFixed(overall.fold_to_three_bet * 100, 1)}%`
             }
             color="#c0e7ff"
             evidence={formatRateEvidence(
@@ -177,11 +177,11 @@ export default function PerformanceTab({
             value={
               exactCbet
                 ? cbetMeasured
-                  ? `${((exactCbet.actions / exactCbet.opportunities) * 100).toFixed(1)}%`
+                  ? `${cutFixed((exactCbet.actions / exactCbet.opportunities) * 100, 1)}%`
                   : NOT_YET_MEASURED
                 : metricAvailability?.cbet_flop !== true
                   ? NOT_YET_MEASURED
-                  : `${(overall.cbet_flop * 100).toFixed(1)}%`
+                  : `${cutFixed(overall.cbet_flop * 100, 1)}%`
             }
             color="#c0e7ff"
             evidence={formatRateEvidence(
@@ -197,7 +197,7 @@ export default function PerformanceTab({
             value={
               metricAvailability?.wtsd !== true
                 ? NOT_YET_MEASURED
-                : `${(overall.wtsd * 100).toFixed(1)}%`
+                : `${cutFixed(overall.wtsd * 100, 1)}%`
             }
             color="#c0e7ff"
             evidence={formatRateEvidence(
@@ -213,7 +213,7 @@ export default function PerformanceTab({
               metricAvailability?.aggression_factor !== true
                 ? NOT_YET_MEASURED
                 : ratioOrUnmeasured(overall.aggression_factor, overall.total_hands, (v) =>
-                    v.toFixed(1)
+                    cutFixed(v, 1)
                   )
             }
             color="#c0e7ff"
@@ -249,7 +249,7 @@ export default function PerformanceTab({
           />
           <StatRow
             label="BB/100 Hands"
-            value={ratioOrUnmeasured(overall.bb_per_100, overall.cash_hands, (v) => v.toFixed(1))}
+            value={ratioOrUnmeasured(overall.bb_per_100, overall.cash_hands, (v) => cutFixed(v, 1))}
             color="#c0e7ff"
             evidence={formatSampleEvidence(overall.cash_hands, 'Hand')}
           />

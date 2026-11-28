@@ -113,7 +113,7 @@ import type { RakeScope } from '../../services/ClubRakeSnapshotService';
 import type { ConsoleInk } from '../../components/console/SpadeConsole';
 import { ClubPageSection as SpadeConsole } from '../../components/club/ClubPageSection';
 import { titleCase } from '../../utils/titleCase';
-import { compactChips } from '../../utils/format';
+import { compactChips, cutFixed, cutTo } from '../../utils/format';
 import ClubHitRunPanel from './ClubHitRunPanel';
 import styles from './ClubDataPage.module.css';
 import ClubDataRangeCalendar from '../../components/club/ClubDataRangeCalendar';
@@ -505,7 +505,7 @@ function splitPct(part: unknown, whole: unknown): string {
   const p = Number(part);
   const w = Number(whole);
   if (!Number.isFinite(p) || !Number.isFinite(w) || w === 0) return '';
-  return ` (${((p / w) * 100).toFixed(1)}%)`;
+  return ` (${cutFixed((p / w) * 100, 1)}%)`;
 }
 
 function toISODate(d: Date): string {
@@ -3337,7 +3337,7 @@ export default function ClubDataPage({
     if (pct === null || pct === undefined || !Number.isFinite(Number(pct))) return null;
     // The RPC rounds to one decimal; rounding again here means a hand-rolled
     // caller cannot push 33.33333333333333% into a 93px tile.
-    const v = Math.round(Number(pct) * 10) / 10;
+    const v = cutTo(Number(pct), 1);
     const cls = v > 0 ? 'sc-ink--green' : v < 0 ? 'sc-ink--red' : 'sc-ink--muted';
     return (
       <span
@@ -3981,7 +3981,7 @@ export default function ClubDataPage({
                       ['Combined ECO Adjustment', latestInvoice.breakdown.eco_amount],
                       ...unionEcoRows(latestInvoice.breakdown),
                       ...(unionEcoComponents(latestInvoice.breakdown) || []).map((eco) => [
-                        `${eco.activity === 'cash' ? 'Cash' : 'Tournament'} ECO Base (${(eco.rate * 100).toFixed(1)}%)`,
+                        `${eco.activity === 'cash' ? 'Cash' : 'Tournament'} ECO Base (${cutFixed(eco.rate * 100, 1)}%)`,
                         eco.base,
                       ]),
                       ['Payments Received', latestInvoice.breakdown.presettled],

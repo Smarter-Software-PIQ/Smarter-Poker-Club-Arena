@@ -28,7 +28,7 @@
 import { lazy, Suspense, useCallback, useState, type ReactNode } from 'react';
 import { SpadeConsole, type ConsoleInk } from '../../../components/console/SpadeConsole';
 import { useToast } from '../../../components/common/Toast';
-import { compactChips } from '../../../utils/format';
+import { compactChips, cutFixed, cutNumberFormat } from '../../../utils/format';
 import { titleCase } from '../../../utils/titleCase';
 import {
   DETAIL_WINDOWS,
@@ -117,7 +117,9 @@ function signed(n: number | null, digits = 1): string {
  *  such as a wait in milliseconds (whole). */
 function reading(n: number | null): string {
   if (n === null) return '-';
-  return Math.abs(n) >= 10 ? Math.round(n).toLocaleString('en-US') : n.toFixed(2);
+  return Math.abs(n) >= 10
+    ? cutNumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
+    : cutFixed(n, 2);
 }
 
 function signedReading(n: number | null): string {
@@ -154,11 +156,11 @@ function transitionLine(t: LightningTransition): string {
 }
 
 function score(n: number | null): string {
-  return n === null ? '-' : n.toFixed(1);
+  return n === null ? '-' : cutFixed(n, 1);
 }
 
 function share(n: number | null): string {
-  return n === null ? '-' : `${(n * 100).toFixed(1)}%`;
+  return n === null ? '-' : `${cutFixed(n * 100, 1)}%`;
 }
 
 // ─── Integrity signal review ───────────────────────────────────────────────

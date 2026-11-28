@@ -55,6 +55,7 @@ import { pendingFlush } from '../../lib/preferenceSync';
 import { lobbyScope } from './lobbyPreferenceSync';
 import { usePlatformCapability } from '../../hooks/usePlatformCapability';
 import './AdvancedFilters.css';
+import { cutFixed } from '../../utils/format';
 
 const TABS: { key: FilterGameType; label: string }[] = [
   { key: 'ALL', label: 'All' },
@@ -448,7 +449,7 @@ export function persistFilters(clubId: string, store: FilterStore): void {
 
 /** Format a range endpoint: blinds keep decimals, buy-ins do not. */
 function fmt(n: number): string {
-  return Number.isInteger(n) ? n.toLocaleString('en-US') : n.toFixed(2);
+  return Number.isInteger(n) ? n.toLocaleString('en-US') : cutFixed(n, 2);
 }
 
 interface AdvancedFiltersProps {

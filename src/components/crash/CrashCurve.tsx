@@ -81,6 +81,7 @@ import { crashMultiplierCents } from '../../utils/diamondGamesFairness';
 import { reportError } from '../../utils/errorReporter';
 import { soundService } from '../../services/SoundService';
 import styles from './CrashCurve.module.css';
+import { cutFixed } from '../../utils/format';
 export type CrashPhase = 'idle' | 'open' | 'cashed' | 'crashed';
 export interface CrashCurveProps {
   onLaunch?: () => void;
@@ -120,7 +121,7 @@ export function flightMultiplierCents(
 }
 /** The hero always prints two decimals so its digits do not jitter. */
 export function tickerLabel(cents: number): string {
-  return `${(Math.max(0, cents) / 100).toFixed(2)}x`;
+  return `${cutFixed(Math.max(0, cents) / 100, 2)}x`;
 }
 /** Calm to 2x, warm to 5x, hot past it. */
 export function tickerHeat(cents: number): 'calm' | 'warm' | 'hot' {

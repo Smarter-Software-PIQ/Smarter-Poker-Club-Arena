@@ -71,6 +71,7 @@ import {
   describeStoredMttStructure,
   mttClockDescription,
 } from '../../../server/src/tournament/mttStructureDescription';
+import { cutFixed } from '../../utils/format';
 
 interface Props {
   clubId: string;
@@ -1426,7 +1427,7 @@ export default function CreateTournamentModal({
                   */}
                     <span className={styles.sectionLabel}>Spin Payout Table</span>
                     <span className={styles.helperText}>
-                      {`One Table, ${SPIN_TIERS.length} Multipliers. Expected Return ${expectedMultiplier().toFixed(2)}X Per Buy In Across ${SPIN_SEATS} Seats, A House Edge Of ${(impliedHouseEdge() * 100).toFixed(1)}%.`}
+                      {`One Table, ${SPIN_TIERS.length} Multipliers. Expected Return ${cutFixed(expectedMultiplier(), 2)}X Per Buy In Across ${SPIN_SEATS} Seats, A House Edge Of ${cutFixed(impliedHouseEdge() * 100, 1)}%.`}
                     </span>
                   </div>
                 </div>
@@ -2472,7 +2473,7 @@ export default function CreateTournamentModal({
                 {!blindsValid && <p>Blind Structure Must Have At Least One Level</p>}
                 {!payoutsValid && (
                   <p>
-                    Payouts Must Total 100 Percent. They Currently Total {payoutsTotal.toFixed(1)}
+                    Payouts Must Total 100 Percent. They Currently Total {cutFixed(payoutsTotal, 1)}
                   </p>
                 )}
                 {!buyInValid && (

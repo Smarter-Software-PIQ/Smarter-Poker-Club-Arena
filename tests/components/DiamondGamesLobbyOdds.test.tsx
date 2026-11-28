@@ -140,7 +140,8 @@ describe('the lobby prints the crash odds the server plays', () => {
     // THE AVERAGE CRASH, from the same rule: every award's return is chosen for
     // a 2.9x average, inside Dan's "2.4 -3.0X", and the page computes it.
     expect(screen.getByText('Average Crash')).toBeTruthy();
-    expect(screen.getByText('2.9x')).toBeTruthy();
+    // The 2.89...x average reads 2.8x: cut, never rounded (2026-11-27); this pinned 2.9x.
+    expect(screen.getByText('2.8x')).toBeTruthy();
     expect(screen.getByText('20x')).toBeTruthy();
     fireEvent.click(screen.getAllByRole('button', { name: 'How It Pays' })[2]);
     const rules = await screen.findByText(/Ends Before Cash Out Opens/);
@@ -148,7 +149,8 @@ describe('the lobby prints the crash odds the server plays', () => {
     // rises to 1.137983 so its average is the same 2.9x, and it ends at the
     // floor less often than an ordinary award, not more.
     expect(rules.textContent).toContain(
-      'The Average Crash Is 2.9x On An Ordinary Award And 2.9x On A Super Award.'
+      // Cut, never rounded (2026-11-27); this pinned 2.9x for a 2.89...x average.
+      'The Average Crash Is 2.8x On An Ordinary Award And 2.8x On A Super Award.'
     );
     expect(rules.textContent).toContain('1 In 3 To 4.9 On A Super Award');
     expect(rules.textContent).not.toMatch(/\u2014/);

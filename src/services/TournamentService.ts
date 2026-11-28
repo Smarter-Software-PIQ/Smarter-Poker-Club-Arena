@@ -101,6 +101,7 @@ import {
   withTournamentUnregistrationIntent,
   ObsoleteTournamentUnregistrationIntentError,
 } from './TournamentUnregistrationIntent';
+import { cutNumberFormat } from '../utils/format';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -489,7 +490,7 @@ async function executeTournamentUnregisterRpc(
   }
 }
 
-const unregisterAmount = new Intl.NumberFormat(undefined, {
+const unregisterAmount = cutNumberFormat(undefined, {
   maximumFractionDigits: 2,
 });
 

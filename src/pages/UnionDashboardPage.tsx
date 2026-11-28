@@ -24,7 +24,7 @@ import './AdminDashboardPage.css';
 import { confirmDialog } from '../components/common/confirmDialog';
 import { useIsMounted } from '../hooks/useIsMounted';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
-import { fmt, formatWalletChips, timeAgo } from '../utils/format';
+import { fmt, formatWalletChips, timeAgo, cutFixed } from '../utils/format';
 import { jackpotChips } from '../utils/jackpotExact';
 import { UNION_DASHBOARD_CLUB_COLUMNS, clubWithMoneyPanel } from '../services/unionDashboardClubs';
 import ChipMintModal from '../components/wallet/ChipMintModal';
@@ -47,7 +47,7 @@ import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../utils/playerDisplayNa
 import { downloadCsv } from '../utils/downloadCsv';
 import { sumChips } from '../utils/cashierAmount';
 // ── Helpers ─────────────────────────────────────────────────
-const pct = (n: number | null | undefined) => `${((Number(n) || 0) * 100).toFixed(1)}%`;
+const pct = (n: number | null | undefined) => `${cutFixed((Number(n) || 0) * 100, 1)}%`;
 
 type UnionTab =
   | 'overview'

@@ -29,6 +29,7 @@ import { supabase } from '../lib/supabase';
 import { validateCrashSettlement } from '../utils/crashReceipt';
 import { crashCashoutFloorCents, crashPointFloorCents } from '../utils/diamondGamesFairness';
 import { bonusAdded, bonusTotal, earnedReceiptBudget } from '../utils/bonusGameBudget';
+import { cutFixed } from '../utils/format';
 
 export type DiamondGame = 'plinko' | 'crash' | 'crossing' | 'mines';
 
@@ -772,7 +773,7 @@ const DiamondGamesService = {
       displayedCents !== undefined &&
       (!Number.isSafeInteger(displayedCents) || displayedCents < floor)
     )
-      throw new Error(`Cash Out Starts At ${(floor / 100).toFixed(2)}x`);
+      throw new Error(`Cash Out Starts At ${cutFixed(floor / 100, 2)}x`);
     const request =
       cashout && displayedCents !== undefined
         ? supabase.rpc('fn_crash_cashout', {

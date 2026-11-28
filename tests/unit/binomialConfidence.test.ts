@@ -13,7 +13,8 @@ describe('cash-stat confidence evidence', () => {
     expect(interval?.opportunities).toBe(100);
     expect(interval?.lowerPercent).toBeCloseTo(40.38, 2);
     expect(interval?.upperPercent).toBeCloseTo(59.62, 2);
-    expect(formatRateEvidence(0.5, 100)).toBe('100 Opportunities · 40.4% To 59.6%');
+    // 40.38 is cut to 40.3, never rounded (2026-11-27); this pinned 40.4%.
+    expect(formatRateEvidence(0.5, 100)).toBe('100 Opportunities · 40.3% To 59.6%');
   });
 
   it('stays bounded for edge rates and uses the approved compact count convention', () => {

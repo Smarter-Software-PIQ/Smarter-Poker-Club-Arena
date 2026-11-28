@@ -74,7 +74,8 @@ describe('the formatter', () => {
     expect(jackpotPercent(10)).toBe('10');
     expect(jackpotPercent(12.5)).toBe('12.5');
     expect(jackpotPercent(0.1 * 100)).toBe('10');
-    expect(jackpotPercent(15.3798)).toBe('15.38');
+    // Cut, never rounded (2026-11-27, display-figures-are-cut-never-rounded); was '15.38'.
+    expect(jackpotPercent(15.3798)).toBe('15.37');
   });
 });
 
