@@ -113,6 +113,19 @@ test('a shared link and its package bytes stay untouched', (t) => {
   assert.ok(lstatSync(join(root, 'node_modules')).isSymbolicLink());
   assert.deepEqual(readFileSync(join(shared, 'node_modules/typescript/package.json')), before);
 });
+test('a symlinked node_modules is blocked even when the shared target has every locked package', (t) => {
+  const root = fixture(t);
+  const shared = fixture(t);
+  installFixture(shared, 'typescript');
+  installFixture(shared, '@native/phone');
+  symlinkSync(join(shared, 'node_modules'), join(root, 'node_modules'));
+  const before = readFileSync(join(shared, 'node_modules/typescript/package.json'));
+  const result = localDependencyPolicy(root, 'darwin');
+  assert.equal(result.mode, 'blocked');
+  assert.ok(result.missing.some((entry) => entry.includes('symlink')));
+  assert.ok(lstatSync(join(root, 'node_modules')).isSymbolicLink());
+  assert.deepEqual(readFileSync(join(shared, 'node_modules/typescript/package.json')), before);
+});
 test('the executable accepts only the package root, with no platform bypass flag', (t) => {
   const root = fixture(t);
   const script = fileURLToPath(
