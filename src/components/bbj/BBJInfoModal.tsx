@@ -382,7 +382,7 @@ export function BBJInfoModal({
       >
         <SpadeConsole
           onClose={onClose}
-          eyebrow={isMini ? 'MINI BAD BEAT JACKPOT' : 'BAD BEAT JACKPOT'}
+          eyebrow={isMini ? 'Mini Bad Beat Jackpot' : 'Bad Beat Jackpot'}
           title={headline}
           subtitle={asset === 'diamonds' ? 'Whole Diamonds' : sublabel}
           foot="foot"
