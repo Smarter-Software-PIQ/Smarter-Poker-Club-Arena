@@ -90,6 +90,10 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
+  box-sizing: border-box;
+  border-style: solid;
+  border-width: 6px;
+  border-color: transparent;
   border-image: var(--arena-stat) 11 / 6px stretch;
 }
 
@@ -189,6 +193,10 @@
   inset: 0;
   z-index: 1;
   pointer-events: none;
+  box-sizing: border-box;
+  border-style: solid;
+  border-width: 19px;
+  border-color: transparent;
   border-image: var(--arena-frame) 41 / 19px stretch;
 }
 
@@ -249,6 +257,10 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
+  box-sizing: border-box;
+  border-style: solid;
+  border-width: 6px;
+  border-color: transparent;
   border-image: var(--arena-active) 11 / 6px stretch;
 }
 
@@ -456,6 +468,10 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
+  box-sizing: border-box;
+  border-style: solid;
+  border-width: 6px;
+  border-color: transparent;
   border-image: var(--arena-stat) 11 / 6px stretch;
 }
 

@@ -213,11 +213,12 @@
   content: '';
   position: absolute;
   inset: 0;
+  box-sizing: border-box;
   pointer-events: none;
-  border-image: var(--arena-stat) 11 / 6px stretch;
   border-style: solid;
   border-width: 6px;
   border-color: transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
 }
 .daily-bonus-page.arena-workspace .dbs button.dbs__claim-all,
 .daily-bonus-page.arena-workspace .dbs__state button.dbs-word {

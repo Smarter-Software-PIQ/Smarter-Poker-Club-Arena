@@ -1,0 +1,3 @@
+# tests/border-image-declares-solid-border.law.test.ts
+
+Every `::before` and `::after` `border-image` frame rule under `src/` must explicitly declare `box-sizing: border-box`, `border-style: solid` (or `border: ... solid`), and a positive `border-width` so iOS Safari's compositor never drops the `#SmarterDesign` metallic chrome frame on mobile; `.sc.sc--sd.sc--sd::before` in `SpadeConsole.css` declares separate `border-style: solid; border-width: 19px; border-color: transparent;` before `border-image`, and `.club-card-panel` in `ClubCardPanel.css` never nests a redundant `translateZ(0)` / `backface-visibility: hidden` GPU layer inside `.sp-carousel__item` (Dan 2026-11-28).

@@ -110,11 +110,12 @@
   content: '';
   position: absolute;
   inset: 0;
+  box-sizing: border-box;
   pointer-events: none;
-  border-image: var(--arena-stat) 11 / 6px stretch;
   border-style: solid;
   border-width: 6px;
   border-color: transparent;
+  border-image: var(--arena-stat) 11 / 6px stretch;
 }
 /* The lit keys: the pressed filter, Buy Diamonds, each Buy, Retry. */
 .vip-page.arena-workspace

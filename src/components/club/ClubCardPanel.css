@@ -30,12 +30,13 @@
 
 .club-card-panel {
   position: relative;
-  /* The carousel wrapper owns the gesture and the depth opacity; the card
-     itself has never been clickable and must not start now. */
+  /* The carousel wrapper (.sp-carousel__item) already owns the compositor
+     transform, gesture, and depth opacity; nesting transform: translateZ(0) /
+     backface-visibility: hidden here split the card into a second GPU layer
+     where iOS Safari dropped the ::before border-image frame. The card itself
+     has never been clickable and must not start now. */
   pointer-events: none;
   opacity: 1 !important;
-  transform: translateZ(0);
-  backface-visibility: hidden;
 }
 
 /* ── Until the art lands ──────────────────────────────────────────────── */
@@ -331,6 +332,33 @@
     }
     .club-card-stat-split-dot {
       display: none;
+    }
+    /* Inside a 165px phone card, #SmarterDesign's 20px title floor and 42%
+       pill cap split single words ("KING / S") and ID digits ("25 / 45 / 0").
+       Scale head spacing and type with the card width so names and IDs stay
+       clean inside the chrome case frame. Match .sc.sc--sd.sc--sd specificity
+       (0,5,0 > 0,4,0) so these narrow-card overrides win cleanly. */
+    .club-card-panel.sc.sc--sd.sc--sd > .sc__head {
+      gap: 6px;
+      min-height: 36px;
+      padding: 0 0 6px;
+    }
+    .club-card-panel.sc.sc--sd.sc--sd .sc-sd__lettering {
+      padding-left: 2px;
+    }
+    .club-card-panel.sc.sc--sd.sc--sd .sc__eyebrow {
+      font-size: clamp(9px, 5.5cqw, 11px);
+    }
+    .club-card-panel.sc.sc--sd.sc--sd .sc__title {
+      font-size: clamp(10.5px, 7.6cqw, 16px);
+      overflow-wrap: break-word;
+    }
+    .club-card-panel.sc.sc--sd.sc--sd .sc__pill {
+      max-width: none;
+      padding: 3px 6px;
+      font-size: clamp(10px, 6.2cqw, 12px);
+      white-space: nowrap;
+      overflow-wrap: normal;
     }
   }
   /* Two figures on the rail (the Diamond Arena card) share the width a

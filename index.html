@@ -35,7 +35,11 @@
   <meta name="theme-color" content="#0a0a1a" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <!-- Opaque "black" (never "black-translucent"): on iOS 26+, black-translucent
+       triggers the system Liquid Glass progressive top blur (~38-40pt below
+       the status bar) directly over the global header artwork.
+       Guarded by tests/mobile-header-never-faded.law.test.ts. -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
   <meta name="apple-mobile-web-app-title" content="Poker Arena" />
 
   <!-- Open Graph / Social Sharing -->
