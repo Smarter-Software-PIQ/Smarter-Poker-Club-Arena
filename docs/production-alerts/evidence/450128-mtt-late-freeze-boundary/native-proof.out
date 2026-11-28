@@ -1,0 +1,6 @@
+A live shape   075041: 1,0,301   161915 (#12377): 0,0,0   200707: 0,0,0   161915 md5: 19533b7bf3421c6bbbf2e4b1560564f6
+B post-thaw stall post-fix: 1,0,181
+C freeze after late bar post-fix: 1,0,301
+D unbounded freeze post-fix: 1,0,301
+E empty event late_waiting pre-fix: 1   post-fix: 0   with one entrant: 1
+native-proof: PASS
