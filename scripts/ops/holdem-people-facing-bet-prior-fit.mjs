@@ -37,6 +37,7 @@
  * bettor's own shown river bets (HorseHoldemBetRead).
  */
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import { parseHand } from './horse-hand-audit-holdem-lib.mjs';
 import { COMBO_A, COMBO_B, NC, evalCards } from './horse-hand-audit-holdem-eval.mjs';
@@ -292,4 +293,4 @@ function main() {
   writeFileSync(arg('out'), `${JSON.stringify(out, null, 2)}\n`);
   console.log(JSON.stringify({ ...out, cells: Object.keys(sorted).length }, null, 1));
 }
-if (import.meta.url === `file://${process.argv[1]}`) main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
