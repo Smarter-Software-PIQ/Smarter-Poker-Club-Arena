@@ -36,6 +36,10 @@
 import { OMAHA_FACING_BET_PEOPLE_PRIOR_DATA } from './HorseOmahaFacingBetPeoplePrior.data.js';
 import { omahaBetSizeBucket } from './HorseOmahaFacingBetEv.js';
 import { omahaEquilibriumAnchor } from './HorseOmahaEquilibriumAnchor.js';
+import {
+  omahaPeoplePriorHiddenCell,
+  type OmahaPeoplePriorHiddenKey,
+} from './HorseOmahaPeoplePriorHidden.js';
 
 /** Pseudo-bets of the balanced share behind a people cell (a cell of 150 people bets is 83% people). */
 export const OMAHA_PEOPLE_PRIOR_ANCHOR_BETS = 30;
@@ -58,6 +62,9 @@ export interface OmahaPeoplePriorInput {
   twoStreet: boolean;
   /** his own shown bets of this street, size and line, or null (always null for a raise) */
   record: { shown: number; value: number } | null;
+  /** omahaPeoplePriorCountsHiddenBets: the game and split whose hidden-corrected cell replaces the pooled one (turn
+   *  only; null / absent: today's cells, unchanged). The caller then passes a record that counts his hidden bets. */
+  hidden?: OmahaPeoplePriorHiddenKey | null;
 }
 export interface OmahaPeoplePriorShare {
   /** the non-value share priced */
@@ -84,8 +91,18 @@ export function omahaPeoplePriorCell(
   street: 'turn' | 'river',
   potFrac: number,
   isRaise: boolean,
-  multiway: boolean
+  multiway: boolean,
+  hidden?: OmahaPeoplePriorHiddenKey | null
 ): Cell {
+  if (hidden) {
+    const h = omahaPeoplePriorHiddenCell(
+      street,
+      multiway,
+      isRaise ? 'raise' : omahaBetSizeBucket(potFrac),
+      hidden
+    );
+    if (h) return h.share === null ? { n: 0, share: null } : { n: h.n, share: h.share };
+  }
   const table = OMAHA_FACING_BET_PEOPLE_PRIOR_DATA.bluff[street][multiway ? 'mw' : 'hu'] as Record<
     string,
     Cell
@@ -120,8 +137,18 @@ export function omahaPeopleNonTop20(
   street: 'turn' | 'river',
   potFrac: number,
   isRaise: boolean,
-  multiway: boolean
+  multiway: boolean,
+  hidden?: OmahaPeoplePriorHiddenKey | null
 ): number | null {
+  if (hidden) {
+    const h = omahaPeoplePriorHiddenCell(
+      street,
+      multiway,
+      isRaise ? 'raise' : omahaBetSizeBucket(potFrac),
+      hidden
+    );
+    if (h) return h.nonTop20;
+  }
   const table = OMAHA_FACING_BET_PEOPLE_PRIOR_DATA.nonTop20[street][
     multiway ? 'mw' : 'hu'
   ] as Record<string, Cell>;
@@ -165,7 +192,13 @@ export function omahaPeoplePriorShare(input: OmahaPeoplePriorInput): OmahaPeople
   if (!Number.isFinite(input.potFrac)) return null;
   const balanced = omahaEquilibriumAnchor(input.paid, input.winnable, input.rake, input.twoStreet);
   if (balanced === null) return null;
-  const cell = omahaPeoplePriorCell(input.street, input.potFrac, input.isRaise, input.multiway);
+  const cell = omahaPeoplePriorCell(
+    input.street,
+    input.potFrac,
+    input.isRaise,
+    input.multiway,
+    input.hidden
+  );
   const prior = omahaPeoplePriorBlend(cell, balanced);
   // river: the blended region weights (core, middle, bottom) before his record
   let base: { core: number; middle: number; bottom: number } | null = null;
@@ -181,7 +214,13 @@ export function omahaPeoplePriorShare(input: OmahaPeoplePriorInput): OmahaPeople
     }
   }
   const rec = input.isRaise ? null : input.record;
-  const pNT = omahaPeopleNonTop20(input.street, input.potFrac, input.isRaise, input.multiway);
+  const pNT = omahaPeopleNonTop20(
+    input.street,
+    input.potFrac,
+    input.isRaise,
+    input.multiway,
+    input.hidden
+  );
   const { ratio, shown } = omahaPeoplePriorRecordRatio(rec, pNT);
   const share = clamp(prior * ratio);
   let regions: { core: number; middle: number; bottom: number } | null = null;
@@ -209,8 +248,18 @@ type FlopCell = { n: number; share: number | null; nonTop20: number | null };
 export function omahaPeopleFlopCell(
   potFrac: number,
   isRaise: boolean,
-  multiway: boolean
+  multiway: boolean,
+  hidden?: OmahaPeoplePriorHiddenKey | null
 ): { n: number; share: number | null; nonTop20: number | null } {
+  if (hidden) {
+    const h = omahaPeoplePriorHiddenCell(
+      'flop',
+      multiway,
+      isRaise ? 'raise' : omahaBetSizeBucket(potFrac),
+      hidden
+    );
+    if (h) return h;
+  }
   const table = OMAHA_FACING_BET_PEOPLE_PRIOR_DATA.flop[multiway ? 'mw' : 'hu'] as Record<
     string,
     FlopCell
@@ -234,6 +283,8 @@ export interface OmahaFlopPeoplePriorInput {
   final: boolean;
   /** his own shown flop bets of this size, or null (always null for a raise) */
   record: { shown: number; value: number } | null;
+  /** omahaPeoplePriorCountsHiddenBets: the game and pot type whose hidden-corrected flop cell replaces the pooled one */
+  hidden?: OmahaPeoplePriorHiddenKey | null;
 }
 
 /** The balanced non-value share of a flop bet: one street on a final call, three otherwise. */
@@ -255,7 +306,7 @@ export function omahaFlopPeoplePriorShare(
   if (!Number.isFinite(input.potFrac)) return null;
   const balanced = omahaFlopBalancedShare(input.paid, input.winnable, input.rake, input.final);
   if (balanced === null) return null;
-  const cell = omahaPeopleFlopCell(input.potFrac, input.isRaise, input.multiway);
+  const cell = omahaPeopleFlopCell(input.potFrac, input.isRaise, input.multiway, input.hidden);
   const prior = omahaPeoplePriorBlend({ n: cell.n, share: cell.share }, balanced);
   const { ratio, shown } = omahaPeoplePriorRecordRatio(
     input.isRaise ? null : input.record,
