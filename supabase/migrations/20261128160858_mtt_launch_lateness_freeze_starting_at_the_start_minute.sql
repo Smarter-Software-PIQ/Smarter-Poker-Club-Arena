@@ -38,10 +38,29 @@
 -- is not late. Native proof (PG16, both definitions, same fixtures):
 -- docs/production-alerts/evidence/450128-mtt-late-freeze-boundary/.
 --
+-- AN EVENT NOBODY ENTERED IS NOT A LATE LAUNCH (same incident, read live
+-- 2026-11-28T19:07Z, row 450194). Every 19:05Z MttStartedLate since 11-24 read
+-- "2 MTT(s)" and resolved to "1" at ~19:31Z. The second event is the daily
+-- "Daily 25 Chip Freezeout" of the one-member pilot club 652f121d (min_players
+-- 3, 0 entrants, no horse in its pool): df0cc4ad sat REGISTERING with no
+-- tournament_players row and current_players 0, and late_waiting counted it
+-- from start + 240 s until the engine's empty-event rule
+-- (server/src/tournament/emptyPastStartEvent.ts, 2026-10-15) cancelled it at
+-- start + 30 m (876d20ee 19:32:24Z, 5d264f3a 19:30:23Z, 3c2f86c6 19:30:10Z,
+-- ff9a92ad 19:30:05Z). An event with no registered or playing entrant has
+-- nobody to deal to; it is owned by the empty-event cancel, and
+-- fn_tournament_metrics.overdue_start (TournamentNeverStarted) already
+-- exempts exactly that shape until start + 30 m + overdue and pages if it is
+-- still standing. late_waiting now uses the same entrant test (EXISTS a
+-- tournament_players row in 'registered'/'playing', or current_players <> 0),
+-- so an event with even one entrant still alerts at start + 240 s, and an
+-- empty event that the cancel never reaches is still paged by
+-- TournamentNeverStarted. late_dealt is unchanged: a dealt event had entrants.
+--
 -- Function body only: no table lock, no data mutation, exact signature and
 -- grants preserved.
 --
--- @live-proof: (SELECT position('<= t.start_time + b.late' IN pg_get_functiondef('public.fn_tournament_launch_lateness_metrics(integer,integer,integer,integer)'::regprocedure)) > 0 AND position('effective_start_time' IN pg_get_functiondef('public.fn_tournament_launch_lateness_metrics(integer,integer,integer,integer)'::regprocedure)) > 0)
+-- @live-proof: (SELECT position('<= t.start_time + b.late' IN pg_get_functiondef('public.fn_tournament_launch_lateness_metrics(integer,integer,integer,integer)'::regprocedure)) > 0 AND position('AND c.has_entrant' IN pg_get_functiondef('public.fn_tournament_launch_lateness_metrics(integer,integer,integer,integer)'::regprocedure)) > 0 AND position('effective_start_time' IN pg_get_functiondef('public.fn_tournament_launch_lateness_metrics(integer,integer,integer,integer)'::regprocedure)) > 0)
 
 BEGIN;
 SET LOCAL lock_timeout = '1s';
@@ -85,6 +104,10 @@ AS $function$
     SELECT t.start_time,
            GREATEST(t.start_time, COALESCE(mw.thaw_at, t.start_time)) AS effective_start_time,
            t.status,
+           (COALESCE(t.current_players, 0) <> 0
+             OR EXISTS (SELECT 1 FROM public.tournament_players tp
+                         WHERE tp.tournament_id = t.id
+                           AND tp.status IN ('registered','playing'))) AS has_entrant,
            f.first_created,
            f.first_started
       FROM public.tournaments t
@@ -137,7 +160,10 @@ AS $function$
       c.first_created IS NOT NULL
         AND c.first_created > b.now_at - b.win
         AND c.first_started > c.effective_start_time + b.late AS late_dealt,
+      -- An event with no entrant is the empty-event cancel's
+      -- (emptyPastStartEvent.ts) and TournamentNeverStarted's, not a late launch.
       c.first_created IS NULL
+        AND c.has_entrant
         AND c.status IN ('ANNOUNCED','REGISTERING','RUNNING')
         AND c.effective_start_time < b.now_at - b.late - b.headroom AS late_waiting,
       CASE WHEN c.first_created IS NULL THEN b.now_at - c.effective_start_time
@@ -152,7 +178,7 @@ AS $function$
 $function$;
 
 COMMENT ON FUNCTION public.fn_tournament_launch_lateness_metrics(integer, integer, integer, integer) IS
-  'Read-only launch-lateness gauges for TournamentMetrics: MTTs whose first dealt hand (hand_history.started_at) came over p_late_seconds after effective_start_time (GREATEST(start_time, thaw of a bounded <=12m maintenance freeze that began by start_time + p_late_seconds and ended after start_time)), recorded in the last p_window_minutes, and MTTs with no recorded hand p_late_seconds + p_headroom_seconds after effective_start_time. 2026-10-19; bounded maintenance thaw 2026-11-28; freeze beginning within the late bar after start_time 2026-11-28 (row 450128).';
+  'Read-only launch-lateness gauges for TournamentMetrics: MTTs whose first dealt hand (hand_history.started_at) came over p_late_seconds after effective_start_time (GREATEST(start_time, thaw of a bounded <=12m maintenance freeze that began by start_time + p_late_seconds and ended after start_time)), recorded in the last p_window_minutes, and MTTs with at least one registered or playing entrant and no recorded hand p_late_seconds + p_headroom_seconds after effective_start_time (an event nobody entered is left to the empty-event cancel and TournamentNeverStarted). 2026-10-19; bounded maintenance thaw 2026-11-28; freeze beginning within the late bar after start_time 2026-11-28 (row 450128); empty events excluded from late_waiting 2026-11-28 (row 450194).';
 
 REVOKE ALL ON FUNCTION public.fn_tournament_launch_lateness_metrics(integer, integer, integer, integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_tournament_launch_lateness_metrics(integer, integer, integer, integer) TO service_role;

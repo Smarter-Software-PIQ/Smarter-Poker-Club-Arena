@@ -2,4 +2,5 @@ A live shape   pre-fix: 1,0,301   post-fix: 0,0,0
 B post-thaw stall post-fix: 1,0,181
 C freeze after late bar post-fix: 1,0,301
 D unbounded freeze post-fix: 1,0,301
+E empty event late_waiting pre-fix: 1   post-fix: 0   with one entrant: 1
 native-proof: PASS

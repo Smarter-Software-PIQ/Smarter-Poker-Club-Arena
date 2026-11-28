@@ -11,6 +11,12 @@
  * after start_time. This law reads the NEWEST definition of
  * fn_tournament_launch_lateness_metrics on main, so any later migration that
  * returns to the exact-start predicate fails here.
+ *
+ * The same migration stops late_waiting counting an event NOBODY entered
+ * (row 450194): the daily empty "Daily 25 Chip Freezeout" of a horseless pilot
+ * club is cancelled at start + 30 m by tournament/emptyPastStartEvent.ts, and
+ * fn_tournament_metrics (TournamentNeverStarted) already exempts that shape;
+ * an event with one registered or playing entrant still alerts.
  * Behavioural proof: docs/production-alerts/evidence/450128-mtt-late-freeze-boundary/native-proof.sh.
  */
 import { readdirSync, readFileSync } from 'node:fs';
@@ -39,6 +45,12 @@ describe('MTT launch lateness credits a cutover freeze stamped just after the st
   it('credits a v3 thaw whose freeze began within the late bar after start_time', () => {
     expect(fn).toContain('AND th.freeze_started_at <= t.start_time + b.late');
     expect(fn).not.toMatch(/th\.freeze_started_at\s*<=\s*t\.start_time\s*\n/);
+  });
+
+  it('counts a waiting event only when it has a registered or playing entrant', () => {
+    expect(fn).toContain("tp.status IN ('registered','playing'))) AS has_entrant");
+    expect(fn).toContain('COALESCE(t.current_players, 0) <> 0');
+    expect(fn).toMatch(/c\.first_created IS NULL\s+AND c\.has_entrant\s+AND c\.status IN/);
   });
 
   it('keeps the 12 minute cap, the late bar and the post-thaw stall alarm', () => {

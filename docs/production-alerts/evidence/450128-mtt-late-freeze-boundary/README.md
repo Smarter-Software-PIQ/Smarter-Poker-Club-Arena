@@ -29,3 +29,18 @@ Row 450128 (`alertmanager`, `MttStartedLate`, firing 16:05:26Z, 2026-11-28). Thi
   - C, a freeze opened after the late bar: still alerts.
   - D, an unbounded 13 minute freeze: still alerts.
 - `tests/mtt-lateness-credits-a-freeze-stamped-after-the-start-minute.law.test.ts`: fails 2 of 4 on main without the migration, passes 4 of 4 with it. The existing `mtt-launch-lateness-measures-from-bounded-maintenance-thaw` law still passes, and so does the law registry.
+
+## Second cause, same function (row 450194, read live 2026-11-28T19:07Z)
+
+Every 19:05Z `MttStartedLate` since 11-24 read "2 MTT(s)" and resolved to "1" at about 19:31Z (449020/449033, 449324/449332, 449757/449764, 450194). The second event is the daily "Daily 25 Chip Freezeout" of the one-member pilot club 652f121d (min_players 3, no horse in its pool). Today's df0cc4ad sat REGISTERING with no `tournament_players` row and current_players 0, and `late_waiting` counted it from start + 240 s. The engine's empty-event rule (`server/src/tournament/emptyPastStartEvent.ts`, 2026-10-15) then cancels it at start + 30 m: 876d20ee at 19:32:24Z, 5d264f3a at 19:30:23Z, 3c2f86c6 at 19:30:10Z and ff9a92ad at 19:30:05Z.
+
+An event with no entrant has nobody to deal to. `fn_tournament_metrics.overdue_start` (TournamentNeverStarted) already exempts exactly this shape until start + 30 m + overdue, and pages if it is still standing. `late_waiting` now uses the same entrant test. An event with even one registered or playing entrant still alerts.
+
+Read-only at 19:09:59Z, window 60 m:
+
+| definition | result |
+|---|---|
+| live (`31cdd1ce`) | `(1, 1, 600)` |
+| amended body | `(0, 0, 0)` |
+
+Native proof, case E: pre-fix `late_waiting` 1, post-fix 0, and 1 again with one registered entrant.
