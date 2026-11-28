@@ -522,7 +522,7 @@ Stylesheet: `src/components/lobby/ArenaWorkspace.css`. Shared kit: `src/componen
 
 ## 9. Full-page before/after render harness (`harness/`)
 
-It serves the real app (router, layout, guards, the rail) with four modules swapped for offline stand-ins: `src/lib/supabase.ts`, `ClubWorkspaceContext`, `useClubNavigationAccess` and `useAuthUser`. Every route then renders as Kings Club's owner with fixture data (`harness/fixtures.ts`: rake `403.3814552027556`, 174 members, alerts). Nothing here is imported by the app or shipped.
+It serves the real app (router, layout, guards, the rail) with six modules swapped for offline stand-ins: `src/lib/supabase.ts` (it honours `.in()`), `ClubWorkspaceContext`, `useClubNavigationAccess`, `useAuthUser`, `useCashoutScope` (one stable always-current guard, so money screens render instead of reading Unavailable) and `CashoutService` (a fixed Agent Desk cashout queue). Every route then renders as Kings Club's owner with fixture data (`harness/fixtures.ts`: rake `403.3814552027556`, 174 members, alerts). Nothing here is imported by the app or shipped.
 
 ```bash
 # after: this checkout
@@ -541,5 +541,8 @@ Requirements: `playwright-core` (already a dependency) and Chrome at `/usr/bin/g
 
 - A page that waits on a read the fixtures lack shows its empty or error state. Add the RPC or table to `fixtures.ts` (shapes are in the page's own tests).
 - The server runs with no file watcher, so restart it (`run.sh`) after editing source.
+- A route without a leading `/` is under `/clubs/kings-club/`; one with a leading `/` is any app path (`/wallet`, `/legal/tos`, `/notifications`).
+- `shot.mjs` waits until the page has settled (no PageSkeleton, LoadingSpinner or `aria-busy`, fonts loaded, the DOM quiet for 1.5 s), so the first shot after a server start is no longer a grey skeleton.
+- Any stand-in you add locally must return STABLE values: a fresh `() => true` or object per render is a new effect dependency every render and the page loops forever.
 - Fixture keys must match what the page reads (the activity series uses `d` for the day).
 - A page showing "Could Not Render" with `Invalid hook call` in `harness/probe.mjs` output means two copies of React were pre-bundled. The harness gives each checkout its own dependency cache for this reason; if it happens anyway, restart with `run.sh` (it passes `--force`).
